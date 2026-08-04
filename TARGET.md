@@ -1,0 +1,232 @@
+# Normative target and stopping conditions
+
+This file defines when MiMo Prismwing is allowed to say **done**. Thresholds are
+also mirrored in `spec/acceptance.yaml`. If the two disagree, this document is
+normative until the discrepancy is corrected in the same commit.
+
+## 1. Target system
+
+The starting computer is a 16 GB Apple M1 Mac mini. Local companion hardware is
+permitted when all of the following are true:
+
+- The M1 remains part of the operational system and is the user-facing host.
+- Inference does not use rented compute, a hosted model, or an internet service
+  after installation and test-reference acquisition.
+- All newly acquired inference hardware, storage, networking, adapters, power
+  supplies, and cooling cost no more than **USD $1,500 total**, documented with
+  a dated bill of materials. The existing M1 and ordinary display/input devices
+  are excluded.
+- Peak measured wall power for the complete system is at most **1,000 W**.
+- Used enterprise hardware is acceptable. Unsafe electrical, thermal, firmware,
+  or physical modifications are not.
+
+Results on other machines are useful research results but do not satisfy the
+primary completion target.
+
+## 2. Model identity
+
+Before a release candidate is evaluated, the repository must contain a model
+lock recording:
+
+- The exact XiaomiMiMo/MiMo-V2.5 checkpoint revision.
+- SHA-256 hashes for the source index, configuration, tokenizer, processor
+  configuration, custom modeling code, MTP weights, and every downloaded shard.
+- The exact chat template and generation defaults.
+- Vision and audio encoder revisions and preprocessing configuration.
+- Every repacking, quantization, permutation, factorization, or training step,
+  including deterministic seeds and output hashes where reproducible.
+
+MiMo-V2.5-Pro, MiMo-V2.5-Omni, MiMo-V2-Flash, a smaller student, or a
+workload-specific overlay is not the target model. Such artifacts may be used
+as experiments only when named distinctly.
+
+## 3. Two references, for two questions
+
+### 3.1 Canonical open-weight reference
+
+An official-framework run of the pinned open checkpoint is the numerical and
+architectural reference. It may run temporarily on rented high-memory hardware
+to create fixtures. It answers:
+
+- Were tensors repacked correctly?
+- Do routers select the same experts?
+- Do encoders and projectors produce equivalent embeddings?
+- Do individual layers and logits agree within their declared numerical mode?
+
+This reference is required because a hosted endpoint may use undocumented
+quantization, kernels, templates, or serving revisions.
+
+### 3.2 Frozen OpenRouter behavioral reference
+
+OpenRouter model `xiaomi/mimo-v2.5` is the externally hosted behavioral
+reference requested by the project owner. A reference epoch must:
+
+- Record the canonical model slug, available endpoint metadata, provider slug,
+  quantization metadata when exposed, UTC time, request parameters, and raw
+  response.
+- Pin one provider with fallbacks disabled.
+- Require support for every requested parameter, particularly `logprobs` and
+  `top_logprobs`.
+- Request routing metadata when the API exposes it.
+- Freeze every prompt and media asset by SHA-256.
+- Use one fixed reasoning mode and chat template policy.
+- Store raw, immutable JSON responses before calculating metrics.
+
+If the hosted endpoint cannot return logprobs for a modality, that modality's
+distributional gate remains **not proven**; behavioral tests alone do not waive
+it. A provider or model change creates a new reference epoch rather than
+silently replacing the old one.
+
+## 4. Full-capability gate
+
+All preprocessing and inference below must occur locally, through the native
+MiMo components from the pinned checkpoint:
+
+- Text-only conversation and raw completion.
+- Single-image understanding.
+- Multi-image comparison and spatial reasoning.
+- Audio speech, non-speech sound, and mixed speech/environmental input.
+- Video temporal reasoning, event ordering, and scene understanding.
+- Mixed inputs containing text plus at least two of image, audio, and video.
+- Structured output and tool-call generation supported by the reference model.
+- Multi-turn conversations with cached and uncached prefixes.
+- Context tests at 8K, 64K, 256K, and one 1M-token smoke case, subject to the
+  pinned checkpoint's actual advertised limit.
+
+It does not count to replace native inputs with OCR, captions, transcripts,
+sampled text summaries, or a separate remote encoder. Diagnostic versions of
+those pipelines may be compared but cannot satisfy this gate.
+
+The final frozen evaluation set must contain at least:
+
+| Slice | Cases | Scored output tokens |
+| --- | ---: | ---: |
+| Text and reasoning | 500 | 40,000 |
+| Images and multi-image | 200 | 15,000 |
+| Audio | 100 | 7,500 |
+| Video | 100 | 7,500 |
+| Mixed modality | 100 | 7,500 |
+| Tools and structured output | 100 | 7,500 |
+| Long context | 30 | 15,000 |
+| **Total minimum** | **1,130** | **100,000** |
+
+Fixtures must cover common, adversarial, low-signal, multilingual, safety,
+rare-domain, and modality-conflict cases. At least 20% of each modality slice
+is held out until thresholds and implementation choices are frozen.
+
+## 5. “Almost-exact” distributional gate
+
+The primary comparison teacher-forces each frozen OpenRouter completion through
+the local runtime at the identical token prefix. The hosted response requests
+the top 20 logprobs at every generated position. Local logits are projected
+onto those same 20 tokens plus one `OTHER` bucket containing all remaining
+probability mass.
+
+Across at least 100,000 scored positions, all of these must pass:
+
+1. **Tokenizer identity:** 100% agreement on token IDs for every text prompt,
+   serialized chat, hosted completion, and textualized modality boundary.
+2. **Reference-token regret:**
+   `mean(log p_reference(y) - log p_local(y)) <= 0.03 nats/token`, with no
+   modality slice above 0.05.
+3. **Chosen-token logprob error:** mean absolute error at most 0.08 nats and
+   p99 at most 0.50 nats.
+4. **Projected distribution:** mean Jensen-Shannon divergence at most 0.01
+   nats and p99 at most 0.08 nats over reference-top-20 plus `OTHER`.
+5. **Top-1 agreement:** at least 98.0% over all positions.
+6. **Stable top-1 agreement:** at least 99.5% where the hosted top-1/top-2
+   margin is at least 0.10 nats.
+7. **Greedy sequence agreement:** over at least 300 prompts with 64 generated
+   tokens, at least 90% of complete token sequences are identical and at least
+   98% share the first 16 tokens.
+
+Metrics are reported overall and separately for every modality, context band,
+language band, and rarity band. A strong text average cannot conceal a failed
+audio, video, or tail-capability slice.
+
+These thresholds define behavioral near-equivalence, not bit identity. Any
+changed model still must be labeled modified even when it passes.
+
+## 6. Capability non-inferiority gate
+
+Logprob similarity is necessary but not sufficient. On deterministic or
+programmatically scored tasks:
+
+- The lower bound of a paired 95% confidence interval for
+  `local score - hosted-reference score` must be at least **-1.0 percentage
+  point overall**.
+- No required modality, long-context, tool-use, multilingual, safety, or
+  rare-domain slice may have a lower bound below **-2.0 percentage points**.
+- Catastrophic failures—crashes, empty outputs, malformed tool calls, missing
+  media, or context truncation—must not occur in the final three runs.
+
+Open-ended comparisons use blinded, order-randomized judging with a published
+rubric and a human audit of at least 10% of disagreements. LLM judging is
+secondary evidence and cannot override deterministic failures.
+
+## 7. Performance gate
+
+Performance is measured on the complete declared system, using the same
+near-equivalent runtime configuration that passes Sections 4–6.
+
+### 7.1 Primary completion target
+
+For batch size one, after an 8K text prefill, across at least 30 generations of
+512 accepted tokens:
+
+- Median decode throughput is at least **50 accepted TPS**.
+- The 10th-percentile run is at least **40 accepted TPS**.
+- Peak resident memory, SSD traffic, network traffic, power, cache hit rate,
+  speculative acceptance `A`, expert-set union `U`, and rollback are recorded.
+- The runtime completes a 60-minute sustained test without OOM, thermal
+  collapse, data corruption, or more than 10% throughput decay.
+
+Decode timing includes drafting, verification, expert misses, transfers,
+decompression, synchronization, sampling, and rollback. It excludes model
+installation and prefill, but both are reported separately. Aggregate TPS from
+multiple users is a separate metric and cannot satisfy this gate.
+
+### 7.2 Full-capability latency
+
+- 8K text time-to-first-token: at most 15 seconds.
+- One 1080p image plus text: at most 45 seconds.
+- Sixty seconds of audio plus text: at most 60 seconds.
+- Thirty seconds of 720p video plus text: at most 90 seconds.
+- A mixed image/audio/video fixture: at most 120 seconds.
+- The 1M-token smoke case must complete prefill without truncation or OOM,
+  begin generation within 30 minutes, and sustain at least 1 accepted TPS.
+
+These are generous staging limits, not the 50-TPS decode target.
+
+### 7.3 Stretch target
+
+The same conditions at median 100 TPS and 10th-percentile 80 TPS constitute the
+stretch result **Prismwing 100**. The project is done at the 50-TPS gate.
+
+## 8. Reproducibility gate
+
+A passing release candidate requires:
+
+- Three complete runs from a clean checkout and empty runtime cache.
+- One additional warm-cache run reported separately.
+- Exact source commit, compiler versions, OS build, firmware, hardware BOM,
+  model lock, configuration, and random seeds.
+- Raw reference responses, local logits or sufficient projected probabilities,
+  timings, traces, system counters, and test outputs in a content-addressed
+  evidence manifest.
+- A single command that recalculates every acceptance metric from frozen raw
+  evidence.
+- Independent reproduction by a second environment or operator before a final
+  “done” claim.
+
+## 9. Milestones that are valuable but not done
+
+- **P0 — Correct skeleton:** official tiny/reference fixtures pass.
+- **P1 — Full modalities:** every native modality runs locally at any speed.
+- **P2 — Target-faithful stream:** unmodified routing and weights generate
+  coherent output from streamed experts.
+- **P3 — Prismwing 10:** near-equivalent batch-one decode reaches 10 TPS.
+- **P4 — Prismwing 25:** near-equivalent batch-one decode reaches 25 TPS.
+- **P5 — Prismwing 50:** every required gate passes; project is done.
+- **P6 — Prismwing 100:** stretch target.
+

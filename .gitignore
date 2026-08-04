@@ -1,0 +1,39 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Build products and local tooling
+.build/
+build/
+dist/
+.swiftpm/
+.venv/
+__pycache__/
+*.pyc
+
+# Credentials and provider captures before redaction
+secrets/
+*.key
+*.pem
+
+# Model/checkpoint payloads
+models/
+checkpoints/
+weights/
+*.safetensors
+*.gguf
+*.qpack
+*.gturbo
+
+# Large evaluation evidence. Commit manifests and selected small fixtures only.
+evals/reference/
+evals/runs/
+evals/reports/
+evals/fixtures/objects/
+
+# Local benchmark outputs
+benchmarks/raw/
+traces/
+profiles/
+
