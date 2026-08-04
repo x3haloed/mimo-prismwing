@@ -17,11 +17,13 @@ evidence than commit archaeology.
 
 Before runtime construction:
 
-1. Pin the MiMo checkpoint, tokenizer, processor, official implementation, and
-   hosted-reference corpus.
-2. Select at least two executable architecture references where possible. The
-   official implementation defines semantics; an independent implementation
-   helps expose mistaken assumptions.
+1. Pin the MiMo checkpoint, tokenizer, processor, published official
+   implementation semantics, and hosted-reference corpus.
+2. Build source-derived deterministic component oracles and select an
+   independent executable architecture reference where possible. A
+   whole-model official-framework run is not assumed available; every report
+   preserves that evidence limitation. Independent implementations help expose
+   mistaken assumptions shared with the published code.
 3. Maintain a source ledger with exact repository commits, files, papers,
    kernels, and which decision each source informed—including rejected work.
 4. Write an explicit reuse map: code or patterns safe to reuse, code requiring

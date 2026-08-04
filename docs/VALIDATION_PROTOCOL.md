@@ -11,14 +11,20 @@ Use four layers of evidence; none substitutes for the preceding layer.
 1. **Artifact integrity:** source hashes, tensor shapes, repack audit, tokenizer,
    processor, and template identity.
 2. **Component parity:** encoder embeddings, projectors, routers, selected
-   experts, layer states, KV updates, logits, and incremental decode compared
-   with the pinned official implementation.
+   experts, layer states, KV updates, sampled local logits, and incremental
+   decode compared with deterministic source-derived oracles built from the
+   pinned checkpoint and Xiaomi's published implementation semantics.
 3. **Distributional parity:** local next-token probabilities compared with a
    frozen hosted reference under identical prefixes.
 4. **Capability non-inferiority:** deterministic multimodal tasks, long context,
    tools, safety, and audited open-ended comparisons.
 
 Performance is evaluated only after one configuration passes quality gates.
+
+A whole-model official-framework execution is outside the available evidence
+horizon. Reports must state this limitation explicitly; component evidence and
+the hosted whole-model reference must not be described as proving that missing
+comparison.
 
 ## 2. Reference epochs
 
@@ -202,4 +208,3 @@ A single offline command must:
    outside threshold.
 
 No dashboard-only or manually edited result can satisfy the project gate.
-

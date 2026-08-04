@@ -13,7 +13,7 @@ permitted when all of the following are true:
 - Inference does not use rented compute, a hosted model, or an internet service
   after installation and test-reference acquisition.
 - All newly acquired inference hardware, storage, networking, adapters, power
-  supplies, and cooling cost no more than **USD $1,500 total**, documented with
+  supplies, and cooling cost no more than **USD $500 total**, documented with
   a dated bill of materials. The existing M1 and ordinary display/input devices
   are excluded.
 - Peak measured wall power for the complete system is at most **1,000 W**.
@@ -42,19 +42,27 @@ as experiments only when named distinctly.
 
 ## 3. Two references, for two questions
 
-### 3.1 Canonical open-weight reference
+### 3.1 Canonical source-derived component reference
 
-An official-framework run of the pinned open checkpoint is the numerical and
-architectural reference. It may run temporarily on rented high-memory hardware
-to create fixtures. It answers:
+The pinned open checkpoint, Xiaomi's published modeling and processing code,
+and source-derived deterministic oracles are the numerical and architectural
+reference for components. The project does not require or claim access to a
+whole-model official-framework run. Reference fixtures must instead climb from
+seeded tiny tensors to sampled real tensors loaded from the pinned checkpoint,
+using readable scalar or CPU implementations whose derivation from the
+published semantics is auditable. They answer:
 
 - Were tensors repacked correctly?
 - Do routers select the same experts?
 - Do encoders and projectors produce equivalent embeddings?
-- Do individual layers and logits agree within their declared numerical mode?
+- Do individual layers and sampled local logits agree within their declared
+  numerical mode?
 
-This reference is required because a hosted endpoint may use undocumented
-quantization, kernels, templates, or serving revisions.
+This component reference remains required because a hosted endpoint may use
+undocumented quantization, kernels, templates, or serving revisions. It does
+not prove accumulated whole-model parity with an official-framework execution;
+that unavailable evidence must remain explicit in release reports. The frozen
+hosted reference in Section 3.2 is the only external whole-model reference.
 
 ### 3.2 Frozen OpenRouter behavioral reference
 
@@ -229,4 +237,3 @@ A passing release candidate requires:
 - **P4 — Prismwing 25:** near-equivalent batch-one decode reaches 25 TPS.
 - **P5 — Prismwing 50:** every required gate passes; project is done.
 - **P6 — Prismwing 100:** stretch target.
-

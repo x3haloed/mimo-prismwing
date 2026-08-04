@@ -13,12 +13,14 @@ model:
 system:
   required_host: Apple M1 Mac mini
   required_host_memory_gib: 16
-  max_incremental_hardware_cost_usd: 1500
+  max_incremental_hardware_cost_usd: 500
   max_peak_wall_power_w: 1000
   remote_compute_on_final_inference_path: false
 
 reference:
-  canonical_open_weight_reference_required: true
+  canonical_source_derived_component_reference_required: true
+  canonical_whole_model_official_framework_reference_required: false
+  canonical_whole_model_evidence_limitation_must_be_reported: true
   frozen_openrouter_epoch_required: true
   openrouter:
     pin_one_provider: true
@@ -115,4 +117,3 @@ reproducibility:
   content_addressed_evidence_manifest: true
   offline_metric_recomputation_command: true
   second_operator_or_environment_required: true
-

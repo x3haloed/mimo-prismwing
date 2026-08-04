@@ -31,9 +31,12 @@ indices and hashes.
 
 **Question:** Can the MiMo architecture be reproduced before optimization?
 
-Capture official-framework fixtures for text, image, audio, video, mixed input,
-MTP, routers, selected experts, KV updates, layers, and logits. Begin with tiny
-synthetic tensors and sampled real layers.
+Create source-derived fixtures for text, image, audio, video, mixed input, MTP,
+routers, selected experts, KV updates, layers, and sampled local logits. Begin
+with seeded tiny synthetic tensors, then use sampled real tensors from the
+pinned checkpoint. Every oracle must be traceable to Xiaomi's published model
+and processor semantics; no whole-model official-framework capture is assumed
+available.
 
 **Pass:** declared numerical tolerances pass in a scalar reference and initial
 accelerated kernels. Incremental decode matches whole-sequence evaluation.
