@@ -352,3 +352,10 @@ width of 4,096, crossing all 32 column-scale blocks per row. The dependency-free
 Rust scalar GEMV matched safetensors/PyTorch f32 matmul within `2e-7`. This
 supersedes the absence of production-width accumulation evidence for a small
 row slice, but full matrices and accelerated kernels remain unproven.
+
+PW-0006 crossed the first real accelerator boundary. An MSL kernel consumed the
+same production-width raw FP8 rows and scale blocks directly on the Apple M1
+GPU, with maximum absolute error below `8e-9` against the frozen oracle. This
+supersedes the statement that accelerated kernels were wholly unproven for the
+slice. The one-thread-per-row kernel is correctness machinery only; full expert
+shapes, parallel reduction, fused SwiGLU, and end-to-end speed remain unproven.
