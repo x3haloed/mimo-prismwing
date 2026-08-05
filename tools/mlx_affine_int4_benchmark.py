@@ -28,14 +28,17 @@ def percentile(values: list[float], fraction: float) -> float:
     return ordered[round((len(ordered) - 1) * fraction)]
 
 
-def benchmark(checkpoint: Path, fixture_path: Path) -> dict:
+def benchmark(checkpoint: Path, fixture_path: Path, row_copies: int) -> dict:
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
     if fixture.get("semantic") != "mlx_affine_int4_group128_gemv_slice":
         raise ValueError("unexpected correctness fixture semantic")
     with safe_open(checkpoint, framework="pt", device="cpu") as tensors:
-        source = tensors.get_tensor(WEIGHT).float()
-        source_scales = tensors.get_tensor(SCALE).float()
+        source = tensors.get_tensor(fixture["tensor"]).float()
+        source_scales = tensors.get_tensor(fixture["source_scale_tensor"]).float()
     source = source * source_scales.repeat_interleave(128, 0).repeat_interleave(128, 1)
+    if row_copies <= 0:
+        raise ValueError("row copies must be positive")
+    source = source.repeat((row_copies, 1))
     weight = mx.array(source.to(torch.float16).numpy())
     del source, source_scales
     mx.reset_peak_memory()
@@ -103,7 +106,8 @@ def benchmark(checkpoint: Path, fixture_path: Path) -> dict:
         "device": str(mx.default_device()),
         "machine": platform.machine(),
         "mlx_version": "0.31.2",
-        "tensor": WEIGHT,
+        "tensor": fixture["tensor"],
+        "row_copies": row_copies,
         "rows": packed.shape[0],
         "columns": base_input.size,
         "group_size": 128,
@@ -125,9 +129,10 @@ def main() -> int:
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("fixture", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--row-copies", type=int, default=1)
     arguments = parser.parse_args()
     try:
-        result = benchmark(arguments.checkpoint, arguments.fixture)
+        result = benchmark(arguments.checkpoint, arguments.fixture, arguments.row_copies)
         atomic_write_new(arguments.output, canonical_json(result))
         print(arguments.output)
         return 0

@@ -85,6 +85,9 @@
       "batch8_arithmetic_gflop_per_second_approximate": 400.50489803214627,
       "batch8_efficiency_vs_batch1_per_position": 2.700701828820533,
       "idealized_three_projection_47_layer_routed_only_accepted_tps_at_A_8_U_1": 21.162598777049787,
+      "actual_down8_batch8_wall_ms_repeat_medians": [2.6340205, 2.598417],
+      "actual_down8_batch8_wall_ms_repeat_median_mean": 2.61621875,
+      "refined_gate_up_proxy_plus_actual_down_47_layer_routed_only_accepted_tps_at_A_8_U_1": 21.334515621074,
       "exactness": "L3_bounded_approximation",
       "status": "measured_component_compute_diagnostic_not_endpoint_tps_or_fidelity",
       "provenance": "PW-0012; real 16384x4096 MTP projection; MLX affine INT4; warm buffers; batch 8"

@@ -1051,6 +1051,34 @@ mod tests {
     }
 
     #[test]
+    fn real_expert_down_affine_int4_has_independent_scalar_oracle() {
+        let fixture: MlxAffineInt4Fixture = serde_json::from_str(include_str!(
+            "../evals/fixtures/real/l43-e32-down-mlx-affine-int4.json"
+        ))
+        .expect("fixture parses");
+        assert_eq!(fixture.schema_version, 1);
+        assert_eq!(fixture.semantic, "mlx_affine_int4_group128_gemv_slice");
+        assert_eq!(fixture.bits, 4);
+        assert_eq!(fixture.packed_u32.len(), fixture.rows);
+        assert_eq!(fixture.input_f16.len(), fixture.columns);
+        let actual = affine_int4_gemv(
+            &fixture.packed_u32,
+            &fixture.scale_f16,
+            &fixture.bias_f16,
+            fixture.group_size,
+            &fixture.input_f16,
+        )
+        .expect("affine GEMV");
+        for (row, (value, expected)) in actual.iter().zip(&fixture.expected_manual_f32).enumerate()
+        {
+            assert!(
+                (value - expected).abs() < 2e-7,
+                "row {row}: actual {value}, expected {expected}"
+            );
+        }
+    }
+
+    #[test]
     fn expert_container_round_trips_and_detects_tampering() {
         let directory = temporary_test_directory("container");
         let source = directory.join("source.safetensors");

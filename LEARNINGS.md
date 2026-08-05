@@ -474,3 +474,14 @@ This promotes the container schema, not a complete expert or runtime. The real
 gate/up tensors live in the paired shard still being acquired; once present,
 the same format can carry all six weight/scale tensors and feed the fused
 expert experiment.
+
+PW-0014 replaces the down-projection shape assumption with an actual routed
+tensor. Eight copies of the real 4,096×2,048 layer-43/expert-32 down matrix run
+at 2.634 and 2.598 ms for batch eight, 2.4% faster than the equal-byte gate/up
+proxy. The refined idealized routed-only diagnostic is 21.33 accepted TPS at
+perfect `A = 8, U = 1`.
+
+The actual down fixture also increases fidelity concern: four deterministic
+projection outputs have 15.51% relative L2 error after affine INT4. This is not
+representative activation or whole-layer evidence, but it makes layer-local
+real-activation validation a hard gate rather than follow-up polish.

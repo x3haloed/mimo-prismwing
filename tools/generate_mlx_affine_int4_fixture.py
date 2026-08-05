@@ -22,11 +22,16 @@ GROUP_SIZE = 128
 BITS = 4
 
 
-def generate(path: Path) -> dict:
+def generate(
+    path: Path,
+    weight_name: str = WEIGHT,
+    scale_name: str = SCALE,
+    source_sha256: str = SOURCE_SHA256,
+) -> dict:
     rows = 4
     with safe_open(path, framework="pt", device="cpu") as tensors:
-        source = tensors.get_slice(WEIGHT)[:rows, :].float()
-        source_scales = tensors.get_slice(SCALE)[0, :].float().repeat_interleave(GROUP_SIZE)
+        source = tensors.get_slice(weight_name)[:rows, :].float()
+        source_scales = tensors.get_slice(scale_name)[0, :].float().repeat_interleave(GROUP_SIZE)
     source = source * source_scales
     weight = mx.array(source.to(torch.float16).numpy())
     packed, scales, biases = mx.quantize(weight, group_size=GROUP_SIZE, bits=BITS, mode="affine")
@@ -66,10 +71,10 @@ def generate(path: Path) -> dict:
         "semantic": "mlx_affine_int4_group128_gemv_slice",
         "exactness": "L3_bounded_approximation",
         "source_revision": REVISION,
-        "source_file": "model_mtp.safetensors",
-        "source_sha256": SOURCE_SHA256,
-        "tensor": WEIGHT,
-        "source_scale_tensor": SCALE,
+        "source_file": path.name,
+        "source_sha256": source_sha256,
+        "tensor": weight_name,
+        "source_scale_tensor": scale_name,
         "mlx_version": "0.31.2",
         "rows": rows,
         "columns": source.shape[1],
@@ -91,8 +96,17 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--source-file", default="model_mtp.safetensors")
+    parser.add_argument("--weight", default=WEIGHT)
+    parser.add_argument("--scale", default=SCALE)
+    parser.add_argument("--source-sha256", default=SOURCE_SHA256)
     arguments = parser.parse_args()
-    value = generate(arguments.checkpoint / "model_mtp.safetensors")
+    value = generate(
+        arguments.checkpoint / arguments.source_file,
+        arguments.weight,
+        arguments.scale,
+        arguments.source_sha256,
+    )
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
     arguments.output.write_text(json.dumps(value, separators=(",", ":")) + "\n", encoding="utf-8")
 
