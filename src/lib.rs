@@ -1970,16 +1970,22 @@ fn run_metal_fp8_moe_block_impl(
         .map_err(|error| format!("{}: {error}", manifest_path.display()))?;
     let manifest: MetalMoeManifest =
         serde_json::from_value(unique.0).map_err(|error| format!("manifest: {error}"))?;
+    let frozen_fixture = manifest.semantic == "mimo_layer43_fixture_scheduled_source_fp8_moe_block"
+        && manifest.scheduling == "fixture_static_source_routes";
+    let real_attention_fixture = manifest.semantic
+        == "mimo_layer43_real_attention_dynamic_source_fp8_moe_block"
+        && manifest.scheduling == "independent_real_attention_source_routes";
     if manifest.schema_version != 1
-        || manifest.semantic != "mimo_layer43_fixture_scheduled_source_fp8_moe_block"
+        || (!frozen_fixture && !real_attention_fixture)
         || manifest.revision != REVISION
         || manifest.layer != 43
         || manifest.batch_size != BATCH
         || manifest.top_k != 8
         || manifest.real_expert_positions != 64
-        || manifest.padded_expert_positions != 72
-        || manifest.experts.len() != 9
-        || manifest.scheduling != "fixture_static_source_routes"
+        || manifest.experts.is_empty()
+        || manifest.experts.len() > manifest.real_expert_positions
+        || manifest.padded_expert_positions != manifest.experts.len() * BATCH
+        || (real_attention_fixture && mode.dynamic_router_path.is_none())
     {
         return Err("unknown heterogeneous MoE manifest identity".to_owned());
     }
@@ -2010,7 +2016,8 @@ fn run_metal_fp8_moe_block_impl(
         let count = expert.positions.len();
         if prior_expert.is_some_and(|prior| expert.expert <= prior)
             || !expert_ids.insert(expert.expert)
-            || !matches!(count, 3 | 5 | 8)
+            || count == 0
+            || count > BATCH
             || expert.slots.len() != count
             || expert.route_weights.len() != count
             || expert
@@ -2040,7 +2047,11 @@ fn run_metal_fp8_moe_block_impl(
         }
     }
     counts.sort_unstable();
-    if counts != [3, 5, 8, 8, 8, 8, 8, 8, 8] || placements.len() != 64 {
+    if placements.len() != 64
+        || (frozen_fixture && counts != [3, 5, 8, 8, 8, 8, 8, 8, 8])
+        || counts.iter().sum::<usize>() != manifest.real_expert_positions
+        || expert_ids.iter().any(|expert| *expert >= 256)
+    {
         return Err("heterogeneous MoE count distribution mismatch".to_owned());
     }
 
