@@ -131,6 +131,21 @@
             "exactness": "L3_bounded_approximation",
             "status": "measured_complete_moe_component_diagnostic_not_endpoint_tps_or_fidelity",
             "provenance": "PW-0016; real layer43 router and nine selected heterogeneous experts; fixture-static schedule; warm buffers"
+        },
+        "layer43_source_router_synthetic_RMS1_union_sensitivity": {
+            "positions": 8,
+            "active_experts_per_position": 8,
+            "trials_per_correlation": 100,
+            "median_unique_experts_by_input_correlation": {
+                "0": 54.0,
+                "0.5": 46.0,
+                "0.9": 23.5,
+                "0.99": 12.0,
+                "0.999": 9.0,
+                "1.0": 8.0
+            },
+            "status": "synthetic_sensitivity_not_real_activation_distribution_or_endpoint_tps",
+            "provenance": "PW-0017; actual layer43 source router; correlated standard-normal RMS1 inputs; seed 160043"
         }
   }
 }

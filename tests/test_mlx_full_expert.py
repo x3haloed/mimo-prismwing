@@ -6,12 +6,18 @@ try:
 
     from tools.mlx_full_expert_benchmark import full_expert, quantize
     from tools.mlx_moe_block_benchmark import route_schedule
+    from tools.router_union_sweep import summarize
 except ModuleNotFoundError:
     mx = None
 
 
 @unittest.skipIf(mx is None, "MLX is unavailable")
 class FullExpertTests(unittest.TestCase):
+    def test_router_union_summary_preserves_integer_histogram(self):
+        result = summarize([8, 8, 10, 12])
+        self.assertEqual(result["histogram"], {"8": 2, "10": 1, "12": 1})
+        self.assertEqual(result["mean_expert_union_factor"], 38 / 4 / 8)
+
     def test_route_schedule_preserves_token_and_slot_authority(self):
         schedule = route_schedule(np.array([[7, 3], [3, 9]], dtype=np.int32))
         self.assertEqual(schedule[3], ([0, 1], [1, 0]))

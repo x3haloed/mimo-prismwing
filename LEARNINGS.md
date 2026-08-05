@@ -527,3 +527,16 @@ FP8 with 0.9855 cosine. Error did not cancel through routing and aggregation;
 it increased from the complete single-expert fixture. Current affine INT4 is
 therefore a performance substrate and falsification candidate, not a
 quality-qualified target embodiment.
+
+PW-0017 supersedes the tempting interpretation that PW-0016's `U=1.125` might
+be representative. The earlier input amplitude was 0.01, so learned correction
+bias dominated routing. With independently RMS-normalized inputs, layer 43's
+median unique-expert count across eight positions is 54 at zero correlation,
+23.5 at correlation 0.9, 12 at 0.99, and nine at 0.999. Only identical inputs
+reliably produce exactly eight unique experts.
+
+This synthetic sweep does not estimate real DFlash routes; its result is that
+the narrow low-union regime is extremely correlation-sensitive. Actual
+hidden-state route traces are now required before inserting a favorable `U`
+into any throughput claim. The fixed DFlash block size and measured kernels
+remain useful bounds, but synthetic route reuse cannot rescue them.
