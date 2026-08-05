@@ -237,6 +237,7 @@ def generate(
     normalized = rms_norm(hidden, input_norm)
     qkv_weight = install_scales(raw_qkv, qkv_scales)
     qkv = project(qkv_weight, normalized)
+    projected_qkv = qkv.copy()
     sample_rows = (0, 1, 12288, 13824)
     scalar = np.asarray(
         [
@@ -274,6 +275,7 @@ def generate(
     artifacts = {
         "hidden_f32": hidden,
         "normalized_f32": normalized,
+        "qkv_f32": projected_qkv,
         "attention_f32": attention_output,
         "post_attention_f32": post_attention,
         "moe_input_f32": moe_input,
@@ -304,6 +306,7 @@ def generate(
         "model_source_sha256": model_lock["sha256"],
         "semantic_fixture_sha256": sha256_file(semantic_fixture_path),
         "parameters": parameters,
+        "tensors": fixture["tensors"],
         "projection_sample_maximum_absolute_error": sample_error,
         "selected_experts_by_position": selected.tolist(),
         "route_weights_by_position": route_weights.tolist(),
@@ -314,7 +317,7 @@ def generate(
         "minimum_topk_boundary_margin": boundary_margin,
         "artifacts": artifact_records,
         "boundary_sha256": {
-            "qkv": array_sha256(qkv),
+            "qkv": array_sha256(projected_qkv),
             "projected_attention": array_sha256(projected),
             "route_ids": hashlib.sha256(selected.astype("<u4").tobytes()).hexdigest(),
             "route_weights": array_sha256(route_weights),

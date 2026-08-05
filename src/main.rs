@@ -4,10 +4,11 @@ use prismwing::{
 };
 #[cfg(target_os = "macos")]
 use prismwing::{
-    run_metal_dynamic_fp8_moe_block, run_metal_fp8_expert, run_metal_fp8_expert_batch8,
-    run_metal_fp8_expert_batch8_shared_weight, run_metal_fp8_moe_block,
-    run_metal_fused_gate_up_fp8_moe_block, run_metal_mapped_fp8_gemv, run_metal_noaux_tc_router,
-    run_metal_simdgroup_matrix_fp8_moe_block, run_metal_union_parallel_fp8_moe_block,
+    run_metal_base_layer_attention, run_metal_dynamic_fp8_moe_block, run_metal_fp8_expert,
+    run_metal_fp8_expert_batch8, run_metal_fp8_expert_batch8_shared_weight,
+    run_metal_fp8_moe_block, run_metal_fused_gate_up_fp8_moe_block, run_metal_mapped_fp8_gemv,
+    run_metal_noaux_tc_router, run_metal_simdgroup_matrix_fp8_moe_block,
+    run_metal_union_parallel_fp8_moe_block,
 };
 use std::path::PathBuf;
 
@@ -23,6 +24,10 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing metal-fp8-gemv <source.safetensors> <kernel.metal> <weight> <scale> <input.f32> <reference.f32> <output.f32>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing metal-base-layer-attention <source.safetensors> <kernel.metal> <manifest.json> <input.f32> <output.f32>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -137,6 +142,21 @@ fn main() {
                 let reference = PathBuf::from(&arguments[6]);
                 let output = PathBuf::from(&arguments[7]);
                 run_metal_fp8_expert(&gate_up, &down, &kernel, &input, &reference, &output)
+                    .and_then(|report| {
+                        serde_json::to_writer(std::io::stdout(), &report)
+                            .map_err(|error| error.to_string())?;
+                        println!();
+                        Ok(None)
+                    })
+            }
+            #[cfg(target_os = "macos")]
+            Some("metal-base-layer-attention") if arguments.len() == 7 => {
+                let source = PathBuf::from(&arguments[2]);
+                let kernel = PathBuf::from(&arguments[3]);
+                let manifest = PathBuf::from(&arguments[4]);
+                let input = PathBuf::from(&arguments[5]);
+                let output = PathBuf::from(&arguments[6]);
+                run_metal_base_layer_attention(&source, &kernel, &manifest, &input, &output)
                     .and_then(|report| {
                         serde_json::to_writer(std::io::stdout(), &report)
                             .map_err(|error| error.to_string())?;

@@ -78,13 +78,107 @@ impl<'de> Deserialize<'de> for UniqueJson {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct MappedTensorMetadata {
     pub name: String,
     pub dtype: String,
     pub shape: Vec<u64>,
     pub data_offsets: [u64; 2],
     pub data_bytes: u64,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Deserialize)]
+struct BaseLayerArtifact {
+    file: String,
+    shape: Vec<usize>,
+    bytes: usize,
+    sha256: String,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Deserialize)]
+struct BaseLayerParameters {
+    hidden_size: usize,
+    q_heads: usize,
+    kv_heads: usize,
+    qk_head_dim: usize,
+    v_head_dim: usize,
+    rope_dim: usize,
+    rope_theta: u32,
+    sliding_window: usize,
+    value_scale: f32,
+    rms_epsilon: f32,
+    router_experts: usize,
+    top_k: usize,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Deserialize)]
+struct BaseLayerAttentionManifest {
+    schema_version: u32,
+    semantic: String,
+    revision: String,
+    layer: u32,
+    context: usize,
+    query_start: usize,
+    query_count: usize,
+    source_file: String,
+    source_file_sha256: String,
+    parameters: BaseLayerParameters,
+    tensors: BTreeMap<String, ExpectedTensorMetadata>,
+    selected_experts_by_position: Vec<Vec<u32>>,
+    route_weights_by_position: Vec<Vec<f32>>,
+    artifacts: BTreeMap<String, BaseLayerArtifact>,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Deserialize)]
+struct ExpectedTensorMetadata {
+    dtype: String,
+    shape: Vec<u64>,
+    data_offsets: [u64; 2],
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Serialize)]
+pub struct MetalBaseLayerAttentionReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub manifest_sha256: String,
+    pub source_file_sha256: String,
+    pub kernel_sha256: String,
+    pub input_sha256: String,
+    pub output_sha256: String,
+    pub device: String,
+    pub context: usize,
+    pub query_start: usize,
+    pub query_count: usize,
+    pub qkv_relative_l2: f64,
+    pub qkv_maximum_absolute_error: f32,
+    pub moe_input_relative_l2: f64,
+    pub moe_input_maximum_absolute_error: f32,
+    pub selected_experts_by_position: Vec<Vec<u32>>,
+    pub maximum_route_weight_absolute_error: f32,
+    pub minimum_topk_boundary_margin: f32,
+    pub unique_experts: usize,
+    pub compile_ms: f64,
+    pub qkv_wall_ms: f64,
+    pub attention_cpu_wall_ms: f64,
+    pub output_projection_wall_ms: f64,
+    pub complete_wall_ms: f64,
+    pub logical_source_bytes: u64,
+    pub resident_buffer_bytes: u64,
+    pub batch_size: usize,
+    pub concurrency: u32,
+    pub accepted_tokens: u32,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: u32,
+    #[serde(rename = "U")]
+    pub expert_union_factor: f64,
+    pub cache_state: &'static str,
+    pub performance_claim: Option<String>,
+    pub implementation: &'static str,
 }
 
 pub struct MappedSafetensors {
@@ -1081,6 +1175,636 @@ pub fn run_metal_mapped_fp8_gemv(
         proposed_per_verification: 0,
         cache_state: "source OS-cache state uncontrolled; application Metal buffers warm after cold dispatch",
         implementation: "rust_owned_mapped_fp8_metal_blocked_lut_64_lane",
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn numerical_error(candidate: &[f32], reference: &[f32]) -> Result<(f64, f32), String> {
+    if candidate.len() != reference.len() || candidate.is_empty() {
+        return Err("numerical comparison length mismatch".to_owned());
+    }
+    let mut squared_error = 0.0_f64;
+    let mut squared_reference = 0.0_f64;
+    let mut maximum_absolute_error = 0.0_f32;
+    for (&actual, &expected) in candidate.iter().zip(reference) {
+        if !actual.is_finite() || !expected.is_finite() {
+            return Err("numerical comparison contains non-finite value".to_owned());
+        }
+        let difference = actual - expected;
+        squared_error += f64::from(difference) * f64::from(difference);
+        squared_reference += f64::from(expected) * f64::from(expected);
+        maximum_absolute_error = maximum_absolute_error.max(difference.abs());
+    }
+    if squared_reference == 0.0 {
+        return Err("numerical reference has zero L2 norm".to_owned());
+    }
+    Ok((
+        (squared_error / squared_reference).sqrt(),
+        maximum_absolute_error,
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn decode_bf16_tensor(view: MappedTensorView<'_>, count: usize) -> Result<Vec<f32>, String> {
+    if view.metadata.dtype != "BF16"
+        || view.bytes.len() != count.checked_mul(2).ok_or("BF16 byte count overflow")?
+    {
+        return Err(format!("{} BF16 layout mismatch", view.metadata.name));
+    }
+    let values = view
+        .bytes
+        .chunks_exact(2)
+        .map(|bytes| {
+            f32::from_bits(
+                u32::from(u16::from_le_bytes(bytes.try_into().expect("two-byte BF16"))) << 16,
+            )
+        })
+        .collect::<Vec<_>>();
+    if values.iter().any(|value| !value.is_finite()) {
+        return Err(format!("{} contains non-finite BF16", view.metadata.name));
+    }
+    Ok(values)
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_base_layer_attention(
+    source_path: &Path,
+    kernel_path: &Path,
+    manifest_path: &Path,
+    input_path: &Path,
+    output_path: &Path,
+) -> Result<MetalBaseLayerAttentionReport, String> {
+    use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize};
+    use std::path::Component;
+
+    const REVISION: &str = "63651580ca774f8504f676040460aed3e1244ac1";
+    const FP8_KERNEL: &str = "block_fp8_gemm8_shared_weight_lut_blocked";
+    const BF16_KERNEL: &str = "bf16_gemm8_shared_weight";
+    const LANES: u64 = 64;
+    const CONTEXT: usize = 128;
+    const QUERIES: usize = 8;
+    const HIDDEN: usize = 4096;
+    const QKV_ROWS: usize = 14848;
+    const ATTENTION_WIDTH: usize = 8192;
+
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    let complete_start = Instant::now();
+    let manifest_bytes =
+        fs::read(manifest_path).map_err(|error| format!("{}: {error}", manifest_path.display()))?;
+    let unique: UniqueJson = serde_json::from_slice(&manifest_bytes)
+        .map_err(|error| format!("{}: {error}", manifest_path.display()))?;
+    let manifest: BaseLayerAttentionManifest =
+        serde_json::from_value(unique.0).map_err(|error| format!("manifest: {error}"))?;
+    let parameters = &manifest.parameters;
+    if manifest.schema_version != 1
+        || manifest.semantic != "mimo_base_layer43_source_attention_to_dynamic_routes"
+        || manifest.revision != REVISION
+        || manifest.layer != 43
+        || manifest.context != CONTEXT
+        || manifest.query_start != CONTEXT - QUERIES
+        || manifest.query_count != QUERIES
+        || parameters.hidden_size != HIDDEN
+        || parameters.q_heads != 64
+        || parameters.kv_heads != 8
+        || parameters.qk_head_dim != 192
+        || parameters.v_head_dim != 128
+        || parameters.rope_dim != 64
+        || parameters.rope_theta != 10_000
+        || parameters.sliding_window != 128
+        || (parameters.value_scale - 0.707).abs() > f32::EPSILON
+        || (parameters.rms_epsilon - 1.0e-5).abs() > f32::EPSILON
+        || parameters.router_experts != 256
+        || parameters.top_k != 8
+    {
+        return Err("unknown base-layer attention manifest identity".to_owned());
+    }
+    let source_name = source_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("source file name is not UTF-8")?;
+    if source_name != manifest.source_file {
+        return Err("base-layer source file identity mismatch".to_owned());
+    }
+    let mut source_file =
+        File::open(source_path).map_err(|error| format!("{}: {error}", source_path.display()))?;
+    let source_file_sha256 = sha256_reader(&mut source_file)?;
+    if source_file_sha256 != manifest.source_file_sha256 {
+        return Err("base-layer source SHA-256 mismatch".to_owned());
+    }
+
+    let resolve_artifact = |key: &str| -> Result<(&BaseLayerArtifact, PathBuf), String> {
+        let artifact = manifest
+            .artifacts
+            .get(key)
+            .ok_or_else(|| format!("base-layer manifest lacks artifact {key}"))?;
+        let relative = Path::new(&artifact.file);
+        let mut components = relative.components();
+        if !matches!(components.next(), Some(Component::Normal(_))) || components.next().is_some() {
+            return Err(format!(
+                "unsafe base-layer artifact path: {}",
+                artifact.file
+            ));
+        }
+        Ok((
+            artifact,
+            manifest_path
+                .parent()
+                .ok_or("base-layer manifest has no parent")?
+                .join(relative),
+        ))
+    };
+    let read_artifact = |key: &str, expected: usize| -> Result<(Vec<u8>, Vec<f32>), String> {
+        let (record, path) = resolve_artifact(key)?;
+        let (bytes, values) = read_f32_file(&path, Some(expected))?;
+        if record.bytes != bytes.len()
+            || record.shape.iter().product::<usize>() != expected
+            || sha256_hex(&bytes) != record.sha256
+        {
+            return Err(format!("base-layer artifact identity mismatch: {key}"));
+        }
+        Ok((bytes, values))
+    };
+    let (input_bytes, hidden) = read_f32_file(input_path, Some(CONTEXT * HIDDEN))?;
+    let hidden_record = manifest
+        .artifacts
+        .get("hidden_f32")
+        .ok_or("base-layer manifest lacks hidden input")?;
+    if hidden_record.shape != [CONTEXT, HIDDEN]
+        || hidden_record.bytes != input_bytes.len()
+        || hidden_record.sha256 != sha256_hex(&input_bytes)
+    {
+        return Err("base-layer hidden input identity mismatch".to_owned());
+    }
+    let (_, qkv_reference) = read_artifact("qkv_f32", CONTEXT * QKV_ROWS)?;
+    let (_, moe_input_reference) = read_artifact("moe_input_f32", QUERIES * HIDDEN)?;
+
+    let mapped = MappedSafetensors::open(source_path)?;
+    for (name, expected) in &manifest.tensors {
+        let actual = mapped.tensor(name)?.metadata;
+        if actual.dtype != expected.dtype
+            || actual.shape != expected.shape
+            || actual.data_offsets != expected.data_offsets
+        {
+            return Err(format!("base-layer tensor metadata mismatch: {name}"));
+        }
+    }
+    let prefix = "model.layers.43";
+    let input_norm_name = format!("{prefix}.input_layernorm.weight");
+    let post_norm_name = format!("{prefix}.post_attention_layernorm.weight");
+    let qkv_name = format!("{prefix}.self_attn.qkv_proj.weight");
+    let qkv_scale_name = format!("{qkv_name}_scale_inv");
+    let sink_name = format!("{prefix}.self_attn.attention_sink_bias");
+    let output_name = format!("{prefix}.self_attn.o_proj.weight");
+    let router_name = format!("{prefix}.mlp.gate.weight");
+    let correction_name = format!("{prefix}.mlp.gate.e_score_correction_bias");
+    let input_norm = decode_bf16_tensor(mapped.tensor(&input_norm_name)?, HIDDEN)?;
+    let post_norm = decode_bf16_tensor(mapped.tensor(&post_norm_name)?, HIDDEN)?;
+    let sinks = decode_bf16_tensor(mapped.tensor(&sink_name)?, 64)?;
+    let output_weight = mapped.tensor(&output_name)?;
+    if output_weight.metadata.dtype != "BF16"
+        || output_weight.metadata.shape != [HIDDEN as u64, ATTENTION_WIDTH as u64]
+    {
+        return Err("base-layer output projection layout mismatch".to_owned());
+    }
+    let mut normalized = vec![0.0_f32; CONTEXT * HIDDEN];
+    for position in 0..CONTEXT {
+        let row = &hidden[position * HIDDEN..(position + 1) * HIDDEN];
+        let variance = row.iter().map(|value| value * value).sum::<f32>() / HIDDEN as f32;
+        let inverse = (variance + parameters.rms_epsilon).sqrt().recip();
+        for column in 0..HIDDEN {
+            normalized[position * HIDDEN + column] = row[column] * inverse * input_norm[column];
+        }
+    }
+    let validated =
+        validate_mapped_fp8(&mapped, &qkv_name, &qkv_scale_name, &normalized[..HIDDEN])?;
+    if validated.rows != QKV_ROWS || validated.columns != HIDDEN {
+        return Err("base-layer QKV layout mismatch".to_owned());
+    }
+
+    let kernel_source = fs::read_to_string(kernel_path)
+        .map_err(|error| format!("{}: {error}", kernel_path.display()))?;
+    for function in [FP8_KERNEL, BF16_KERNEL] {
+        if !kernel_source.contains(&format!("kernel void {function}")) {
+            return Err(format!("kernel source lacks {function}"));
+        }
+    }
+    let kernel_sha256 = sha256_hex(kernel_source.as_bytes());
+    let device = Device::system_default().ok_or("no Metal device is available")?;
+    if device.max_threads_per_threadgroup().width < LANES {
+        return Err("Metal device cannot dispatch 64-lane threadgroups".to_owned());
+    }
+    let options = CompileOptions::new();
+    options.set_fast_math_enabled(false);
+    let compile_start = Instant::now();
+    let library = device
+        .new_library_with_source(&kernel_source, &options)
+        .map_err(|error| format!("Metal compilation failed: {error}"))?;
+    let fp8_function = library
+        .get_function(FP8_KERNEL, None)
+        .map_err(|error| format!("QKV kernel: {error}"))?;
+    let bf16_function = library
+        .get_function(BF16_KERNEL, None)
+        .map_err(|error| format!("output projection kernel: {error}"))?;
+    let fp8_pipeline = device
+        .new_compute_pipeline_state_with_function(&fp8_function)
+        .map_err(|error| format!("QKV pipeline: {error}"))?;
+    let bf16_pipeline = device
+        .new_compute_pipeline_state_with_function(&bf16_function)
+        .map_err(|error| format!("output projection pipeline: {error}"))?;
+    let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
+
+    #[repr(C)]
+    struct GemvShape {
+        rows: u32,
+        columns: u32,
+        block_rows: u32,
+        block_columns: u32,
+    }
+    let qkv_shape = GemvShape {
+        rows: QKV_ROWS as u32,
+        columns: HIDDEN as u32,
+        block_rows: 128,
+        block_columns: 128,
+    };
+    let output_shape = GemvShape {
+        rows: HIDDEN as u32,
+        columns: ATTENTION_WIDTH as u32,
+        block_rows: 0,
+        block_columns: 0,
+    };
+    let decode_lut = (0_u16..=255)
+        .map(|bits| decode_f8_e4m3fn(bits as u8))
+        .collect::<Vec<_>>();
+    let shared = MTLResourceOptions::StorageModeShared;
+    let qkv_weight_buffer = device.new_buffer_with_data(
+        validated.weight.bytes.as_ptr().cast(),
+        validated.weight.bytes.len() as u64,
+        shared,
+    );
+    let qkv_scale_buffer = device.new_buffer_with_data(
+        validated.scale.bytes.as_ptr().cast(),
+        validated.scale.bytes.len() as u64,
+        shared,
+    );
+    let normalized_buffer = device.new_buffer_with_data(
+        normalized.as_ptr().cast(),
+        std::mem::size_of_val(normalized.as_slice()) as u64,
+        shared,
+    );
+    let qkv_buffer = device.new_buffer((CONTEXT * QKV_ROWS * 4) as u64, shared);
+    let qkv_shape_buffer = device.new_buffer_with_data(
+        (&qkv_shape as *const GemvShape).cast(),
+        std::mem::size_of::<GemvShape>() as u64,
+        shared,
+    );
+    let lut_buffer = device.new_buffer_with_data(
+        decode_lut.as_ptr().cast(),
+        std::mem::size_of_val(decode_lut.as_slice()) as u64,
+        shared,
+    );
+    let queue = device.new_command_queue();
+    let qkv_start = Instant::now();
+    let command = queue.new_command_buffer();
+    let encoder = command.new_compute_command_encoder();
+    encoder.set_compute_pipeline_state(&fp8_pipeline);
+    encoder.set_buffer(0, Some(&qkv_weight_buffer), 0);
+    encoder.set_buffer(1, Some(&qkv_scale_buffer), 0);
+    encoder.set_buffer(4, Some(&qkv_shape_buffer), 0);
+    encoder.set_buffer(5, Some(&lut_buffer), 0);
+    encoder.set_threadgroup_memory_length(0, LANES * QUERIES as u64 * 4);
+    for tile in 0..CONTEXT / QUERIES {
+        encoder.set_buffer(
+            2,
+            Some(&normalized_buffer),
+            (tile * QUERIES * HIDDEN * 4) as u64,
+        );
+        encoder.set_buffer(3, Some(&qkv_buffer), (tile * QUERIES * QKV_ROWS * 4) as u64);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: QKV_ROWS as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+    }
+    encoder.end_encoding();
+    command.commit();
+    command.wait_until_completed();
+    let qkv_wall_ms = qkv_start.elapsed().as_secs_f64() * 1000.0;
+    if command.status() != MTLCommandBufferStatus::Completed {
+        return Err(format!(
+            "base-layer QKV command failed: {:?}",
+            command.status()
+        ));
+    }
+    // SAFETY: the completed shared buffer contains exactly context * QKV_ROWS F32 values.
+    let mut qkv = unsafe {
+        std::slice::from_raw_parts(qkv_buffer.contents().cast::<f32>(), CONTEXT * QKV_ROWS).to_vec()
+    };
+    let (qkv_relative_l2, qkv_maximum_absolute_error) = numerical_error(&qkv, &qkv_reference)?;
+    if qkv_relative_l2 > 4.0e-5 || qkv_maximum_absolute_error > 2.0e-4 {
+        return Err(format!(
+            "base-layer QKV parity failed: relative L2 {qkv_relative_l2}, max abs {qkv_maximum_absolute_error}"
+        ));
+    }
+
+    let attention_start = Instant::now();
+    let rotate = |row: &mut [f32], position: usize| {
+        for pair in 0..parameters.rope_dim / 2 {
+            let angle = position as f32
+                / (parameters.rope_theta as f32)
+                    .powf(2.0 * pair as f32 / parameters.rope_dim as f32);
+            let (sine, cosine) = angle.sin_cos();
+            let first = row[pair];
+            let second = row[pair + parameters.rope_dim / 2];
+            row[pair] = first * cosine - second * sine;
+            row[pair + parameters.rope_dim / 2] = second * cosine + first * sine;
+        }
+    };
+    for position in 0..CONTEXT {
+        let base = position * QKV_ROWS;
+        for head in 0..parameters.q_heads {
+            let start = base + head * parameters.qk_head_dim;
+            rotate(&mut qkv[start..start + parameters.qk_head_dim], position);
+        }
+        let key_base = base + parameters.q_heads * parameters.qk_head_dim;
+        for head in 0..parameters.kv_heads {
+            let start = key_base + head * parameters.qk_head_dim;
+            rotate(&mut qkv[start..start + parameters.qk_head_dim], position);
+        }
+    }
+    let q_width = parameters.q_heads * parameters.qk_head_dim;
+    let k_width = parameters.kv_heads * parameters.qk_head_dim;
+    let v_offset = q_width + k_width;
+    let mut attention = vec![0.0_f32; QUERIES * ATTENTION_WIDTH];
+    let scale = (parameters.qk_head_dim as f32).sqrt().recip();
+    for query_index in 0..QUERIES {
+        let position = manifest.query_start + query_index;
+        let first_token = (position + 1).saturating_sub(parameters.sliding_window);
+        for (q_head, &sink) in sinks.iter().enumerate().take(parameters.q_heads) {
+            let kv_head = q_head / (parameters.q_heads / parameters.kv_heads);
+            let query_start = position * QKV_ROWS + q_head * parameters.qk_head_dim;
+            let query = &qkv[query_start..query_start + parameters.qk_head_dim];
+            let mut scores = Vec::with_capacity(position - first_token + 1);
+            let mut maximum = sink;
+            for token in first_token..=position {
+                let key_start = token * QKV_ROWS + q_width + kv_head * parameters.qk_head_dim;
+                let key = &qkv[key_start..key_start + parameters.qk_head_dim];
+                let score = query
+                    .iter()
+                    .zip(key)
+                    .map(|(left, right)| left * right)
+                    .sum::<f32>()
+                    * scale;
+                maximum = maximum.max(score);
+                scores.push(score);
+            }
+            let sink_mass = (sink - maximum).exp();
+            let denominator = scores
+                .iter()
+                .map(|score| (*score - maximum).exp())
+                .sum::<f32>()
+                + sink_mass;
+            for (token_offset, score) in scores.iter().enumerate() {
+                let probability = (*score - maximum).exp() / denominator;
+                let token = first_token + token_offset;
+                let value_start = token * QKV_ROWS + v_offset + kv_head * parameters.v_head_dim;
+                let output_start = query_index * ATTENTION_WIDTH + q_head * parameters.v_head_dim;
+                for column in 0..parameters.v_head_dim {
+                    attention[output_start + column] +=
+                        probability * qkv[value_start + column] * parameters.value_scale;
+                }
+            }
+        }
+    }
+    let attention_cpu_wall_ms = attention_start.elapsed().as_secs_f64() * 1000.0;
+
+    let output_weight_buffer = device.new_buffer_with_data(
+        output_weight.bytes.as_ptr().cast(),
+        output_weight.bytes.len() as u64,
+        shared,
+    );
+    let attention_buffer = device.new_buffer_with_data(
+        attention.as_ptr().cast(),
+        std::mem::size_of_val(attention.as_slice()) as u64,
+        shared,
+    );
+    let projected_buffer = device.new_buffer((QUERIES * HIDDEN * 4) as u64, shared);
+    let output_shape_buffer = device.new_buffer_with_data(
+        (&output_shape as *const GemvShape).cast(),
+        std::mem::size_of::<GemvShape>() as u64,
+        shared,
+    );
+    let projection_start = Instant::now();
+    let command = queue.new_command_buffer();
+    let encoder = command.new_compute_command_encoder();
+    encoder.set_compute_pipeline_state(&bf16_pipeline);
+    encoder.set_buffer(0, Some(&output_weight_buffer), 0);
+    encoder.set_buffer(1, Some(&attention_buffer), 0);
+    encoder.set_buffer(2, Some(&projected_buffer), 0);
+    encoder.set_buffer(3, Some(&output_shape_buffer), 0);
+    encoder.set_threadgroup_memory_length(0, LANES * QUERIES as u64 * 4);
+    encoder.dispatch_thread_groups(
+        MTLSize {
+            width: HIDDEN as u64,
+            height: 1,
+            depth: 1,
+        },
+        MTLSize {
+            width: LANES,
+            height: 1,
+            depth: 1,
+        },
+    );
+    encoder.end_encoding();
+    command.commit();
+    command.wait_until_completed();
+    let output_projection_wall_ms = projection_start.elapsed().as_secs_f64() * 1000.0;
+    if command.status() != MTLCommandBufferStatus::Completed {
+        return Err(format!(
+            "base-layer output projection failed: {:?}",
+            command.status()
+        ));
+    }
+    // SAFETY: the completed shared buffer contains exactly query_count * hidden F32 values.
+    let projected = unsafe {
+        std::slice::from_raw_parts(projected_buffer.contents().cast::<f32>(), QUERIES * HIDDEN)
+    };
+    let mut moe_input = vec![0.0_f32; QUERIES * HIDDEN];
+    for position in 0..QUERIES {
+        let residual = &hidden[(manifest.query_start + position) * HIDDEN
+            ..(manifest.query_start + position + 1) * HIDDEN];
+        let projected_row = &projected[position * HIDDEN..(position + 1) * HIDDEN];
+        let variance = residual
+            .iter()
+            .zip(projected_row)
+            .map(|(left, right)| {
+                let value = left + right;
+                value * value
+            })
+            .sum::<f32>()
+            / HIDDEN as f32;
+        let inverse = (variance + parameters.rms_epsilon).sqrt().recip();
+        for column in 0..HIDDEN {
+            moe_input[position * HIDDEN + column] =
+                (residual[column] + projected_row[column]) * inverse * post_norm[column];
+        }
+    }
+    let (moe_input_relative_l2, moe_input_maximum_absolute_error) =
+        numerical_error(&moe_input, &moe_input_reference)?;
+    if moe_input_relative_l2 > 4.0e-5 || moe_input_maximum_absolute_error > 3.0e-5 {
+        return Err(format!(
+            "base-layer MoE-input parity failed: relative L2 {moe_input_relative_l2}, max abs {moe_input_maximum_absolute_error}"
+        ));
+    }
+
+    let router = mapped.tensor(&router_name)?;
+    let correction_view = mapped.tensor(&correction_name)?;
+    if router.metadata.dtype != "F32"
+        || router.metadata.shape != [parameters.router_experts as u64, HIDDEN as u64]
+        || correction_view.metadata.dtype != "F32"
+        || correction_view.metadata.shape != [parameters.router_experts as u64]
+    {
+        return Err("base-layer router layout mismatch".to_owned());
+    }
+    let router_values = router
+        .bytes
+        .chunks_exact(4)
+        .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four-byte router weight")))
+        .collect::<Vec<_>>();
+    let correction = correction_view
+        .bytes
+        .chunks_exact(4)
+        .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four-byte correction")))
+        .collect::<Vec<_>>();
+    let mut logits = vec![0.0_f32; QUERIES * parameters.router_experts];
+    for position in 0..QUERIES {
+        for expert in 0..parameters.router_experts {
+            logits[position * parameters.router_experts + expert] = moe_input
+                [position * HIDDEN..(position + 1) * HIDDEN]
+                .iter()
+                .zip(&router_values[expert * HIDDEN..(expert + 1) * HIDDEN])
+                .map(|(value, weight)| value * weight)
+                .sum();
+        }
+    }
+    let routes = select_noaux_tc_routes(
+        &logits,
+        &correction,
+        QUERIES,
+        parameters.router_experts,
+        parameters.top_k,
+    )?;
+    if manifest.selected_experts_by_position.len() != QUERIES
+        || manifest.route_weights_by_position.len() != QUERIES
+    {
+        return Err("base-layer reference route shape mismatch".to_owned());
+    }
+    let mut maximum_route_weight_absolute_error = 0.0_f32;
+    for position in 0..QUERIES {
+        let actual_set = routes.selected[position]
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let expected_set = manifest.selected_experts_by_position[position]
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        if actual_set != expected_set || expected_set.len() != parameters.top_k {
+            return Err(format!(
+                "base-layer route set mismatch at position {position}"
+            ));
+        }
+        for (slot, expert) in routes.selected[position].iter().enumerate() {
+            let expected_slot = manifest.selected_experts_by_position[position]
+                .iter()
+                .position(|candidate| candidate == expert)
+                .ok_or("base-layer route expert is absent from reference")?;
+            maximum_route_weight_absolute_error = maximum_route_weight_absolute_error.max(
+                (routes.weights[position][slot]
+                    - manifest.route_weights_by_position[position][expected_slot])
+                    .abs(),
+            );
+        }
+    }
+    if maximum_route_weight_absolute_error > 5.0e-7 {
+        return Err(format!(
+            "base-layer route-weight parity failed: {maximum_route_weight_absolute_error}"
+        ));
+    }
+    let output_bytes = moe_input
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    write_create_new(output_path, &output_bytes)?;
+    let unique_experts = routes
+        .selected
+        .iter()
+        .flatten()
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .len();
+    let resident_buffer_bytes = validated
+        .weight
+        .bytes
+        .len()
+        .checked_add(validated.scale.bytes.len())
+        .and_then(|value| value.checked_add(normalized.len() * 4))
+        .and_then(|value| value.checked_add(qkv.len() * 4))
+        .and_then(|value| value.checked_add(output_weight.bytes.len()))
+        .and_then(|value| value.checked_add(attention.len() * 4))
+        .and_then(|value| value.checked_add(projected.len() * 4))
+        .ok_or("base-layer resident byte count overflow")?;
+    let logical_source_bytes = validated
+        .weight
+        .metadata
+        .data_bytes
+        .checked_add(validated.scale.metadata.data_bytes)
+        .and_then(|value| value.checked_add(output_weight.metadata.data_bytes))
+        .and_then(|value| value.checked_add(router.metadata.data_bytes))
+        .ok_or("base-layer logical byte count overflow")?;
+    Ok(MetalBaseLayerAttentionReport {
+        schema_version: 1,
+        semantic: "mimo_base_layer43_native_source_attention_to_dynamic_routes",
+        manifest_sha256: sha256_hex(&manifest_bytes),
+        source_file_sha256,
+        kernel_sha256,
+        input_sha256: sha256_hex(&input_bytes),
+        output_sha256: sha256_hex(&output_bytes),
+        device: device.name().to_owned(),
+        context: CONTEXT,
+        query_start: manifest.query_start,
+        query_count: QUERIES,
+        qkv_relative_l2,
+        qkv_maximum_absolute_error,
+        moe_input_relative_l2,
+        moe_input_maximum_absolute_error,
+        selected_experts_by_position: routes.selected,
+        maximum_route_weight_absolute_error,
+        minimum_topk_boundary_margin: routes.minimum_boundary_margin,
+        unique_experts,
+        compile_ms,
+        qkv_wall_ms,
+        attention_cpu_wall_ms,
+        output_projection_wall_ms,
+        complete_wall_ms: complete_start.elapsed().as_secs_f64() * 1000.0,
+        logical_source_bytes,
+        resident_buffer_bytes: resident_buffer_bytes as u64,
+        batch_size: QUERIES,
+        concurrency: 1,
+        accepted_tokens: 0,
+        accepted_per_verification: 0,
+        expert_union_factor: unique_experts as f64 / QUERIES as f64,
+        cache_state: "source hash and buffer installation included in complete wall; component dispatches use resident application buffers",
+        performance_claim: None,
+        implementation: "rust_owned_metal_source_fp8_qkv_cpu_swa_bf16_output_native_routes",
     })
 }
 
