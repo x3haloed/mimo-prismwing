@@ -53,3 +53,15 @@ lacks the correction needed for an L2 distribution-preservation claim.
 - Swiftlet: `d0cf7021b0544bf1ba4f264c592386a54bc49a00`
 - Decision: architecture and workflow references only. No code has been copied
   into the Prismwing runtime at this milestone.
+
+## MLX
+
+- Installed version: 0.31.2
+- Upstream release commit: `68cf2fd`
+- Decision: independently optimized Apple-silicon quantized-matmul comparison
+  and possible C++ substrate; not an authoritative MiMo semantic reference.
+- Relevant API: affine `quantize`/`quantized_matmul`, group size 128, four bits.
+
+PW-0012 measures the installed native Metal path through Python orchestration.
+Any final dependency must pin and build the C++ implementation or reproduce
+its kernel behavior; a mutable Python environment is not a release substrate.

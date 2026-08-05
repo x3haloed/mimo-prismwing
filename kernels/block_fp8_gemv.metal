@@ -203,3 +203,117 @@ kernel void group_int4_gemv_parallel_blocked(
         output[row] = partial[0];
     }
 }
+
+kernel void group_int4_gemm8_parallel_blocked(
+    device const uchar *weights [[buffer(0)]],
+    device const float *scales [[buffer(1)]],
+    device const float *input [[buffer(2)]],
+    device float *output [[buffer(3)]],
+    constant GemvShape &shape [[buffer(4)]],
+    threadgroup float *partial [[threadgroup(0)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    constexpr uint batch = 8;
+    if (row >= shape.rows || shape.block_columns == 0 ||
+        shape.block_columns % 2 != 0 || shape.columns % shape.block_columns != 0) {
+        return;
+    }
+    const uint packed_columns = shape.columns / 2;
+    const uint packed_block_columns = shape.block_columns / 2;
+    const uint row_offset = row * packed_columns;
+    const uint scale_columns = shape.columns / shape.block_columns;
+    const uint scale_row_offset = row * scale_columns;
+    float sums[batch] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    for (uint block = 0; block < scale_columns; ++block) {
+        const float scale = scales[scale_row_offset + block];
+        const uint packed_base = block * packed_block_columns;
+        for (uint within = lane; within < packed_block_columns; within += lanes) {
+            const uchar bits = weights[row_offset + packed_base + within];
+            const float low = decode_signed_int4(bits) * scale;
+            const float high = decode_signed_int4(bits >> 4) * scale;
+            const uint column = block * shape.block_columns + within * 2;
+            for (uint item = 0; item < batch; ++item) {
+                const uint input_offset = item * shape.columns + column;
+                sums[item] += low * input[input_offset];
+                sums[item] += high * input[input_offset + 1];
+            }
+        }
+    }
+    for (uint item = 0; item < batch; ++item) {
+        partial[item * lanes + lane] = sums[item];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+        if (lane < offset) {
+            for (uint item = 0; item < batch; ++item) {
+                partial[item * lanes + lane] += partial[item * lanes + lane + offset];
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        for (uint item = 0; item < batch; ++item) {
+            output[item * shape.rows + row] = partial[item * lanes];
+        }
+    }
+}
+
+kernel void group_int4_gemm8_vector_parallel_blocked(
+    device const uchar *weights [[buffer(0)]],
+    device const float *scales [[buffer(1)]],
+    device const float4 *input [[buffer(2)]],
+    device float *output [[buffer(3)]],
+    constant GemvShape &shape [[buffer(4)]],
+    threadgroup float4 *partial [[threadgroup(0)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    if (row >= shape.rows || shape.block_columns == 0 ||
+        shape.block_columns % 2 != 0 || shape.columns % shape.block_columns != 0) {
+        return;
+    }
+    const uint packed_columns = shape.columns / 2;
+    const uint packed_block_columns = shape.block_columns / 2;
+    const uint row_offset = row * packed_columns;
+    const uint scale_columns = shape.columns / shape.block_columns;
+    const uint scale_row_offset = row * scale_columns;
+    float4 low_batch_sum = 0.0f;
+    float4 high_batch_sum = 0.0f;
+    for (uint block = 0; block < scale_columns; ++block) {
+        const float scale = scales[scale_row_offset + block];
+        const uint packed_base = block * packed_block_columns;
+        for (uint within = lane; within < packed_block_columns; within += lanes) {
+            const uchar bits = weights[row_offset + packed_base + within];
+            const float low = decode_signed_int4(bits) * scale;
+            const float high = decode_signed_int4(bits >> 4) * scale;
+            const uint column = block * shape.block_columns + within * 2;
+            low_batch_sum += low * input[column * 2];
+            high_batch_sum += low * input[column * 2 + 1];
+            low_batch_sum += high * input[(column + 1) * 2];
+            high_batch_sum += high * input[(column + 1) * 2 + 1];
+        }
+    }
+    partial[lane] = low_batch_sum;
+    partial[lanes + lane] = high_batch_sum;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+        if (lane < offset) {
+            partial[lane] += partial[lane + offset];
+            partial[lanes + lane] += partial[lanes + lane + offset];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        const float4 first = partial[0];
+        const float4 second = partial[lanes];
+        output[row] = first.x;
+        output[shape.rows + row] = first.y;
+        output[shape.rows * 2 + row] = first.z;
+        output[shape.rows * 3 + row] = first.w;
+        output[shape.rows * 4 + row] = second.x;
+        output[shape.rows * 5 + row] = second.y;
+        output[shape.rows * 6 + row] = second.z;
+        output[shape.rows * 7 + row] = second.w;
+    }
+}

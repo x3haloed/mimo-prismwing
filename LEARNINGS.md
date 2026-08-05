@@ -449,3 +449,17 @@ GiB per idealized `U = 1` DFlash-8 pass, or 1.48664 GiB per output at perfect
 kernels. This is still a necessary traffic model, not an endpoint measurement;
 the local full-path implementation must determine attainable throughput and
 is valuable even when it does not reach 50.
+
+PW-0012 shows why bytes and `A/U` are necessary but insufficient. Applying one
+INT4 projection to eight positions takes 4.423 ms in Prismwing's best readable
+kernel, not the 1.071 ms batch-one time. Across three projections and 47 layers,
+that current kernel corresponds to only about 12.8 routed-only accepted TPS at
+perfect `A = 8, U = 1`.
+
+MLX 0.31.2's optimized affine-INT4 quantized matmul improves the same real
+batch-eight projection to repeatable 2.668–2.694 ms and roughly 400 GFLOP/s.
+The equivalent optimistic routed-only diagnostic is 21.16 accepted TPS. Its
+affine four-row relative L2 error is 4.09%, better than the symmetric candidate
+but still L3. A fused real-expert path may improve the diagnostic, and a real
+endpoint around 10–25 TPS remains valuable; neither point converts this
+component measurement into endpoint throughput or fidelity.

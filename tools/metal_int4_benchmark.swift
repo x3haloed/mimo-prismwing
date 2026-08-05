@@ -43,16 +43,20 @@ func decodeFP8(_ value: UInt8) -> Float {
     return sign * pow(2, Float(exponent - 7)) * (1 + Float(mantissa) / 8)
 }
 
-guard CommandLine.arguments.count == 5 else {
-    fail("usage: metal_int4_benchmark <model_mtp.safetensors> <fixture.json> <kernel.metal> <parallel-lanes>")
+guard (5...7).contains(CommandLine.arguments.count) else {
+    fail("usage: metal_int4_benchmark <model_mtp.safetensors> <fixture.json> <kernel.metal> <parallel-lanes> [batch] [scalar|vector]")
 }
 let checkpointURL = URL(fileURLWithPath: CommandLine.arguments[1])
 let fixtureURL = URL(fileURLWithPath: CommandLine.arguments[2])
 let kernelURL = URL(fileURLWithPath: CommandLine.arguments[3])
 let requestedLanes = Int(CommandLine.arguments[4])
+let batch = CommandLine.arguments.count >= 6 ? Int(CommandLine.arguments[5]) : 1
+let gemm8Variant = CommandLine.arguments.count == 7 ? CommandLine.arguments[6] : "scalar"
 guard let requestedLanes, requestedLanes > 0, requestedLanes <= 1024,
-      requestedLanes.nonzeroBitCount == 1 else {
-    fail("parallel lanes must be a positive power of two")
+      requestedLanes.nonzeroBitCount == 1, let batch, batch == 1 || batch == 8,
+      ["scalar", "vector"].contains(gemm8Variant),
+      batch == 8 || gemm8Variant == "scalar" else {
+    fail("invalid parallel width, batch, or batch-eight variant")
 }
 let weightName = "model.mtp.layers.0.mlp.gate_proj.weight"
 let scaleName = "model.mtp.layers.0.mlp.gate_proj.weight_scale_inv"
@@ -169,7 +173,14 @@ catch { fail("kernel source read failed: \(error)") }
 let pipeline: MTLComputePipelineState
 do {
     let library = try device.makeLibrary(source: source, options: nil)
-    guard let function = library.makeFunction(name: "group_int4_gemv_parallel_blocked") else {
+    let functionName = if batch == 1 {
+        "group_int4_gemv_parallel_blocked"
+    } else if gemm8Variant == "vector" {
+        "group_int4_gemm8_vector_parallel_blocked"
+    } else {
+        "group_int4_gemm8_parallel_blocked"
+    }
+    guard let function = library.makeFunction(name: functionName) else {
         fail("INT4 kernel function absent")
     }
     pipeline = try device.makeComputePipelineState(function: function)
@@ -178,15 +189,23 @@ guard pipeline.maxTotalThreadsPerThreadgroup >= requestedLanes else {
     fail("device cannot dispatch required parallel width")
 }
 
+let batchedInput: [Float]
+if batch == 1 {
+    batchedInput = fixture.input
+} else if gemm8Variant == "vector" {
+    batchedInput = fixture.input.flatMap { value in Array(repeating: value, count: batch) }
+} else {
+    batchedInput = Array(repeating: fixture.input, count: batch).flatMap { $0 }
+}
 guard let weightBuffer = device.makeBuffer(bytes: packedWeights, length: packedWeights.count),
       let scaleBuffer = quantScales.withUnsafeBytes({
           device.makeBuffer(bytes: $0.baseAddress!, length: $0.count)
       }),
-      let inputBuffer = fixture.input.withUnsafeBytes({
+      let inputBuffer = batchedInput.withUnsafeBytes({
           device.makeBuffer(bytes: $0.baseAddress!, length: $0.count)
       }),
       let outputBuffer = device.makeBuffer(
-        length: rows * MemoryLayout<Float>.stride,
+        length: batch * rows * MemoryLayout<Float>.stride,
         options: .storageModeShared
       ) else { fail("Metal buffer allocation failed") }
 var shape = GemvShape(
@@ -208,7 +227,7 @@ func run() -> (Double, Double) {
     encoder.setBuffer(inputBuffer, offset: 0, index: 2)
     encoder.setBuffer(outputBuffer, offset: 0, index: 3)
     encoder.setBuffer(shapeBuffer, offset: 0, index: 4)
-    encoder.setThreadgroupMemoryLength(requestedLanes * MemoryLayout<Float>.stride, index: 0)
+    encoder.setThreadgroupMemoryLength(batch * requestedLanes * MemoryLayout<Float>.stride, index: 0)
     encoder.dispatchThreadgroups(
         MTLSize(width: rows, height: 1, depth: 1),
         threadsPerThreadgroup: MTLSize(width: requestedLanes, height: 1, depth: 1)
@@ -233,9 +252,12 @@ for _ in 0..<30 {
     wall.append(measurement.0)
     gpu.append(measurement.1)
 }
-let output = outputBuffer.contents().bindMemory(to: Float.self, capacity: rows)
-let firstFour = Array(UnsafeBufferPointer(start: output, count: 4))
-let maxError = zip(firstFour, fixture.expected).map { abs($0 - $1) }.max() ?? .infinity
+let output = outputBuffer.contents().bindMemory(to: Float.self, capacity: batch * rows)
+var maxError: Float = 0
+for item in 0..<batch {
+    let firstFour = Array(UnsafeBufferPointer(start: output + item * rows, count: 4))
+    maxError = max(maxError, zip(firstFour, fixture.expected).map { abs($0 - $1) }.max() ?? .infinity)
+}
 guard maxError < 2e-6 else { fail("full projection correctness mismatch: \(maxError)") }
 let sortedWall = wall.sorted()
 let sortedGpu = gpu.sorted()
@@ -245,11 +267,15 @@ let result: [String: Any] = [
     "schema_version": 1,
     "device": device.name,
     "tensor": weightName,
-    "kernel": "group_int4_gemv_parallel_blocked",
+    "kernel": batch == 1
+        ? "group_int4_gemv_parallel_blocked"
+        : (gemm8Variant == "vector"
+            ? "group_int4_gemm8_vector_parallel_blocked"
+            : "group_int4_gemm8_parallel_blocked"),
     "parallel_lanes": requestedLanes,
     "rows": rows,
     "columns": columns,
-    "batch_size": 1,
+    "batch_size": batch,
     "concurrency": 1,
     "warmup_runs": 5,
     "measured_runs": 30,
@@ -266,6 +292,8 @@ let result: [String: Any] = [
     "gpu_p10_ms": percentile(sortedGpu, 0.1),
     "gpu_p90_ms": percentile(sortedGpu, 0.9),
     "executable_gib_per_second_median": Double(executableBytes) / Double(1 << 30) / (medianGpuMs / 1_000),
+    "effective_accepted_projection_tps": Double(batch) / (medianGpuMs / 1_000),
+    "arithmetic_gflop_per_second": Double(2 * rows * columns * batch) / (medianGpuMs / 1_000) / 1_000_000_000,
     "source_fp8_logical_gib_per_second_median": Double(sourceWeightBytes) / Double(1 << 30) / (medianGpuMs / 1_000),
     "first_four_max_abs_error_vs_int4_oracle": maxError,
 ]

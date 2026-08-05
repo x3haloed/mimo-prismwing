@@ -336,6 +336,21 @@ pub struct RealInt4GemvFixture {
     pub expected_f32: Vec<f32>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct MlxAffineInt4Fixture {
+    pub schema_version: u32,
+    pub semantic: String,
+    pub rows: usize,
+    pub columns: usize,
+    pub group_size: usize,
+    pub bits: usize,
+    pub packed_u32: Vec<Vec<u32>>,
+    pub scale_f16: Vec<Vec<f32>>,
+    pub bias_f16: Vec<Vec<f32>>,
+    pub input_f16: Vec<f32>,
+    pub expected_manual_f32: Vec<f32>,
+}
+
 pub fn decode_f8_e4m3fn(bits: u8) -> f32 {
     let sign = if bits & 0x80 == 0 { 1.0 } else { -1.0 };
     let exponent = i32::from((bits >> 3) & 0x0f);
@@ -411,6 +426,48 @@ pub fn group_int4_gemv(
                 let scale = row_scales[column / block_columns];
                 sum += decode_signed_nibble(*bits) * scale * input[column];
                 sum += decode_signed_nibble(*bits >> 4) * scale * input[column + 1];
+            }
+            Ok(sum)
+        })
+        .collect()
+}
+
+pub fn affine_int4_gemv(
+    packed_rows: &[Vec<u32>],
+    scales: &[Vec<f32>],
+    biases: &[Vec<f32>],
+    group_size: usize,
+    input: &[f32],
+) -> Result<Vec<f32>, String> {
+    let values_per_word = 8;
+    if group_size == 0
+        || !group_size.is_multiple_of(values_per_word)
+        || input.is_empty()
+        || !input.len().is_multiple_of(group_size)
+        || packed_rows.len() != scales.len()
+        || packed_rows.len() != biases.len()
+        || packed_rows
+            .iter()
+            .any(|row| row.len() * values_per_word != input.len())
+        || scales
+            .iter()
+            .chain(biases)
+            .any(|row| row.len() != input.len() / group_size)
+    {
+        return Err("invalid affine-INT4 GEMV dimensions".to_owned());
+    }
+    packed_rows
+        .iter()
+        .zip(scales)
+        .zip(biases)
+        .map(|((row, row_scales), row_biases)| {
+            let mut sum = 0.0_f32;
+            for column in 0..input.len() {
+                let word = row[column / values_per_word];
+                let code = (word >> ((column % values_per_word) * 4)) & 0x0f;
+                let group = column / group_size;
+                let weight = code as f32 * row_scales[group] + row_biases[group];
+                sum += weight * input[column];
             }
             Ok(sum)
         })
@@ -682,5 +739,33 @@ mod tests {
         assert!(group_int4_gemv(&[vec![0; 2]], &[vec![1.0]], 3, &input).is_err());
         assert!(group_int4_gemv(&[vec![0; 1]], &[vec![1.0]], 4, &input).is_err());
         assert!(group_int4_gemv(&[vec![0; 2]], &[vec![]], 4, &input).is_err());
+    }
+
+    #[test]
+    fn mlx_affine_int4_fixture_has_independent_scalar_oracle() {
+        let fixture: MlxAffineInt4Fixture = serde_json::from_str(include_str!(
+            "../evals/fixtures/real/mtp-gate-mlx-affine-int4.json"
+        ))
+        .expect("fixture parses");
+        assert_eq!(fixture.schema_version, 1);
+        assert_eq!(fixture.semantic, "mlx_affine_int4_group128_gemv_slice");
+        assert_eq!(fixture.bits, 4);
+        assert_eq!(fixture.packed_u32.len(), fixture.rows);
+        assert_eq!(fixture.input_f16.len(), fixture.columns);
+        let actual = affine_int4_gemv(
+            &fixture.packed_u32,
+            &fixture.scale_f16,
+            &fixture.bias_f16,
+            fixture.group_size,
+            &fixture.input_f16,
+        )
+        .expect("affine GEMV");
+        for (row, (value, expected)) in actual.iter().zip(&fixture.expected_manual_f32).enumerate()
+        {
+            assert!(
+                (value - expected).abs() < 2e-7,
+                "row {row}: actual {value}, expected {expected}"
+            );
+        }
     }
 }
