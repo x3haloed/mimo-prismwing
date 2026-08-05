@@ -660,3 +660,9 @@ production-width hidden states, it changes learned attention output by 18.58%
 relative L2 and the projected 4,096-wide sublayer by 19.43%. The next fidelity
 branch should test higher-precision K and mixed K/V cache formats before
 whole-layer promotion.
+
+PW-0027 shows that neither cache side alone explains that error. Source K with
+Turbo4 V leaves 15.49% projected error; Turbo4 K with source V leaves 13.58%.
+Both sides materially contribute, and upgrading K alone is not a sufficient
+quality branch on this learned fixture. The next search must sweep joint K/V
+precision before optimizing another packed kernel.

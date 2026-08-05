@@ -168,6 +168,11 @@ def generate(checkpoint: Path, atomic_source: Path) -> dict:
             decoded_k[token,head] = dequant4(key_payload,256)[:192]; decoded_v[token,head] = dequant4(value_payload,128)
     # Scores use rotated padded vectors, so reconstruct the exact packed-domain reference.
     candidate_attention = np.empty((64,128),np.float32); rotated_queries=[]
+    source_k_turbo_v_attention=np.empty((64,128),np.float32);turbo_k_source_v_attention=np.empty((64,128),np.float32)
+    candidate_values=np.empty_like(v)
+    for head in range(8):
+        for token in range(17):
+            payload=bytes(packed_values[(head*17+token)*68:(head*17+token+1)*68]);candidate_values[token,head]=wht(dequant4(payload,128),True,s1,s2)
     for head in range(64):
         query = wht(np.pad(q[-1,head],(0,64)),False,s1,s2); rotated_queries.extend(query.tolist())
         kv=head//8; scores=[]
@@ -178,10 +183,15 @@ def generate(checkpoint: Path, atomic_source: Path) -> dict:
         for token in range(17):
             payload=bytes(packed_values[(kv*17+token)*68:(kv*17+token+1)*68]);rotated += probs[token]*dequant4(payload,128)
         candidate_attention[head]=wht(rotated,True,s1,s2)
+        source_scores=k[:,kv]@q[-1,head]/np.float32(math.sqrt(192));source_logits=np.append(source_scores,sinks[head]);source_probs=np.exp(source_logits-source_logits.max());source_probs/=source_probs.sum()
+        source_k_turbo_v_attention[head]=source_probs[:-1]@candidate_values[:,kv]
+        turbo_k_source_v_attention[head]=probs[:-1]@v[:,kv]
     candidate_output_mx=mx.matmul(mx.array(candidate_attention.reshape(1,8192)),mx.array(output_weight).T)
-    mx.eval(candidate_output_mx);candidate_output=np.array(candidate_output_mx,copy=False).astype(np.float32)
+    source_k_turbo_v_output_mx=mx.matmul(mx.array(source_k_turbo_v_attention.reshape(1,8192)),mx.array(output_weight).T)
+    turbo_k_source_v_output_mx=mx.matmul(mx.array(turbo_k_source_v_attention.reshape(1,8192)),mx.array(output_weight).T)
+    mx.eval(candidate_output_mx,source_k_turbo_v_output_mx,turbo_k_source_v_output_mx);candidate_output=np.array(candidate_output_mx,copy=False).astype(np.float32);source_k_turbo_v_output=np.array(source_k_turbo_v_output_mx,copy=False).astype(np.float32);turbo_k_source_v_output=np.array(turbo_k_source_v_output_mx,copy=False).astype(np.float32)
     def digest(array): return hashlib.sha256(np.asarray(array,dtype='<f4').tobytes()).hexdigest()
-    return {"schema_version":1,"semantic":"mimo_mtp_real_attention_context17","source_revision":REVISION,"source_sha256":SOURCE_SHA256,"format":"turbo4","context":17,"q_heads":64,"kv_heads":8,"rotated_queries_f32":rotated_queries,"packed_keys_u8":list(packed_keys),"packed_values_u8":list(packed_values),"sinks_f32":sinks.tolist(),"expected_attention_f32":candidate_attention.reshape(-1).tolist(),"source_attention_sha256":digest(source_attention),"candidate_attention_sha256":digest(candidate_attention),"source_sublayer_output_sha256":digest(source_output),"candidate_sublayer_output_sha256":digest(candidate_output),"source_sublayer_output_first8":source_output.reshape(-1)[:8].tolist(),"candidate_sublayer_output_first8":candidate_output.reshape(-1)[:8].tolist(),"qkv_sample_rows":samples,"qkv_sample_max_abs_error":sample_error,"attention_relative_l2_vs_source":float(np.linalg.norm(candidate_attention-source_attention)/np.linalg.norm(source_attention)),"sublayer_relative_l2_vs_source":float(np.linalg.norm(candidate_output-source_output)/np.linalg.norm(source_output))}
+    return {"schema_version":1,"semantic":"mimo_mtp_real_attention_context17","source_revision":REVISION,"source_sha256":SOURCE_SHA256,"format":"turbo4","context":17,"q_heads":64,"kv_heads":8,"rotated_queries_f32":rotated_queries,"packed_keys_u8":list(packed_keys),"packed_values_u8":list(packed_values),"sinks_f32":sinks.tolist(),"expected_attention_f32":candidate_attention.reshape(-1).tolist(),"source_attention_sha256":digest(source_attention),"candidate_attention_sha256":digest(candidate_attention),"source_k_turbo_v_attention_sha256":digest(source_k_turbo_v_attention),"turbo_k_source_v_attention_sha256":digest(turbo_k_source_v_attention),"source_sublayer_output_sha256":digest(source_output),"candidate_sublayer_output_sha256":digest(candidate_output),"source_k_turbo_v_sublayer_output_sha256":digest(source_k_turbo_v_output),"turbo_k_source_v_sublayer_output_sha256":digest(turbo_k_source_v_output),"source_sublayer_output_first8":source_output.reshape(-1)[:8].tolist(),"candidate_sublayer_output_first8":candidate_output.reshape(-1)[:8].tolist(),"qkv_sample_rows":samples,"qkv_sample_max_abs_error":sample_error,"attention_relative_l2_vs_source":float(np.linalg.norm(candidate_attention-source_attention)/np.linalg.norm(source_attention)),"sublayer_relative_l2_vs_source":float(np.linalg.norm(candidate_output-source_output)/np.linalg.norm(source_output)),"source_k_turbo_v_attention_relative_l2_vs_source":float(np.linalg.norm(source_k_turbo_v_attention-source_attention)/np.linalg.norm(source_attention)),"source_k_turbo_v_sublayer_relative_l2_vs_source":float(np.linalg.norm(source_k_turbo_v_output-source_output)/np.linalg.norm(source_output)),"turbo_k_source_v_attention_relative_l2_vs_source":float(np.linalg.norm(turbo_k_source_v_attention-source_attention)/np.linalg.norm(source_attention)),"turbo_k_source_v_sublayer_relative_l2_vs_source":float(np.linalg.norm(turbo_k_source_v_output-source_output)/np.linalg.norm(source_output))}
 
 
 def main():

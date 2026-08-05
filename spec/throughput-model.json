@@ -266,6 +266,13 @@
             "turbo4_projected_sublayer_relative_l2_vs_source": 0.19427712261676788,
             "status": "learned_mtp_fixture_validated; uniform_turbo4_not_promoted_for_fidelity",
             "provenance": "PW-0026; locked complete model_mtp.safetensors; actual norm/QKV/sink/output projection; deterministic hidden states"
+        },
+        "real_mtp_kv_error_attribution": {
+            "source_k_turbo4_v_projected_relative_l2": 0.1549239307641983,
+            "turbo4_k_source_v_projected_relative_l2": 0.13581107556819916,
+            "uniform_turbo4_projected_relative_l2": 0.19427712261676788,
+            "status": "both_k_and_v_material; reject_single_side_precision_upgrade_as_default",
+            "provenance": "PW-0027; exact PW-0026 learned fixture; one cache side changed per candidate"
         }
   }
 }
