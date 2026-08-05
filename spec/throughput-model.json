@@ -163,8 +163,11 @@
             "heterogeneous_moe_block_relative_l2_vs_source_fp8": 0.010261341529075707,
             "47_layer_routed_only_accepted_tps_diagnostic": 15.29379469215712,
             "exactness": "L3_bounded_approximation",
-            "status": "exploratory_candidate_selected_for_predeclared_validation_not_endpoint_tps_or_fidelity",
-            "provenance": "PW-0018; actual layer43 expert32 precision sweep and PW-0016 heterogeneous route fixture"
+            "predeclared_validation_int4_mean_median_ms": 10.1154515,
+            "predeclared_validation_int8_mean_median_ms": 11.126527666666666,
+            "predeclared_validation_int8_over_int4_time_ratio": 1.0999536369352043,
+            "status": "validated_default_quality_research_substrate_not_endpoint_tps_or_target_fidelity",
+            "provenance": "PW-0018 exploration; PW-0019 predeclared three-pair validation; actual layer43 heterogeneous route fixture"
         }
   }
 }

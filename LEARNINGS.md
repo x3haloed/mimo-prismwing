@@ -554,3 +554,15 @@ Its 47-layer routed-only diagnostic is 15.29 TPS. The representation is 3.1%
 larger than source FP8, so it is not embodiment compression; it is a
 quality-oriented use of MLX's executable substrate. It is selected for a
 predeclared validation gate, not yet promoted for target fidelity.
+
+PW-0019 validates that selection under criteria committed before execution.
+Three paired process orders give mean medians of 10.1155 ms for INT4 and
+11.1265 ms for INT8, a 9.995% slowdown versus the fixed 20% limit. Every route
+and fixture check passes; INT8 block relative L2 remains 1.026% (limit 2%) and
+cosine 0.999947 (minimum 0.9998).
+
+Affine INT8 is therefore the default quality-oriented research substrate.
+This is not target promotion: the evidence is still one synthetic-input MoE
+block, the representation is L3 and larger than source FP8, and accumulated
+whole-layer/logit behavior is unknown. INT4 remains available for compact
+performance experiments but is not the default quality candidate.

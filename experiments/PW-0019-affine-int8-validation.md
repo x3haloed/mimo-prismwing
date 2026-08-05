@@ -1,7 +1,7 @@
 # PW-0019 — Predeclared affine-INT8 block validation
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: conditional
 - Date: 2026-08-04
 - Owner: Codex with project owner authorization
 - Commit and dirty state: based on `9103991`; clean before this contract
@@ -48,16 +48,43 @@ immutable external evidence paths under PW-0019.
 
 ## Isolated attribution
 
-Pending.
+| Pair/order | INT4 median ms | INT8 median ms |
+| --- | ---: | ---: |
+| 1 (`4,8`) | 10.0533 | 11.1099 |
+| 2 (`8,4`) | 10.1354 | 11.2376 |
+| 3 (`4,8`) | 10.1577 | 11.0321 |
+
+Mean INT4 median is 10.1155 ms; mean INT8 median is 11.1265 ms. The
+candidate/control ratio is 1.09995, a 9.995% slowdown and comfortably inside
+the predeclared 20% limit.
 
 ## End-to-end result
 
-Pending. No endpoint claim is in scope.
+All six runs completed. No endpoint claim is in scope. Using the validated
+INT8 mean as a repeated-layer diagnostic gives 15.29 routed-only TPS for this
+fixture before every non-MoE cost.
 
 ## Correctness result
 
-Pending.
+Every run verified its committed precision-specific fixture and matched source
+router selection. INT8 relative L2 is 0.0102613, below the 0.02 threshold, and
+cosine is 0.9999474, above 0.9998.
+
+Evidence SHA-256:
+
+- pair 1 INT4: `388c18ad9a4183ad4549bd2ad519d52f17ca425f87b6b25e4dd69d3122eda067`
+- pair 1 INT8: `7a4781ab479c4b856fa7b2560d7695d64dfa27a8ba2452267cae5c6c7e91b107`
+- pair 2 INT8: `525011d7c3c6486c4508238315207acc1f37f97448edc1d2566d23e6c15b8dbb`
+- pair 2 INT4: `17fa32336819d1918b1be1d5858f000732e10769b8b5b000cd700e7992a669c8`
+- pair 3 INT4: `cb60aabb0f0038cf1c8d647da51cd8e27391ab9d25e7f6fdb98f46beb0045ba9`
+- pair 3 INT8: `375a070eaa43c08ac6f54532be6ca418d56438ffe57ebd10f3fd2cfcb6603c48`
+
+External evidence root: `/Volumes/Elements/mimo-prismwing/evidence/PW-0019`.
 
 ## Decision
 
-Unexecuted until this contract is committed.
+All four predeclared conditions pass. Promote affine INT8 as the default
+quality-oriented MLX research representation and retain INT4 as the compact
+performance branch. The promotion is conditional and component-scoped: INT8
+remains L3 and must pass real-activation whole-layer, local-logit, hosted
+distributional, capability, and endpoint gates before any target claim.
