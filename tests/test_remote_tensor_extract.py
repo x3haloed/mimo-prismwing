@@ -7,9 +7,18 @@ import unittest
 from safetensors import safe_open
 
 from tools.remote_tensor_extract import materialize
+from tools.extract_selected_experts import group_by_shard, selected_tensor_names
 
 
 class RemoteTensorExtractTests(unittest.TestCase):
+    def test_selected_expert_names_are_complete_and_grouped_by_index(self):
+        names = selected_tensor_names(2, [7])
+        self.assertEqual(len(names), 6)
+        index = {"weight_map": {name: f"shard-{offset % 2}" for offset, name in enumerate(names)}}
+        grouped = group_by_shard(index, names)
+        self.assertEqual(set(grouped), {"shard-0", "shard-1"})
+        self.assertEqual(sum(map(len, grouped.values())), 6)
+
     def test_selected_tensors_are_lossless_and_fail_closed(self):
         header = {
             "tensor.b": {"dtype": "U8", "shape": [3], "data_offsets": [4, 7]},

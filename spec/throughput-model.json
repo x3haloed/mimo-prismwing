@@ -111,6 +111,26 @@
             "exactness": "L3_bounded_approximation",
             "status": "measured_complete_expert_compute_diagnostic_not_endpoint_tps_or_fidelity",
             "provenance": "PW-0015; actual layer43 expert32 gate/up/SwiGLU/down; warm buffers; source FP8 comparison"
+        },
+        "m1_mlx_affine_int4_real_heterogeneous_moe_block": {
+            "mlx_version": "0.31.2",
+            "layer": 43,
+            "accepted_positions": 8,
+            "active_experts_per_position": 8,
+            "unique_experts": 9,
+            "expert_union_factor": 1.125,
+            "executable_bytes_router_and_selected_experts": 124519424,
+            "batch8_moe_block_wall_ms_repeat_medians": [
+                9.905917,
+                9.756375
+            ],
+            "batch8_moe_block_wall_ms_repeat_median_mean": 9.831146,
+            "47_layer_routed_only_accepted_tps_diagnostic": 17.313624063506612,
+            "relative_l2_vs_source_fp8_moe_output": 0.17021090476676493,
+            "cosine_similarity_vs_source_fp8_moe_output": 0.985467549899551,
+            "exactness": "L3_bounded_approximation",
+            "status": "measured_complete_moe_component_diagnostic_not_endpoint_tps_or_fidelity",
+            "provenance": "PW-0016; real layer43 router and nine selected heterogeneous experts; fixture-static schedule; warm buffers"
         }
   }
 }

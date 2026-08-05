@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
@@ -60,9 +61,7 @@ def materialize(
     if not isinstance(source_header, dict):
         raise ValueError("remote safetensors header is not an object")
 
-    payload = bytearray()
-    output_header: dict[str, Any] = {}
-    records = []
+    specifications = []
     source_payload_start = 8 + source_header_bytes
     for name in names:
         metadata = source_header.get(name)
@@ -85,7 +84,25 @@ def materialize(
         absolute_end = source_payload_start + offsets[1] - 1
         if absolute_end >= source_record["bytes"]:
             raise ValueError(f"tensor exceeds locked source file: {name}")
-        data = fetch(repository, revision, remote_path, absolute_start, absolute_end)
+        specifications.append((name, dtype, shape, offsets, absolute_start, absolute_end))
+
+    def fetch_tensor(specification: tuple) -> bytes:
+        return fetch(
+            repository,
+            revision,
+            remote_path,
+            specification[4],
+            specification[5],
+        )
+
+    with ThreadPoolExecutor(max_workers=min(8, len(specifications))) as executor:
+        tensor_payloads = list(executor.map(fetch_tensor, specifications))
+
+    payload = bytearray()
+    output_header: dict[str, Any] = {}
+    records = []
+    for specification, data in zip(specifications, tensor_payloads):
+        name, dtype, shape, offsets, _, _ = specification
         output_start = len(payload)
         payload.extend(data)
         output_end = len(payload)

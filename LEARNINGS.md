@@ -507,3 +507,23 @@ materialized from a pinned Hugging Face revision and hashed locally, avoiding a
 34.37 GB transfer on the critical path. This is not full checkpoint closure;
 the remote whole-file SHA is still only its locked LFS identity until the local
 file completes and hashes successfully.
+
+PW-0016 extends that path through the actual layer-43 noaux_tc router and all
+nine heterogeneous experts selected across an eight-position deterministic
+block. The observed union is only nine unique experts (`U=1.125`), and MLX's
+selected sets match the source-derived router exactly. This is encouraging for
+DFlash-8's stringent route-reuse requirement, but one synthetic input at one
+layer is not a route-union distribution and cannot promote the branch.
+
+The complete routed block, including router scores, normalized weights, exact
+selected-position expert batches, and weighted summation, repeats at 9.906 and
+9.756 ms per layer. Reusing that layer cost across all 47 routed layers gives a
+17.31 routed-only TPS diagnostic. It supersedes PW-0015's sequential
+single-expert extrapolation, but still excludes every non-MoE endpoint cost and
+uses a fixture-specialized dispatch schedule.
+
+Affine INT4's weighted block output has 17.02% relative L2 error against source
+FP8 with 0.9855 cosine. Error did not cancel through routing and aggregation;
+it increased from the complete single-expert fixture. Current affine INT4 is
+therefore a performance substrate and falsification candidate, not a
+quality-qualified target embodiment.

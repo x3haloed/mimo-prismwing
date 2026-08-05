@@ -5,12 +5,19 @@ try:
     import numpy as np
 
     from tools.mlx_full_expert_benchmark import full_expert, quantize
+    from tools.mlx_moe_block_benchmark import route_schedule
 except ModuleNotFoundError:
     mx = None
 
 
 @unittest.skipIf(mx is None, "MLX is unavailable")
 class FullExpertTests(unittest.TestCase):
+    def test_route_schedule_preserves_token_and_slot_authority(self):
+        schedule = route_schedule(np.array([[7, 3], [3, 9]], dtype=np.int32))
+        self.assertEqual(schedule[3], ([0, 1], [1, 0]))
+        self.assertEqual(schedule[7], ([0], [0]))
+        self.assertEqual(schedule[9], ([1], [1]))
+
     def test_quantized_full_expert_matches_dequantized_composition(self):
         width = 128
         hidden = 128
