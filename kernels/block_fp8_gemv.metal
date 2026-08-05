@@ -57,6 +57,47 @@ kernel void route_weighted_scatter_add_f32(
         route_weights[local_position];
 }
 
+kernel void f32_gemm8_shared_weight(
+    device const float *weights [[buffer(0)]],
+    device const float *input [[buffer(1)]],
+    device float *output [[buffer(2)]],
+    constant GemvShape &shape [[buffer(3)]],
+    threadgroup float *partial [[threadgroup(0)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    constexpr uint batch = 8;
+    if (row >= shape.rows) {
+        return;
+    }
+    const uint row_offset = row * shape.columns;
+    float sums[batch] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    for (uint column = lane; column < shape.columns; column += lanes) {
+        const float weight = weights[row_offset + column];
+        for (uint position = 0; position < batch; ++position) {
+            sums[position] += weight * input[position * shape.columns + column];
+        }
+    }
+    for (uint position = 0; position < batch; ++position) {
+        partial[lane * batch + position] = sums[position];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+        if (lane < offset) {
+            for (uint position = 0; position < batch; ++position) {
+                partial[lane * batch + position] +=
+                    partial[(lane + offset) * batch + position];
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        for (uint position = 0; position < batch; ++position) {
+            output[position * shape.rows + row] = partial[position];
+        }
+    }
+}
+
 kernel void block_fp8_gemv(
     device const uchar *weights [[buffer(0)]],
     device const float *scales [[buffer(1)]],

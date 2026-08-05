@@ -800,3 +800,17 @@ The first native attempt also exposed a real artifact fact: an expert weight
 and its scale may live in different selected shard artifacts. Six independent
 tensor authorities per expert are now explicit and fail closed. Routing remains
 fixture-static; native noaux-tc selection is the next causal boundary.
+
+PW-0038 crosses that boundary for the exact layer-43 fixture. A Rust-owned
+Metal F32 `256×4,096` projection shares each weight across eight positions,
+then Rust applies sigmoid, correction-biased top eight, uncorrected-score
+gather, and normalization. Every selected expert set equals the independent
+Torch result and route-weight error is at most `1.49e-8`; repeated canonical
+route artifacts are byte-identical.
+
+Two warm medians are 0.3246 and 0.3479 ms, passing the predeclared 1 ms router
+gate with substantial headroom. The prior belief that route IDs and weights
+must remain frozen runtime inputs is superseded for this fixture. The remaining
+gap is composition, not router semantics: the new decision authority must now
+causally feed PW-0037's gather/expert/scatter path in one timed command before a
+dynamic routed-layer claim is warranted.

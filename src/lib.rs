@@ -315,6 +315,57 @@ pub struct MetalFp8MoeReport {
     pub implementation: &'static str,
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Debug, Serialize)]
+struct NativeRouteArtifact {
+    schema_version: u32,
+    semantic: &'static str,
+    layer: u32,
+    batch_size: usize,
+    top_k: usize,
+    selected_experts_by_position: Vec<Vec<u32>>,
+    route_weights_by_position: Vec<Vec<f32>>,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Serialize)]
+pub struct MetalRouterReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub router_file_sha256: String,
+    pub reference_manifest_sha256: String,
+    pub input_sha256: String,
+    pub output_sha256: String,
+    pub device: String,
+    pub kernel_file: String,
+    pub kernel_function: &'static str,
+    pub threadgroup_memory_bytes: u64,
+    pub selected_experts_by_position: Vec<Vec<u32>>,
+    pub route_weights_by_position: Vec<Vec<f32>>,
+    pub maximum_route_weight_absolute_error: f32,
+    pub minimum_topk_boundary_margin: f32,
+    pub kernel_fixture_maximum_absolute_error: f32,
+    pub compile_ms: f64,
+    pub cold_wall_ms: f64,
+    pub warmups: usize,
+    pub measurements: usize,
+    pub wall_ms: Vec<f64>,
+    pub wall_p10_ms: f64,
+    pub wall_median_ms: f64,
+    pub wall_p90_ms: f64,
+    pub median_timing_gate_passed: bool,
+    pub logical_bytes: u64,
+    pub batch_size: usize,
+    pub concurrency: u32,
+    pub accepted_tokens: u32,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: u32,
+    #[serde(rename = "U")]
+    pub expert_union_factor: f64,
+    pub cache_state: &'static str,
+    pub implementation: &'static str,
+}
+
 fn dtype_bytes(dtype: &str) -> Option<u64> {
     match dtype {
         "BOOL" | "U8" | "I8" | "F8_E4M3" | "F8_E4M3FN" | "F8_E5M2" => Some(1),
@@ -2304,6 +2355,393 @@ pub fn run_metal_fp8_moe_block(
         cache_state: "selected source artifacts OS-cache state uncontrolled; all expert and routing buffers resident before timed series",
         scheduling_limitation: manifest.scheduling,
         implementation: "rust_owned_metal_fixture_scheduled_source_fp8_moe_block",
+    })
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_noaux_tc_router(
+    router_path: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_manifest_path: &Path,
+    output_path: &Path,
+) -> Result<MetalRouterReport, String> {
+    use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize};
+
+    const ROUTER_SHA256: &str = "12c1579d28b78dd69ec9342eb9d1f378efc5aa3c2f2a28b5ec73578e6a8bbcdd";
+    const REFERENCE_SHA256: &str =
+        "a2b30be7ab767c754fd4680887420246dcd28d314bff242b144f664a8ff12470";
+    const WEIGHT_NAME: &str = "model.layers.43.mlp.gate.weight";
+    const BIAS_NAME: &str = "model.layers.43.mlp.gate.e_score_correction_bias";
+    const KERNEL_FUNCTION: &str = "f32_gemm8_shared_weight";
+    const BATCH: usize = 8;
+    const ROWS: usize = 256;
+    const COLUMNS: usize = 4096;
+    const TOP_K: usize = 8;
+    const LANES: u64 = 64;
+    const THREADGROUP_MEMORY_BYTES: u64 = LANES * BATCH as u64 * 4;
+    const WARMUPS: usize = 5;
+    const MEASUREMENTS: usize = 30;
+
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    let mut router_file =
+        File::open(router_path).map_err(|error| format!("{}: {error}", router_path.display()))?;
+    let router_file_sha256 = sha256_reader(&mut router_file)?;
+    if router_file_sha256 != ROUTER_SHA256 {
+        return Err("layer-43 router artifact SHA-256 mismatch".to_owned());
+    }
+    let mapped = MappedSafetensors::open(router_path)?;
+    let weight = mapped.tensor(WEIGHT_NAME)?;
+    let bias = mapped.tensor(BIAS_NAME)?;
+    if weight.metadata.dtype != "F32"
+        || weight.metadata.shape != [ROWS as u64, COLUMNS as u64]
+        || weight.bytes.len() != ROWS * COLUMNS * 4
+        || bias.metadata.dtype != "F32"
+        || bias.metadata.shape != [ROWS as u64]
+        || bias.bytes.len() != ROWS * 4
+    {
+        return Err("layer-43 router tensor layout mismatch".to_owned());
+    }
+    let correction = bias
+        .bytes
+        .chunks_exact(4)
+        .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four-byte bias")))
+        .collect::<Vec<_>>();
+    if correction.iter().any(|value| !value.is_finite()) {
+        return Err("router correction bias is non-finite".to_owned());
+    }
+    let (input_bytes, input) = read_f32_file(input_path, Some(BATCH * COLUMNS))?;
+    let reference_bytes = fs::read(reference_manifest_path)
+        .map_err(|error| format!("{}: {error}", reference_manifest_path.display()))?;
+    let reference_manifest_sha256 = sha256_hex(&reference_bytes);
+    if reference_manifest_sha256 != REFERENCE_SHA256 {
+        return Err("router reference manifest SHA-256 mismatch".to_owned());
+    }
+    let unique: UniqueJson = serde_json::from_slice(&reference_bytes)
+        .map_err(|error| format!("router reference manifest: {error}"))?;
+    let reference: MetalMoeManifest =
+        serde_json::from_value(unique.0).map_err(|error| format!("router reference: {error}"))?;
+    if reference.schema_version != 1
+        || reference.layer != 43
+        || reference.batch_size != BATCH
+        || reference.top_k != TOP_K
+        || reference.input_sha256 != sha256_hex(&input_bytes)
+        || reference.selected_experts_by_position.len() != BATCH
+        || reference.route_weights_by_position.len() != BATCH
+    {
+        return Err("router reference identity mismatch".to_owned());
+    }
+    let kernel_source = fs::read_to_string(kernel_path)
+        .map_err(|error| format!("{}: {error}", kernel_path.display()))?;
+    if !kernel_source.contains(&format!("kernel void {KERNEL_FUNCTION}")) {
+        return Err(format!("kernel source lacks {KERNEL_FUNCTION}"));
+    }
+    let device = Device::system_default().ok_or("no Metal device is available")?;
+    if device.max_threads_per_threadgroup().width < LANES {
+        return Err("Metal device cannot dispatch 64-lane threadgroups".to_owned());
+    }
+    let options = CompileOptions::new();
+    options.set_fast_math_enabled(false);
+    let compile_start = Instant::now();
+    let library = device
+        .new_library_with_source(&kernel_source, &options)
+        .map_err(|error| format!("Metal compilation failed: {error}"))?;
+    let function = library
+        .get_function(KERNEL_FUNCTION, None)
+        .map_err(|error| format!("router kernel lookup: {error}"))?;
+    let pipeline = device
+        .new_compute_pipeline_state_with_function(&function)
+        .map_err(|error| format!("router pipeline: {error}"))?;
+    let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
+    let shared = MTLResourceOptions::StorageModeShared;
+    let queue = device.new_command_queue();
+
+    #[repr(C)]
+    struct GemvShape {
+        rows: u32,
+        columns: u32,
+        block_rows: u32,
+        block_columns: u32,
+    }
+    let shape = GemvShape {
+        rows: ROWS as u32,
+        columns: COLUMNS as u32,
+        block_rows: 1,
+        block_columns: 1,
+    };
+    let shape_buffer = device.new_buffer_with_data(
+        (&shape as *const GemvShape).cast(),
+        std::mem::size_of::<GemvShape>() as u64,
+        shared,
+    );
+
+    let fixture_weights = (0..ROWS * COLUMNS)
+        .map(|index| ((index * 13 % 31) as f32 - 15.0) * 0.0005)
+        .collect::<Vec<_>>();
+    let fixture_input = (0..BATCH * COLUMNS)
+        .map(|index| ((index * 17 % 29) as f32 - 14.0) * 0.001)
+        .collect::<Vec<_>>();
+    let fixture_expected = (0..BATCH)
+        .flat_map(|position| {
+            let weights = &fixture_weights;
+            let inputs = &fixture_input;
+            (0..ROWS).map(move |row| {
+                let mut sum = 0.0_f32;
+                for column in 0..COLUMNS {
+                    sum += weights[row * COLUMNS + column] * inputs[position * COLUMNS + column];
+                }
+                sum
+            })
+        })
+        .collect::<Vec<_>>();
+    let fixture_weight_buffer = device.new_buffer_with_data(
+        fixture_weights.as_ptr().cast(),
+        std::mem::size_of_val(fixture_weights.as_slice()) as u64,
+        shared,
+    );
+    let fixture_input_buffer = device.new_buffer_with_data(
+        fixture_input.as_ptr().cast(),
+        std::mem::size_of_val(fixture_input.as_slice()) as u64,
+        shared,
+    );
+    let fixture_output_buffer = device.new_buffer((BATCH * ROWS * 4) as u64, shared);
+    let fixture_command = queue.new_command_buffer();
+    let fixture_encoder = fixture_command.new_compute_command_encoder();
+    fixture_encoder.set_compute_pipeline_state(&pipeline);
+    fixture_encoder.set_buffer(0, Some(&fixture_weight_buffer), 0);
+    fixture_encoder.set_buffer(1, Some(&fixture_input_buffer), 0);
+    fixture_encoder.set_buffer(2, Some(&fixture_output_buffer), 0);
+    fixture_encoder.set_buffer(3, Some(&shape_buffer), 0);
+    fixture_encoder.set_threadgroup_memory_length(0, THREADGROUP_MEMORY_BYTES);
+    fixture_encoder.dispatch_thread_groups(
+        MTLSize {
+            width: ROWS as u64,
+            height: 1,
+            depth: 1,
+        },
+        MTLSize {
+            width: LANES,
+            height: 1,
+            depth: 1,
+        },
+    );
+    fixture_encoder.end_encoding();
+    fixture_command.commit();
+    fixture_command.wait_until_completed();
+    if fixture_command.status() != MTLCommandBufferStatus::Completed {
+        return Err("router kernel fixture command failed".to_owned());
+    }
+    // SAFETY: the completed shared fixture output is exactly batch * rows F32 values.
+    let fixture_actual = unsafe {
+        std::slice::from_raw_parts(fixture_output_buffer.contents().cast::<f32>(), BATCH * ROWS)
+    };
+    let kernel_fixture_maximum_absolute_error = fixture_actual
+        .iter()
+        .zip(&fixture_expected)
+        .map(|(&actual, &expected)| (actual - expected).abs())
+        .fold(0.0_f32, f32::max);
+    if fixture_actual.iter().any(|value| !value.is_finite())
+        || kernel_fixture_maximum_absolute_error > 2.0e-4
+    {
+        return Err(format!(
+            "router kernel fixture failed: {kernel_fixture_maximum_absolute_error}"
+        ));
+    }
+
+    let weight_buffer = device.new_buffer_with_data(
+        weight.bytes.as_ptr().cast(),
+        weight.bytes.len() as u64,
+        shared,
+    );
+    let input_buffer = device.new_buffer_with_data(
+        input.as_ptr().cast(),
+        std::mem::size_of_val(input.as_slice()) as u64,
+        shared,
+    );
+    let output_buffer = device.new_buffer((BATCH * ROWS * 4) as u64, shared);
+    let dispatch = || -> Result<f64, String> {
+        let start = Instant::now();
+        let command = queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&weight_buffer), 0);
+        encoder.set_buffer(1, Some(&input_buffer), 0);
+        encoder.set_buffer(2, Some(&output_buffer), 0);
+        encoder.set_buffer(3, Some(&shape_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, THREADGROUP_MEMORY_BYTES);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: ROWS as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        if command.status() != MTLCommandBufferStatus::Completed {
+            return Err(format!("router command failed: {:?}", command.status()));
+        }
+        Ok(elapsed_ms)
+    };
+    let cold_wall_ms = dispatch()?;
+    for _ in 0..WARMUPS {
+        dispatch()?;
+    }
+    let mut wall_ms = Vec::with_capacity(MEASUREMENTS);
+    for _ in 0..MEASUREMENTS {
+        wall_ms.push(dispatch()?);
+    }
+    // SAFETY: the completed shared output is exactly batch * rows F32 logits.
+    let logits = unsafe {
+        std::slice::from_raw_parts(output_buffer.contents().cast::<f32>(), BATCH * ROWS).to_vec()
+    };
+    if logits.iter().any(|value| !value.is_finite()) {
+        return Err("router logits are non-finite".to_owned());
+    }
+    let mut selected_experts_by_position = Vec::with_capacity(BATCH);
+    let mut route_weights_by_position = Vec::with_capacity(BATCH);
+    let mut maximum_route_weight_absolute_error = 0.0_f32;
+    let mut minimum_topk_boundary_margin = f32::INFINITY;
+    let mut union = BTreeSet::new();
+    for position in 0..BATCH {
+        let scores = logits[position * ROWS..(position + 1) * ROWS]
+            .iter()
+            .map(|logit| 1.0_f32 / (1.0 + (-logit).exp()))
+            .collect::<Vec<_>>();
+        let corrected = scores
+            .iter()
+            .zip(&correction)
+            .map(|(score, bias)| score + bias)
+            .collect::<Vec<_>>();
+        let mut indices = (0..ROWS).collect::<Vec<_>>();
+        indices.sort_by(|left, right| {
+            corrected[*right]
+                .total_cmp(&corrected[*left])
+                .then(left.cmp(right))
+        });
+        let margin = corrected[indices[TOP_K - 1]] - corrected[indices[TOP_K]];
+        if !margin.is_finite() || margin <= 0.0 {
+            return Err(format!(
+                "router top-k boundary is tied at position {position}"
+            ));
+        }
+        minimum_topk_boundary_margin = minimum_topk_boundary_margin.min(margin);
+        let chosen = &indices[..TOP_K];
+        let denominator = chosen.iter().map(|index| scores[*index]).sum::<f32>() + 1.0e-20;
+        let weights = chosen
+            .iter()
+            .map(|index| scores[*index] / denominator)
+            .collect::<Vec<_>>();
+        if weights.iter().any(|value| !value.is_finite())
+            || (weights.iter().sum::<f32>() - 1.0).abs() > 1.0e-6
+        {
+            return Err(format!("router weights invalid at position {position}"));
+        }
+        let reference_ids = &reference.selected_experts_by_position[position];
+        let reference_weights = &reference.route_weights_by_position[position];
+        if reference_ids.len() != TOP_K || reference_weights.len() != TOP_K {
+            return Err("router reference row mismatch".to_owned());
+        }
+        let candidate_set = chosen.iter().copied().collect::<BTreeSet<_>>();
+        let reference_set = reference_ids
+            .iter()
+            .map(|value| *value as usize)
+            .collect::<BTreeSet<_>>();
+        if candidate_set != reference_set {
+            return Err(format!(
+                "router selected set mismatch at position {position}"
+            ));
+        }
+        for (&index, &candidate_weight) in chosen.iter().zip(&weights) {
+            let reference_slot = reference_ids
+                .iter()
+                .position(|value| *value as usize == index)
+                .ok_or("router reference expert absent")?;
+            maximum_route_weight_absolute_error = maximum_route_weight_absolute_error
+                .max((candidate_weight - reference_weights[reference_slot]).abs());
+            union.insert(index as u32);
+        }
+        selected_experts_by_position.push(chosen.iter().map(|index| *index as u32).collect());
+        route_weights_by_position.push(weights);
+    }
+    if maximum_route_weight_absolute_error > 2.0e-6 {
+        return Err(format!(
+            "router weight parity failed: {maximum_route_weight_absolute_error}"
+        ));
+    }
+    let artifact = NativeRouteArtifact {
+        schema_version: 1,
+        semantic: "mimo_layer43_native_noaux_tc_routes",
+        layer: 43,
+        batch_size: BATCH,
+        top_k: TOP_K,
+        selected_experts_by_position: selected_experts_by_position.clone(),
+        route_weights_by_position: route_weights_by_position.clone(),
+    };
+    let output_bytes = serde_json::to_vec(&artifact).map_err(|error| error.to_string())?;
+    write_create_new(output_path, &output_bytes)?;
+    let mut ordered = wall_ms.clone();
+    ordered.sort_by(f64::total_cmp);
+    let percentile = |fraction: f64| -> f64 {
+        ordered[((ordered.len() - 1) as f64 * fraction).round() as usize]
+    };
+    let wall_p10_ms = percentile(0.10);
+    let wall_median_ms = percentile(0.50);
+    let wall_p90_ms = percentile(0.90);
+    let logical_bytes = weight
+        .metadata
+        .data_bytes
+        .checked_add(bias.metadata.data_bytes)
+        .and_then(|value| value.checked_add(input_bytes.len() as u64))
+        .and_then(|value| value.checked_add((BATCH * ROWS * 4) as u64))
+        .and_then(|value| value.checked_add(output_bytes.len() as u64))
+        .ok_or("router logical byte count overflow")?;
+    Ok(MetalRouterReport {
+        schema_version: 1,
+        semantic: "mimo_layer43_native_noaux_tc_router",
+        router_file_sha256,
+        reference_manifest_sha256,
+        input_sha256: sha256_hex(&input_bytes),
+        output_sha256: sha256_hex(&output_bytes),
+        device: device.name().to_owned(),
+        kernel_file: kernel_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("kernel file name is not UTF-8")?
+            .to_owned(),
+        kernel_function: KERNEL_FUNCTION,
+        threadgroup_memory_bytes: THREADGROUP_MEMORY_BYTES,
+        selected_experts_by_position,
+        route_weights_by_position,
+        maximum_route_weight_absolute_error,
+        minimum_topk_boundary_margin,
+        kernel_fixture_maximum_absolute_error,
+        compile_ms,
+        cold_wall_ms,
+        warmups: WARMUPS,
+        measurements: MEASUREMENTS,
+        wall_ms,
+        wall_p10_ms,
+        wall_median_ms,
+        wall_p90_ms,
+        median_timing_gate_passed: wall_median_ms <= 1.0,
+        logical_bytes,
+        batch_size: BATCH,
+        concurrency: 1,
+        accepted_tokens: 0,
+        accepted_per_verification: 0,
+        expert_union_factor: union.len() as f64 / TOP_K as f64,
+        cache_state: "router source OS-cache state uncontrolled; weight and input application buffers warm after cold dispatch",
+        implementation: "rust_owned_metal_f32_router_plus_native_noaux_tc_selection",
     })
 }
 

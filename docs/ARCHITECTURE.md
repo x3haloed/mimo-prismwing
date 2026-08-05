@@ -78,8 +78,13 @@ The construction order follows the least-proven boundaries:
 - The fixture-scheduled heterogeneous MoE path owns explicit per-tensor source
   authorities, gathers uneven expert batches, executes padded shared-weight
   kernels, and performs route-weighted scatter-add in Metal. Frozen route IDs
-  and weights are still an input authority; dynamic router selection is not yet
-  part of the native causal path.
+  and weights remain its independent correctness oracle.
+- The promoted native layer-43 router validates the exact F32 projection and
+  correction bias, shares projection weights across eight positions in Metal,
+  and owns noaux-tc selection and normalization in Rust. It emits a canonical,
+  hash-bound route artifact matching the frozen oracle. Router output is not
+  yet wired into heterogeneous expert execution inside one timed request, so
+  the complete dynamic routed-layer causal path remains unpromoted.
 - Frozen raw evidence owns measurements; Markdown reports interpret it but do
   not override it.
 

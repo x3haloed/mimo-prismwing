@@ -422,6 +422,23 @@
             "routed_only_accepted_tps_diagnostic_A8": 10.53864738664687,
             "status": "promoted_fixture_scheduled_heterogeneous_source_fp8_moe_execution; not_dynamic_router_or_endpoint_tps",
             "provenance": "PW-0037; exact PW-0016 selected ranges and frozen source routes; Rust-owned Metal gather/shared-weight expert/scatter-add; 5 warmups and 30 whole-MoE measurements"
+        },
+        "native_layer43_noaux_tc_router": {
+            "layer": 43,
+            "batch_size": 8,
+            "top_k": 8,
+            "expert_union_factor_U": 1.125,
+            "threadgroup_memory_bytes": 2048,
+            "logical_bytes": 4335704,
+            "warmups": 5,
+            "measurements_per_process": 30,
+            "wall_median_ms_repeats": [0.324625, 0.347917],
+            "wall_median_ms_repeat_mean": 0.336271,
+            "maximum_route_weight_absolute_error": 0.000000014901161,
+            "minimum_topk_boundary_margin": 0.00015354156,
+            "kernel_fixture_maximum_absolute_error": 0.000000005995389,
+            "status": "promoted_native_fixture_router_authority; not_integrated_dynamic_routed_layer_or_endpoint_tps",
+            "provenance": "PW-0038; exact layer43 F32 router and PW-0037 input; Rust-owned Metal shared-weight batch8 projection plus native noaux-tc selection; 5 warmups and 30 measurements per process"
         }
     }
 }
