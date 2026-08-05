@@ -143,6 +143,12 @@ Measure native MTP and DFlash across block sizes and workloads:
 - Cache-aware candidate counts and route-overlap shaping with mathematically
   correct verification/correction.
 
+PW-0009 established a prerequisite: the official DFlash bundle's target
+weights differ from the pinned base checkpoint. Test its draft against the base
+target directly; do not import bundle acceptance claims or substitute its
+target. Restrict the shipped verifier to greedy mode until a distribution-
+preserving positive-temperature correction path passes statistical tests.
+
 **Go:** use speculation as expert-byte leverage only when `A/U > 1`; otherwise
 retain it for dense-weight reuse or discard it if total wall time loses.
 

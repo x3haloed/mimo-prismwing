@@ -29,6 +29,24 @@ incomplete until the external-disk download and full hash pass finish.
 - Limitation: provider implementation and future availability are external and
   require frozen endpoint metadata plus drift canaries.
 
+## MiMo-V2.5-DFlash
+
+- Repository: `XiaomiMiMo/MiMo-V2.5-DFlash`
+- Hugging Face revision:
+  `1f58446181abcaa01030fdbde835fbd38ae9a2b1`
+- Local immutable metadata/draft root:
+  `/Volumes/Elements/mimo-prismwing/checkpoints/MiMo-V2.5-DFlash-1f584461`
+- Machine-readable file identity: `spec/dflash-model.lock.json`
+- Decision: candidate draft semantics and weights only; its bundled target is
+  not the authoritative Prismwing checkpoint.
+
+PW-0009 proves by 48 deterministic remote payload samples that every bundled
+target shard differs from the pinned base target. The target tensor map and
+payload sizes match, so this is not a topology change, but published DFlash
+acceptance cannot be assumed for the base revision. The source verifier is
+target-preserving for greedy decoding; its positive-temperature sampling path
+lacks the correction needed for an L2 distribution-preservation claim.
+
 ## Predecessor runtimes
 
 - TurboFieldfare: `7a99f2a635e3adf7ed0720b882d2edb600f2f0da`

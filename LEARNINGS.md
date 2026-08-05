@@ -381,3 +381,19 @@ the same bandwidth to the estimated INT4 representation requires `A/U >= 6.56`.
 Real dense/spine traffic and compute make both necessary conditions optimistic;
 MTP/DFlash acceptance and route-union measurement are now a primary risk
 frontier.
+
+PW-0009 prevents a tempting checkpoint substitution. The official
+MiMo-V2.5-DFlash repository bundles the same 73,081 target tensor assignments
+and equal per-shard payload sizes, but 48 deterministic payload samples across
+all 16 target shards differ from the pinned `XiaomiMiMo/MiMo-V2.5` revision.
+Its bundled target is therefore a distinct weight set, not merely a
+safetensors-header repack. The base checkpoint remains authoritative and
+published DFlash acceptance cannot be transferred to it without measurement.
+
+The shipped DFlash block verifier is target-preserving for temperature-zero
+argmax: it accepts the consecutive matching draft prefix and inserts the
+target's first mismatch token. Its positive-temperature branch independently
+samples draft and target tokens without speculative-sampling correction, so it
+is not proven target-distribution preserving. The downloaded DFlash draft is
+an L2 candidate only for greedy decoding until a correct sampling verifier is
+implemented and tested.
