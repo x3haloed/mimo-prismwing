@@ -61,6 +61,9 @@ See [RED_LINES.md](RED_LINES.md) for shortcuts that do not count.
   logprob, capability, and performance methodology.
 - [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) — staged experiments and kill
   criteria.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — initial causal, topology, and
+  implementation contract.
+- [docs/SOURCES.md](docs/SOURCES.md) — pinned source and decision ledger.
 - [experiments/README.md](experiments/README.md) — append-only experiment ledger
   and record template.
 - [spec/acceptance.yaml](spec/acceptance.yaml) — machine-readable acceptance
