@@ -74,6 +74,24 @@ Select the least machinery whose causal path is credible, topology is
 intelligible, embodiment depth is authorized, and preservation can be verified.
 An uncreated edge is the cheapest edge to remove.
 
+#### Escalate shared assumptions
+
+When multiple causally distinct candidates fail while preserving the same
+assumption, verify the failures and promote that assumption to an explicit
+candidate variable. Classify it before changing it:
+
+- a claim about whether or how the capability can produce its effect belongs to
+  causal realization;
+- a claim about required authorities, representations, boundaries, or
+  coordination belongs to topology compression;
+- a claim about required physical work, state, placement, timing, or substrate
+  belongs to embodiment compression.
+
+Do not reopen a capability invariant as though it were implementation detail,
+and do not cross the authorized embodiment depth silently. Prefer the relevant
+specialist's assumption-breaking procedure and a cheap falsification test over
+another variation that leaves the suspected assumption intact.
+
 ### 2. Realize the risk-bearing slice
 
 Use causal realization to carry one real fact from actual input through the

@@ -213,6 +213,39 @@ Prefer changes that remove entire categories of work instead of merely accelerat
 Do not equate lower-level with smaller. Assembly, custom storage, or specialized
 hardware are candidates whose physical resource use must still be measured.
 
+#### Break the shared assumption
+
+When incremental candidates repeatedly fail, compare them by what they changed
+and what they preserved. Several failures are strong evidence only when their
+causal mechanisms differ; minor variants of one mechanism count as one branch.
+
+1. Confirm that the failures are real rather than measurement, implementation,
+   or verification defects.
+2. List the embodiment assumptions shared by every failed branch.
+3. Separate those assumptions from capability invariants and project
+   constraints.
+4. Promote the most resource-bearing shared assumption from an implicit
+   constraint to an explicit candidate variable.
+5. Generate alternatives that change the unit of work, representation, timing,
+   placement, or substrate.
+6. Give each alternative a cheap falsification test before substantial
+   implementation.
+
+Useful reframings include:
+
+- from making an operation faster to removing the need for it
+- from storing an object compactly to embodying only the function it provides
+- from executing one logical event at a time to choosing a physical unit that
+  exposes reuse or width
+- from moving data to compute to moving compute to the natural home of the data
+- from treating a resource as primary state to treating it as backing or
+  exception state
+
+Use cross-domain analogies only when their causal mechanism transfers. State
+which resource category the analogy should remove, how capability remains
+preserved, and the cheapest observation that would disprove it. Novelty is not
+evidence; preserve failed jumps and return to the search with the new result.
+
 ---
 
 ### 5. Evaluate embodiment fitness
@@ -343,6 +376,7 @@ remains plausible and what authorization or concession it would require.
 | Everything is driven toward machine code by default | Enforce the explicit embodiment boundary before implementation |
 | Hardware-specific tuning obscures portability requirements | Record supported targets and verify every required artifact |
 | Every abstraction is removed | Preserve abstractions whose resource cost is justified by flexibility, safety, or ownership |
+| Repeated candidates preserve the bottleneck | Compare their shared assumptions and make the most resource-bearing embodiment assumption variable |
 
 ## Guiding Question
 
