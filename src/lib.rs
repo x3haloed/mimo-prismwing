@@ -133,9 +133,10 @@ pub fn build_census(index_path: &Path, checkpoint_dir: &Path) -> Result<Census, 
         );
     }
     // Standalone safetensors not named by the main index are explicit sources too.
-    let audio_tokenizer = checkpoint_dir.join("audio_tokenizer/model.safetensors");
-    if audio_tokenizer.exists() {
-        shard_names.insert("audio_tokenizer/model.safetensors".to_owned());
+    for standalone in ["model_mtp.safetensors", "audio_tokenizer/model.safetensors"] {
+        if checkpoint_dir.join(standalone).exists() {
+            shard_names.insert(standalone.to_owned());
+        }
     }
 
     let mut records = Vec::new();
@@ -180,11 +181,17 @@ pub fn build_census(index_path: &Path, checkpoint_dir: &Path) -> Result<Census, 
                 if !seen_indexed.insert(name.clone()) {
                     return Err(format!("{name}: tensor appears more than once"));
                 }
-            } else if shard != "audio_tokenizer/model.safetensors" {
+            } else if shard != "audio_tokenizer/model.safetensors"
+                && shard != "model_mtp.safetensors"
+            {
                 return Err(format!("{name}: tensor is absent from the source index"));
             }
             records.push(TensorRecord {
-                category: classify_tensor(&name).to_owned(),
+                category: if shard == "audio_tokenizer/model.safetensors" {
+                    "audio_tokenizer".to_owned()
+                } else {
+                    classify_tensor(&name).to_owned()
+                },
                 name,
                 shard: shard.clone(),
                 dtype: dtype.to_owned(),

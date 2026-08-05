@@ -20,8 +20,19 @@
     },
     "dense_spine_bytes_per_verification_estimate": {
       "bytes": 4294967296,
-      "status": "provisional_pending_PW-0002",
-      "provenance": "LEARNINGS.md initial estimate"
+      "status": "superseded_by_remote_header_census",
+      "provenance": "LEARNINGS.md initial estimate; superseded by PW-0002 pinned remote headers"
+    },
+    "source_shared_tensor_bytes": {
+      "attention_and_norms": 6094778240,
+      "dense_layer_zero": 201375744,
+      "routers": 197132288,
+      "lm_head": 1249902592,
+      "token_embeddings": 1249902592,
+      "router_correction_biases_and_other_language": 48128,
+      "dflash8_minimum_scanned_shared_bytes_per_target_pass": 7743236992,
+      "status": "pinned_remote_header_census_pending_local_payload_verification",
+      "provenance": "PW-0002 remote-header census; embeddings excluded from full-scan pass floor"
     },
     "m1_naive_metal_block_fp8_gemv": {
       "logical_weight_gib_per_second_median": 6.49803545115488,
@@ -59,6 +70,9 @@
       "dflash8_maximum_U_at_A_8_for_50_tps": 1.0597720336319674,
       "dflash8_maximum_average_unique_experts_per_layer_at_A_8_for_50_tps": 8.478176269055739,
       "dflash8_routed_only_tps_ceiling_at_U_1": 52.98860168159837,
+      "dflash8_shared_plus_routed_bytes_per_pass_at_U_1": 12770110336,
+      "dflash8_shared_plus_routed_gib_per_output_at_A_8_U_1": 1.4866365045309067,
+      "dflash8_aggregate_bandwidth_gib_per_second_required_for_50_at_A_8_U_1": 74.33182522654533,
       "exactness": "L3_bounded_approximation",
       "status": "measured_component_diagnostic_not_endpoint_tps_or_fidelity",
       "provenance": "PW-0011; interleaved FP8 control and 32-lane signed-INT4 group128 candidate; warm buffers; batch 1"

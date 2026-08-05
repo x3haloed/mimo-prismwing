@@ -433,3 +433,19 @@ The embodiment is also explicitly L3. Four real production-width rows show
 similarity. This does not predict whole-model quality, but it prevents the
 kernel's exact agreement with its quantized oracle from being mistaken for
 target fidelity.
+
+PW-0002's pinned remote-header census supersedes the provisional 4 GiB shared
+spine estimate. Source tensors contain 5.6762 GiB of attention/norm weights,
+1.1641 GiB each for the LM head and token embeddings, 0.1875 GiB for dense
+layer zero, and 0.1836 GiB of router matrices. Embeddings are gathered rather
+than fully scanned during decode, but a DFlash target verification that emits
+all eight posterior logits scans at least the attention, dense-zero, router,
+LM-head, and small correction tensors once per pass: 7.21145 GiB before routed
+experts.
+
+Combining that source shared floor with PW-0011's INT4 experts gives 11.8931
+GiB per idealized `U = 1` DFlash-8 pass, or 1.48664 GiB per output at perfect
+`A = 8`. Fifty TPS would require 74.33 GiB/s across all of those heterogeneous
+kernels. This is still a necessary traffic model, not an endpoint measurement;
+the local full-path implementation must determine attainable throughput and
+is valuable even when it does not reach 50.
