@@ -300,6 +300,8 @@ pub struct MetalFp8MoeReport {
     pub scatter_fixture_maximum_absolute_error: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub union_kernel_fixture_maximum_absolute_error: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fused_gate_up_fixture_maximum_absolute_error: Option<f32>,
     pub compile_ms: f64,
     pub cold_wall_ms: f64,
     pub warmups: usize,
@@ -1793,6 +1795,7 @@ pub fn run_metal_fp8_moe_block(
         MoeExecutionMode {
             dynamic_router_path: None,
             union_parallel: false,
+            fused_gate_up: false,
         },
     )
 }
@@ -1817,6 +1820,7 @@ pub fn run_metal_dynamic_fp8_moe_block(
         MoeExecutionMode {
             dynamic_router_path: Some(router_path),
             union_parallel: false,
+            fused_gate_up: false,
         },
     )
 }
@@ -1841,6 +1845,32 @@ pub fn run_metal_union_parallel_fp8_moe_block(
         MoeExecutionMode {
             dynamic_router_path: Some(router_path),
             union_parallel: true,
+            fused_gate_up: false,
+        },
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_fused_gate_up_fp8_moe_block(
+    manifest_path: &Path,
+    artifact_root: &Path,
+    router_path: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8MoeReport, String> {
+    run_metal_fp8_moe_block_impl(
+        manifest_path,
+        artifact_root,
+        kernel_path,
+        input_path,
+        reference_path,
+        output_path,
+        MoeExecutionMode {
+            dynamic_router_path: Some(router_path),
+            union_parallel: false,
+            fused_gate_up: true,
         },
     )
 }
@@ -1849,6 +1879,7 @@ pub fn run_metal_union_parallel_fp8_moe_block(
 struct MoeExecutionMode<'a> {
     dynamic_router_path: Option<&'a Path>,
     union_parallel: bool,
+    fused_gate_up: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -1872,6 +1903,7 @@ fn run_metal_fp8_moe_block_impl(
     const SCATTER_KERNEL: &str = "route_weighted_scatter_add_f32";
     const ROUTER_KERNEL: &str = "f32_gemm8_shared_weight";
     const UNION_EXPERT_KERNEL: &str = "block_fp8_expert_union_gemm8_shared_weight_lut_blocked";
+    const FUSED_GATE_UP_KERNEL: &str = "block_fp8_gemm8_fused_gate_up_lut_blocked";
     const ROUTER_SHA256: &str = "12c1579d28b78dd69ec9342eb9d1f378efc5aa3c2f2a28b5ec73578e6a8bbcdd";
     const ROUTER_WEIGHT: &str = "model.layers.43.mlp.gate.weight";
     const ROUTER_BIAS: &str = "model.layers.43.mlp.gate.e_score_correction_bias";
@@ -1885,8 +1917,11 @@ fn run_metal_fp8_moe_block_impl(
     if output_path.exists() {
         return Err(format!("refusing to overwrite {}", output_path.display()));
     }
-    if mode.union_parallel && mode.dynamic_router_path.is_none() {
-        return Err("union-parallel MoE requires dynamic router authority".to_owned());
+    if (mode.union_parallel || mode.fused_gate_up) && mode.dynamic_router_path.is_none() {
+        return Err("accelerated MoE mode requires dynamic router authority".to_owned());
+    }
+    if mode.union_parallel && mode.fused_gate_up {
+        return Err("conflicting MoE execution modes".to_owned());
     }
     let manifest_bytes =
         fs::read(manifest_path).map_err(|error| format!("{}: {error}", manifest_path.display()))?;
@@ -2063,6 +2098,9 @@ fn run_metal_fp8_moe_block_impl(
     if mode.union_parallel {
         required_kernels.push(UNION_EXPERT_KERNEL);
     }
+    if mode.fused_gate_up {
+        required_kernels.push(FUSED_GATE_UP_KERNEL);
+    }
     for function in required_kernels {
         if !kernel_source.contains(&format!("kernel void {function}")) {
             return Err(format!("kernel source lacks {function}"));
@@ -2116,6 +2154,18 @@ fn run_metal_fp8_moe_block_impl(
             device
                 .new_compute_pipeline_state_with_function(&function)
                 .map_err(|error| format!("union expert pipeline: {error}"))?,
+        )
+    } else {
+        None
+    };
+    let fused_gate_up_pipeline = if mode.fused_gate_up {
+        let function = library
+            .get_function(FUSED_GATE_UP_KERNEL, None)
+            .map_err(|error| format!("fused gate/up kernel: {error}"))?;
+        Some(
+            device
+                .new_compute_pipeline_state_with_function(&function)
+                .map_err(|error| format!("fused gate/up pipeline: {error}"))?,
         )
     } else {
         None
@@ -2250,6 +2300,142 @@ fn run_metal_fp8_moe_block_impl(
         } else {
             None
         };
+
+    let fused_gate_up_fixture_maximum_absolute_error = if let Some(pipeline) =
+        fused_gate_up_pipeline.as_ref()
+    {
+        #[repr(C)]
+        struct FixtureShape {
+            rows: u32,
+            columns: u32,
+            block_rows: u32,
+            block_columns: u32,
+        }
+        const ROWS: usize = 128;
+        const COLUMNS: usize = 128;
+        let gate_weights = (0..ROWS * COLUMNS)
+            .map(|index| if index % 3 == 0 { 0xb8_u8 } else { 0x38_u8 })
+            .collect::<Vec<_>>();
+        let up_weights = (0..ROWS * COLUMNS)
+            .map(|index| if index % 5 == 0 { 0x40_u8 } else { 0xb0_u8 })
+            .collect::<Vec<_>>();
+        let gate_scale = [0.5_f32];
+        let up_scale = [0.25_f32];
+        let fixture_input = (0..BATCH * COLUMNS)
+            .map(|index| ((index % 13) as f32 - 6.0) * 0.01)
+            .collect::<Vec<_>>();
+        let scalar = |weights: &[u8], scale: f32| {
+            let mut result = vec![0.0_f32; BATCH * ROWS];
+            for position in 0..BATCH {
+                for row in 0..ROWS {
+                    let mut sum = 0.0_f32;
+                    for column in 0..COLUMNS {
+                        sum += decode_f8_e4m3fn(weights[row * COLUMNS + column])
+                            * scale
+                            * fixture_input[position * COLUMNS + column];
+                    }
+                    result[position * ROWS + row] = sum;
+                }
+            }
+            result
+        };
+        let expected_gate = scalar(&gate_weights, gate_scale[0]);
+        let expected_up = scalar(&up_weights, up_scale[0]);
+        let shape = FixtureShape {
+            rows: ROWS as u32,
+            columns: COLUMNS as u32,
+            block_rows: 128,
+            block_columns: 128,
+        };
+        let make_byte_buffer = |bytes: &[u8]| {
+            device.new_buffer_with_data(bytes.as_ptr().cast(), bytes.len() as u64, shared)
+        };
+        let gate_weight_buffer = make_byte_buffer(&gate_weights);
+        let up_weight_buffer = make_byte_buffer(&up_weights);
+        let gate_scale_buffer = device.new_buffer_with_data(
+            gate_scale.as_ptr().cast(),
+            std::mem::size_of_val(&gate_scale) as u64,
+            shared,
+        );
+        let up_scale_buffer = device.new_buffer_with_data(
+            up_scale.as_ptr().cast(),
+            std::mem::size_of_val(&up_scale) as u64,
+            shared,
+        );
+        let input_buffer = device.new_buffer_with_data(
+            fixture_input.as_ptr().cast(),
+            std::mem::size_of_val(fixture_input.as_slice()) as u64,
+            shared,
+        );
+        let gate_output_buffer = device.new_buffer((BATCH * ROWS * 4) as u64, shared);
+        let up_output_buffer = device.new_buffer((BATCH * ROWS * 4) as u64, shared);
+        let shape_buffer = device.new_buffer_with_data(
+            (&shape as *const FixtureShape).cast(),
+            std::mem::size_of::<FixtureShape>() as u64,
+            shared,
+        );
+        let fixture_lut = (0_u16..=255)
+            .map(|bits| decode_f8_e4m3fn(bits as u8))
+            .collect::<Vec<_>>();
+        let lut_buffer = device.new_buffer_with_data(
+            fixture_lut.as_ptr().cast(),
+            std::mem::size_of_val(fixture_lut.as_slice()) as u64,
+            shared,
+        );
+        let command = queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(pipeline);
+        encoder.set_buffer(0, Some(&gate_weight_buffer), 0);
+        encoder.set_buffer(1, Some(&gate_scale_buffer), 0);
+        encoder.set_buffer(2, Some(&up_weight_buffer), 0);
+        encoder.set_buffer(3, Some(&up_scale_buffer), 0);
+        encoder.set_buffer(4, Some(&input_buffer), 0);
+        encoder.set_buffer(5, Some(&gate_output_buffer), 0);
+        encoder.set_buffer(6, Some(&up_output_buffer), 0);
+        encoder.set_buffer(7, Some(&shape_buffer), 0);
+        encoder.set_buffer(8, Some(&lut_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: (ROWS * 2) as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+        if command.status() != MTLCommandBufferStatus::Completed {
+            return Err("fused gate/up fixture command failed".to_owned());
+        }
+        // SAFETY: both completed outputs contain exactly batch * rows F32 values.
+        let (actual_gate, actual_up) = unsafe {
+            (
+                std::slice::from_raw_parts(
+                    gate_output_buffer.contents().cast::<f32>(),
+                    BATCH * ROWS,
+                ),
+                std::slice::from_raw_parts(up_output_buffer.contents().cast::<f32>(), BATCH * ROWS),
+            )
+        };
+        let maximum_error = actual_gate
+            .iter()
+            .zip(&expected_gate)
+            .chain(actual_up.iter().zip(&expected_up))
+            .map(|(&actual, &expected)| (actual - expected).abs())
+            .fold(0.0_f32, f32::max);
+        if maximum_error > 2.0e-5 {
+            return Err(format!("fused gate/up fixture failed: {maximum_error}"));
+        }
+        Some(maximum_error)
+    } else {
+        None
+    };
 
     #[repr(C)]
     struct ScatterShape {
@@ -2846,41 +3032,67 @@ fn run_metal_fp8_moe_block_impl(
                     .and_then(|counts| counts.get(&expert.expert))
                     .copied()
                     .unwrap_or(expert.count);
-                encoder.set_compute_pipeline_state(&expert_pipeline);
-                encoder.set_buffer(0, Some(&expert.gate_weight), 0);
-                encoder.set_buffer(1, Some(&expert.gate_scale), 0);
-                encoder.set_buffer(2, Some(&expert.input), 0);
-                encoder.set_buffer(3, Some(&gate_output), 0);
-                encoder.set_buffer(4, Some(&gate_shape_buffer), 0);
-                encoder.set_buffer(5, Some(&lut_buffer), 0);
-                encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
-                encoder.dispatch_thread_groups(
-                    MTLSize {
-                        width: INTERMEDIATE as u64,
-                        height: 1,
-                        depth: 1,
-                    },
-                    MTLSize {
-                        width: LANES,
-                        height: 1,
-                        depth: 1,
-                    },
-                );
-                encoder.set_buffer(0, Some(&expert.up_weight), 0);
-                encoder.set_buffer(1, Some(&expert.up_scale), 0);
-                encoder.set_buffer(3, Some(&up_output), 0);
-                encoder.dispatch_thread_groups(
-                    MTLSize {
-                        width: INTERMEDIATE as u64,
-                        height: 1,
-                        depth: 1,
-                    },
-                    MTLSize {
-                        width: LANES,
-                        height: 1,
-                        depth: 1,
-                    },
-                );
+                if let Some(fused_pipeline) = fused_gate_up_pipeline.as_ref() {
+                    encoder.set_compute_pipeline_state(fused_pipeline);
+                    encoder.set_buffer(0, Some(&expert.gate_weight), 0);
+                    encoder.set_buffer(1, Some(&expert.gate_scale), 0);
+                    encoder.set_buffer(2, Some(&expert.up_weight), 0);
+                    encoder.set_buffer(3, Some(&expert.up_scale), 0);
+                    encoder.set_buffer(4, Some(&expert.input), 0);
+                    encoder.set_buffer(5, Some(&gate_output), 0);
+                    encoder.set_buffer(6, Some(&up_output), 0);
+                    encoder.set_buffer(7, Some(&gate_shape_buffer), 0);
+                    encoder.set_buffer(8, Some(&lut_buffer), 0);
+                    encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
+                    encoder.dispatch_thread_groups(
+                        MTLSize {
+                            width: (INTERMEDIATE * 2) as u64,
+                            height: 1,
+                            depth: 1,
+                        },
+                        MTLSize {
+                            width: LANES,
+                            height: 1,
+                            depth: 1,
+                        },
+                    );
+                } else {
+                    encoder.set_compute_pipeline_state(&expert_pipeline);
+                    encoder.set_buffer(0, Some(&expert.gate_weight), 0);
+                    encoder.set_buffer(1, Some(&expert.gate_scale), 0);
+                    encoder.set_buffer(2, Some(&expert.input), 0);
+                    encoder.set_buffer(3, Some(&gate_output), 0);
+                    encoder.set_buffer(4, Some(&gate_shape_buffer), 0);
+                    encoder.set_buffer(5, Some(&lut_buffer), 0);
+                    encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
+                    encoder.dispatch_thread_groups(
+                        MTLSize {
+                            width: INTERMEDIATE as u64,
+                            height: 1,
+                            depth: 1,
+                        },
+                        MTLSize {
+                            width: LANES,
+                            height: 1,
+                            depth: 1,
+                        },
+                    );
+                    encoder.set_buffer(0, Some(&expert.up_weight), 0);
+                    encoder.set_buffer(1, Some(&expert.up_scale), 0);
+                    encoder.set_buffer(3, Some(&up_output), 0);
+                    encoder.dispatch_thread_groups(
+                        MTLSize {
+                            width: INTERMEDIATE as u64,
+                            height: 1,
+                            depth: 1,
+                        },
+                        MTLSize {
+                            width: LANES,
+                            height: 1,
+                            depth: 1,
+                        },
+                    );
+                }
                 encoder.set_compute_pipeline_state(&swiglu_pipeline);
                 encoder.set_buffer(0, Some(&gate_output), 0);
                 encoder.set_buffer(1, Some(&up_output), 0);
@@ -2997,6 +3209,8 @@ fn run_metal_fp8_moe_block_impl(
     let median_timing_gate_passed = wall_median_ms
         <= if mode.union_parallel {
             14.0
+        } else if mode.fused_gate_up {
+            15.5
         } else if dynamic_router_source.is_some() {
             20.0
         } else {
@@ -3036,6 +3250,8 @@ fn run_metal_fp8_moe_block_impl(
         schema_version: 1,
         semantic: if mode.union_parallel {
             "mimo_layer43_native_union_parallel_source_fp8_moe_block".to_owned()
+        } else if mode.fused_gate_up {
+            "mimo_layer43_native_fused_gate_up_source_fp8_moe_block".to_owned()
         } else if dynamic_router_source.is_some() {
             "mimo_layer43_native_dynamic_source_fp8_moe_block".to_owned()
         } else {
@@ -3073,6 +3289,7 @@ fn run_metal_fp8_moe_block_impl(
             .map(|_| dynamic_minimum_boundary_margin.get()),
         scatter_fixture_maximum_absolute_error,
         union_kernel_fixture_maximum_absolute_error,
+        fused_gate_up_fixture_maximum_absolute_error,
         compile_ms,
         cold_wall_ms,
         warmups: WARMUPS,
@@ -3093,6 +3310,9 @@ fn run_metal_fp8_moe_block_impl(
         scheduling_limitation: if mode.union_parallel {
             "exact fixed layer43 input; dynamic native routes; selected expert union preloaded and packed"
                 .to_owned()
+        } else if mode.fused_gate_up {
+            "exact fixed layer43 input; dynamic native routes; selected expert union preloaded; gate/up fused per expert"
+                .to_owned()
         } else if dynamic_router_source.is_some() {
             "exact fixed layer43 input; dynamic native routes; selected expert union preloaded"
                 .to_owned()
@@ -3101,6 +3321,8 @@ fn run_metal_fp8_moe_block_impl(
         },
         implementation: if mode.union_parallel {
             "rust_owned_metal_dynamic_router_union_parallel_source_fp8_moe_block"
+        } else if mode.fused_gate_up {
+            "rust_owned_metal_dynamic_router_fused_gate_up_source_fp8_moe_block"
         } else if dynamic_router_source.is_some() {
             "rust_owned_metal_dynamic_router_source_fp8_moe_block"
         } else {

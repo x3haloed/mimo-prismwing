@@ -490,6 +490,18 @@
             "relative_l2_vs_torch_source_fp8": 0.0000017693812209094004,
             "status": "rejected_performance_and_embodiment_gates_failed; exact_backend_control_retained; not_endpoint_tps",
             "provenance": "PW-0041; paired MLX exact-F32 candidate/native source-FP8 control orders; real PW-0039 dynamic layer43 route fixture"
+        },
+        "native_fused_gate_up_source_fp8_moe_schedule": {
+            "candidate_wall_median_ms_repeats": [17.339375, 17.483875],
+            "control_wall_median_ms_repeats": [17.031917, 17.077792],
+            "candidate_mean_median_ms": 17.411625,
+            "control_mean_median_ms": 17.0548545,
+            "candidate_speedup_vs_control": 0.9795096379573992,
+            "candidate_routed_only_accepted_tps_diagnostic_A8": 9.775811617666173,
+            "relative_l2_vs_torch_source_fp8": 0.0000017092220248352147,
+            "fused_fixture_maximum_absolute_error": 0.000000019790605,
+            "status": "rejected_performance_gates_failed; exact_diagnostic_kernel_retained; not_endpoint_tps",
+            "provenance": "PW-0042; paired fused-gate-up candidate/separate-dispatch PW-0039 control orders; real dynamic layer43 route fixture"
         }
     }
 }

@@ -1,10 +1,10 @@
 # PW-0042 — Fused gate/up source-FP8 MoE dispatch
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: based on `25621db`; contract dirty
+- Commit and dirty state: contract committed as `df3df6f`; implementation dirty
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0039 exact authorities
 - Hardware, OS, compiler, storage, memory pressure: Apple M1; Macmini9,1;
@@ -55,7 +55,18 @@ Raw evidence will be written under
 
 ## Isolated attribution
 
-Pending.
+The candidate uses one 4,096-threadgroup gate/up dispatch per expert while the
+control uses two 2,048-threadgroup dispatches. All other route, expert, and
+scatter work is shared. In candidate/control then control/candidate order,
+candidate medians are `17.339375` and `17.483875` ms versus controls
+`17.031917` and `17.077792` ms. Candidate mean is `17.411625` ms versus
+`17.054855` ms: a 0.9795× speedup, or 2.09% slowdown. Candidate p10/p90 pairs
+are `17.148958/17.776500` and `17.302042/17.715625` ms.
+
+Cold candidate requests are 33.67 and 31.23 ms; complete process wall is 1.55
+seconds. Logical and resident bytes are unchanged from PW-0039. The candidate
+fixed-fixture routed-only diagnostic is 9.7758 TPS at `A=8`, `U=1.125`; it is
+not endpoint TPS.
 
 ## End-to-end result
 
@@ -63,8 +74,27 @@ Out of scope; no endpoint TPS claim is permitted.
 
 ## Correctness result
 
-Pending.
+The independent dual-projection scalar fixture covers distinct gate/up FP8
+patterns, scales, output partitions, and all batch-eight positions; maximum
+absolute error is `1.9790605e-8`. Candidate, repeat, and controls are
+byte-identical with SHA-256
+`ca5b3b38fb0c3fe27b0cd5b8b150a428f5b827ae04e6bc04eb6c02c264ef167e`.
+Complete parity remains `1.709222e-6` relative L2 and `7.366907e-11` maximum
+absolute error. Create-new rejection exits 1. Rust has 15 passing tests, Python
+has 23, and clippy is clean with warnings denied.
+
+Raw evidence is under `/Volumes/Elements/mimo-prismwing/evidence/PW-0042`.
+Its `SHA256SUMS` manifest hashes to
+`b31752ce9c2fda1a56ab00164b2d47dce23984c68c4e545ad931f6b0b4f1fa75`.
 
 ## Decision
 
-Pending.
+Reject fused gate/up dispatch. Eliminating nine command-encoder dispatches and
+doubling the projection grid does not improve the real dynamic MoE path. Retain
+the correctness-backed kernel as a diagnostic, but keep PW-0039's separate
+gate/up schedule as the default.
+
+Together with PW-0040 and PW-0041, this result rules out dispatch enlargement,
+union phase ordering, and exact-F32 matrix expansion as near-term fixes. The
+next performance branch must change the inner direct-FP8 arithmetic/data path
+or reduce model work under an explicitly validated fidelity contract.

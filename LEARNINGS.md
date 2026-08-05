@@ -851,3 +851,14 @@ The embodiment trade is unfavorable too: 226.5 MB of exact selected source
 tensors become 906.0 MB of F32 experts, with 919.8 MB MLX peak allocation and a
 6.59 s cold install. This kills the planned C++ bridge branch for F32 expert
 matmul on M1. Direct source-FP8 remains the promoted representation and backend.
+
+PW-0042 rejects the narrower hypothesis that separate small gate/up dispatches
+cause the direct-FP8 deficit. Fusing them into one 4,096-row dispatch remains
+byte-exact, but paired medians average 17.4116 ms versus 17.0549 ms control, a
+2.09% slowdown. Kernel-launch count and projection-grid size are not the
+decisive bottleneck at this workload.
+
+PW-0040 through PW-0042 jointly kill three superficially plausible ways to
+make the same arithmetic more matrix-like. Further performance work should
+change the inner FP8 reduction/data path or an explicitly validated fidelity
+mechanism, not continue reshuffling identical projections.
