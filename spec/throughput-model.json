@@ -474,6 +474,22 @@
             "union_kernel_fixture_maximum_absolute_error": 0.000000016763806,
             "status": "rejected_performance_gates_failed; exact_diagnostic_kernel_retained; not_endpoint_tps",
             "provenance": "PW-0040; paired candidate/control process orders; expert-major packed exact source-FP8 gate/up/SwiGLU/down scheduling; dynamic PW-0039 route fixture"
+        },
+        "mlx_hot_exact_f32_dynamic_moe_backend": {
+            "candidate_wall_median_ms_repeats": [21.865042, 21.4415],
+            "control_wall_median_ms_repeats": [17.298667, 17.254],
+            "candidate_mean_median_ms": 21.653271,
+            "control_mean_median_ms": 17.2763335,
+            "candidate_speedup_vs_control": 0.7978625261744519,
+            "source_tensor_bytes": 226547712,
+            "expanded_expert_bytes": 905969664,
+            "executable_bytes": 910164992,
+            "mlx_peak_memory_bytes": 919809540,
+            "cold_install_ms": 6591.093792,
+            "candidate_routed_only_accepted_tps_diagnostic_A8": 7.8608338646593765,
+            "relative_l2_vs_torch_source_fp8": 0.0000017693812209094004,
+            "status": "rejected_performance_and_embodiment_gates_failed; exact_backend_control_retained; not_endpoint_tps",
+            "provenance": "PW-0041; paired MLX exact-F32 candidate/native source-FP8 control orders; real PW-0039 dynamic layer43 route fixture"
         }
     }
 }

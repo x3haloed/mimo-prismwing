@@ -840,3 +840,14 @@ raising reported Metal buffers from 232.5 MB to 463.2 MB and peak process
 footprint to 903.8 MB. Deduplicating those buffers would improve embodiment but
 would not rescue the failed timing gate. The union-parallel schedule is
 rejected; the PW-0039 schedule remains the executable default.
+
+PW-0041 also rejects exact-F32 hot-cache matrix execution as the missing
+backend. The expanded MLX path is faithful (`1.77e-6` relative L2), but paired
+medians average 21.6533 ms versus 17.2763 ms control, a 25.33% slowdown. Batch
+eight does not amortize the tuned matrix path enough to offset F32 traffic and
+dynamic scheduling.
+
+The embodiment trade is unfavorable too: 226.5 MB of exact selected source
+tensors become 906.0 MB of F32 experts, with 919.8 MB MLX peak allocation and a
+6.59 s cold install. This kills the planned C++ bridge branch for F32 expert
+matmul on M1. Direct source-FP8 remains the promoted representation and backend.
