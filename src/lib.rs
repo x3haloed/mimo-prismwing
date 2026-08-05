@@ -167,6 +167,58 @@ pub struct MetalFp8GemvReport {
     pub implementation: &'static str,
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Debug, Serialize)]
+pub struct MetalFp8ExpertReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub gate_up_source_file: String,
+    pub down_source_file: String,
+    pub gate: MappedTensorMetadata,
+    pub up: MappedTensorMetadata,
+    pub down: MappedTensorMetadata,
+    pub kernel_file: String,
+    pub device: String,
+    pub input_sha256: String,
+    pub reference_sha256: String,
+    pub output_sha256: String,
+    pub output_first8: Vec<f32>,
+    pub relative_l2: f64,
+    pub maximum_absolute_error: f32,
+    pub swiglu_fixture_maximum_absolute_error: f64,
+    pub compile_ms: f64,
+    pub cold_wall_ms: f64,
+    pub warmups: usize,
+    pub measurements: usize,
+    pub wall_ms: Vec<f64>,
+    pub wall_p10_ms: f64,
+    pub wall_median_ms: f64,
+    pub wall_p90_ms: f64,
+    pub idealized_serial_routed_only_tps: f64,
+    pub idealized_serial_scope: &'static str,
+    pub dispatch_composition: &'static str,
+    pub logical_bytes: u64,
+    pub batch_size: u32,
+    pub concurrency: u32,
+    pub accepted_tokens: u32,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: u32,
+    #[serde(rename = "U")]
+    pub unique_expert_sets: u32,
+    pub cache_state: &'static str,
+    pub implementation: &'static str,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Deserialize)]
+struct SwiGluFixture {
+    schema_version: u32,
+    semantic: String,
+    gate: Vec<f32>,
+    up: Vec<f32>,
+    expected_f64: Vec<f64>,
+}
+
 fn dtype_bytes(dtype: &str) -> Option<u64> {
     match dtype {
         "BOOL" | "U8" | "I8" | "F8_E4M3" | "F8_E4M3FN" | "F8_E5M2" => Some(1),
@@ -787,6 +839,442 @@ pub fn run_metal_mapped_fp8_gemv(
         proposed_per_verification: 0,
         cache_state: "source OS-cache state uncontrolled; application Metal buffers warm after cold dispatch",
         implementation: "rust_owned_mapped_fp8_metal_blocked_lut_64_lane",
+    })
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_fp8_expert(
+    gate_up_source: &Path,
+    down_source: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8ExpertReport, String> {
+    use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize};
+
+    const GATE: &str = "model.layers.43.mlp.experts.32.gate_proj.weight";
+    const UP: &str = "model.layers.43.mlp.experts.32.up_proj.weight";
+    const DOWN: &str = "model.layers.43.mlp.experts.32.down_proj.weight";
+    const FP8_KERNEL: &str = "block_fp8_gemv_parallel_lut_blocked";
+    const SWIGLU_KERNEL: &str = "swiglu_f32";
+    const LANES: u64 = 64;
+    const WARMUPS: usize = 5;
+    const MEASUREMENTS: usize = 30;
+
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    let gate_up_mapping = MappedSafetensors::open(gate_up_source)?;
+    let down_mapping = MappedSafetensors::open(down_source)?;
+    let (input_bytes, input) = read_f32_file(input_path, Some(4096))?;
+    let gate = validate_mapped_fp8(&gate_up_mapping, GATE, &format!("{GATE}_scale_inv"), &input)?;
+    let up = validate_mapped_fp8(&gate_up_mapping, UP, &format!("{UP}_scale_inv"), &input)?;
+    let hidden_shape_authority = vec![0.0_f32; 2048];
+    let down = validate_mapped_fp8(
+        &down_mapping,
+        DOWN,
+        &format!("{DOWN}_scale_inv"),
+        &hidden_shape_authority,
+    )?;
+    if gate.rows != 2048
+        || gate.columns != 4096
+        || up.rows != gate.rows
+        || up.columns != gate.columns
+        || down.rows != 4096
+        || down.columns != 2048
+    {
+        return Err("layer-43/expert-32 projection shape mismatch".to_owned());
+    }
+    let (reference_bytes, reference) = read_f32_file(reference_path, Some(down.rows))?;
+    let kernel_source = fs::read_to_string(kernel_path)
+        .map_err(|error| format!("{}: {error}", kernel_path.display()))?;
+    for function in [FP8_KERNEL, SWIGLU_KERNEL] {
+        if !kernel_source.contains(&format!("kernel void {function}")) {
+            return Err(format!("kernel source lacks {function}"));
+        }
+    }
+
+    let device = Device::system_default().ok_or("no Metal device is available")?;
+    if device.max_threads_per_threadgroup().width < LANES {
+        return Err("Metal device cannot dispatch 64-lane threadgroups".to_owned());
+    }
+    let compile_options = CompileOptions::new();
+    compile_options.set_fast_math_enabled(false);
+    let compile_start = Instant::now();
+    let library = device
+        .new_library_with_source(&kernel_source, &compile_options)
+        .map_err(|error| format!("Metal compilation failed: {error}"))?;
+    let fp8_function = library
+        .get_function(FP8_KERNEL, None)
+        .map_err(|error| format!("Metal FP8 kernel lookup failed: {error}"))?;
+    let swiglu_function = library
+        .get_function(SWIGLU_KERNEL, None)
+        .map_err(|error| format!("Metal SwiGLU kernel lookup failed: {error}"))?;
+    let fp8_pipeline = device
+        .new_compute_pipeline_state_with_function(&fp8_function)
+        .map_err(|error| format!("Metal FP8 pipeline creation failed: {error}"))?;
+    let swiglu_pipeline = device
+        .new_compute_pipeline_state_with_function(&swiglu_function)
+        .map_err(|error| format!("Metal SwiGLU pipeline creation failed: {error}"))?;
+    let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
+    if fp8_pipeline.max_total_threads_per_threadgroup() < LANES {
+        return Err("Metal FP8 pipeline cannot dispatch 64 lanes".to_owned());
+    }
+
+    let shared = MTLResourceOptions::StorageModeShared;
+    let queue = device.new_command_queue();
+    let swiglu_fixture: SwiGluFixture =
+        serde_json::from_str(include_str!("../evals/fixtures/tiny/swiglu-f32.json"))
+            .map_err(|error| format!("SwiGLU fixture parse failed: {error}"))?;
+    if swiglu_fixture.schema_version != 1
+        || swiglu_fixture.semantic != "silu_gate_times_up_f32"
+        || swiglu_fixture.gate.len() != swiglu_fixture.up.len()
+        || swiglu_fixture.gate.len() != swiglu_fixture.expected_f64.len()
+        || swiglu_fixture.gate.is_empty()
+        || swiglu_fixture
+            .gate
+            .iter()
+            .chain(&swiglu_fixture.up)
+            .any(|value| !value.is_finite())
+    {
+        return Err("SwiGLU fixture identity or dimensions mismatch".to_owned());
+    }
+    let fixture_count = u32::try_from(swiglu_fixture.gate.len())
+        .map_err(|_| "SwiGLU fixture length does not fit u32")?;
+    let fixture_gate = device.new_buffer_with_data(
+        swiglu_fixture.gate.as_ptr().cast(),
+        std::mem::size_of_val(swiglu_fixture.gate.as_slice()) as u64,
+        shared,
+    );
+    let fixture_up = device.new_buffer_with_data(
+        swiglu_fixture.up.as_ptr().cast(),
+        std::mem::size_of_val(swiglu_fixture.up.as_slice()) as u64,
+        shared,
+    );
+    let fixture_output = device.new_buffer(
+        std::mem::size_of_val(swiglu_fixture.gate.as_slice()) as u64,
+        shared,
+    );
+    let fixture_count_buffer = device.new_buffer_with_data(
+        (&fixture_count as *const u32).cast(),
+        std::mem::size_of::<u32>() as u64,
+        shared,
+    );
+    let fixture_command = queue.new_command_buffer();
+    let fixture_encoder = fixture_command.new_compute_command_encoder();
+    fixture_encoder.set_compute_pipeline_state(&swiglu_pipeline);
+    fixture_encoder.set_buffer(0, Some(&fixture_gate), 0);
+    fixture_encoder.set_buffer(1, Some(&fixture_up), 0);
+    fixture_encoder.set_buffer(2, Some(&fixture_output), 0);
+    fixture_encoder.set_buffer(3, Some(&fixture_count_buffer), 0);
+    fixture_encoder.dispatch_threads(
+        MTLSize {
+            width: u64::from(fixture_count),
+            height: 1,
+            depth: 1,
+        },
+        MTLSize {
+            width: u64::from(fixture_count),
+            height: 1,
+            depth: 1,
+        },
+    );
+    fixture_encoder.end_encoding();
+    fixture_command.commit();
+    fixture_command.wait_until_completed();
+    if fixture_command.status() != MTLCommandBufferStatus::Completed {
+        return Err("Metal SwiGLU fixture command failed".to_owned());
+    }
+    // SAFETY: the shared fixture buffer is complete and exactly fixture_count F32 values long.
+    let fixture_actual = unsafe {
+        std::slice::from_raw_parts(
+            fixture_output.contents().cast::<f32>(),
+            fixture_count as usize,
+        )
+    };
+    let swiglu_fixture_maximum_absolute_error = fixture_actual
+        .iter()
+        .zip(&swiglu_fixture.expected_f64)
+        .map(|(&actual, &expected)| (f64::from(actual) - expected).abs())
+        .fold(0.0_f64, f64::max);
+    if fixture_actual.iter().any(|value| !value.is_finite())
+        || swiglu_fixture_maximum_absolute_error > 2.0e-6
+    {
+        return Err(format!(
+            "Metal SwiGLU fixture failed: max abs {swiglu_fixture_maximum_absolute_error}"
+        ));
+    }
+
+    #[repr(C)]
+    struct GemvShape {
+        rows: u32,
+        columns: u32,
+        block_rows: u32,
+        block_columns: u32,
+    }
+    let gate_shape = GemvShape {
+        rows: gate.rows as u32,
+        columns: gate.columns as u32,
+        block_rows: 128,
+        block_columns: 128,
+    };
+    let down_shape = GemvShape {
+        rows: down.rows as u32,
+        columns: down.columns as u32,
+        block_rows: 128,
+        block_columns: 128,
+    };
+    let hidden_count = gate.rows as u32;
+    let decode_lut = (0_u16..=255)
+        .map(|bits| decode_f8_e4m3fn(bits as u8))
+        .collect::<Vec<_>>();
+
+    let buffer = |bytes: &[u8]| {
+        device.new_buffer_with_data(bytes.as_ptr().cast(), bytes.len() as u64, shared)
+    };
+    let gate_weight_buffer = buffer(gate.weight.bytes);
+    let gate_scale_buffer = buffer(gate.scale.bytes);
+    let up_weight_buffer = buffer(up.weight.bytes);
+    let up_scale_buffer = buffer(up.scale.bytes);
+    let down_weight_buffer = buffer(down.weight.bytes);
+    let down_scale_buffer = buffer(down.scale.bytes);
+    let input_buffer = device.new_buffer_with_data(
+        input.as_ptr().cast(),
+        std::mem::size_of_val(input.as_slice()) as u64,
+        shared,
+    );
+    let gate_output = device.new_buffer((gate.rows * 4) as u64, shared);
+    let up_output = device.new_buffer((up.rows * 4) as u64, shared);
+    let hidden_output = device.new_buffer((gate.rows * 4) as u64, shared);
+    let final_output = device.new_buffer((down.rows * 4) as u64, shared);
+    let gate_shape_buffer = device.new_buffer_with_data(
+        (&gate_shape as *const GemvShape).cast(),
+        std::mem::size_of::<GemvShape>() as u64,
+        shared,
+    );
+    let down_shape_buffer = device.new_buffer_with_data(
+        (&down_shape as *const GemvShape).cast(),
+        std::mem::size_of::<GemvShape>() as u64,
+        shared,
+    );
+    let hidden_count_buffer = device.new_buffer_with_data(
+        (&hidden_count as *const u32).cast(),
+        std::mem::size_of::<u32>() as u64,
+        shared,
+    );
+    let lut_buffer = device.new_buffer_with_data(
+        decode_lut.as_ptr().cast(),
+        std::mem::size_of_val(decode_lut.as_slice()) as u64,
+        shared,
+    );
+
+    let dispatch = || -> Result<f64, String> {
+        let start = Instant::now();
+        let command = queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+
+        encoder.set_compute_pipeline_state(&fp8_pipeline);
+        encoder.set_buffer(0, Some(&gate_weight_buffer), 0);
+        encoder.set_buffer(1, Some(&gate_scale_buffer), 0);
+        encoder.set_buffer(2, Some(&input_buffer), 0);
+        encoder.set_buffer(3, Some(&gate_output), 0);
+        encoder.set_buffer(4, Some(&gate_shape_buffer), 0);
+        encoder.set_buffer(5, Some(&lut_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, LANES * 4);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: gate.rows as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+
+        encoder.set_buffer(0, Some(&up_weight_buffer), 0);
+        encoder.set_buffer(1, Some(&up_scale_buffer), 0);
+        encoder.set_buffer(3, Some(&up_output), 0);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: up.rows as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+
+        encoder.set_compute_pipeline_state(&swiglu_pipeline);
+        encoder.set_buffer(0, Some(&gate_output), 0);
+        encoder.set_buffer(1, Some(&up_output), 0);
+        encoder.set_buffer(2, Some(&hidden_output), 0);
+        encoder.set_buffer(3, Some(&hidden_count_buffer), 0);
+        encoder.dispatch_threads(
+            MTLSize {
+                width: gate.rows as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 256,
+                height: 1,
+                depth: 1,
+            },
+        );
+
+        encoder.set_compute_pipeline_state(&fp8_pipeline);
+        encoder.set_buffer(0, Some(&down_weight_buffer), 0);
+        encoder.set_buffer(1, Some(&down_scale_buffer), 0);
+        encoder.set_buffer(2, Some(&hidden_output), 0);
+        encoder.set_buffer(3, Some(&final_output), 0);
+        encoder.set_buffer(4, Some(&down_shape_buffer), 0);
+        encoder.set_buffer(5, Some(&lut_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, LANES * 4);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: down.rows as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        if command.status() != MTLCommandBufferStatus::Completed {
+            return Err(format!(
+                "Metal expert command failed: {:?}",
+                command.status()
+            ));
+        }
+        Ok(elapsed_ms)
+    };
+
+    let cold_wall_ms = dispatch()?;
+    for _ in 0..WARMUPS {
+        dispatch()?;
+    }
+    let mut wall_ms = Vec::with_capacity(MEASUREMENTS);
+    for _ in 0..MEASUREMENTS {
+        wall_ms.push(dispatch()?);
+    }
+    // SAFETY: the final shared buffer is complete and exactly down.rows F32 values long.
+    let output = unsafe {
+        std::slice::from_raw_parts(final_output.contents().cast::<f32>(), down.rows).to_vec()
+    };
+    if output.iter().any(|value| !value.is_finite()) {
+        return Err("Metal complete expert produced non-finite output".to_owned());
+    }
+    let mut squared_error = 0.0_f64;
+    let mut squared_reference = 0.0_f64;
+    let mut maximum_absolute_error = 0.0_f32;
+    for (&candidate, &expected) in output.iter().zip(&reference) {
+        let difference = candidate - expected;
+        squared_error += f64::from(difference) * f64::from(difference);
+        squared_reference += f64::from(expected) * f64::from(expected);
+        maximum_absolute_error = maximum_absolute_error.max(difference.abs());
+    }
+    if squared_reference == 0.0 {
+        return Err("complete-expert reference has zero L2 norm".to_owned());
+    }
+    let relative_l2 = (squared_error / squared_reference).sqrt();
+    if relative_l2 > 3.0e-5 || maximum_absolute_error > 2.0e-8 {
+        return Err(format!(
+            "complete-expert parity failed: relative L2 {relative_l2}, max abs {maximum_absolute_error}"
+        ));
+    }
+    let output_bytes = output
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    write_create_new(output_path, &output_bytes)?;
+
+    let mut ordered = wall_ms.clone();
+    ordered.sort_by(f64::total_cmp);
+    let percentile = |fraction: f64| -> f64 {
+        ordered[((ordered.len() - 1) as f64 * fraction).round() as usize]
+    };
+    let wall_p10_ms = percentile(0.10);
+    let wall_median_ms = percentile(0.50);
+    let wall_p90_ms = percentile(0.90);
+    if wall_median_ms > 3.0 {
+        return Err(format!(
+            "complete-expert timing gate failed: median {wall_median_ms} ms"
+        ));
+    }
+    let logical_bytes = [
+        gate.weight.metadata.data_bytes,
+        gate.scale.metadata.data_bytes,
+        up.weight.metadata.data_bytes,
+        up.scale.metadata.data_bytes,
+        down.weight.metadata.data_bytes,
+        down.scale.metadata.data_bytes,
+        input_bytes.len() as u64,
+        output_bytes.len() as u64,
+    ]
+    .into_iter()
+    .try_fold(0_u64, |total, value| total.checked_add(value))
+    .ok_or("complete-expert logical byte count overflow")?;
+    Ok(MetalFp8ExpertReport {
+        schema_version: 1,
+        semantic: "mimo_layer43_expert32_source_fp8_gate_up_swiglu_down",
+        gate_up_source_file: gate_up_source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("gate/up source file name is not UTF-8")?
+            .to_owned(),
+        down_source_file: down_source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("down source file name is not UTF-8")?
+            .to_owned(),
+        gate: gate.weight.metadata.clone(),
+        up: up.weight.metadata.clone(),
+        down: down.weight.metadata.clone(),
+        kernel_file: kernel_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("kernel file name is not UTF-8")?
+            .to_owned(),
+        device: device.name().to_owned(),
+        input_sha256: sha256_hex(&input_bytes),
+        reference_sha256: sha256_hex(&reference_bytes),
+        output_sha256: sha256_hex(&output_bytes),
+        output_first8: output.iter().copied().take(8).collect(),
+        relative_l2,
+        maximum_absolute_error,
+        swiglu_fixture_maximum_absolute_error,
+        compile_ms,
+        cold_wall_ms,
+        warmups: WARMUPS,
+        measurements: MEASUREMENTS,
+        wall_ms,
+        wall_p10_ms,
+        wall_median_ms,
+        wall_p90_ms,
+        idealized_serial_routed_only_tps: 1000.0 / (wall_median_ms * 8.0 * 47.0),
+        idealized_serial_scope: "one batch-one expert cost repeated serially for eight experts across 47 routed layers; excludes routing, dense spine, attention, logits, storage, batching, MTP, and endpoint overhead",
+        dispatch_composition: "one serialized command buffer: gate FP8 GEMV, up FP8 GEMV, F32 SwiGLU, down FP8 GEMV",
+        logical_bytes,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        accepted_per_verification: 0,
+        unique_expert_sets: 0,
+        cache_state: "source OS-cache state uncontrolled; source copied into persistent application Metal buffers before timed series",
+        implementation: "rust_owned_metal_source_fp8_complete_expert",
     })
 }
 
@@ -1792,6 +2280,28 @@ mod tests {
                 fixture.expected_f32_bits[usize::from(bits)],
                 "FP8 byte 0x{bits:02x}"
             );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn swiglu_fixture_has_independent_f64_oracle() {
+        let fixture: SwiGluFixture =
+            serde_json::from_str(include_str!("../evals/fixtures/tiny/swiglu-f32.json"))
+                .expect("SwiGLU fixture parses");
+        assert_eq!(fixture.schema_version, 1);
+        assert_eq!(fixture.semantic, "silu_gate_times_up_f32");
+        assert_eq!(fixture.gate.len(), fixture.up.len());
+        assert_eq!(fixture.gate.len(), fixture.expected_f64.len());
+        for ((&gate, &up), &expected) in fixture
+            .gate
+            .iter()
+            .zip(&fixture.up)
+            .zip(&fixture.expected_f64)
+        {
+            let gate = f64::from(gate);
+            let actual = gate / (1.0 + (-gate).exp()) * f64::from(up);
+            assert!((actual - expected).abs() < 1.0e-15);
         }
     }
 

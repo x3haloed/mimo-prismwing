@@ -747,3 +747,16 @@ medians are 1.622 and 1.678 ms. The first is 184.95× faster than PW-0032's
 the baseline includes startup, mapping, validation, output `fsync`, hash, and
 JSON. This promotes the accelerated projection primitive, not a complete layer,
 token path, or endpoint TPS result.
+
+PW-0034 composes three of those validated projections with an independently
+fixed F32 SwiGLU into the first Rust-owned, target-faithful complete routed
+expert. The actual layer-43/expert-32 gate/up/SwiGLU/down output matches an
+independent Torch source-FP8 oracle at `4.70e-7` relative L2 and `4.46e-11`
+maximum absolute error. Repeated processes are byte-identical.
+
+Two resident-buffer complete-expert medians are 1.021 and 1.079 ms at batch
+one. Serially repeating the first cost for eight experts across 47 routed
+layers yields only a 2.605 routed-only token-position/s diagnostic before any
+non-MoE work. That kills naive batch-one serial source-FP8 execution as the
+performance schedule, not the faithful primitive: heterogeneous expert
+batching, route reuse, and MTP acceptance remain the decisive next mechanisms.

@@ -354,6 +354,22 @@
             "diagnostic_speedup_vs_300ms_readable_whole_command": 184.9520542624667,
             "status": "promoted_rust_owned_metal_projection_primitive; not_complete_layer_or_endpoint_tps",
             "provenance": "PW-0033; Rust-owned Metal blocked-LUT 64-lane GEMV; real MTP layer0 fused QKV; serialized resident-buffer command wall; speedup baseline is intentionally asymmetric"
+        },
+        "native_metal_source_fp8_complete_expert": {
+            "layer": 43,
+            "expert": 32,
+            "logical_source_and_io_bytes": 25204736,
+            "warmups": 5,
+            "measurements_per_process": 30,
+            "first_process_wall_median_ms": 1.020875,
+            "repeat_process_wall_median_ms": 1.07875,
+            "first_process_wall_p10_ms": 0.910667,
+            "first_process_wall_p90_ms": 1.239125,
+            "relative_l2_vs_torch_source_fp8": 0.0000004697537997698761,
+            "maximum_absolute_error_vs_torch_source_fp8": 0.00000000004456524,
+            "idealized_batch1_serial_eight_experts_47_layers_tps": 2.605191103793419,
+            "status": "promoted_native_target_faithful_complete_expert_primitive; naive_batch1_serial_schedule_killed; not_routed_layer_or_endpoint_tps",
+            "provenance": "PW-0034; exact layer43 expert32 source FP8; Rust-owned Metal gate/up/F32-SwiGLU/down; serialized resident-buffer complete-expert wall"
         }
     }
 }

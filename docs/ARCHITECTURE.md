@@ -67,6 +67,10 @@ The construction order follows the least-proven boundaries:
   shared mapped-tensor validator establishes dtype, dimensions, scale grid,
   finite encodings, and input shape. MSL owns parallel arithmetic, not source
   layout inference or artifact authority.
+- The native source-FP8 expert path composes three such validated projections
+  with an f64-fixtured Metal SwiGLU under one Rust-owned command sequence.
+  Expert batching, routing, and weighted reduction remain separate authorities
+  that must be made real before this primitive becomes a routed layer.
 - Frozen raw evidence owns measurements; Markdown reports interpret it but do
   not override it.
 

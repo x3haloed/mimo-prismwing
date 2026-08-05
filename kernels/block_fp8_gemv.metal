@@ -21,6 +21,19 @@ struct GemvShape {
     uint block_columns;
 };
 
+kernel void swiglu_f32(
+    device const float *gate [[buffer(0)]],
+    device const float *up [[buffer(1)]],
+    device float *output [[buffer(2)]],
+    constant uint &count [[buffer(3)]],
+    uint index [[thread_position_in_grid]]) {
+    if (index >= count) {
+        return;
+    }
+    const float value = gate[index];
+    output[index] = (value / (1.0f + exp(-value))) * up[index];
+}
+
 kernel void block_fp8_gemv(
     device const uchar *weights [[buffer(0)]],
     device const float *scales [[buffer(1)]],
