@@ -6,7 +6,7 @@ import unittest
 
 from safetensors import safe_open
 
-from tools.remote_tensor_extract import materialize
+from tools.remote_tensor_extract import materialize, materialize_local
 from tools.extract_selected_experts import group_by_shard, selected_tensor_names
 
 
@@ -48,6 +48,66 @@ class RemoteTensorExtractTests(unittest.TestCase):
             self.assertEqual([item["name"] for item in result["tensors"]], ["tensor.a", "tensor.b"])
             with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
                 materialize(lock, "model.safetensors", output, ["tensor.a"], fetch)
+
+    def test_local_extraction_requires_unchanged_verified_source(self):
+        header = {
+            "tensor.a": {"dtype": "U8", "shape": [4], "data_offsets": [0, 4]},
+        }
+        raw_header = json.dumps(header, separators=(",", ":")).encode()
+        source = struct.pack("<Q", len(raw_header)) + raw_header + bytes([1, 2, 3, 4])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "model.safetensors"
+            source_path.write_bytes(source)
+            source_stat = source_path.stat()
+            source_hash = __import__("hashlib").sha256(source).hexdigest()
+            lock = {
+                "schema_version": 1,
+                "repository": "owner/model",
+                "revision": "a" * 40,
+                "files": [
+                    {"path": source_path.name, "bytes": len(source), "sha256": source_hash}
+                ],
+            }
+            verification = {
+                "schema_version": 1,
+                "evidence_class": "local_checkpoint_lock_verification",
+                "repository": "owner/model",
+                "revision": "a" * 40,
+                "complete": True,
+                "files": [
+                    {
+                        "path": source_path.name,
+                        "status": "verified",
+                        "bytes": len(source),
+                        "sha256": source_hash,
+                        "device": source_stat.st_dev,
+                        "inode": source_stat.st_ino,
+                        "modified_ns": source_stat.st_mtime_ns,
+                    }
+                ],
+            }
+            output = root / "slice.safetensors"
+            result = materialize_local(
+                lock, verification, root, source_path.name, output, ["tensor.a"]
+            )
+            self.assertEqual(
+                result["evidence_class"],
+                "pinned_local_verified_lossless_tensor_ranges",
+            )
+            with safe_open(output, framework="pt", device="cpu") as tensors:
+                self.assertEqual(tensors.get_tensor("tensor.a").tolist(), [1, 2, 3, 4])
+
+            source_path.write_bytes(source[:-1] + b"x")
+            with self.assertRaisesRegex(ValueError, "identity changed"):
+                materialize_local(
+                    lock,
+                    verification,
+                    root,
+                    source_path.name,
+                    root / "second.safetensors",
+                    ["tensor.a"],
+                )
 
 
 if __name__ == "__main__":

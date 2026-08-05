@@ -20,6 +20,9 @@ except ModuleNotFoundError:
     from remote_safetensors_audit import fetch_range, load_lock
 
 
+SCHEMA_VERSION = 1
+
+
 FetchRange = Callable[[str, str, str, int, int], bytes]
 
 
@@ -33,6 +36,11 @@ def materialize(
     output: Path,
     tensor_names: list[str],
     fetch: FetchRange = fetch_range,
+    evidence_class: str = "pinned_remote_lossless_tensor_ranges",
+    limitation: str = (
+        "Selected payload bytes are hashed exactly, but the complete remote source-file "
+        "hash remains the Hugging Face LFS object identity until local checkpoint closure."
+    ),
 ) -> dict[str, Any]:
     if output.exists():
         raise ValueError(f"refusing to overwrite {output}")
@@ -140,7 +148,7 @@ def materialize(
 
     return {
         "schema_version": 1,
-        "evidence_class": "pinned_remote_lossless_tensor_ranges",
+        "evidence_class": evidence_class,
         "repository": repository,
         "revision": revision,
         "source_file": remote_path,
@@ -151,11 +159,77 @@ def materialize(
         "output_bytes": len(artifact),
         "output_sha256": sha256_bytes(artifact),
         "tensors": records,
-        "limitation": (
-            "Selected payload bytes are hashed exactly, but the complete remote source-file "
-            "hash remains the Hugging Face LFS object identity until local checkpoint closure."
-        ),
+        "limitation": limitation,
     }
+
+
+def materialize_local(
+    lock: dict[str, Any],
+    verification: dict[str, Any],
+    checkpoint_dir: Path,
+    source_path: str,
+    output: Path,
+    tensor_names: list[str],
+) -> dict[str, Any]:
+    if (
+        verification.get("schema_version") != SCHEMA_VERSION
+        or verification.get("evidence_class") != "local_checkpoint_lock_verification"
+        or not verification.get("complete")
+        or verification.get("repository") != lock.get("repository")
+        or verification.get("revision") != lock.get("revision")
+    ):
+        raise ValueError("local checkpoint verification identity mismatch")
+    files = {item["path"]: item for item in lock.get("files", [])}
+    observed = {item["path"]: item for item in verification.get("files", [])}
+    if source_path not in files or source_path not in observed:
+        raise ValueError(f"local source is absent from lock verification: {source_path}")
+    locked = files[source_path]
+    actual = observed[source_path]
+    if (
+        actual.get("status") != "verified"
+        or actual.get("bytes") != locked.get("bytes")
+        or actual.get("sha256") != locked.get("sha256")
+    ):
+        raise ValueError(f"local source was not verified against lock: {source_path}")
+    path = checkpoint_dir / source_path
+    stat = path.stat()
+    if (
+        stat.st_size != actual.get("bytes")
+        or stat.st_dev != actual.get("device")
+        or stat.st_ino != actual.get("inode")
+        or stat.st_mtime_ns != actual.get("modified_ns")
+    ):
+        raise ValueError(f"local source identity changed after verification: {source_path}")
+
+    def fetch_local(repository: str, revision: str, remote: str, start: int, end: int) -> bytes:
+        if (
+            repository != lock["repository"]
+            or revision != lock["revision"]
+            or remote != source_path
+            or start < 0
+            or end < start
+            or end >= stat.st_size
+        ):
+            raise ValueError("invalid local tensor range request")
+        with path.open("rb") as source:
+            source.seek(start)
+            payload = source.read(end - start + 1)
+        if len(payload) != end - start + 1:
+            raise ValueError("short local tensor range read")
+        return payload
+
+    return materialize(
+        lock,
+        source_path,
+        output,
+        tensor_names,
+        fetch_local,
+        evidence_class="pinned_local_verified_lossless_tensor_ranges",
+        limitation=(
+            "The complete source shard passed the lock and retained file identity; "
+            "this artifact contains only the named lossless tensor ranges."
+        ),
+    )
 
 
 def main() -> int:

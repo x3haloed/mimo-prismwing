@@ -119,6 +119,7 @@ def verify_lock(
             continue
         if path.stat().st_size != item["bytes"]:
             raise ValueError(f"size mismatch: {item['path']}")
+        identity = path.stat()
         actual_sha256 = sha256_file(path)
         if actual_sha256 != item["sha256"]:
             raise ValueError(f"SHA-256 mismatch: {item['path']}")
@@ -128,6 +129,9 @@ def verify_lock(
                 "status": "verified",
                 "bytes": item["bytes"],
                 "sha256": actual_sha256,
+                "device": identity.st_dev,
+                "inode": identity.st_ino,
+                "modified_ns": identity.st_mtime_ns,
             }
         )
     if require_complete and missing:

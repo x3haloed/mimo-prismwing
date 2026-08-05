@@ -10,11 +10,11 @@ from pathlib import Path
 try:
     from tools.openrouter_reference import atomic_write_new, canonical_json
     from tools.remote_safetensors_audit import load_lock
-    from tools.remote_tensor_extract import materialize
+    from tools.remote_tensor_extract import materialize, materialize_local
 except ModuleNotFoundError:
     from openrouter_reference import atomic_write_new, canonical_json
     from remote_safetensors_audit import load_lock
-    from remote_tensor_extract import materialize
+    from remote_tensor_extract import materialize, materialize_local
 
 
 def selected_tensor_names(layer: int, experts: list[int]) -> list[str]:
@@ -48,6 +48,8 @@ def main() -> int:
     parser.add_argument("--experts", required=True, type=int, nargs="+")
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
+    parser.add_argument("--checkpoint-dir", type=Path)
+    parser.add_argument("--verification-manifest", type=Path)
     arguments = parser.parse_args()
     try:
         if len(set(arguments.experts)) != len(arguments.experts):
@@ -57,11 +59,36 @@ def main() -> int:
         grouped = group_by_shard(
             index, selected_tensor_names(arguments.layer, arguments.experts)
         )
+        local_arguments = (
+            arguments.checkpoint_dir is not None,
+            arguments.verification_manifest is not None,
+        )
+        if local_arguments[0] != local_arguments[1]:
+            raise ValueError(
+                "--checkpoint-dir and --verification-manifest must be supplied together"
+            )
+        verification = (
+            json.loads(arguments.verification_manifest.read_text(encoding="utf-8"))
+            if arguments.verification_manifest is not None
+            else None
+        )
         arguments.output_dir.mkdir(parents=True, exist_ok=True)
         sources = []
         for shard, names in grouped.items():
             output = arguments.output_dir / f"{Path(shard).stem}.selected.safetensors"
-            sources.append(materialize(lock, shard, output, names))
+            if verification is None:
+                sources.append(materialize(lock, shard, output, names))
+            else:
+                sources.append(
+                    materialize_local(
+                        lock,
+                        verification,
+                        arguments.checkpoint_dir,
+                        shard,
+                        output,
+                        names,
+                    )
+                )
         result = {
             "schema_version": 1,
             "evidence_class": "pinned_remote_lossless_selected_experts",
