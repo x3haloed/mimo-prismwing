@@ -189,6 +189,20 @@
             "deterministic_fixture_turbo4_output_relative_l2": 0.230426569065,
             "status": "direct_fork_rejected_missing_dk256_dv128_metal_specialization; packing_and_wht_retained_as_research_input",
             "provenance": "PW-0020; Atomic fork 074bf826e1b06005a51737d29387e36657f41bf7; deterministic MiMo 192/128 attention fixture"
+        },
+        "m1_corrected_serial_turbo_attention": {
+            "logical_k_dimension": 192,
+            "padded_k_dimension": 256,
+            "v_dimension": 128,
+            "batch_size": 1,
+            "concurrency": 1,
+            "warmups": 10,
+            "measurements": 50,
+            "turbo3_gpu_median_ms_by_context": {"17": 2.1184999495744705, "128": 14.895625412464142, "1024": 116.72300100326538, "8192": 933.7648339569569},
+            "turbo4_gpu_median_ms_by_context": {"17": 2.0126663148403168, "128": 14.10212554037571, "1024": 109.81274954974651, "8192": 879.3838750571012},
+            "maximum_metal_vs_scalar_relative_l2": 8.332791892022661e-7,
+            "status": "accelerated_correctness_reference; serial_performance_branch_rejected; not_endpoint_tps_or_model_fidelity",
+            "provenance": "PW-0021; runtime-compiled Metal; packed application buffers warm; deterministic MiMo-shaped fixture"
         }
   }
 }

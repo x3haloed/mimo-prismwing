@@ -587,3 +587,17 @@ fidelity-safe. On the same synthetic causal-attention fixture, output relative
 L2 is 52.2% for Turbo2, 22.7% for Turbo3, and 23.0% for Turbo4. These are
 component diagnostics, not model-quality estimates; real attention activations
 and hosted-reference logits remain mandatory.
+
+PW-0021 repairs the direct-reuse blocker with a Prismwing-owned runtime-compiled
+Metal path at the actual K=256/V=128 shape. The kernel performs query WHT,
+packed Turbo3/Turbo4 dequantization, online causal softmax, weighted V
+accumulation, and inverse WHT. It matches an independent scalar reference from
+context 17 through 8,192 at worst `8.33e-7` relative L2 with intact guard bytes.
+This promotes an accelerated correctness reference, not a runtime default.
+
+The single-thread schedule is decisively too slow: at context 8,192 its warm
+GPU medians are 933.8 ms for Turbo3 and 879.4 ms for Turbo4. This branch is
+killed for performance and retained as the oracle for a parallel reduction.
+Synthetic quantization error also remains material across contexts, with
+Turbo3/Turbo4 output relative L2 generally around 20–30%; real activations are
+still the fidelity gate.
