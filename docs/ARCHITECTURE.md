@@ -25,6 +25,13 @@ consumer hardware. Modified weights or topology remain a separate named mode.
    MSL owns GPU kernels; Python owns reference acquisition, fixture generation,
    analysis, and report recomputation.
 
+PW-0012 adds one bounded implementation option without changing runtime
+authority: MLX's pinned C++ API can supply optimized native Metal primitives
+behind the Rust-controlled runtime. A compiled C++ smoke test now executes
+affine-INT4 quantized matmul directly through `libmlx`, with no Python on that
+path. MLX remains a replaceable kernel substrate; it does not own model
+semantics, artifact validation, scheduling, or accepted-token state.
+
 This creates two language boundaries but only one runtime authority. Python
 does not decide production inference semantics or execute accepted tokens.
 
@@ -46,6 +53,8 @@ The construction order follows the least-proven boundaries:
 - `spec/acceptance.yaml` is its machine-readable mirror.
 - `spec/model.lock.json` identifies every upstream checkpoint file.
 - Rust runtime code owns accepted local inference state transitions.
+- A pinned C++/MLX kernel bridge may execute validated array operations but
+  cannot weaken Rust-side artifact or state-transition checks.
 - Frozen raw evidence owns measurements; Markdown reports interpret it but do
   not override it.
 

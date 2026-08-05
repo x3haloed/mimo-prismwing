@@ -23,4 +23,15 @@ if command -v swiftc >/dev/null 2>&1 && [ "$(uname -s)" = "Darwin" ]; then
     "$prismwing_test_dir/metal_int4_gemv" \
         evals/fixtures/real/mtp-gate-int4-gemv.json \
         kernels/block_fp8_gemv.metal 64
+
+    prismwing_mlx_root="$(python3 -c 'import pathlib, mlx; print(pathlib.Path(next(iter(mlx.__path__))))')"
+    if [ -f "$prismwing_mlx_root/lib/libmlx.dylib" ]; then
+        clang++ -std=c++20 -O2 \
+            -I "$prismwing_mlx_root/include" \
+            -L "$prismwing_mlx_root/lib" \
+            -Wl,-rpath,"$prismwing_mlx_root/lib" \
+            tools/mlx_cpp_smoke.cpp -lmlx \
+            -o "$prismwing_test_dir/mlx_cpp_smoke"
+        "$prismwing_test_dir/mlx_cpp_smoke"
+    fi
 fi
