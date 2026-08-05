@@ -103,7 +103,35 @@ def error_metrics(actual: np.ndarray, expected: np.ndarray) -> dict[str, float]:
     }
 
 
-def benchmark(shard_zero: Path, shard_one: Path, layer: int, expert: int) -> dict:
+def verify_fixture(result: dict, fixture: dict) -> None:
+    if (
+        fixture.get("schema_version") != 1
+        or fixture.get("semantic") != result["semantic"]
+        or fixture.get("layer") != result["layer"]
+        or fixture.get("expert") != result["expert"]
+    ):
+        raise ValueError("complete-expert fixture identity mismatch")
+    batch_one = next(item for item in result["batches"] if item["batch_size"] == 1)
+    tolerance = fixture["first_output_abs_tolerance"]
+    comparisons = (
+        ("affine_int4", batch_one["first_output_values"]),
+        ("source_fp8", batch_one["first_source_fp8_values"]),
+    )
+    for name, actual in comparisons:
+        expected = fixture[f"expected_{name}_first_output_values"]
+        if len(actual) != len(expected) or max(
+            abs(left - right) for left, right in zip(actual, expected)
+        ) > tolerance:
+            raise ValueError(f"complete-expert fixture mismatch: {name}")
+
+
+def benchmark(
+    shard_zero: Path,
+    shard_one: Path,
+    layer: int,
+    expert: int,
+    fixture: dict | None = None,
+) -> dict:
     names = tensor_names(layer, expert)
     source = {
         "gate": dequantize_source(shard_zero, names["gate"], names["gate"] + "_scale_inv"),
@@ -182,7 +210,7 @@ def benchmark(shard_zero: Path, shard_one: Path, layer: int, expert: int) -> dic
             }
         )
 
-    return {
+    result = {
         "schema_version": 1,
         "semantic": "complete_routed_expert_gate_up_swiglu_down",
         "exactness": "L3_affine_INT4_candidate_vs_source_FP8",
@@ -203,6 +231,12 @@ def benchmark(shard_zero: Path, shard_one: Path, layer: int, expert: int) -> dic
         "peak_mlx_memory_bytes_during_setup_and_benchmark": mx.get_peak_memory(),
         "batches": batches,
     }
+    if fixture is not None:
+        verify_fixture(result, fixture)
+        result["correctness_fixture_verified"] = True
+    else:
+        result["correctness_fixture_verified"] = False
+    return result
 
 
 def main() -> int:
@@ -212,13 +246,20 @@ def main() -> int:
     parser.add_argument("output", type=Path)
     parser.add_argument("--layer", type=int, default=43)
     parser.add_argument("--expert", type=int, default=32)
+    parser.add_argument("--fixture", type=Path)
     arguments = parser.parse_args()
     try:
+        fixture = (
+            json.loads(arguments.fixture.read_text(encoding="utf-8"))
+            if arguments.fixture
+            else None
+        )
         result = benchmark(
             arguments.shard_zero,
             arguments.shard_one,
             arguments.layer,
             arguments.expert,
+            fixture,
         )
         atomic_write_new(arguments.output, canonical_json(result))
         print(arguments.output)

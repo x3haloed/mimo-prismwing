@@ -485,3 +485,25 @@ The actual down fixture also increases fidelity concern: four deterministic
 projection outputs have 15.51% relative L2 error after affine INT4. This is not
 representative activation or whole-layer evidence, but it makes layer-local
 real-activation validation a hard gate rather than follow-up polish.
+
+PW-0015 replaces three isolated projection calls with the first complete real
+routed expert: actual layer-43/expert-32 gate and up qmatmuls, SwiGLU, and the
+actual down qmatmul. MLX affine INT4 repeats at 1.3445 and 1.3124 ms for eight
+positions on one expert. A conservative sequential schedule for the same eight
+experts across all positions (`A=8, U=1`) corresponds to 16.02 routed-only TPS
+across 47 layers. This supersedes PW-0014's 21.33 TPS concatenated-projection
+proxy as the more causally complete diagnostic, while remaining neither an
+optimized schedule nor endpoint throughput.
+
+The complete expert differs from its source-FP8 computation by 15.96% relative
+L2 at batch one and 15.48% at batch eight, with cosine near 0.988. The fixed
+synthetic input cannot predict accumulated model quality, but the candidate
+crosses the experiment's 10% caution threshold. Affine INT4 therefore remains
+conditional until real router-selected activations, whole-layer state, and
+eventually hosted distributional gates pass.
+
+PW-0015 also proves a useful acquisition path: exact tensor byte ranges can be
+materialized from a pinned Hugging Face revision and hashed locally, avoiding a
+34.37 GB transfer on the critical path. This is not full checkpoint closure;
+the remote whole-file SHA is still only its locked LFS identity until the local
+file completes and hashes successfully.

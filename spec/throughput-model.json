@@ -77,7 +77,7 @@
       "status": "measured_component_diagnostic_not_endpoint_tps_or_fidelity",
       "provenance": "PW-0011; interleaved FP8 control and 32-lane signed-INT4 group128 candidate; warm buffers; batch 1"
     },
-    "m1_mlx_affine_int4_group128_batch8": {
+        "m1_mlx_affine_int4_group128_batch8": {
       "mlx_version": "0.31.2",
       "executable_bytes_per_projection": 35651584,
       "batch8_projection_wall_ms_repeat_medians": [2.668271, 2.6937915],
@@ -90,7 +90,27 @@
       "refined_gate_up_proxy_plus_actual_down_47_layer_routed_only_accepted_tps_at_A_8_U_1": 21.334515621074,
       "exactness": "L3_bounded_approximation",
       "status": "measured_component_compute_diagnostic_not_endpoint_tps_or_fidelity",
-      "provenance": "PW-0012; real 16384x4096 MTP projection; MLX affine INT4; warm buffers; batch 8"
-    }
+            "provenance": "PW-0012; real 16384x4096 MTP projection; MLX affine INT4; warm buffers; batch 8"
+        },
+        "m1_mlx_affine_int4_complete_real_expert": {
+            "mlx_version": "0.31.2",
+            "executable_bytes_per_expert": 13369344,
+            "batch1_complete_expert_wall_ms_repeat_medians": [
+                0.525125,
+                0.5933125
+            ],
+            "batch1_complete_expert_wall_ms_repeat_median_mean": 0.55921875,
+            "batch8_complete_expert_wall_ms_repeat_medians": [
+                1.344542,
+                1.312375
+            ],
+            "batch8_complete_expert_wall_ms_repeat_median_mean": 1.3284585,
+            "sequential_eight_expert_47_layer_routed_only_accepted_tps_at_A_8_U_1": 16.016003318644014,
+            "batch1_relative_l2_vs_source_fp8": 0.1595826790170538,
+            "batch8_relative_l2_vs_source_fp8": 0.1547519416233946,
+            "exactness": "L3_bounded_approximation",
+            "status": "measured_complete_expert_compute_diagnostic_not_endpoint_tps_or_fidelity",
+            "provenance": "PW-0015; actual layer43 expert32 gate/up/SwiGLU/down; warm buffers; source FP8 comparison"
+        }
   }
 }
