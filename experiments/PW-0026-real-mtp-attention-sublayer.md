@@ -1,10 +1,10 @@
 # PW-0026 — Real learned MTP attention sublayer
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: conditional
 - Date: 2026-08-04
 - Owner: Codex with project owner authorization
-- Commit and dirty state: based on `84fbb39`; contract dirty
+- Commit and dirty state: contract committed as `b4a0089`; implementation dirty
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; local
   `model_mtp.safetensors` SHA-256
@@ -58,7 +58,18 @@ Raw evidence will be written under
 
 ## Isolated attribution
 
-Pending.
+The complete 1.1-GB source file hashes to its locked SHA-256. Header metadata
+matches every predeclared dtype, shape, and offset. Independent raw-bit BF16
+decoding exactly matches the tensor library for norm, sink, and all 33,554,432
+output-projection elements.
+
+The four QKV sample rows `[0, 1, 12288, 13824]` cover Q, K, and V partitions.
+MLX's production projection differs from float64 scalar dots by at most
+`1.91264e-6`, passing the `2e-4` gate.
+
+No performance measurement or TPS is reported. Fixture generation includes
+source-file hashing, tensor decode, installation, both baselines, and artifact
+serialization, so its wall time is not a decode benchmark.
 
 ## End-to-end result
 
@@ -66,8 +77,36 @@ Out of scope; no performance or endpoint TPS claim is permitted.
 
 ## Correctness result
 
-Pending.
+All five conditions pass. The learned context-17 Metal output agrees with the
+scalar packed-cache reference at relative L2 `2.28478e-7` and maximum absolute
+error `6.55651e-7`; both are far below the predeclared limits. All 128 head
+guards remain intact.
+
+The learned quantization diagnostics are material:
+
+- Turbo4 attention output relative L2 versus uncompressed source: `0.185848`.
+- Projected 4,096-wide sublayer relative L2: `0.194277`.
+
+Output identities:
+
+- source attention: `aff26ef6640e73974467f7c957c466bb15543a7030ad399d427ece6d903c1258`
+- Turbo4 attention: `0313cb602d94e1b303ee20b30e62147a77737a7c05c5a5f0fad31d2d8aa17c20`
+- source projected sublayer: `b1b2cae21fc72bbd989284138a6f90c69be6e6eb315b6932b8ae34222a984dce`
+- Turbo4 projected sublayer: `7462245a5132f23a7fcfbcbfd8f504e77d52d7d6e4f1252495d08821bbb5ab38`
+
+Raw evidence is under
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0026`. The SHA-256 of its
+`SHA256SUMS` manifest is
+`34c1f950c1a61e6799ba536f12a149300e668bb7b72b0294facda780b9f159f4`.
 
 ## Decision
 
-Pending.
+Promote the real learned MTP attention sublayer fixture into the correctness
+ladder. Do not promote uniform Turbo4 for fidelity: nearly 19.4% sublayer error
+on deterministic learned projections is a caution result, not acceptable
+model evidence.
+
+The next cheapest fidelity experiment compares mixed precision—especially
+higher-precision K with Turbo4 V—on this exact learned fixture before any
+whole-layer integration. The MTP result cannot substitute for a base-layer
+gate once the common shard becomes available.

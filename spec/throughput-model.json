@@ -257,6 +257,15 @@
             "maximum_metal_vs_scalar_relative_l2": 1.4564259942517206e-6,
             "status": "promoted_synthetic_shared_kv_gqa_schedule; not_endpoint_tps_or_model_fidelity",
             "provenance": "PW-0025; two paired orders; shared eight-token packed KV tiles; warm application buffers"
+        },
+        "real_mtp_turbo4_attention_sublayer": {
+            "context": 17,
+            "qkv_scalar_sample_max_abs_error": 1.9126369061872595e-6,
+            "metal_vs_packed_scalar_relative_l2": 2.2847794337664519e-7,
+            "turbo4_attention_relative_l2_vs_source": 0.18584765493869781,
+            "turbo4_projected_sublayer_relative_l2_vs_source": 0.19427712261676788,
+            "status": "learned_mtp_fixture_validated; uniform_turbo4_not_promoted_for_fidelity",
+            "provenance": "PW-0026; locked complete model_mtp.safetensors; actual norm/QKV/sink/output projection; deterministic hidden states"
         }
   }
 }

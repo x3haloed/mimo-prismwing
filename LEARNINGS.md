@@ -648,3 +648,15 @@ Turbo4 now costs 13.02 ms per global attention core at context 8,192 and 0.360
 ms per 128-token SWA core. Applying those component medians across nine global
 and 39 SWA layers gives roughly 131.22 ms, down from 1.264 seconds. This is a
 material architecture promotion, but remains attention-only and synthetic.
+
+PW-0026 advances attention to learned tensors using the complete local MTP
+file: actual input RMSNorm, fused FP8 QKV with block scales, learned SWA sinks,
+and BF16 output projection. The Metal packed-cache result matches its scalar
+reference at `2.28e-7` relative L2, proving the implementation path. Selected
+MLX QKV values match float64 scalar dots within `1.92e-6`.
+
+Uniform Turbo4 is not fidelity-safe by assumption. On deterministic
+production-width hidden states, it changes learned attention output by 18.58%
+relative L2 and the projected 4,096-wide sublayer by 19.43%. The next fidelity
+branch should test higher-precision K and mixed K/V cache formats before
+whole-layer promotion.
