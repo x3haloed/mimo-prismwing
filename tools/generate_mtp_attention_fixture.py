@@ -125,6 +125,38 @@ def affine_reconstruct_rotated(
     return reconstructed
 
 
+def quantize_affine8(values: np.ndarray, s1: np.ndarray, s2: np.ndarray) -> bytes:
+    if values.ndim != 1 or values.size % 128:
+        raise ValueError("affine8 input must contain complete 128-value blocks")
+    payload = bytearray()
+    for base in range(0, values.size, 128):
+        rotated = wht(values[base:base + 128], False, s1, s2)
+        maximum = np.max(np.abs(rotated))
+        scale16 = np.float16(maximum / np.float32(127)) if maximum > 0 else np.float16(0)
+        scale = np.float32(scale16)
+        if not np.isfinite(scale):
+            raise ValueError("non-finite affine8 scale")
+        codes = (
+            np.clip(np.rint(rotated / scale), -127, 127).astype(np.int8)
+            if scale > 0 else np.zeros(128, np.int8)
+        )
+        payload.extend(np.asarray(scale16, dtype="<f2").tobytes())
+        payload.extend(codes.tobytes())
+    return bytes(payload)
+
+
+def dequant_affine8(payload: bytes, count: int) -> np.ndarray:
+    if count % 128 or len(payload) != count // 128 * 130:
+        raise ValueError("affine8 payload length mismatch")
+    result = np.empty(count, np.float32)
+    for block in range(count // 128):
+        offset = block * 130
+        scale = np.frombuffer(payload[offset:offset + 2], dtype="<f2")[0].astype(np.float32)
+        codes = np.frombuffer(payload[offset + 2:offset + 130], dtype=np.int8)
+        result[block * 128:(block + 1) * 128] = codes.astype(np.float32) * scale
+    return result
+
+
 def rope(values: np.ndarray, position: int) -> np.ndarray:
     result = values.copy()
     pair = np.arange(32, dtype=np.float32)
@@ -221,15 +253,25 @@ def generate(checkpoint: Path, atomic_source: Path) -> dict:
     mx.eval(candidate_output_mx,source_k_turbo_v_output_mx,turbo_k_source_v_output_mx);candidate_output=np.array(candidate_output_mx,copy=False).astype(np.float32);source_k_turbo_v_output=np.array(source_k_turbo_v_output_mx,copy=False).astype(np.float32);turbo_k_source_v_output=np.array(turbo_k_source_v_output_mx,copy=False).astype(np.float32)
     def digest(array): return hashlib.sha256(np.asarray(array,dtype='<f4').tobytes()).hexdigest()
     affine_sweep = []
+    affine8_attention = None
     for bits in (4, 5, 6, 8):
         affine_keys = np.empty((17, 8, 256), np.float32)
         affine_values = np.empty_like(v)
         for token in range(17):
             for kv in range(8):
-                affine_keys[token, kv] = affine_reconstruct_rotated(
-                    np.pad(k[token, kv], (0, 64)), bits, s1, s2
-                )
-                rotated_value = affine_reconstruct_rotated(v[token, kv], bits, s1, s2)
+                padded_key = np.pad(k[token, kv], (0, 64))
+                if bits == 8:
+                    affine_keys[token, kv] = dequant_affine8(
+                        quantize_affine8(padded_key, s1, s2), 256
+                    )
+                    rotated_value = dequant_affine8(
+                        quantize_affine8(v[token, kv], s1, s2), 128
+                    )
+                else:
+                    affine_keys[token, kv] = affine_reconstruct_rotated(
+                        padded_key, bits, s1, s2
+                    )
+                    rotated_value = affine_reconstruct_rotated(v[token, kv], bits, s1, s2)
                 affine_values[token, kv] = wht(rotated_value, True, s1, s2)
         affine_attention = np.empty((64, 128), np.float32)
         for head in range(64):
@@ -267,7 +309,16 @@ def generate(checkpoint: Path, atomic_source: Path) -> dict:
                 np.linalg.norm(affine_output - source_output) / np.linalg.norm(source_output)
             ),
         })
-    return {"schema_version":1,"semantic":"mimo_mtp_real_attention_context17","source_revision":REVISION,"source_sha256":SOURCE_SHA256,"format":"turbo4","context":17,"q_heads":64,"kv_heads":8,"rotated_queries_f32":rotated_queries,"packed_keys_u8":list(packed_keys),"packed_values_u8":list(packed_values),"sinks_f32":sinks.tolist(),"expected_attention_f32":candidate_attention.reshape(-1).tolist(),"source_attention_sha256":digest(source_attention),"candidate_attention_sha256":digest(candidate_attention),"source_k_turbo_v_attention_sha256":digest(source_k_turbo_v_attention),"turbo_k_source_v_attention_sha256":digest(turbo_k_source_v_attention),"source_sublayer_output_sha256":digest(source_output),"candidate_sublayer_output_sha256":digest(candidate_output),"source_k_turbo_v_sublayer_output_sha256":digest(source_k_turbo_v_output),"turbo_k_source_v_sublayer_output_sha256":digest(turbo_k_source_v_output),"source_sublayer_output_first8":source_output.reshape(-1)[:8].tolist(),"candidate_sublayer_output_first8":candidate_output.reshape(-1)[:8].tolist(),"qkv_sample_rows":samples,"qkv_sample_max_abs_error":sample_error,"attention_relative_l2_vs_source":float(np.linalg.norm(candidate_attention-source_attention)/np.linalg.norm(source_attention)),"sublayer_relative_l2_vs_source":float(np.linalg.norm(candidate_output-source_output)/np.linalg.norm(source_output)),"source_k_turbo_v_attention_relative_l2_vs_source":float(np.linalg.norm(source_k_turbo_v_attention-source_attention)/np.linalg.norm(source_attention)),"source_k_turbo_v_sublayer_relative_l2_vs_source":float(np.linalg.norm(source_k_turbo_v_output-source_output)/np.linalg.norm(source_output)),"turbo_k_source_v_attention_relative_l2_vs_source":float(np.linalg.norm(turbo_k_source_v_attention-source_attention)/np.linalg.norm(source_attention)),"turbo_k_source_v_sublayer_relative_l2_vs_source":float(np.linalg.norm(turbo_k_source_v_output-source_output)/np.linalg.norm(source_output)),"wht_affine_sweep":affine_sweep}
+        if bits == 8:
+            affine8_attention = affine_attention.copy()
+    affine8_packed_keys, affine8_packed_values = bytearray(), bytearray()
+    for kv in range(8):
+        for token in range(17):
+            affine8_packed_keys.extend(quantize_affine8(np.pad(k[token, kv], (0, 64)), s1, s2))
+            affine8_packed_values.extend(quantize_affine8(v[token, kv], s1, s2))
+    if affine8_attention is None:
+        raise AssertionError("affine8 sweep result missing")
+    return {"schema_version":1,"semantic":"mimo_mtp_real_attention_context17","source_revision":REVISION,"source_sha256":SOURCE_SHA256,"format":"turbo4","context":17,"q_heads":64,"kv_heads":8,"rotated_queries_f32":rotated_queries,"packed_keys_u8":list(packed_keys),"packed_values_u8":list(packed_values),"sinks_f32":sinks.tolist(),"expected_attention_f32":candidate_attention.reshape(-1).tolist(),"wht_affine8_packed_keys_u8":list(affine8_packed_keys),"wht_affine8_packed_values_u8":list(affine8_packed_values),"wht_affine8_expected_attention_f32":affine8_attention.reshape(-1).tolist(),"source_attention_sha256":digest(source_attention),"candidate_attention_sha256":digest(candidate_attention),"source_k_turbo_v_attention_sha256":digest(source_k_turbo_v_attention),"turbo_k_source_v_attention_sha256":digest(turbo_k_source_v_attention),"source_sublayer_output_sha256":digest(source_output),"candidate_sublayer_output_sha256":digest(candidate_output),"source_k_turbo_v_sublayer_output_sha256":digest(source_k_turbo_v_output),"turbo_k_source_v_sublayer_output_sha256":digest(turbo_k_source_v_output),"source_sublayer_output_first8":source_output.reshape(-1)[:8].tolist(),"candidate_sublayer_output_first8":candidate_output.reshape(-1)[:8].tolist(),"qkv_sample_rows":samples,"qkv_sample_max_abs_error":sample_error,"attention_relative_l2_vs_source":float(np.linalg.norm(candidate_attention-source_attention)/np.linalg.norm(source_attention)),"sublayer_relative_l2_vs_source":float(np.linalg.norm(candidate_output-source_output)/np.linalg.norm(source_output)),"source_k_turbo_v_attention_relative_l2_vs_source":float(np.linalg.norm(source_k_turbo_v_attention-source_attention)/np.linalg.norm(source_attention)),"source_k_turbo_v_sublayer_relative_l2_vs_source":float(np.linalg.norm(source_k_turbo_v_output-source_output)/np.linalg.norm(source_output)),"turbo_k_source_v_attention_relative_l2_vs_source":float(np.linalg.norm(turbo_k_source_v_attention-source_attention)/np.linalg.norm(source_attention)),"turbo_k_source_v_sublayer_relative_l2_vs_source":float(np.linalg.norm(turbo_k_source_v_output-source_output)/np.linalg.norm(source_output)),"wht_affine_sweep":affine_sweep}
 
 
 def main():

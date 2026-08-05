@@ -49,6 +49,20 @@ func halfBytes(_ value: Float) -> [UInt8] {
 func quantize(_ input: [Float], format: Int, s1: [Float], s2: [Float]) -> [UInt8] {
     var result = [UInt8]()
     for base in stride(from: 0, to: input.count, by: 128) {
+        if format == 8 {
+            var rotated = Array(input[base..<(base + 128)])
+            rotate(&rotated, inverse: false, s1: s1, s2: s2)
+            let maximum = rotated.map(abs).max() ?? 0
+            let scale16 = Float16(maximum > 0 ? maximum / 127 : 0)
+            let scale = Float(scale16)
+            result += halfBytes(scale)
+            result += rotated.map { value in
+                let rounded = scale > 0 ? (value / scale).rounded(.toNearestOrEven) : 0
+                let code = Int8(max(-127, min(127, Int(rounded))))
+                return UInt8(bitPattern: code)
+            }
+            continue
+        }
         let norm = sqrt(input[base..<(base + 128)].reduce(Float(0)) { $0 + $1 * $1 })
         var rotated = Array(input[base..<(base + 128)]).map { norm > 1e-10 ? $0 / norm : 0 }
         rotate(&rotated, inverse: false, s1: s1, s2: s2)
@@ -77,10 +91,11 @@ func quantize(_ input: [Float], format: Int, s1: [Float], s2: [Float]) -> [UInt8
     return result
 }
 func dequant(_ row: ArraySlice<UInt8>, format: Int, count: Int) -> [Float] {
-    let bytes = Array(row), blockSize = format == 3 ? 50 : 68, centroids = format == 3 ? c3 : c4
+    let bytes = Array(row), blockSize = format == 3 ? 50 : (format == 4 ? 68 : 130), centroids = format == 3 ? c3 : c4
     return (0..<count).map { column in
         let block = column / 128, within = column % 128, offset = block * blockSize
         let norm = Float(Float16(bitPattern: UInt16(bytes[offset]) | UInt16(bytes[offset+1]) << 8))
+        if format == 8 { return Float(Int8(bitPattern: bytes[offset+2+within])) * norm }
         let index: Int
         if format == 3 {
             let low = Int((bytes[offset+2+within/4] >> UInt8((within%4)*2)) & 3)
@@ -96,9 +111,9 @@ func relativeL2(_ actual: [Float], _ expected: [Float]) -> Double {
     return sqrt(error/reference)
 }
 
-guard (5...6).contains(CommandLine.arguments.count), let format = Int(CommandLine.arguments[3]), [3,4].contains(format),
+guard (5...6).contains(CommandLine.arguments.count), let format = Int(CommandLine.arguments[3]), [3,4,8].contains(format),
       let context = Int(CommandLine.arguments[4]), [17,128,1024,8192].contains(context) else {
-    fail("usage: metal_turbo_attention <kernel.metal> <locked-ggml-turbo-quant.c> <3|4> <17|128|1024|8192> [serial|parallel32]")
+    fail("usage: metal_turbo_attention <kernel.metal> <locked-ggml-turbo-quant.c> <3|4|8> <17|128|1024|8192> [serial|parallel32]")
 }
 let variant = CommandLine.arguments.count == 6 ? CommandLine.arguments[5] : "serial"
 guard ["serial", "parallel32", "gqa4", "gqa8", "shared4", "shared8"].contains(variant) else { fail("unknown kernel variant") }
@@ -112,7 +127,8 @@ if ["gqa4", "gqa8", "shared4", "shared8"].contains(variant) {
     let shared = variant.hasPrefix("shared")
     let qHeads = 64, kvHeads = variant.hasSuffix("4") ? 4 : 8
     if kvHeads == 8 && context != 128 { fail("SWA GQA requires context 128") }
-    let keyStride = format == 3 ? 100 : 136, valueStride = format == 3 ? 50 : 68
+    let keyStride = format == 3 ? 100 : (format == 4 ? 136 : 260)
+    let valueStride = format == 3 ? 50 : (format == 4 ? 68 : 130)
     let useSinks = kvHeads == 8, ropeBase: Float = useSinks ? 10_000 : 10_000_000
     let sinkBiases = (0..<qHeads).map { Float(sin(Double($0) * 0.37) * 0.5) }
     func applyRoPE(_ values: inout [Float], position: Int) {
@@ -189,7 +205,8 @@ if ["gqa4", "gqa8", "shared4", "shared8"].contains(variant) {
     for head in 0..<qHeads { guards = guards && pointer[head*130].isNaN && pointer[head*130+129].isNaN; actual += Array(UnsafeBufferPointer(start:pointer+head*130+1,count:128)) }
     let maxError=zip(actual,expected).map{abs($0-$1)}.max()!,rel=relativeL2(actual,expected)
     guard guards,actual.allSatisfy({$0.isFinite}),rel<=3e-4,maxError<=5e-4 else { fail("GQA parity rel=\(rel) max=\(maxError) guards=\(guards)") }
-    let result:[String:Any]=["schema_version":1,"device":device.name,"format":"turbo\(format)","mode":kvHeads==4 ? "global" : "swa","kernel_schedule":shared ? "shared_kv" : "per_q_head","q_heads":qHeads,"kv_heads":kvHeads,"context":context,"rope_dim":64,"rope_base":ropeBase,"value_scale":0.707,"uses_sinks":useSinks,"q_position":context-1,"batch_size":1,"concurrency":1,"accepted_tokens":1,"A":"not_applicable","U":"not_applicable","bytes_read":packedKeys.count+packedValues.count+queries.count*4+(useSinks ? sinkBiases.count*4 : 0),"compile_ms":compileMs,"cold_wall_ms":cold.0,"cold_gpu_ms":cold.1,"warmups":10,"measurements":30,"wall_median_ms":percentile(walls,0.5),"wall_p95_ms":percentile(walls,0.95),"gpu_median_ms":percentile(gpus,0.5),"gpu_p95_ms":percentile(gpus,0.95),"metal_vs_scalar_relative_l2":rel,"metal_vs_scalar_max_abs":maxError,"all_head_guards_intact":guards,"cache_state":"packed application buffers warm; no model or storage I/O"]
+    let formatName = format == 8 ? "wht_affine8" : "turbo\(format)"
+    let result:[String:Any]=["schema_version":1,"device":device.name,"format":formatName,"mode":kvHeads==4 ? "global" : "swa","kernel_schedule":shared ? "shared_kv" : "per_q_head","q_heads":qHeads,"kv_heads":kvHeads,"context":context,"rope_dim":64,"rope_base":ropeBase,"value_scale":0.707,"uses_sinks":useSinks,"q_position":context-1,"batch_size":1,"concurrency":1,"accepted_tokens":1,"A":"not_applicable","U":"not_applicable","bytes_read":packedKeys.count+packedValues.count+queries.count*4+(useSinks ? sinkBiases.count*4 : 0),"compile_ms":compileMs,"cold_wall_ms":cold.0,"cold_gpu_ms":cold.1,"warmups":10,"measurements":30,"wall_median_ms":percentile(walls,0.5),"wall_p95_ms":percentile(walls,0.95),"gpu_median_ms":percentile(gpus,0.5),"gpu_p95_ms":percentile(gpus,0.95),"metal_vs_scalar_relative_l2":rel,"metal_vs_scalar_max_abs":maxError,"all_head_guards_intact":guards,"cache_state":"packed application buffers warm; no model or storage I/O"]
     let data=try JSONSerialization.data(withJSONObject:result,options:[.sortedKeys]);FileHandle.standardOutput.write(data);FileHandle.standardOutput.write(Data("\n".utf8));exit(0)
 }
 var query = [Float](repeating: 0, count: 256)
@@ -201,7 +218,8 @@ for _ in 0..<context {
     rawKeys.append(key); rawValues.append(value)
     packedKeys += quantize(key, format: format, s1: s1, s2: s2); packedValues += quantize(value, format: format, s1: s1, s2: s2)
 }
-let keyStride = format == 3 ? 100 : 136, valueStride = format == 3 ? 50 : 68
+let keyStride = format == 3 ? 100 : (format == 4 ? 136 : 260)
+let valueStride = format == 3 ? 50 : (format == 4 ? 68 : 130)
 var qrot = query; rotate(&qrot, inverse: false, s1: s1, s2: s2)
 var maximum = -Float.infinity, denominator: Float = 0, scalarRotated = [Float](repeating: 0, count: 128)
 var baselineMaximum = -Float.infinity, baselineDenominator: Float = 0, baselineOutput = [Float](repeating: 0, count: 128)
@@ -246,5 +264,6 @@ let pointer=ob.contents().bindMemory(to:Float.self,capacity:130), actual=Array(U
 guard pointer[0].isNaN && pointer[129].isNaN else { fail("output guard changed") }
 let maxError=zip(actual,scalar).map { abs($0-$1) }.max()!, rel=relativeL2(actual,scalar)
 guard actual.allSatisfy({$0.isFinite}), rel <= 1e-4, maxError <= 2e-4 else { fail("parity rel=\(rel) max=\(maxError)") }
-let result:[String:Any] = ["schema_version":1,"device":device.name,"format":"turbo\(format)","kernel_variant":variant,"lanes":variant == "serial" ? 1 : 32,"context":context,"batch_size":1,"concurrency":1,"accepted_tokens":1,"A":"not_applicable","U":"not_applicable","bytes_read":packedKeys.count+packedValues.count+query.count*4,"compile_ms":compileMs,"cold_wall_ms":cold.0,"cold_gpu_ms":cold.1,"warmups":10,"measurements":50,"wall_median_ms":percentile(walls,0.5),"wall_p95_ms":percentile(walls,0.95),"gpu_median_ms":percentile(gpus,0.5),"gpu_p95_ms":percentile(gpus,0.95),"metal_vs_scalar_relative_l2":rel,"metal_vs_scalar_max_abs":maxError,"score_relative_l2_vs_fp32":relativeL2(candidateScores,baselineScores),"output_relative_l2_vs_fp32":relativeL2(scalar,baselineOutput),"guard_intact":true,"cache_state":"packed application buffers warm; no model or storage I/O"]
+let formatName = format == 8 ? "wht_affine8" : "turbo\(format)"
+let result:[String:Any] = ["schema_version":1,"device":device.name,"format":formatName,"kernel_variant":variant,"lanes":variant == "serial" ? 1 : 32,"context":context,"batch_size":1,"concurrency":1,"accepted_tokens":1,"A":"not_applicable","U":"not_applicable","bytes_read":packedKeys.count+packedValues.count+query.count*4,"compile_ms":compileMs,"cold_wall_ms":cold.0,"cold_gpu_ms":cold.1,"warmups":10,"measurements":50,"wall_median_ms":percentile(walls,0.5),"wall_p95_ms":percentile(walls,0.95),"gpu_median_ms":percentile(gpus,0.5),"gpu_p95_ms":percentile(gpus,0.95),"metal_vs_scalar_relative_l2":rel,"metal_vs_scalar_max_abs":maxError,"score_relative_l2_vs_fp32":relativeL2(candidateScores,baselineScores),"output_relative_l2_vs_fp32":relativeL2(scalar,baselineOutput),"guard_intact":true,"cache_state":"packed application buffers warm; no model or storage I/O"]
 let data=try JSONSerialization.data(withJSONObject:result,options:[.sortedKeys]); FileHandle.standardOutput.write(data); FileHandle.standardOutput.write(Data("\n".utf8))

@@ -54,7 +54,7 @@ kernel void turbo_gqa_attention_256_128_parallel32(
         uint threads [[threads_per_threadgroup]]) {
     if (threads != 32 || q_head >= shape.q_heads || shape.q_heads != 64 ||
         (shape.kv_heads != 4 && shape.kv_heads != 8) ||
-        (shape.format != 3 && shape.format != 4)) return;
+        (shape.format != 3 && shape.format != 4 && shape.format != 8)) return;
     uint kv_head = q_head / (shape.q_heads / shape.kv_heads);
     device const uchar * head_keys = keys + kv_head * shape.context * shape.key_stride;
     device const uchar * head_values = values + kv_head * shape.context * shape.value_stride;
@@ -126,7 +126,8 @@ kernel void turbo_gqa_attention_shared_kv(
     const uint queries_per_kv = shape.q_heads / shape.kv_heads;
     if (shape.q_heads != 64 || (shape.kv_heads != 4 && shape.kv_heads != 8) ||
         threads != queries_per_kv * 32 || kv_head >= shape.kv_heads ||
-        query_in_group >= queries_per_kv || (shape.format != 3 && shape.format != 4)) return;
+        query_in_group >= queries_per_kv ||
+        (shape.format != 3 && shape.format != 4 && shape.format != 8)) return;
     const uint q_head = kv_head * queries_per_kv + query_in_group;
     device const uchar * head_keys = keys + kv_head * shape.context * shape.key_stride;
     device const uchar * head_values = values + kv_head * shape.context * shape.value_stride;
@@ -212,6 +213,12 @@ static float dequant(device const uchar * row, uint format, uint column) {
         uint high = (packed[34 + within / 8] >> (within % 8)) & 1;
         return turbo3_centroids[low | (high << 2)] * norm;
     }
+    if (format == 8) {
+        device const uchar * packed = row + block * 130;
+        float scale = float(*((device const half *)packed));
+        device const char * codes = (device const char *)(packed + 2);
+        return float(codes[within]) * scale;
+    }
     device const uchar * packed = row + block * 68;
     float norm = float(*((device const half *)packed));
     uint index = (packed[4 + within / 2] >> ((within % 2) * 4)) & 15;
@@ -227,7 +234,8 @@ kernel void turbo_attention_256_128(
         device const float * signs1 [[buffer(5)]],
         device const float * signs2 [[buffer(6)]],
         uint tid [[thread_position_in_grid]]) {
-    if (tid != 0 || (shape.format != 3 && shape.format != 4)) return;
+    if (tid != 0 ||
+        (shape.format != 3 && shape.format != 4 && shape.format != 8)) return;
 
     float rotated_query[256];
     for (uint index = 0; index < 256; ++index) rotated_query[index] = query[index];
@@ -271,7 +279,8 @@ kernel void turbo_attention_256_128_parallel32(
         device const float * signs2 [[buffer(6)]],
         uint lane [[thread_index_in_threadgroup]],
         uint threads [[threads_per_threadgroup]]) {
-    if (threads != 32 || (shape.format != 3 && shape.format != 4)) return;
+    if (threads != 32 ||
+        (shape.format != 3 && shape.format != 4 && shape.format != 8)) return;
 
     float rotated_query[256];
     for (uint index = 0; index < 256; ++index) rotated_query[index] = query[index];

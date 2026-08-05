@@ -1,10 +1,10 @@
 # PW-0029 — Affine8 shared-KV Metal attention
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: conditional
 - Date: 2026-08-04
 - Owner: Codex with project owner authorization
-- Commit and dirty state: based on `6da266b`; contract dirty
+- Commit and dirty state: contract committed as `b2ac3bb`; implementation dirty
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; locked PW-0026 MTP file and
   PW-0020 WHT source
@@ -65,7 +65,35 @@ Raw evidence will be written under
 
 ## Isolated attribution
 
-Pending.
+The deterministic packing fixture passes: each affine8 block is exactly 130
+bytes, zero blocks encode as 130 zero bytes, the FP16 scale and signed-code
+round trip is bit-deterministic, invalid bit depths and payload lengths fail
+closed, and Python reconstruction exactly matches the packed representation.
+
+All component runs use batch one, concurrency one, one accepted token, 10
+warm-ups, and 30 measurements. Packed application buffers are warm with no
+model or storage I/O; `A` and `U` are not applicable.
+
+| Mode | Context | Logical bytes | GPU median / p95 ms | Wall median / p95 ms |
+|---|---:|---:|---:|---:|
+| global | 128 | 265,216 | 0.370 / 0.376 | 0.575 / 0.632 |
+| global | 1,024 | 1,662,976 | 1.629 / 1.670 | 1.833 / 1.893 |
+| global | 8,192 | 12,845,056 | 13.258 mean | 13.604 mean |
+| SWA | 128 | 465,152 | 0.371 / 0.376 | 0.607 / 0.639 |
+
+Cold GPU/wall values across recorded synthetic candidate runs range from
+0.378/0.959 ms through 20.169/21.211 ms. The long-context paired medians are:
+
+| Order | Turbo4 GPU median ms | affine8 GPU median ms |
+|---|---:|---:|
+| Turbo4, affine8 | 13.4795 | 13.2554 |
+| affine8, Turbo4 | 13.4747 | 13.2609 |
+
+Mean affine8/Turbo4 time ratio is `0.983752`, passing the `2.25` limit in both
+orders. Affine8 reads 12,845,056 logical bytes versus Turbo4's 6,750,208, so
+the result indicates simpler signed-byte dequantization offsets the additional
+traffic in this 8K shared-KV component; it does not show that cache traffic is
+free at longer contexts or in the full runtime.
 
 ## End-to-end result
 
@@ -73,8 +101,33 @@ Out of scope; no endpoint TPS claim is permitted.
 
 ## Correctness result
 
-Pending.
+All six contract conditions pass. Global 128/1,024/8,192 and SWA-128 preserve
+every head and guard. Worst synthetic packed-scalar relative L2 is
+`1.44178e-6`; worst maximum absolute error is `5.96046e-7`.
+
+The regenerated locked-MTP fixture is byte-identical across complete runs and
+retains PW-0028's affine8 projected-sublayer relative L2 of `0.0105761` versus
+source. Metal agrees with its independently packed Python scalar attention at
+relative L2 `2.79970e-7` and maximum absolute error `1.66893e-6`. The existing
+Turbo4 learned fixture also remains green after the kernel extension.
+
+Nine mean global-8,192 cores plus 39 SWA-128 cores give a `133.804 ms`
+attention-only diagnostic. This excludes QKV/output projections, norms, KV
+append, MoE, MTP, sampling, storage, and all endpoint orchestration; it is not
+TPS. Raw evidence is under `/Volumes/Elements/mimo-prismwing/evidence/PW-0029`.
+Its `SHA256SUMS` manifest hashes to
+`2363bcc3ff284cab0040c6046cf8bc732720f64c9076d96b94a9e8b252a49ff6`.
 
 ## Decision
 
-Pending.
+Promote WHT-affine8 shared-KV Metal as the learned-fidelity attention
+implementation candidate. It preserves PW-0028's roughly 1.06% learned
+projected error while matching or slightly beating Turbo4's 8K component time
+on this M1 schedule.
+
+This does not promote target fidelity or endpoint performance. The next causal
+step is a complete learned transformer-layer fixture using actual base-layer
+weights and activations, affine8 attention, and the selected affine8 MoE
+substrate. If the common EP0 shard remains unavailable, continue executable
+foundation and route/format work that does not pretend MTP weights are base
+weights.

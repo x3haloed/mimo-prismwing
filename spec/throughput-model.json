@@ -293,6 +293,21 @@
             "selected_candidate_max_context_cache_gib": 13.725442886352539,
             "status": "affine8_selected_for_accelerated_component_validation; not_target_fidelity_or_endpoint_tps",
             "provenance": "PW-0028; exact PW-0026 learned MTP fixture; joint K/V WHT-affine sweep; modeled storage only"
+        },
+        "m1_shared_kv_gqa_wht_affine8_attention": {
+            "block_bytes_per_128": 130,
+            "global128_gpu_median_ms": 0.3698747605085373,
+            "global1024_gpu_median_ms": 1.6285423189401627,
+            "global8192_gpu_median_ms_paired_mean": 13.258125633001328,
+            "swa128_gpu_median_ms": 0.37129223346710205,
+            "turbo4_global8192_gpu_median_ms_paired_mean": 13.477103784680367,
+            "affine8_over_turbo4_global8192_gpu_time_ratio": 0.9837518390317692,
+            "nine_global_plus_39_swa_component_ms_diagnostic": 133.80352780222893,
+            "synthetic_maximum_metal_vs_scalar_relative_l2": 0.0000014417809427335947,
+            "learned_mtp_metal_vs_scalar_relative_l2": 0.00000027996962049578901,
+            "learned_mtp_projected_sublayer_relative_l2_vs_source": 0.010576130822300911,
+            "status": "promoted_learned_fidelity_attention_component_candidate; not_endpoint_tps_or_target_fidelity",
+            "provenance": "PW-0029; two paired process orders at global context 8192; shared-KV Metal; packed buffers warm"
         }
     }
 }

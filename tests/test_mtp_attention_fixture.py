@@ -4,7 +4,9 @@ import numpy as np
 
 from tools.generate_mtp_attention_fixture import (
     affine_reconstruct_rotated,
+    dequant_affine8,
     dequant4,
+    quantize_affine8,
     quantize4,
     wht,
 )
@@ -39,6 +41,20 @@ class MtpAttentionFixtureTests(unittest.TestCase):
         self.assertTrue(all(left > right for left, right in zip(errors, errors[1:])))
         with self.assertRaises(ValueError):
             affine_reconstruct_rotated(values, 3, signs1, signs2)
+
+    def test_affine8_packing_has_explicit_scale_and_signed_codes(self) -> None:
+        signs1 = np.where(np.arange(128) % 3 == 0, -1, 1).astype(np.float32)
+        signs2 = np.where(np.arange(128) % 5 == 0, -1, 1).astype(np.float32)
+        values = np.linspace(-2, 3, 256, dtype=np.float32)
+        payload = quantize_affine8(values, signs1, signs2)
+        self.assertEqual(len(payload), 260)
+        reconstructed = dequant_affine8(payload, 256)
+        expected = affine_reconstruct_rotated(values, 8, signs1, signs2)
+        np.testing.assert_array_equal(reconstructed, expected)
+        zeros = quantize_affine8(np.zeros(128, np.float32), signs1, signs2)
+        self.assertEqual(zeros, bytes(130))
+        with self.assertRaises(ValueError):
+            dequant_affine8(payload[:-1], 256)
 
 
 if __name__ == "__main__":

@@ -679,3 +679,18 @@ modeled maximum-context hybrid KV footprint of 13.725 GiB, 39.0625% below
 FP16's 22.524 GiB but 1.912 times Turbo4. One deterministic context-17 MTP
 sublayer does not establish accumulated model fidelity or endpoint speed; the
 shared-KV Metal kernel and then base-layer/hosted gates remain mandatory.
+
+PW-0029 makes the selected cache representation executable without paying the
+naive byte-ratio penalty. Across two process orders at global context 8,192,
+WHT-affine8 shared-KV Metal averages 13.258 ms versus Turbo4's 13.477 ms, even
+though it reads 12.85 MB versus 6.75 MB. Signed-byte dequantization is simple
+enough to offset the extra packed traffic in this component schedule; that is
+not a general bandwidth claim.
+
+Correctness remains tight from global context 128 through 8,192 and SWA-128:
+worst synthetic scalar-relative L2 is `1.44e-6`. The independently generated
+learned MTP fixture passes at `2.80e-7`, while retaining PW-0028's 1.058%
+projected error versus source. Nine global plus 39 SWA cores give a 133.80 ms
+8K-context attention-only diagnostic. Affine8 is promoted into the complete
+layer branch, but neither this timing nor one MTP sublayer establishes endpoint
+TPS or target fidelity.
