@@ -47,6 +47,19 @@ acceptance cannot be assumed for the base revision. The source verifier is
 target-preserving for greedy decoding; its positive-temperature sampling path
 lacks the correction needed for an L2 distribution-preservation claim.
 
+## Atomic llama.cpp TurboQuant fork
+
+- Repository: `AtomicBot-ai/atomic-llama-cpp-turboquant`
+- Revision: `074bf826e1b06005a51737d29387e36657f41bf7`
+- License: MIT
+- Machine-readable source identity: `spec/atomic-turboquant.lock.json`
+- External source checkout:
+  `/Volumes/Elements/mimo-prismwing/research-sources/atomic-llama-cpp-turboquant`
+
+This source is research input, not a vendored runtime or validated dependency.
+Its WHT-based KV formats and Metal kernels must pass PW-0020 and the normal
+correctness ladder before any implementation is promoted.
+
 ## Predecessor runtimes
 
 - TurboFieldfare: `7a99f2a635e3adf7ed0720b882d2edb600f2f0da`

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/AtomicBot-ai/atomic-llama-cpp-turboquant",
+  "revision": "074bf826e1b06005a51737d29387e36657f41bf7",
+  "license": "MIT",
+  "files": {
+    "LICENSE": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+    "MERGE_NOTES.md": "e9554180e00000b9ba2dc52955978d5d43179e3e41fed58ac568b0f75e585f04",
+    "TURBOQUANT.md": "9fc2134517fd5ca8feba3a161ae29085868155dee515087844f34e4dd58841a7",
+    "ggml/src/ggml-common.h": "dc80af53fc4571b4d066e3a62559bc22ba5a13e8db37196aedc15a20fa177bea",
+    "ggml/src/ggml-metal/ggml-metal.metal": "0c7c8538c238e762cfa40c241a2e77a869dcc05a79963b7515b32eb05b367540",
+    "ggml/src/ggml-metal/turbo-wht.h": "7ab4d444daa814403246971cded04a649250ff143824db80b8d6ccf5131d7687",
+    "ggml/src/ggml-turbo-quant.c": "d31d651c59f68e239a05e495f1e4e2f24df419ab48d5975b2d9c848e84965c3f",
+    "src/llama-graph.cpp": "bac010d33a63d74e7a4da2f88f5459ee6c99b8f64fae84e9cb31ecbcd67773c9",
+    "src/llama-kv-cache.cpp": "2ef5a9d27589a3bc1041037c0e7327edaac5a39468f152b31f94f9c3b7af3be8",
+    "tests/test-turbo-quant.c": "70264ed4becb0ad6e1a1c033a54c28b1219b5e3c1b7ab726dff4a6950397f0d3"
+  }
+}
