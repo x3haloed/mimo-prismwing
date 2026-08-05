@@ -192,6 +192,27 @@ Integrate only evidence-backed mechanisms, in this order:
 At Prismwing 10, 25, and 50, freeze artifacts and rerun the complete validation
 protocol. Optimization does not accumulate quality debt between milestones.
 
+## E9 — Embodiment-jump portfolio
+
+When measured component work shows that rearranging the current execution shape
+does not close the gap, test alternative physical embodiments under the shared
+contract in [EMBODIMENT_JUMPS.md](EMBODIMENT_JUMPS.md):
+
+- [PW-0044](../experiments/PW-0044-route-coherent-phrase-lattice.md) turns
+  speculative future time into route-coherent verification width.
+- [PW-0045](../experiments/PW-0045-routed-mixture-compiler.md) compiles the
+  weighted routed mixture rather than materializing independent experts.
+- [PW-0046](../experiments/PW-0046-expert-bank-exception-store.md) treats exact
+  expert weights as backing state for a conservative resident program.
+- [PW-0047](../experiments/PW-0047-texture-native-weight-codec.md) tests GPU
+  fixed-function texture decode as an executable weight representation.
+- [PW-0048](../experiments/PW-0048-dram-backbone-appliance.md) maps the complete
+  backbone onto one local DRAM-rich appliance rather than remote expert calls.
+
+These are predeclared hypotheses, not evidence. Execute their cheap kill tests
+in dependency order, preserve target-faithful and modified branches separately,
+and give every combined mechanism a new experiment ID.
+
 ## Black-swan budget
 
 No more than 10% of research time before Prismwing 10 goes to black swans:

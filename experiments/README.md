@@ -4,6 +4,11 @@ This directory is the append-only history of Prismwing experiments. The staged
 research queue lives in `docs/EXPERIMENTS.md`; a proposed experiment becomes
 evidence only when it has a record here and a raw-evidence manifest or hash.
 
+The architecture-level candidate portfolio and its shared compression contract
+live in [`docs/EMBODIMENT_JUMPS.md`](../docs/EMBODIMENT_JUMPS.md). PW-0044
+through PW-0048 are reserved there as proposed, unexecuted experiments. The next
+unreserved experiment ID is PW-0049.
+
 Use sequential IDs such as `PW-0001-checkpoint-census.md`. Never renumber,
 delete, or overwrite a negative result. If stronger evidence reverses a
 decision, create a new record and cross-link both records.
