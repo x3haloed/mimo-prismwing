@@ -5,6 +5,7 @@ import unittest
 import numpy as np
 
 from tools.generate_base_decoder_layer_fixture import attention_query, noaux_tc_route, rope
+from tools.generate_base_decoder_layer_moe_fixture import build_schedule
 
 
 class BaseDecoderLayerFixtureTests(unittest.TestCase):
@@ -48,6 +49,19 @@ class BaseDecoderLayerFixtureTests(unittest.TestCase):
         self.assertEqual(set(selected[0]), set(range(248, 256)))
         np.testing.assert_allclose(weights, np.full((1, 8), 0.125, np.float32))
         self.assertGreater(margin, 0)
+
+    def test_dynamic_schedule_preserves_every_route_placement(self):
+        selected = np.arange(64, dtype=np.int64).reshape(8, 8) % 9
+        for row in range(8):
+            selected[row] = (np.arange(8) + row) % 9
+        weights = np.full((8, 8), 0.125, dtype=np.float32)
+        schedule = build_schedule(selected, weights)
+        self.assertEqual(sum(len(item["positions"]) for item in schedule.values()), 64)
+        self.assertEqual(set(schedule), set(range(9)))
+        with self.assertRaisesRegex(ValueError, "selected expert row"):
+            duplicate = selected.copy()
+            duplicate[0, 1] = duplicate[0, 0]
+            build_schedule(duplicate, weights)
 
 
 if __name__ == "__main__":
