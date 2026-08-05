@@ -319,6 +319,14 @@
             "maximum_projection_scalar_sample_abs_error": 0.0000019126369061872595,
             "status": "promoted_complete_mtp_correctness_reference; not_base_layer_target_fidelity_or_endpoint_tps",
             "provenance": "PW-0030; locked MTP layer0; actual affine8 Metal attention artifact through learned dense decoder block"
+        },
+        "native_mapped_safetensors_qkv_inspection": {
+            "source_file_bytes": 1189405960,
+            "tensor_bytes_hashed": 60817408,
+            "application_cold_os_cache_warm_wall_seconds": 0.18,
+            "application_warm_os_cache_warm_wall_seconds": 0.17,
+            "status": "promoted_native_layout_authority; warm_cache_loader_diagnostic_not_forward_pass_or_endpoint_tps",
+            "provenance": "PW-0031; Rust release read-only mmap; complete MTP metadata validation; independent Python raw-range equality"
         }
     }
 }

@@ -1,3 +1,5 @@
+use memmap2::{Mmap, MmapOptions};
+use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -9,6 +11,283 @@ use std::path::{Path, PathBuf};
 const MAX_HEADER_BYTES: u64 = 256 * 1024 * 1024;
 const EXPERT_MAGIC: &[u8; 8] = b"PWEXPRT1";
 const EXPERT_ALIGNMENT: u64 = 64;
+
+struct UniqueJson(Value);
+
+impl<'de> Deserialize<'de> for UniqueJson {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct UniqueVisitor;
+        impl<'de> Visitor<'de> for UniqueVisitor {
+            type Value = UniqueJson;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("JSON without duplicate object keys")
+            }
+            fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
+                Ok(UniqueJson(Value::Bool(value)))
+            }
+            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
+                Ok(UniqueJson(Value::Number(value.into())))
+            }
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+                Ok(UniqueJson(Value::Number(value.into())))
+            }
+            fn visit_f64<E: de::Error>(self, value: f64) -> Result<Self::Value, E> {
+                serde_json::Number::from_f64(value)
+                    .map(Value::Number)
+                    .map(UniqueJson)
+                    .ok_or_else(|| E::custom("non-finite JSON number"))
+            }
+            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(UniqueJson(Value::String(value.to_owned())))
+            }
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+                Ok(UniqueJson(Value::String(value)))
+            }
+            fn visit_none<E>(self) -> Result<Self::Value, E> {
+                Ok(UniqueJson(Value::Null))
+            }
+            fn visit_unit<E>(self) -> Result<Self::Value, E> {
+                Ok(UniqueJson(Value::Null))
+            }
+            fn visit_seq<A: SeqAccess<'de>>(
+                self,
+                mut sequence: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut values = Vec::new();
+                while let Some(value) = sequence.next_element::<UniqueJson>()? {
+                    values.push(value.0);
+                }
+                Ok(UniqueJson(Value::Array(values)))
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut values = serde_json::Map::new();
+                while let Some((key, value)) = map.next_entry::<String, UniqueJson>()? {
+                    if values.insert(key.clone(), value.0).is_some() {
+                        return Err(de::Error::custom(format!("duplicate JSON key: {key}")));
+                    }
+                }
+                Ok(UniqueJson(Value::Object(values)))
+            }
+        }
+        deserializer.deserialize_any(UniqueVisitor)
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct MappedTensorMetadata {
+    pub name: String,
+    pub dtype: String,
+    pub shape: Vec<u64>,
+    pub data_offsets: [u64; 2],
+    pub data_bytes: u64,
+}
+
+pub struct MappedSafetensors {
+    mapping: Mmap,
+    payload_start: usize,
+    tensors: BTreeMap<String, MappedTensorMetadata>,
+}
+
+pub struct MappedTensorView<'a> {
+    pub metadata: &'a MappedTensorMetadata,
+    pub bytes: &'a [u8],
+}
+
+#[derive(Debug, Serialize)]
+pub struct MappedTensorInspection {
+    pub schema_version: u32,
+    pub source_file: String,
+    pub source_file_bytes: u64,
+    pub tensor: MappedTensorMetadata,
+    pub tensor_sha256: String,
+    pub bytes_hashed: u64,
+    pub mapping: &'static str,
+}
+
+fn dtype_bytes(dtype: &str) -> Option<u64> {
+    match dtype {
+        "BOOL" | "U8" | "I8" | "F8_E4M3" | "F8_E4M3FN" | "F8_E5M2" => Some(1),
+        "U16" | "I16" | "F16" | "BF16" => Some(2),
+        "U32" | "I32" | "F32" => Some(4),
+        "U64" | "I64" | "F64" => Some(8),
+        _ => None,
+    }
+}
+
+impl MappedSafetensors {
+    pub fn open(path: &Path) -> Result<Self, String> {
+        let file = File::open(path).map_err(|error| format!("{}: {error}", path.display()))?;
+        let file_bytes = file.metadata().map_err(|error| error.to_string())?.len();
+        if file_bytes < 16 {
+            return Err("safetensors file is too short".to_owned());
+        }
+        // SAFETY: the file is opened read-only, the returned API exposes immutable slices,
+        // and the mapping owns its lifetime independently of the File handle.
+        let mapping = unsafe { MmapOptions::new().map(&file) }
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        let header_bytes = u64::from_le_bytes(
+            mapping[..8]
+                .try_into()
+                .map_err(|_| "missing header prefix")?,
+        );
+        if header_bytes == 0
+            || header_bytes > MAX_HEADER_BYTES
+            || !header_bytes.is_multiple_of(8)
+            || 8_u64
+                .checked_add(header_bytes)
+                .ok_or("header offset overflow")?
+                > file_bytes
+        {
+            return Err(format!("invalid safetensors header length {header_bytes}"));
+        }
+        let payload_start_u64 = 8_u64.checked_add(header_bytes).ok_or("payload overflow")?;
+        let payload_start =
+            usize::try_from(payload_start_u64).map_err(|_| "payload offset does not fit usize")?;
+        let header_end = payload_start;
+        let mut deserializer = serde_json::Deserializer::from_slice(&mapping[8..header_end]);
+        let header = UniqueJson::deserialize(&mut deserializer)
+            .map_err(|error| format!("malformed safetensors header: {error}"))?
+            .0;
+        deserializer
+            .end()
+            .map_err(|error| format!("trailing header data: {error}"))?;
+        let object = require_object(&header, "safetensors header")?;
+        let payload_bytes = file_bytes
+            .checked_sub(payload_start_u64)
+            .ok_or("payload underflow")?;
+        let mut tensors = BTreeMap::new();
+        let mut ranges = Vec::new();
+        for (name, value) in object {
+            if name == "__metadata__" {
+                if !value.is_object() {
+                    return Err("__metadata__ must be an object".to_owned());
+                }
+                continue;
+            }
+            let metadata = require_object(value, name)?;
+            let dtype = metadata
+                .get("dtype")
+                .and_then(Value::as_str)
+                .ok_or_else(|| format!("{name}: missing dtype"))?;
+            let element_bytes =
+                dtype_bytes(dtype).ok_or_else(|| format!("{name}: unknown dtype {dtype}"))?;
+            let shape = metadata
+                .get("shape")
+                .and_then(Value::as_array)
+                .ok_or_else(|| format!("{name}: missing shape"))?
+                .iter()
+                .map(|dimension| {
+                    dimension
+                        .as_u64()
+                        .ok_or_else(|| format!("{name}: invalid shape"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if shape.is_empty() || shape.contains(&0) {
+                return Err(format!("{name}: empty or zero tensor shape"));
+            }
+            let elements = shape.iter().try_fold(1_u64, |total, dimension| {
+                total
+                    .checked_mul(*dimension)
+                    .ok_or_else(|| format!("{name}: shape overflow"))
+            })?;
+            let expected_bytes = elements
+                .checked_mul(element_bytes)
+                .ok_or_else(|| format!("{name}: tensor byte overflow"))?;
+            let (start, end) = require_u64_pair(
+                metadata
+                    .get("data_offsets")
+                    .ok_or_else(|| format!("{name}: missing offsets"))?,
+                name,
+            )?;
+            let data_bytes = end.checked_sub(start).ok_or("tensor offsets reversed")?;
+            if data_bytes != expected_bytes {
+                return Err(format!(
+                    "{name}: shape/dtype requires {expected_bytes} bytes, got {data_bytes}"
+                ));
+            }
+            if end > payload_bytes {
+                return Err(format!("{name}: tensor payload exceeds file"));
+            }
+            let record = MappedTensorMetadata {
+                name: name.clone(),
+                dtype: dtype.to_owned(),
+                shape,
+                data_offsets: [start, end],
+                data_bytes,
+            };
+            if tensors.insert(name.clone(), record).is_some() {
+                return Err(format!("duplicate tensor name: {name}"));
+            }
+            ranges.push((start, end, name.clone()));
+        }
+        if tensors.is_empty() {
+            return Err("safetensors file contains no tensors".to_owned());
+        }
+        ranges.sort_by_key(|range| (range.0, range.1));
+        let mut previous_end = 0_u64;
+        for (start, end, name) in ranges {
+            if start < previous_end {
+                return Err(format!("{name}: overlapping tensor payload"));
+            }
+            previous_end = end;
+        }
+        Ok(Self {
+            mapping,
+            payload_start,
+            tensors,
+        })
+    }
+
+    pub fn tensor(&self, name: &str) -> Result<MappedTensorView<'_>, String> {
+        let metadata = self
+            .tensors
+            .get(name)
+            .ok_or_else(|| format!("tensor is absent: {name}"))?;
+        let start = self
+            .payload_start
+            .checked_add(
+                usize::try_from(metadata.data_offsets[0])
+                    .map_err(|_| "tensor offset does not fit usize")?,
+            )
+            .ok_or("tensor start overflow")?;
+        let end = self
+            .payload_start
+            .checked_add(
+                usize::try_from(metadata.data_offsets[1])
+                    .map_err(|_| "tensor offset does not fit usize")?,
+            )
+            .ok_or("tensor end overflow")?;
+        Ok(MappedTensorView {
+            metadata,
+            bytes: &self.mapping[start..end],
+        })
+    }
+
+    pub fn tensor_count(&self) -> usize {
+        self.tensors.len()
+    }
+}
+
+pub fn inspect_mapped_tensor(path: &Path, name: &str) -> Result<MappedTensorInspection, String> {
+    let mapped = MappedSafetensors::open(path)?;
+    let view = mapped.tensor(name)?;
+    Ok(MappedTensorInspection {
+        schema_version: 1,
+        source_file: path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("source file name is not UTF-8")?
+            .to_owned(),
+        source_file_bytes: mapped.mapping.len() as u64,
+        tensor: view.metadata.clone(),
+        tensor_sha256: sha256_hex(view.bytes),
+        bytes_hashed: view.bytes.len() as u64,
+        mapping: "read_only_memmap",
+    })
+}
 
 #[derive(Debug, Serialize)]
 pub struct TensorRecord {
@@ -92,34 +371,6 @@ pub fn classify_tensor(name: &str) -> &'static str {
     }
 }
 
-fn read_safetensors_header(
-    path: &Path,
-) -> Result<(u64, u64, serde_json::Map<String, Value>), String> {
-    let mut file = File::open(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    let file_bytes = file.metadata().map_err(|error| error.to_string())?.len();
-    let mut prefix = [0_u8; 8];
-    file.read_exact(&mut prefix)
-        .map_err(|error| format!("{}: {error}", path.display()))?;
-    let header_bytes = u64::from_le_bytes(prefix);
-    if header_bytes == 0 || header_bytes > MAX_HEADER_BYTES || header_bytes + 8 > file_bytes {
-        return Err(format!(
-            "{}: invalid header length {header_bytes}",
-            path.display()
-        ));
-    }
-    let header_len = usize::try_from(header_bytes).map_err(|_| "header does not fit usize")?;
-    let mut header = vec![0_u8; header_len];
-    file.read_exact(&mut header)
-        .map_err(|error| format!("{}: {error}", path.display()))?;
-    let value: Value = serde_json::from_slice(&header)
-        .map_err(|error| format!("{}: malformed header JSON: {error}", path.display()))?;
-    Ok((
-        file_bytes,
-        header_bytes,
-        require_object(&value, "safetensors header")?.clone(),
-    ))
-}
-
 pub fn build_census(index_path: &Path, checkpoint_dir: &Path) -> Result<Census, String> {
     let index: Value = serde_json::from_reader(
         File::open(index_path).map_err(|error| format!("{}: {error}", index_path.display()))?,
@@ -150,37 +401,14 @@ pub fn build_census(index_path: &Path, checkpoint_dir: &Path) -> Result<Census, 
     let mut shard_file_bytes = 0_u64;
     for shard in shard_names {
         let path: PathBuf = checkpoint_dir.join(&shard);
-        let (file_bytes, _header_bytes, header) = read_safetensors_header(&path)?;
+        let mapped = MappedSafetensors::open(&path)?;
+        let file_bytes = mapped.mapping.len() as u64;
         shard_file_bytes = shard_file_bytes
             .checked_add(file_bytes)
             .ok_or("shard byte overflow")?;
-        for (name, metadata) in header {
-            if name == "__metadata__" {
-                continue;
-            }
-            let object = require_object(&metadata, &name)?;
-            let dtype = object
-                .get("dtype")
-                .and_then(Value::as_str)
-                .ok_or_else(|| format!("{name}: missing dtype"))?;
-            let shape = object
-                .get("shape")
-                .and_then(Value::as_array)
-                .ok_or_else(|| format!("{name}: missing shape"))?
-                .iter()
-                .map(|dimension| {
-                    dimension
-                        .as_u64()
-                        .ok_or_else(|| format!("{name}: invalid shape"))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            let (start, end) = require_u64_pair(
-                object
-                    .get("data_offsets")
-                    .ok_or_else(|| format!("{name}: missing offsets"))?,
-                &name,
-            )?;
-            if let Some(expected_shard) = weight_map.get(&name) {
+        for metadata in mapped.tensors.values() {
+            let name = &metadata.name;
+            if let Some(expected_shard) = weight_map.get(name) {
                 if expected_shard.as_str() != Some(&shard) {
                     return Err(format!("{name}: index points to a different shard"));
                 }
@@ -196,13 +424,13 @@ pub fn build_census(index_path: &Path, checkpoint_dir: &Path) -> Result<Census, 
                 category: if shard == "audio_tokenizer/model.safetensors" {
                     "audio_tokenizer".to_owned()
                 } else {
-                    classify_tensor(&name).to_owned()
+                    classify_tensor(name).to_owned()
                 },
-                name,
+                name: name.clone(),
                 shard: shard.clone(),
-                dtype: dtype.to_owned(),
-                shape,
-                data_bytes: end - start,
+                dtype: metadata.dtype.clone(),
+                shape: metadata.shape.clone(),
+                data_bytes: metadata.data_bytes,
             });
         }
     }
@@ -308,41 +536,6 @@ fn sha256_reader(reader: &mut File) -> Result<String, String> {
         .collect())
 }
 
-fn parse_tensor_metadata(
-    header: &serde_json::Map<String, Value>,
-    name: &str,
-) -> Result<(String, Vec<u64>, u64, u64), String> {
-    let metadata = require_object(
-        header
-            .get(name)
-            .ok_or_else(|| format!("source tensor is absent: {name}"))?,
-        name,
-    )?;
-    let dtype = metadata
-        .get("dtype")
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("{name}: missing dtype"))?
-        .to_owned();
-    let shape = metadata
-        .get("shape")
-        .and_then(Value::as_array)
-        .ok_or_else(|| format!("{name}: missing shape"))?
-        .iter()
-        .map(|dimension| {
-            dimension
-                .as_u64()
-                .ok_or_else(|| format!("{name}: invalid shape"))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let (start, end) = require_u64_pair(
-        metadata
-            .get("data_offsets")
-            .ok_or_else(|| format!("{name}: missing offsets"))?,
-        name,
-    )?;
-    Ok((dtype, shape, start, end))
-}
-
 pub fn repack_expert_container(
     source: &Path,
     output: &Path,
@@ -359,39 +552,26 @@ pub fn repack_expert_container(
     if names.windows(2).any(|pair| pair[0] == pair[1]) {
         return Err("duplicate tensor name".to_owned());
     }
-    let (source_file_bytes, source_header_bytes, source_header) = read_safetensors_header(source)?;
+    let mapped = MappedSafetensors::open(source)?;
+    let source_file_bytes = mapped.mapping.len() as u64;
     let mut source_file = File::open(source).map_err(|error| error.to_string())?;
     let source_sha256 = sha256_reader(&mut source_file)?;
-    let source_payload_start = 8_u64
-        .checked_add(source_header_bytes)
-        .ok_or("source payload offset overflow")?;
     let mut payload = Vec::new();
     let mut tensors = Vec::new();
     for name in names {
-        let (dtype, shape, start, end) = parse_tensor_metadata(&source_header, &name)?;
-        let data_bytes = end.checked_sub(start).ok_or("source offsets reversed")?;
+        let view = mapped.tensor(&name)?;
+        let [start, end] = view.metadata.data_offsets;
+        let data_bytes = view.metadata.data_bytes;
         let payload_offset = align_up(payload.len() as u64, EXPERT_ALIGNMENT)?;
         let padding = usize::try_from(payload_offset - payload.len() as u64)
             .map_err(|_| "payload padding does not fit usize")?;
         payload.resize(payload.len() + padding, 0);
-        let data_len = usize::try_from(data_bytes).map_err(|_| "tensor does not fit usize")?;
-        let mut data = vec![0_u8; data_len];
-        source_file
-            .seek(SeekFrom::Start(
-                source_payload_start
-                    .checked_add(start)
-                    .ok_or("source seek overflow")?,
-            ))
-            .map_err(|error| error.to_string())?;
-        source_file
-            .read_exact(&mut data)
-            .map_err(|error| format!("{name}: {error}"))?;
-        let tensor_sha256 = sha256_hex(&data);
-        payload.extend_from_slice(&data);
+        let tensor_sha256 = sha256_hex(view.bytes);
+        payload.extend_from_slice(view.bytes);
         tensors.push(ExpertContainerTensor {
             name,
-            dtype,
-            shape,
+            dtype: view.metadata.dtype.clone(),
+            shape: view.metadata.shape.clone(),
             source_data_offsets: [start, end],
             payload_offset,
             data_bytes,
@@ -861,6 +1041,17 @@ pub fn evaluate_tiny_moe(fixture: &TinyMoeFixture, input: &[f64]) -> Result<Tiny
 mod tests {
     use super::*;
 
+    fn write_safetensors(path: &Path, header: &str, payload: &[u8]) {
+        let mut padded = header.as_bytes().to_vec();
+        while !padded.len().is_multiple_of(8) {
+            padded.push(b' ');
+        }
+        let mut bytes = (padded.len() as u64).to_le_bytes().to_vec();
+        bytes.extend_from_slice(&padded);
+        bytes.extend_from_slice(payload);
+        fs::write(path, bytes).expect("write safetensors fixture");
+    }
+
     fn temporary_test_directory(name: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
             "prismwing-{name}-{}-{}",
@@ -886,6 +1077,68 @@ mod tests {
             classify_tensor("audio_encoder.layers.0.weight"),
             "audio_path"
         );
+    }
+
+    #[test]
+    fn mapped_safetensors_returns_exact_immutable_tensor_bytes() {
+        let directory = temporary_test_directory("mapped-safetensors-valid");
+        let path = directory.join("valid.safetensors");
+        write_safetensors(
+            &path,
+            r#"{"x":{"dtype":"F32","shape":[2],"data_offsets":[0,8]},"y":{"dtype":"U8","shape":[2],"data_offsets":[8,10]}}"#,
+            &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        );
+        let mapped = MappedSafetensors::open(&path).expect("valid map");
+        assert_eq!(mapped.tensor_count(), 2);
+        let view = mapped.tensor("x").expect("x tensor");
+        assert_eq!(view.metadata.dtype, "F32");
+        assert_eq!(view.metadata.shape, vec![2]);
+        assert_eq!(view.bytes, &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert!(mapped.tensor("missing").is_err());
+        fs::remove_dir_all(directory).expect("remove fixture directory");
+    }
+
+    #[test]
+    fn mapped_safetensors_rejects_ambiguous_or_invalid_layouts() {
+        let directory = temporary_test_directory("mapped-safetensors-invalid");
+        let cases = [
+            (
+                "duplicate",
+                r#"{"x":{"dtype":"U8","shape":[1],"data_offsets":[0,1]},"x":{"dtype":"U8","shape":[1],"data_offsets":[1,2]}}"#,
+                vec![0, 1],
+            ),
+            (
+                "unknown-dtype",
+                r#"{"x":{"dtype":"MYSTERY","shape":[1],"data_offsets":[0,1]}}"#,
+                vec![0],
+            ),
+            (
+                "shape-bytes",
+                r#"{"x":{"dtype":"F32","shape":[2],"data_offsets":[0,4]}}"#,
+                vec![0; 4],
+            ),
+            (
+                "overlap",
+                r#"{"x":{"dtype":"U8","shape":[2],"data_offsets":[0,2]},"y":{"dtype":"U8","shape":[2],"data_offsets":[1,3]}}"#,
+                vec![0; 3],
+            ),
+            (
+                "truncated",
+                r#"{"x":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}}"#,
+                vec![0; 7],
+            ),
+            (
+                "zero-shape",
+                r#"{"x":{"dtype":"U8","shape":[0],"data_offsets":[0,0]}}"#,
+                vec![],
+            ),
+        ];
+        for (name, header, payload) in cases {
+            let path = directory.join(format!("{name}.safetensors"));
+            write_safetensors(&path, header, &payload);
+            assert!(MappedSafetensors::open(&path).is_err(), "case {name}");
+        }
+        fs::remove_dir_all(directory).expect("remove fixture directory");
     }
 
     #[test]
@@ -1087,14 +1340,7 @@ mod tests {
             "tensor.b": {"dtype": "U8", "shape": [3], "data_offsets": [4, 7]},
             "tensor.a": {"dtype": "U8", "shape": [4], "data_offsets": [0, 4]}
         });
-        let header_bytes = serde_json::to_vec(&header).expect("header JSON");
-        let mut source_file = File::create(&source).expect("source file");
-        source_file
-            .write_all(&(header_bytes.len() as u64).to_le_bytes())
-            .and_then(|_| source_file.write_all(&header_bytes))
-            .and_then(|_| source_file.write_all(&[1, 2, 3, 4, 9, 8, 7]))
-            .expect("source write");
-        source_file.sync_all().expect("source sync");
+        write_safetensors(&source, &header.to_string(), &[1, 2, 3, 4, 9, 8, 7]);
 
         let names = vec!["tensor.b".to_owned(), "tensor.a".to_owned()];
         let packed = repack_expert_container(&source, &output, &names).expect("repack");

@@ -707,3 +707,16 @@ On the deterministic MTP final-token fixture, candidate/source relative L2 is
 complete MTP correctness reference, not model fidelity: MTP is not a base
 layer, and one block cannot reveal accumulated error, MoE routing changes, or
 hosted-logit behavior. EP0 remains the required base-layer transition.
+
+PW-0031 establishes the Rust runtime's first direct source-checkpoint
+authority. A read-only memory map validates the complete safetensors header,
+known dtypes, shape-derived byte counts, overflow-safe offsets, payload bounds,
+ordering, and non-overlap before returning an immutable tensor view. Duplicate
+JSON keys and ambiguous or malformed layouts fail closed.
+
+Native views of four real MTP tensors match an independent Python raw-range
+oracle exactly in dtype, shape, offsets, bytes, and SHA-256. Hashing the
+60.8-MB QKV tensor through the full CLI takes 0.17–0.18 seconds with warm OS
+cache; that diagnostic is not storage-cold latency or model throughput. Future
+native paths should consume this one authority rather than adding another
+safetensors parser.
