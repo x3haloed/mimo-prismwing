@@ -217,6 +217,20 @@
             "maximum_metal_vs_scalar_relative_l2": 3.4564307740890868e-6,
             "status": "promoted_synthetic_accelerated_attention_component; not_endpoint_tps_or_model_fidelity",
             "provenance": "PW-0022; two paired process orders at context 8192; runtime-compiled Metal; packed application buffers warm"
+        },
+        "m1_mimo_gqa_turbo_attention": {
+            "q_heads": 64,
+            "global_kv_heads": 4,
+            "swa_kv_heads": 8,
+            "swa_window": 128,
+            "turbo3_global_gpu_median_ms_by_context": {"128": 3.325916826725006, "1024": 16.79537445306778, "8192": 132.07649998366833},
+            "turbo4_global_gpu_median_ms_by_context": {"128": 3.2171253114938736, "1024": 16.228999942541122, "8192": 125.47858245670795},
+            "turbo3_swa128_gpu_median_ms": 3.4797079861164093,
+            "turbo4_swa128_gpu_median_ms": 3.46437469124794,
+            "turbo4_8192_nine_global_plus_39_swa_component_ms_diagnostic": 1264.4178550690413,
+            "maximum_metal_vs_scalar_relative_l2": 2.2830489158478072e-6,
+            "status": "correct_global_and_swa_gqa_schedule; performance_requires_shared_kv_scan; not_endpoint_tps_or_model_fidelity",
+            "provenance": "PW-0023; 64 Q heads; exact 4/8 KV-head mapping; packed application buffers warm"
         }
   }
 }

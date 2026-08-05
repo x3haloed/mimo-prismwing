@@ -613,3 +613,16 @@ relative L2 is `3.46e-6` through context 8,192, including a 17-token
 nonmultiple-of-32 case. This promotes the 32-lane synthetic component schedule,
 not endpoint throughput. Multi-head GQA scheduling, attention projections,
 RoPE, KV append, all layers, and real activations remain outside the slice.
+
+PW-0023 closes the scheduling gap for MiMo's 64 Q heads: global attention maps
+them to four KV heads (16:1) and SWA maps them to eight (8:1). All 8,192 output
+elements agree with scalar GQA at worst `2.29e-6` relative L2. The complete
+synthetic attention core is therefore causally real, but its first schedule is
+not performance-ready.
+
+At context 8,192, a Turbo4 global layer costs 125.5 ms GPU median and a
+128-token SWA layer costs 3.46 ms. Applying those component costs across nine
+global and 39 SWA layers is roughly 1.26 seconds before projections, MoE, MTP,
+or endpoint work. This makes multi-head attention a measured bottleneck. The
+next optimization must share each KV-head scan across its GQA query group;
+attention can no longer be omitted from throughput reasoning.
