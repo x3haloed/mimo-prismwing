@@ -302,6 +302,8 @@ pub struct MetalFp8MoeReport {
     pub union_kernel_fixture_maximum_absolute_error: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fused_gate_up_fixture_maximum_absolute_error: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub simdgroup_matrix_fixture_maximum_absolute_error: Option<f32>,
     pub compile_ms: f64,
     pub cold_wall_ms: f64,
     pub warmups: usize,
@@ -1796,6 +1798,7 @@ pub fn run_metal_fp8_moe_block(
             dynamic_router_path: None,
             union_parallel: false,
             fused_gate_up: false,
+            simdgroup_matrix: false,
         },
     )
 }
@@ -1821,6 +1824,7 @@ pub fn run_metal_dynamic_fp8_moe_block(
             dynamic_router_path: Some(router_path),
             union_parallel: false,
             fused_gate_up: false,
+            simdgroup_matrix: false,
         },
     )
 }
@@ -1846,6 +1850,7 @@ pub fn run_metal_union_parallel_fp8_moe_block(
             dynamic_router_path: Some(router_path),
             union_parallel: true,
             fused_gate_up: false,
+            simdgroup_matrix: false,
         },
     )
 }
@@ -1871,6 +1876,33 @@ pub fn run_metal_fused_gate_up_fp8_moe_block(
             dynamic_router_path: Some(router_path),
             union_parallel: false,
             fused_gate_up: true,
+            simdgroup_matrix: false,
+        },
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_simdgroup_matrix_fp8_moe_block(
+    manifest_path: &Path,
+    artifact_root: &Path,
+    router_path: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8MoeReport, String> {
+    run_metal_fp8_moe_block_impl(
+        manifest_path,
+        artifact_root,
+        kernel_path,
+        input_path,
+        reference_path,
+        output_path,
+        MoeExecutionMode {
+            dynamic_router_path: Some(router_path),
+            union_parallel: false,
+            fused_gate_up: false,
+            simdgroup_matrix: true,
         },
     )
 }
@@ -1880,6 +1912,7 @@ struct MoeExecutionMode<'a> {
     dynamic_router_path: Option<&'a Path>,
     union_parallel: bool,
     fused_gate_up: bool,
+    simdgroup_matrix: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -1893,7 +1926,8 @@ fn run_metal_fp8_moe_block_impl(
     mode: MoeExecutionMode<'_>,
 ) -> Result<MetalFp8MoeReport, String> {
     use metal::{
-        CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize, NSRange,
+        CompileOptions, Device, MTLCommandBufferStatus, MTLGPUFamily, MTLResourceOptions, MTLSize,
+        NSRange,
     };
     use std::path::Component;
 
@@ -1904,6 +1938,7 @@ fn run_metal_fp8_moe_block_impl(
     const ROUTER_KERNEL: &str = "f32_gemm8_shared_weight";
     const UNION_EXPERT_KERNEL: &str = "block_fp8_expert_union_gemm8_shared_weight_lut_blocked";
     const FUSED_GATE_UP_KERNEL: &str = "block_fp8_gemm8_fused_gate_up_lut_blocked";
+    const SIMDGROUP_MATRIX_KERNEL: &str = "block_fp8_gemm8_simdgroup_matrix_lut_blocked";
     const ROUTER_SHA256: &str = "12c1579d28b78dd69ec9342eb9d1f378efc5aa3c2f2a28b5ec73578e6a8bbcdd";
     const ROUTER_WEIGHT: &str = "model.layers.43.mlp.gate.weight";
     const ROUTER_BIAS: &str = "model.layers.43.mlp.gate.e_score_correction_bias";
@@ -1917,10 +1952,16 @@ fn run_metal_fp8_moe_block_impl(
     if output_path.exists() {
         return Err(format!("refusing to overwrite {}", output_path.display()));
     }
-    if (mode.union_parallel || mode.fused_gate_up) && mode.dynamic_router_path.is_none() {
+    if (mode.union_parallel || mode.fused_gate_up || mode.simdgroup_matrix)
+        && mode.dynamic_router_path.is_none()
+    {
         return Err("accelerated MoE mode requires dynamic router authority".to_owned());
     }
-    if mode.union_parallel && mode.fused_gate_up {
+    if u8::from(mode.union_parallel)
+        + u8::from(mode.fused_gate_up)
+        + u8::from(mode.simdgroup_matrix)
+        > 1
+    {
         return Err("conflicting MoE execution modes".to_owned());
     }
     let manifest_bytes =
@@ -2101,12 +2142,18 @@ fn run_metal_fp8_moe_block_impl(
     if mode.fused_gate_up {
         required_kernels.push(FUSED_GATE_UP_KERNEL);
     }
+    if mode.simdgroup_matrix {
+        required_kernels.push(SIMDGROUP_MATRIX_KERNEL);
+    }
     for function in required_kernels {
         if !kernel_source.contains(&format!("kernel void {function}")) {
             return Err(format!("kernel source lacks {function}"));
         }
     }
     let device = Device::system_default().ok_or("no Metal device is available")?;
+    if mode.simdgroup_matrix && !device.supports_family(MTLGPUFamily::Apple7) {
+        return Err("device lacks Apple GPU family 7 SIMD-group matrices".to_owned());
+    }
     if device.max_threads_per_threadgroup().width < LANES {
         return Err("Metal device cannot dispatch 64-lane threadgroups".to_owned());
     }
@@ -2167,6 +2214,23 @@ fn run_metal_fp8_moe_block_impl(
                 .new_compute_pipeline_state_with_function(&function)
                 .map_err(|error| format!("fused gate/up pipeline: {error}"))?,
         )
+    } else {
+        None
+    };
+    let simdgroup_matrix_pipeline = if mode.simdgroup_matrix {
+        let function = library
+            .get_function(SIMDGROUP_MATRIX_KERNEL, None)
+            .map_err(|error| format!("SIMD-group matrix kernel: {error}"))?;
+        let pipeline = device
+            .new_compute_pipeline_state_with_function(&function)
+            .map_err(|error| format!("SIMD-group matrix pipeline: {error}"))?;
+        if pipeline.thread_execution_width() != 32 {
+            return Err(format!(
+                "SIMD-group matrix pipeline width is {}, expected 32",
+                pipeline.thread_execution_width()
+            ));
+        }
+        Some(pipeline)
     } else {
         None
     };
@@ -2436,6 +2500,118 @@ fn run_metal_fp8_moe_block_impl(
     } else {
         None
     };
+
+    let simdgroup_matrix_fixture_maximum_absolute_error =
+        if let Some(pipeline) = simdgroup_matrix_pipeline.as_ref() {
+            #[repr(C)]
+            struct FixtureShape {
+                rows: u32,
+                columns: u32,
+                block_rows: u32,
+                block_columns: u32,
+            }
+            const ROWS: usize = 16;
+            const COLUMNS: usize = 256;
+            let weights = (0..ROWS * COLUMNS)
+                .map(|index| match index % 4 {
+                    0 => 0xb8_u8,
+                    1 => 0x38_u8,
+                    2 => 0x40_u8,
+                    _ => 0xb0_u8,
+                })
+                .collect::<Vec<_>>();
+            let scales = [0.5_f32, 0.25_f32];
+            let input = (0..BATCH * COLUMNS)
+                .map(|index| ((index % 17) as f32 - 8.0) * 0.01)
+                .collect::<Vec<_>>();
+            let mut expected = vec![0.0_f32; BATCH * ROWS];
+            for position in 0..BATCH {
+                for row in 0..ROWS {
+                    let mut sum = 0.0_f32;
+                    for column in 0..COLUMNS {
+                        sum += decode_f8_e4m3fn(weights[row * COLUMNS + column])
+                            * scales[column / 128]
+                            * input[position * COLUMNS + column];
+                    }
+                    expected[position * ROWS + row] = sum;
+                }
+            }
+            let shape = FixtureShape {
+                rows: ROWS as u32,
+                columns: COLUMNS as u32,
+                block_rows: 128,
+                block_columns: 128,
+            };
+            let weight_buffer =
+                device.new_buffer_with_data(weights.as_ptr().cast(), weights.len() as u64, shared);
+            let scale_buffer = device.new_buffer_with_data(
+                scales.as_ptr().cast(),
+                std::mem::size_of_val(&scales) as u64,
+                shared,
+            );
+            let input_buffer = device.new_buffer_with_data(
+                input.as_ptr().cast(),
+                std::mem::size_of_val(input.as_slice()) as u64,
+                shared,
+            );
+            let output_buffer = device.new_buffer((BATCH * ROWS * 4) as u64, shared);
+            let shape_buffer = device.new_buffer_with_data(
+                (&shape as *const FixtureShape).cast(),
+                std::mem::size_of::<FixtureShape>() as u64,
+                shared,
+            );
+            let fixture_lut = (0_u16..=255)
+                .map(|bits| decode_f8_e4m3fn(bits as u8))
+                .collect::<Vec<_>>();
+            let lut_buffer = device.new_buffer_with_data(
+                fixture_lut.as_ptr().cast(),
+                std::mem::size_of_val(fixture_lut.as_slice()) as u64,
+                shared,
+            );
+            let command = queue.new_command_buffer();
+            let encoder = command.new_compute_command_encoder();
+            encoder.set_compute_pipeline_state(pipeline);
+            encoder.set_buffer(0, Some(&weight_buffer), 0);
+            encoder.set_buffer(1, Some(&scale_buffer), 0);
+            encoder.set_buffer(2, Some(&input_buffer), 0);
+            encoder.set_buffer(3, Some(&output_buffer), 0);
+            encoder.set_buffer(4, Some(&shape_buffer), 0);
+            encoder.set_buffer(5, Some(&lut_buffer), 0);
+            encoder.set_threadgroup_memory_length(0, 64 * 4);
+            encoder.dispatch_thread_groups(
+                MTLSize {
+                    width: (ROWS / 8) as u64,
+                    height: 1,
+                    depth: 1,
+                },
+                MTLSize {
+                    width: 32,
+                    height: 1,
+                    depth: 1,
+                },
+            );
+            encoder.end_encoding();
+            command.commit();
+            command.wait_until_completed();
+            if command.status() != MTLCommandBufferStatus::Completed {
+                return Err("SIMD-group matrix fixture command failed".to_owned());
+            }
+            // SAFETY: the completed output contains exactly batch * rows F32 values.
+            let actual = unsafe {
+                std::slice::from_raw_parts(output_buffer.contents().cast::<f32>(), BATCH * ROWS)
+            };
+            let maximum_error = actual
+                .iter()
+                .zip(&expected)
+                .map(|(&actual, &expected)| (actual - expected).abs())
+                .fold(0.0_f32, f32::max);
+            if actual.iter().any(|value| !value.is_finite()) || maximum_error > 2.0e-4 {
+                return Err(format!("SIMD-group matrix fixture failed: {maximum_error}"));
+            }
+            Some(maximum_error)
+        } else {
+            None
+        };
 
     #[repr(C)]
     struct ScatterShape {
@@ -3057,22 +3233,36 @@ fn run_metal_fp8_moe_block_impl(
                         },
                     );
                 } else {
-                    encoder.set_compute_pipeline_state(&expert_pipeline);
+                    let projection_pipeline = simdgroup_matrix_pipeline
+                        .as_ref()
+                        .unwrap_or(&expert_pipeline);
+                    let projection_threads = if mode.simdgroup_matrix { 32 } else { LANES };
+                    let projection_groups = if mode.simdgroup_matrix {
+                        (INTERMEDIATE / 8) as u64
+                    } else {
+                        INTERMEDIATE as u64
+                    };
+                    let projection_threadgroup_bytes = if mode.simdgroup_matrix {
+                        64 * 4
+                    } else {
+                        LANES * BATCH as u64 * 4
+                    };
+                    encoder.set_compute_pipeline_state(projection_pipeline);
                     encoder.set_buffer(0, Some(&expert.gate_weight), 0);
                     encoder.set_buffer(1, Some(&expert.gate_scale), 0);
                     encoder.set_buffer(2, Some(&expert.input), 0);
                     encoder.set_buffer(3, Some(&gate_output), 0);
                     encoder.set_buffer(4, Some(&gate_shape_buffer), 0);
                     encoder.set_buffer(5, Some(&lut_buffer), 0);
-                    encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
+                    encoder.set_threadgroup_memory_length(0, projection_threadgroup_bytes);
                     encoder.dispatch_thread_groups(
                         MTLSize {
-                            width: INTERMEDIATE as u64,
+                            width: projection_groups,
                             height: 1,
                             depth: 1,
                         },
                         MTLSize {
-                            width: LANES,
+                            width: projection_threads,
                             height: 1,
                             depth: 1,
                         },
@@ -3082,12 +3272,12 @@ fn run_metal_fp8_moe_block_impl(
                     encoder.set_buffer(3, Some(&up_output), 0);
                     encoder.dispatch_thread_groups(
                         MTLSize {
-                            width: INTERMEDIATE as u64,
+                            width: projection_groups,
                             height: 1,
                             depth: 1,
                         },
                         MTLSize {
-                            width: LANES,
+                            width: projection_threads,
                             height: 1,
                             depth: 1,
                         },
@@ -3110,22 +3300,36 @@ fn run_metal_fp8_moe_block_impl(
                         depth: 1,
                     },
                 );
-                encoder.set_compute_pipeline_state(&expert_pipeline);
+                let down_pipeline = simdgroup_matrix_pipeline
+                    .as_ref()
+                    .unwrap_or(&expert_pipeline);
+                encoder.set_compute_pipeline_state(down_pipeline);
                 encoder.set_buffer(0, Some(&expert.down_weight), 0);
                 encoder.set_buffer(1, Some(&expert.down_scale), 0);
                 encoder.set_buffer(2, Some(&hidden_output), 0);
                 encoder.set_buffer(3, Some(&expert_output), 0);
                 encoder.set_buffer(4, Some(&down_shape_buffer), 0);
                 encoder.set_buffer(5, Some(&lut_buffer), 0);
-                encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
+                encoder.set_threadgroup_memory_length(
+                    0,
+                    if mode.simdgroup_matrix {
+                        64 * 4
+                    } else {
+                        LANES * BATCH as u64 * 4
+                    },
+                );
                 encoder.dispatch_thread_groups(
                     MTLSize {
-                        width: HIDDEN as u64,
+                        width: if mode.simdgroup_matrix {
+                            (HIDDEN / 8) as u64
+                        } else {
+                            HIDDEN as u64
+                        },
                         height: 1,
                         depth: 1,
                     },
                     MTLSize {
-                        width: LANES,
+                        width: if mode.simdgroup_matrix { 32 } else { LANES },
                         height: 1,
                         depth: 1,
                     },
@@ -3211,6 +3415,8 @@ fn run_metal_fp8_moe_block_impl(
             14.0
         } else if mode.fused_gate_up {
             15.5
+        } else if mode.simdgroup_matrix {
+            14.0
         } else if dynamic_router_source.is_some() {
             20.0
         } else {
@@ -3252,6 +3458,8 @@ fn run_metal_fp8_moe_block_impl(
             "mimo_layer43_native_union_parallel_source_fp8_moe_block".to_owned()
         } else if mode.fused_gate_up {
             "mimo_layer43_native_fused_gate_up_source_fp8_moe_block".to_owned()
+        } else if mode.simdgroup_matrix {
+            "mimo_layer43_native_simdgroup_matrix_source_fp8_moe_block".to_owned()
         } else if dynamic_router_source.is_some() {
             "mimo_layer43_native_dynamic_source_fp8_moe_block".to_owned()
         } else {
@@ -3290,6 +3498,7 @@ fn run_metal_fp8_moe_block_impl(
         scatter_fixture_maximum_absolute_error,
         union_kernel_fixture_maximum_absolute_error,
         fused_gate_up_fixture_maximum_absolute_error,
+        simdgroup_matrix_fixture_maximum_absolute_error,
         compile_ms,
         cold_wall_ms,
         warmups: WARMUPS,
@@ -3313,6 +3522,9 @@ fn run_metal_fp8_moe_block_impl(
         } else if mode.fused_gate_up {
             "exact fixed layer43 input; dynamic native routes; selected expert union preloaded; gate/up fused per expert"
                 .to_owned()
+        } else if mode.simdgroup_matrix {
+            "exact fixed layer43 input; dynamic native routes; selected expert union preloaded; SIMD-group matrix projections"
+                .to_owned()
         } else if dynamic_router_source.is_some() {
             "exact fixed layer43 input; dynamic native routes; selected expert union preloaded"
                 .to_owned()
@@ -3323,6 +3535,8 @@ fn run_metal_fp8_moe_block_impl(
             "rust_owned_metal_dynamic_router_union_parallel_source_fp8_moe_block"
         } else if mode.fused_gate_up {
             "rust_owned_metal_dynamic_router_fused_gate_up_source_fp8_moe_block"
+        } else if mode.simdgroup_matrix {
+            "rust_owned_metal_dynamic_router_simdgroup_matrix_source_fp8_moe_block"
         } else if dynamic_router_source.is_some() {
             "rust_owned_metal_dynamic_router_source_fp8_moe_block"
         } else {

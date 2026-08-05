@@ -862,3 +862,14 @@ PW-0040 through PW-0042 jointly kill three superficially plausible ways to
 make the same arithmetic more matrix-like. Further performance work should
 change the inner FP8 reduction/data path or an explicitly validated fidelity
 mechanism, not continue reshuffling identical projections.
+
+PW-0043 tests the available M1 SIMD-group matrix unit rather than another grid
+reordering. It improves numerical parity to `2.08e-7` relative L2, but paired
+medians average 22.4906 ms versus 17.0986 ms control, a 31.54% slowdown. The
+exact 8×8 tile requires 512 decode/synchronization steps along K for each
+projection; that coordination cost dominates its faster accumulation.
+
+The exact tile design is rejected, not the general existence of matrix units.
+A future cooperative TensorOps path with wider tiles or a genuinely reused
+decoded-tile cache would be a different mechanism. On the present M1/macOS
+substrate, PW-0039 remains the best faithful native MoE implementation.

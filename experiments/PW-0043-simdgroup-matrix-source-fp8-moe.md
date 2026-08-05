@@ -1,10 +1,10 @@
 # PW-0043 — SIMD-group matrix source-FP8 MoE
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: based on `8670bdd`; contract dirty
+- Commit and dirty state: contract committed as `4010a41`; implementation dirty
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0039 exact authorities
 - Hardware, OS, compiler, storage, memory pressure: Apple M1 GPU family 7;
@@ -66,7 +66,21 @@ Raw evidence will be written under
 
 ## Isolated attribution
 
-Pending.
+The M1 reports Apple GPU family 7 support and the candidate pipeline reports the
+required 32-thread SIMD width. One SIMD group owns each eight-output-row tile.
+For each of 512 K tiles it decodes a `K×8` weight tile into 256 bytes of
+threadgroup memory, loads an `8×K` activation tile, and executes one F32 8×8
+matrix multiply-accumulate.
+
+In candidate/control then control/candidate order, candidate medians are
+`22.450083` and `22.531125` ms versus controls `17.107709` and `17.089417` ms.
+Candidate mean is `22.490604` ms versus `17.098563` ms: a 0.7603× speedup, or
+31.54% slowdown. Candidate p10/p90 pairs are `22.295041/22.748166` and
+`22.270583/22.865250` ms. Cold requests are 34.17 and 33.18 ms; complete
+process wall is 1.72 seconds. Logical and resident bytes are unchanged.
+
+The fixed-fixture routed-only diagnostic is 7.5682 TPS at `A=8`, `U=1.125`.
+It is not endpoint TPS.
 
 ## End-to-end result
 
@@ -74,8 +88,29 @@ Out of scope; no endpoint TPS claim is permitted.
 
 ## Correctness result
 
-Pending.
+The deterministic scalar fixture covers two output tiles, two 128-column scale
+blocks, signed FP8 patterns, all eight positions, strides, and matrix stores;
+it is byte-exact. Separate candidate processes are byte-identical with SHA-256
+`8145eb05e4e726294a75547de304f9a7bb6e3940b79b82f2c6bf14c99a49cfcc`.
+
+The different accumulation order improves complete parity to `2.083638e-7`
+relative L2 and `1.4551915e-11` maximum absolute error versus independent Torch
+source FP8. Create-new rejection exits 1. Rust has 15 passing tests, Python has
+23, and clippy is clean with warnings denied.
+
+Raw evidence is under `/Volumes/Elements/mimo-prismwing/evidence/PW-0043`.
+Its `SHA256SUMS` manifest hashes to
+`bd179891c03d1a936856da66c9cddde6e53d0dc2994b35a738ac1b6e1ffff131`.
 
 ## Decision
 
-Pending.
+Reject this exact SIMD-group matrix tile design. Matrix accumulation is highly
+accurate, but decoding and synchronizing 512 eight-column K tiles per
+projection overwhelms the matrix-unit benefit. Retain the kernel as a
+correctness-backed research control, not a default.
+
+This does not reject all matrix kernels: a wider cooperative TensorOps tile or
+predecoded tile cache could change the synchronization mechanism, but the
+current M1/macOS path has now falsified the available direct 8×8 design. Keep
+PW-0039 promoted and stop pursuing dispatch/tile rearrangements without a new
+data-reuse mechanism.

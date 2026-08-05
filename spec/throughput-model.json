@@ -502,6 +502,20 @@
             "fused_fixture_maximum_absolute_error": 0.000000019790605,
             "status": "rejected_performance_gates_failed; exact_diagnostic_kernel_retained; not_endpoint_tps",
             "provenance": "PW-0042; paired fused-gate-up candidate/separate-dispatch PW-0039 control orders; real dynamic layer43 route fixture"
+        },
+        "native_simdgroup_matrix_source_fp8_moe_schedule": {
+            "candidate_wall_median_ms_repeats": [22.450083, 22.531125],
+            "control_wall_median_ms_repeats": [17.107709, 17.089417],
+            "candidate_mean_median_ms": 22.490604,
+            "control_mean_median_ms": 17.098563,
+            "candidate_speedup_vs_control": 0.7602536152430589,
+            "thread_execution_width": 32,
+            "threadgroup_tile_bytes": 256,
+            "candidate_routed_only_accepted_tps_diagnostic_A8": 7.568172289078889,
+            "relative_l2_vs_torch_source_fp8": 0.00000020836383491636096,
+            "maximum_absolute_error_vs_torch_source_fp8": 0.000000000014551915,
+            "status": "rejected_exact_8x8_tile_performance_gates_failed; accuracy_control_retained; not_endpoint_tps",
+            "provenance": "PW-0043; paired M1 SIMD-group F32 8x8 matrix candidate/PW-0039 scalar control; exact source-FP8 decode per K tile; real dynamic layer43 fixture"
         }
     }
 }

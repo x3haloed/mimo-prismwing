@@ -330,6 +330,47 @@ kernel void block_fp8_gemm8_shared_weight_lut_blocked(
     }
 }
 
+kernel void block_fp8_gemm8_simdgroup_matrix_lut_blocked(
+    device const uchar *weights [[buffer(0)]],
+    device const float *scales [[buffer(1)]],
+    device const float *input [[buffer(2)]],
+    device float *output [[buffer(3)]],
+    constant GemvShape &shape [[buffer(4)]],
+    constant float *decode_lut [[buffer(5)]],
+    threadgroup float *weight_tile [[threadgroup(0)]],
+    uint output_tile [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_simdgroup]]) {
+    const uint row_base = output_tile * 8;
+    if (row_base + 8 > shape.rows || shape.block_rows == 0 ||
+        shape.block_columns == 0 || shape.columns % 8 != 0 ||
+        shape.columns % shape.block_columns != 0) {
+        return;
+    }
+    const uint scale_columns = shape.columns / shape.block_columns;
+    simdgroup_float8x8 accumulator(0.0f);
+    for (uint column_base = 0; column_base < shape.columns; column_base += 8) {
+        for (uint index = lane; index < 64; index += 32) {
+            const uint inner = index / 8;
+            const uint output_column = index % 8;
+            const uint row = row_base + output_column;
+            const uint column = column_base + inner;
+            const uint scale_index = (row / shape.block_rows) * scale_columns +
+                column / shape.block_columns;
+            weight_tile[index] =
+                decode_lut[weights[row * shape.columns + column]] * scales[scale_index];
+        }
+        simdgroup_barrier(mem_flags::mem_threadgroup);
+        simdgroup_float8x8 activation_matrix;
+        simdgroup_float8x8 weight_matrix;
+        simdgroup_load(activation_matrix, input + column_base, shape.columns);
+        simdgroup_load(weight_matrix, weight_tile, 8);
+        simdgroup_multiply_accumulate(
+            accumulator, activation_matrix, weight_matrix, accumulator);
+        simdgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    simdgroup_store(accumulator, output + row_base, shape.rows);
+}
+
 kernel void block_fp8_gemm8_fused_gate_up_lut_blocked(
     device const uchar *gate_weights [[buffer(0)]],
     device const float *gate_scales [[buffer(1)]],
