@@ -42,6 +42,19 @@ The original cold-streaming design therefore has independent problems in
 capacity, SSD traffic, executable unified-memory traffic, compute, and 47-stage
 causality.
 
+PW-0002 later pinned the published source representation as block-scaled FP8,
+not the candidate INT4 representation used by the initial design estimate.
+From the source index and pinned 128×128 scale layout, one routed expert occupies
+25,171,968 bytes: three 4096×2048-equivalent FP8 matrices plus three f32 scale
+grids. The 47×256 routed bank therefore occupies 302,869,118,976 bytes, and a
+cold source-FP8 token selects 9,464,659,968 bytes (8.815 GiB). These figures are
+index/config-derived until the full safetensors header census closes PW-0002.
+
+The earlier 13.5 MiB expert and 4.96 GiB cold-token figures remain useful only
+for the proposed groupwise-INT4 embodiment. They are not source-checkpoint
+measurements. Machine-readable status and provenance live in
+`spec/throughput-model.json`.
+
 ## 2. What TurboFieldfare established
 
 [TurboFieldfare](https://github.com/drumih/turbo-fieldfare) is strong evidence

@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "source_revision": "63651580ca774f8504f676040460aed3e1244ac1",
+  "constants": {
+    "source_fp8": {
+      "expert_bytes": 25171968,
+      "routed_bank_bytes": 302869118976,
+      "cold_routed_bytes_per_token": 9464659968,
+      "routed_layers": 47,
+      "experts_per_layer": 256,
+      "active_experts_per_token": 8,
+      "status": "index_and_config_derived_pending_full_header_census",
+      "provenance": "PW-0002; FP8 4096x2048 gate/up/down plus f32 scale_inv per 128x128 block"
+    },
+    "candidate_groupwise_int4": {
+      "expert_bytes_estimate": 14155776,
+      "cold_routed_bytes_per_token_estimate": 5322571776,
+      "status": "engineering_estimate_not_source_representation",
+      "provenance": "LEARNINGS.md initial 4.5 effective bits/weight estimate"
+    },
+    "dense_spine_bytes_per_verification_estimate": {
+      "bytes": 4294967296,
+      "status": "provisional_pending_PW-0002",
+      "provenance": "LEARNINGS.md initial estimate"
+    }
+  }
+}

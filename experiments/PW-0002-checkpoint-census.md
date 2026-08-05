@@ -36,6 +36,13 @@ The pinned upstream tree contains 39 files totaling 315,714,053,402 bytes,
 including 18 safetensors files. The main index declares 73,081 tensors and
 315,031,102,208 bytes with `save_format: fp8` and `tp_size: 4`.
 
+Before full headers arrived, the indexed expert names and pinned configuration
+already established 47×256 experts. Each expert has three FP8
+4096×2048-equivalent matrices plus three f32 inverse-scale grids at 128×128
+blocks: 25,171,968 bytes per expert, 302,869,118,976 routed-bank bytes, and
+9,464,659,968 cold routed bytes for eight experts across 47 layers. These
+derived values remain provisional until reconciled against every header.
+
 The Rust `prismwing census` command reads bounded safetensors headers, validates
 the main index assignment, includes the standalone audio-tokenizer weights, and
 emits per-tensor plus grouped byte totals. The Python checkpoint-lock tool pins
