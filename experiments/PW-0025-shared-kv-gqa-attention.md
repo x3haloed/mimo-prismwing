@@ -1,10 +1,10 @@
 # PW-0025 — Shared-KV MiMo GQA attention
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: conditional
 - Date: 2026-08-04
 - Owner: Codex with project owner authorization
-- Commit and dirty state: based on `4b54921`; contract dirty
+- Commit and dirty state: contract committed as `06792e8`; implementation dirty
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0020 Atomic source lock
 - Hardware, OS, compiler, storage, memory pressure: Apple M1; Macmini9,1;
@@ -55,7 +55,32 @@ Raw evidence will be written under
 
 ## Isolated attribution
 
-Pending.
+All candidate runs use batch one, concurrency one, one accepted token, 10
+warm-ups, and 30 measurements:
+
+| Format/mode | Context | Logical bytes | GPU median / p95 ms | Wall median / p95 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Turbo3 global | 128 | 142,336 | 0.371 / 0.376 | 0.592 / 0.698 |
+| Turbo3 global | 8,192 | 4,980,736 | 13.247 / 13.366 | 13.629 / 13.702 |
+| Turbo3 SWA | 128 | 219,392 | 0.365 / 0.369 | 0.567 / 0.593 |
+| Turbo4 global | 128 | 169,984 | 0.239 / 0.294 | 0.451 / 0.567 |
+| Turbo4 global | 8,192 | 6,750,208 | 13.020 / 13.047 | 13.408 / 13.569 |
+| Turbo4 SWA | 128 | 274,688 | 0.360 / 0.367 | 0.578 / 0.658 |
+
+Cold GPU/wall times range from 0.252/0.991 ms to 19.334/20.683 ms. Packed
+buffers are warm with no model/storage I/O. `A` and `U` are not applicable.
+
+Paired 8,192-token process results:
+
+| Format | Baseline GPU medians ms | Shared GPU medians ms | Mean speedup |
+| --- | --- | --- | ---: |
+| Turbo3 | 118.342, 118.563 | 13.230, 13.211 | 8.960× |
+| Turbo4 | 113.190, 113.393 | 13.049, 13.055 | 8.680× |
+
+Both formats exceed the predeclared 2× gate in both orders. Using candidate
+Turbo4 medians gives a nine-global-plus-39-SWA attention-core diagnostic of
+131.22 ms at context 8,192, down from PW-0023's 1,264.42 ms. This excludes all
+other model work and is not endpoint TPS.
 
 ## End-to-end result
 
@@ -63,8 +88,27 @@ Out of scope; no endpoint TPS claim is permitted.
 
 ## Correctness result
 
-Pending.
+All five conditions pass. Every output and guard passes for both GQA ratios,
+both formats, context 128, and global context 8,192. Metal-versus-scalar
+relative L2 is at most `1.46e-6`, below `4e-4`; maximum absolute error is at
+most `6.86e-7`, below `7e-4`.
+
+The candidate cooperatively dequantizes each eight-token KV tile once per KV
+head. One simdgroup per mapped Q head consumes the tile, distributes output
+columns across lanes, merges sink mass where required, and performs inverse
+WHT in shared memory.
+
+Raw evidence is under
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0025`. The SHA-256 of its
+`SHA256SUMS` manifest is
+`9cf9253246c341fd0aa405de489415384bb0df2515bd69a1060259c9e0b5a3a8`.
 
 ## Decision
 
-Pending.
+Promote shared-KV tiling as the synthetic GQA attention default. Retain the
+per-Q-head schedule and scalar path as controls. The 8.7–9.0× gain is
+repeatable and semantic-preserving.
+
+This still excludes learned projections, norms, real KV distributions, and
+full layers. Advance it into the transformer-layer fixture; do not convert its
+timing into accepted TPS.

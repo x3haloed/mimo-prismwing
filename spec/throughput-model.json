@@ -242,6 +242,21 @@
             "maximum_metal_vs_scalar_relative_l2": 4.088797030986737e-7,
             "status": "synthetic_semantics_validated; learned_tensors_and_real_activations_pending",
             "provenance": "PW-0024; pinned modeling_mimo_v2.py source equations; deterministic 64Q GQA fixtures"
+        },
+        "m1_shared_kv_gqa_turbo_attention": {
+            "tile_tokens": 8,
+            "turbo3_global128_gpu_median_ms": 0.3713741898536682,
+            "turbo3_global8192_gpu_median_ms": 13.24741542339325,
+            "turbo3_swa128_gpu_median_ms": 0.3652498126029968,
+            "turbo4_global128_gpu_median_ms": 0.23887492716312408,
+            "turbo4_global8192_gpu_median_ms": 13.019999489188194,
+            "turbo4_swa128_gpu_median_ms": 0.36004185676574707,
+            "turbo3_paired_mean_speedup": 8.959815831896941,
+            "turbo4_paired_mean_speedup": 8.68005562274433,
+            "turbo4_8192_nine_global_plus_39_swa_component_ms_diagnostic": 131.22162781655788,
+            "maximum_metal_vs_scalar_relative_l2": 1.4564259942517206e-6,
+            "status": "promoted_synthetic_shared_kv_gqa_schedule; not_endpoint_tps_or_model_fidelity",
+            "provenance": "PW-0025; two paired orders; shared eight-token packed KV tiles; warm application buffers"
         }
   }
 }

@@ -637,3 +637,14 @@ These semantics now advance to the real transformer-layer fixture. Learned
 QKV/output projections, norms, sink biases, and actual layer inputs remain
 unavailable until the common `model_pp0_ep0_shard1.safetensors` payload is
 acquired or selectively materialized.
+
+PW-0025 removes PW-0023's redundant per-Q-head KV dequantization. A threadgroup
+per KV head loads eight-token packed tiles once, then shares them across 16
+global or eight SWA query simdgroups. Two paired process orders improve global
+context-8,192 GPU medians by 8.96× for Turbo3 and 8.68× for Turbo4, with worst
+scalar-relative L2 only `1.46e-6`.
+
+Turbo4 now costs 13.02 ms per global attention core at context 8,192 and 0.360
+ms per 128-token SWA core. Applying those component medians across nine global
+and 39 SWA layers gives roughly 131.22 ms, down from 1.264 seconds. This is a
+material architecture promotion, but remains attention-only and synthetic.

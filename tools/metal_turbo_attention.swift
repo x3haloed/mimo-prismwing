@@ -101,18 +101,19 @@ guard (5...6).contains(CommandLine.arguments.count), let format = Int(CommandLin
     fail("usage: metal_turbo_attention <kernel.metal> <locked-ggml-turbo-quant.c> <3|4> <17|128|1024|8192> [serial|parallel32]")
 }
 let variant = CommandLine.arguments.count == 6 ? CommandLine.arguments[5] : "serial"
-guard ["serial", "parallel32", "gqa4", "gqa8"].contains(variant) else { fail("unknown kernel variant") }
+guard ["serial", "parallel32", "gqa4", "gqa8", "shared4", "shared8"].contains(variant) else { fail("unknown kernel variant") }
 let kernelSource = try String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8)
 let lockedSource = try String(contentsOfFile: CommandLine.arguments[2], encoding: .utf8)
 let s1 = signs("s1", source: lockedSource), s2 = signs("s2", source: lockedSource)
 var state: UInt64 = 0x91e10da5c79e7b1d
 func nextValue() -> Float { state = state &* 6364136223846793005 &+ 1442695040888963407; return (Float(UInt32(state >> 32) & 0xffff)/32767.5-1)*1.75 }
 
-if variant == "gqa4" || variant == "gqa8" {
-    let qHeads = 64, kvHeads = variant == "gqa4" ? 4 : 8
-    if variant == "gqa8" && context != 128 { fail("SWA GQA requires context 128") }
+if ["gqa4", "gqa8", "shared4", "shared8"].contains(variant) {
+    let shared = variant.hasPrefix("shared")
+    let qHeads = 64, kvHeads = variant.hasSuffix("4") ? 4 : 8
+    if kvHeads == 8 && context != 128 { fail("SWA GQA requires context 128") }
     let keyStride = format == 3 ? 100 : 136, valueStride = format == 3 ? 50 : 68
-    let useSinks = variant == "gqa8", ropeBase: Float = useSinks ? 10_000 : 10_000_000
+    let useSinks = kvHeads == 8, ropeBase: Float = useSinks ? 10_000 : 10_000_000
     let sinkBiases = (0..<qHeads).map { Float(sin(Double($0) * 0.37) * 0.5) }
     func applyRoPE(_ values: inout [Float], position: Int) {
         for pair in 0..<32 {
@@ -125,6 +126,10 @@ if variant == "gqa4" || variant == "gqa8" {
     var queries = [Float](repeating: 0, count: qHeads * 256)
     for head in 0..<qHeads { for column in 0..<192 { queries[head*256+column] = nextValue() } }
     for head in 0..<qHeads { var query=Array(queries[(head*256)..<((head+1)*256)]);applyRoPE(&query,position:context-1);queries.replaceSubrange((head*256)..<((head+1)*256),with:query) }
+    var metalQueries = queries
+    if shared {
+        for head in 0..<qHeads { var query=Array(metalQueries[(head*256)..<((head+1)*256)]);rotate(&query,inverse:false,s1:s1,s2:s2);metalQueries.replaceSubrange((head*256)..<((head+1)*256),with:query) }
+    }
     var packedKeys = [UInt8](), packedValues = [UInt8]()
     var decodedKeys = Array(repeating: [[Float]](), count: kvHeads)
     var decodedValues = Array(repeating: [[Float]](), count: kvHeads)
@@ -164,16 +169,18 @@ if variant == "gqa4" || variant == "gqa8" {
     }
     guard let device=MTLCreateSystemDefaultDevice(), let queue=device.makeCommandQueue() else { fail("Metal unavailable") }
     let compileStart=DispatchTime.now().uptimeNanoseconds, library=try device.makeLibrary(source:kernelSource,options:nil)
-    guard let function=library.makeFunction(name:"turbo_gqa_attention_256_128_parallel32") else { fail("GQA kernel absent") }
+    let functionName = shared ? "turbo_gqa_attention_shared_kv" : "turbo_gqa_attention_256_128_parallel32"
+    guard let function=library.makeFunction(name:functionName) else { fail("GQA kernel absent") }
     let pipeline=try device.makeComputePipelineState(function:function), compileMs=Double(DispatchTime.now().uptimeNanoseconds-compileStart)/1e6
     let guarded=[Float](repeating:Float.nan,count:qHeads*130)
     var shape=Shape(context:UInt32(context),format:UInt32(format),keyStride:UInt32(keyStride),valueStride:UInt32(valueStride),qHeads:UInt32(qHeads),kvHeads:UInt32(kvHeads),useSinks:useSinks ? 1 : 0)
     func makeBuffer<T>(_ values:[T])->MTLBuffer { values.withUnsafeBytes { device.makeBuffer(bytes:$0.baseAddress!,length:$0.count)! } }
-    let kb=makeBuffer(packedKeys),vb=makeBuffer(packedValues),qb=makeBuffer(queries),ob=makeBuffer(guarded),sb=device.makeBuffer(bytes:&shape,length:MemoryLayout<Shape>.stride)!,s1b=makeBuffer(s1),s2b=makeBuffer(s2),sinkb=makeBuffer(sinkBiases)
+    let kb=makeBuffer(packedKeys),vb=makeBuffer(packedValues),qb=makeBuffer(metalQueries),ob=makeBuffer(guarded),sb=device.makeBuffer(bytes:&shape,length:MemoryLayout<Shape>.stride)!,s1b=makeBuffer(s1),s2b=makeBuffer(s2),sinkb=makeBuffer(sinkBiases)
     func runGQA()->(Double,Double) {
         let command=queue.makeCommandBuffer()!,encoder=command.makeComputeCommandEncoder()!;encoder.setComputePipelineState(pipeline)
         [kb,vb,qb,ob,sb,s1b,s2b,sinkb].enumerated().forEach { encoder.setBuffer($0.element,offset:0,index:$0.offset) }
-        encoder.dispatchThreadgroups(MTLSize(width:qHeads,height:1,depth:1),threadsPerThreadgroup:MTLSize(width:32,height:1,depth:1));encoder.endEncoding()
+        let groups = shared ? kvHeads : qHeads, lanes = shared ? (qHeads / kvHeads) * 32 : 32
+        encoder.dispatchThreadgroups(MTLSize(width:groups,height:1,depth:1),threadsPerThreadgroup:MTLSize(width:lanes,height:1,depth:1));encoder.endEncoding()
         let start=DispatchTime.now().uptimeNanoseconds;command.commit();command.waitUntilCompleted();if let error=command.error { fail("Metal: \(error)") }
         return (Double(DispatchTime.now().uptimeNanoseconds-start)/1e6,(command.gpuEndTime-command.gpuStartTime)*1000)
     }
@@ -182,7 +189,7 @@ if variant == "gqa4" || variant == "gqa8" {
     for head in 0..<qHeads { guards = guards && pointer[head*130].isNaN && pointer[head*130+129].isNaN; actual += Array(UnsafeBufferPointer(start:pointer+head*130+1,count:128)) }
     let maxError=zip(actual,expected).map{abs($0-$1)}.max()!,rel=relativeL2(actual,expected)
     guard guards,actual.allSatisfy({$0.isFinite}),rel<=3e-4,maxError<=5e-4 else { fail("GQA parity rel=\(rel) max=\(maxError) guards=\(guards)") }
-    let result:[String:Any]=["schema_version":1,"device":device.name,"format":"turbo\(format)","mode":variant=="gqa4" ? "global" : "swa","q_heads":qHeads,"kv_heads":kvHeads,"context":context,"rope_dim":64,"rope_base":ropeBase,"value_scale":0.707,"uses_sinks":useSinks,"q_position":context-1,"batch_size":1,"concurrency":1,"accepted_tokens":1,"A":"not_applicable","U":"not_applicable","bytes_read":packedKeys.count+packedValues.count+queries.count*4+(useSinks ? sinkBiases.count*4 : 0),"compile_ms":compileMs,"cold_wall_ms":cold.0,"cold_gpu_ms":cold.1,"warmups":10,"measurements":30,"wall_median_ms":percentile(walls,0.5),"wall_p95_ms":percentile(walls,0.95),"gpu_median_ms":percentile(gpus,0.5),"gpu_p95_ms":percentile(gpus,0.95),"metal_vs_scalar_relative_l2":rel,"metal_vs_scalar_max_abs":maxError,"all_head_guards_intact":guards,"cache_state":"packed application buffers warm; no model or storage I/O"]
+    let result:[String:Any]=["schema_version":1,"device":device.name,"format":"turbo\(format)","mode":kvHeads==4 ? "global" : "swa","kernel_schedule":shared ? "shared_kv" : "per_q_head","q_heads":qHeads,"kv_heads":kvHeads,"context":context,"rope_dim":64,"rope_base":ropeBase,"value_scale":0.707,"uses_sinks":useSinks,"q_position":context-1,"batch_size":1,"concurrency":1,"accepted_tokens":1,"A":"not_applicable","U":"not_applicable","bytes_read":packedKeys.count+packedValues.count+queries.count*4+(useSinks ? sinkBiases.count*4 : 0),"compile_ms":compileMs,"cold_wall_ms":cold.0,"cold_gpu_ms":cold.1,"warmups":10,"measurements":30,"wall_median_ms":percentile(walls,0.5),"wall_p95_ms":percentile(walls,0.95),"gpu_median_ms":percentile(gpus,0.5),"gpu_p95_ms":percentile(gpus,0.95),"metal_vs_scalar_relative_l2":rel,"metal_vs_scalar_max_abs":maxError,"all_head_guards_intact":guards,"cache_state":"packed application buffers warm; no model or storage I/O"]
     let data=try JSONSerialization.data(withJSONObject:result,options:[.sortedKeys]);FileHandle.standardOutput.write(data);FileHandle.standardOutput.write(Data("\n".utf8));exit(0)
 }
 var query = [Float](repeating: 0, count: 256)

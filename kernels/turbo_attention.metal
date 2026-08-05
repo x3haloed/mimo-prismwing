@@ -109,6 +109,87 @@ kernel void turbo_gqa_attention_256_128_parallel32(
     }
 }
 
+kernel void turbo_gqa_attention_shared_kv(
+        device const uchar * keys [[buffer(0)]],
+        device const uchar * values [[buffer(1)]],
+        device const float * rotated_queries [[buffer(2)]],
+        device float * guarded_outputs [[buffer(3)]],
+        constant TurboAttentionShape & shape [[buffer(4)]],
+        device const float * signs1 [[buffer(5)]],
+        device const float * signs2 [[buffer(6)]],
+        device const float * sinks [[buffer(7)]],
+        uint thread_index [[thread_index_in_threadgroup]],
+        uint lane [[thread_index_in_simdgroup]],
+        uint query_in_group [[simdgroup_index_in_threadgroup]],
+        uint kv_head [[threadgroup_position_in_grid]],
+        uint threads [[threads_per_threadgroup]]) {
+    const uint queries_per_kv = shape.q_heads / shape.kv_heads;
+    if (shape.q_heads != 64 || (shape.kv_heads != 4 && shape.kv_heads != 8) ||
+        threads != queries_per_kv * 32 || kv_head >= shape.kv_heads ||
+        query_in_group >= queries_per_kv || (shape.format != 3 && shape.format != 4)) return;
+    const uint q_head = kv_head * queries_per_kv + query_in_group;
+    device const uchar * head_keys = keys + kv_head * shape.context * shape.key_stride;
+    device const uchar * head_values = values + kv_head * shape.context * shape.value_stride;
+    threadgroup float tile[8 * 384];
+    threadgroup float reconstructed[16 * 128];
+    float output[4] = {0, 0, 0, 0};
+    float maximum = -INFINITY, denominator = 0.0f;
+
+    for (uint tile_base = 0; tile_base < shape.context; tile_base += 8) {
+        uint tile_count = min(8u, shape.context - tile_base);
+        for (uint item = thread_index; item < tile_count * 384; item += threads) {
+            uint token = item / 384, column = item % 384;
+            tile[item] = column < 256
+                ? dequant(head_keys + (tile_base + token) * shape.key_stride, shape.format, column)
+                : dequant(head_values + (tile_base + token) * shape.value_stride, shape.format, column - 256);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint token = 0; token < tile_count; ++token) {
+            float partial = 0.0f;
+            for (uint column = lane; column < 256; column += 32) {
+                partial += rotated_queries[q_head * 256 + column] * tile[token * 384 + column];
+            }
+            float score = simd_sum(partial) * 0.07216878364870322f;
+            float next_maximum = max(maximum, score);
+            float previous_scale = isinf(maximum) ? 0.0f : exp(maximum - next_maximum);
+            float current_scale = exp(score - next_maximum);
+            denominator = denominator * previous_scale + current_scale;
+            for (uint part = 0; part < 4; ++part) {
+                uint column = lane + part * 32;
+                output[part] = output[part] * previous_scale + current_scale * tile[token * 384 + 256 + column];
+            }
+            maximum = next_maximum;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (shape.use_sinks != 0) {
+        float sink = sinks[q_head], next_maximum = max(maximum, sink);
+        float data_scale = exp(maximum - next_maximum);
+        denominator = denominator * data_scale + exp(sink - next_maximum);
+        for (uint part = 0; part < 4; ++part) output[part] *= data_scale;
+    }
+    for (uint part = 0; part < 4; ++part) {
+        uint column = lane + part * 32;
+        reconstructed[query_in_group * 128 + column] = output[part] / denominator * signs2[column];
+    }
+    simdgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint width = 1; width < 128; width *= 2) {
+        for (uint butterfly = lane; butterfly < 64; butterfly += 32) {
+            uint group = butterfly / width, offset = butterfly % width;
+            uint first_index = group * 2 * width + offset;
+            threadgroup float * row = reconstructed + query_in_group * 128;
+            float first = row[first_index], second = row[first_index + width];
+            row[first_index] = first + second; row[first_index + width] = first - second;
+        }
+        simdgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    device float * destination = guarded_outputs + q_head * 130;
+    for (uint part = 0; part < 4; ++part) {
+        uint column = lane + part * 32;
+        destination[column + 1] = reconstructed[query_in_group * 128 + column] * 0.08838834764831845f * signs1[column];
+    }
+}
+
 static void rotate_forward(thread float * values, device const float * signs1, device const float * signs2) {
     for (uint index = 0; index < 128; ++index) values[index] *= signs1[index];
     fwht(values);
