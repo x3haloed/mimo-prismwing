@@ -771,3 +771,15 @@ positions reread the same weights. Its idealized perfect-reuse routed-only
 diagnostic is just 4.15–4.16 TPS before non-MoE work. This schedule is rejected;
 the next batching mechanism must share weight tiles across positions inside a
 threadgroup or delegate to a tuned GEMM primitive.
+
+PW-0036 realizes the missing mechanism. One row threadgroup decodes each FP8
+weight once and accumulates all eight positions in 2 KiB of threadgroup memory.
+Across paired process orders, candidate mean median is 1.9348 ms versus 5.1324
+ms for PW-0035 control, a stable 2.653× complete-expert gain. Per-position cost
+is 0.24185 ms, 4.221× better than PW-0034 batch one.
+
+Every candidate/control output is byte-identical and remains `1.63e-6`
+relative L2 from independent Torch source FP8. The idealized perfect-reuse
+routed-only diagnostic rises to 10.997 TPS, still before non-MoE work and under
+an unrealistically favorable `A=8`, `U=1`. This promotes the shared-weight
+batch component; uneven heterogeneous route batches are now the next gate.

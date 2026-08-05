@@ -386,6 +386,22 @@
             "idealized_perfect_reuse_routed_only_tps": 4.146406323322717,
             "status": "rejected_performance_gates_failed; correctness_reference_retained; not_endpoint_tps",
             "provenance": "PW-0035; batch-row flattened 64-lane Metal; exact layer43 expert32 source FP8; each position rereads weights; resident-buffer complete-expert wall"
+        },
+        "native_metal_source_fp8_complete_expert_batch8_shared_weight": {
+            "batch_size": 8,
+            "threadgroup_memory_bytes": 2048,
+            "warmups": 5,
+            "measurements_per_process": 30,
+            "candidate_paired_mean_median_ms": 1.9348335,
+            "control_paired_mean_median_ms": 5.132375,
+            "speedup_over_flattened_control": 2.652618429441086,
+            "per_position_ms": 0.2418541875,
+            "per_position_speedup_vs_pw0034_batch_one": 4.2210350399659715,
+            "relative_l2_vs_torch_source_fp8": 0.0000016260831102360034,
+            "maximum_absolute_error_vs_torch_source_fp8": 0.00000000024738256,
+            "idealized_perfect_reuse_routed_only_tps": 10.996602934919647,
+            "status": "promoted_shared_weight_source_fp8_batch8_component; not_heterogeneous_layer_or_endpoint_tps",
+            "provenance": "PW-0036; paired process orders; one 64-lane threadgroup per row; decoded FP8 weight shared across eight positions; exact layer43 expert32 complete expert"
         }
     }
 }

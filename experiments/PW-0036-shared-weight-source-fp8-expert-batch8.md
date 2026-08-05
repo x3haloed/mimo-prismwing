@@ -1,10 +1,10 @@
 # PW-0036 — Shared-weight source-FP8 expert batch eight
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: production
 - Date: 2026-08-04
 - Owner: Codex with project owner authorization
-- Commit and dirty state: based on `979c5a7`; contract dirty
+- Commit and dirty state: contract committed as `03f792c`; implementation dirty
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; exact PW-0035 sources, inputs,
   and independent Torch output
@@ -58,7 +58,28 @@ Raw evidence will be written under
 
 ## Isolated attribution
 
-Pending.
+The candidate uses one 64-lane threadgroup per output row. Each lane decodes a
+source FP8 weight once, multiplies it by all eight position activations, keeps
+eight F32 sums, and reduces the sums in exactly `64×8×4 = 2,048` threadgroup
+bytes. The control retains one threadgroup per position/output-row pair and
+therefore rereads the weight eight times.
+
+Paired process orders produce:
+
+| Order | First median ms | Second median ms |
+|---|---:|---:|
+| candidate → control | 1.9259 | 5.1745 |
+| control → candidate | 5.0903 | 1.9437 |
+
+Candidate paired mean median is 1.9348 ms versus 5.1324 ms for control, a
+2.653× gain. Candidate p10/p90 are 1.874/1.995 ms and 1.914/2.085 ms. Mean
+per-position cost is 0.24185 ms, 4.221× faster than PW-0034 batch one. All
+three predeclared timing gates pass with stable order direction.
+
+The idealized `A=8`, `U=1` perfect-reuse routed-only diagnostic is 10.997 TPS
+across 47 routed layers. It excludes routing, dense weights, attention, logits,
+storage, MTP, and endpoint work and assumes the best possible eight-expert
+union at every layer; it is not endpoint or representative-route throughput.
 
 ## End-to-end result
 
@@ -66,8 +87,26 @@ Out of scope; no endpoint TPS claim is permitted.
 
 ## Correctness result
 
-Pending.
+All four candidate/control artifacts are byte-identical with SHA-256
+`8c198563b12f73a7c5fd181e2d173ffa55692c64ddd1d5386cb0ccdfac2a1393`.
+All `8×4,096` values remain at `1.62608e-6` relative L2 and `2.47383e-10`
+maximum absolute error versus independent Torch source FP8. The synthetic
+1,024-output shared-weight kernel fixture is byte-exact to the Rust scalar
+oracle, all values are finite, and create-new rejection passes.
+
+Rust has 15 passing tests, Python has 21, and clippy is clean with warnings
+denied. Raw evidence is under
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0036`. Its `SHA256SUMS` manifest
+hashes to
+`f1dea1da7fe4cfb265168b6b8e9cf8d0f3f62dff8b3180790ee13a263368b891`.
 
 ## Decision
 
-Pending.
+Promote the shared-weight source-FP8 batch-eight complete-expert component.
+This reverses PW-0035's rejected schedule because the causal mechanism changed:
+weights are now actually decoded once and applied to eight positions.
+
+Do not promote a heterogeneous MoE layer or endpoint result. The next slice
+must run the actual PW-0016 nine-expert union with its uneven 8/5/3 position
+batches, routing weights, and reduction. Fixed batch eight is an upper-bound
+reuse component, not a claim that real routes fill every expert batch.

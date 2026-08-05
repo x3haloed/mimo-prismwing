@@ -71,6 +71,10 @@ The construction order follows the least-proven boundaries:
   with an f64-fixtured Metal SwiGLU under one Rust-owned command sequence.
   Expert batching, routing, and weighted reduction remain separate authorities
   that must be made real before this primitive becomes a routed layer.
+- The promoted batch-eight expert schedule assigns one output row per Metal
+  threadgroup and applies each decoded source-FP8 weight to eight positions.
+  A flattened position-row schedule is retained only as a correctness control;
+  it is not an executable default because it rereads weights per position.
 - Frozen raw evidence owns measurements; Markdown reports interpret it but do
   not override it.
 

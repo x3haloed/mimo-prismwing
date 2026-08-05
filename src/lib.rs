@@ -178,6 +178,8 @@ pub struct MetalFp8ExpertReport {
     pub up: MappedTensorMetadata,
     pub down: MappedTensorMetadata,
     pub kernel_file: String,
+    pub fp8_kernel: &'static str,
+    pub threadgroup_memory_bytes: u64,
     pub device: String,
     pub input_sha256: String,
     pub reference_sha256: String,
@@ -228,6 +230,10 @@ struct SwiGluFixture {
 struct MetalExpertConfig {
     batch_size: usize,
     fp8_kernel: &'static str,
+    threadgroup_batch_factor: usize,
+    partial_values_per_lane: usize,
+    timing_limit_ms: f64,
+    minimum_per_position_speedup: f64,
 }
 
 fn dtype_bytes(dtype: &str) -> Option<u64> {
@@ -875,7 +881,18 @@ fn run_metal_fp8_expert_configured(
     let MetalExpertConfig {
         batch_size,
         fp8_kernel,
+        threadgroup_batch_factor,
+        partial_values_per_lane,
+        timing_limit_ms,
+        minimum_per_position_speedup,
     } = config;
+    if threadgroup_batch_factor == 0 || partial_values_per_lane == 0 {
+        return Err("Metal expert threadgroup configuration is zero".to_owned());
+    }
+    let threadgroup_memory_bytes = LANES
+        .checked_mul(partial_values_per_lane as u64)
+        .and_then(|value| value.checked_mul(4))
+        .ok_or("Metal expert threadgroup memory overflow")?;
 
     if output_path.exists() {
         return Err(format!("refusing to overwrite {}", output_path.display()));
@@ -1027,10 +1044,10 @@ fn run_metal_fp8_expert_configured(
         fixture_encoder.set_buffer(3, Some(&fixture_output_buffer), 0);
         fixture_encoder.set_buffer(4, Some(&fixture_shape_buffer), 0);
         fixture_encoder.set_buffer(5, Some(&fixture_lut_buffer), 0);
-        fixture_encoder.set_threadgroup_memory_length(0, LANES * 4);
+        fixture_encoder.set_threadgroup_memory_length(0, threadgroup_memory_bytes);
         fixture_encoder.dispatch_thread_groups(
             MTLSize {
-                width: 8 * 128,
+                width: (128 * threadgroup_batch_factor) as u64,
                 height: 1,
                 depth: 1,
             },
@@ -1226,10 +1243,10 @@ fn run_metal_fp8_expert_configured(
         encoder.set_buffer(3, Some(&gate_output), 0);
         encoder.set_buffer(4, Some(&gate_shape_buffer), 0);
         encoder.set_buffer(5, Some(&lut_buffer), 0);
-        encoder.set_threadgroup_memory_length(0, LANES * 4);
+        encoder.set_threadgroup_memory_length(0, threadgroup_memory_bytes);
         encoder.dispatch_thread_groups(
             MTLSize {
-                width: (gate.rows * batch_size) as u64,
+                width: (gate.rows * threadgroup_batch_factor) as u64,
                 height: 1,
                 depth: 1,
             },
@@ -1245,7 +1262,7 @@ fn run_metal_fp8_expert_configured(
         encoder.set_buffer(3, Some(&up_output), 0);
         encoder.dispatch_thread_groups(
             MTLSize {
-                width: (up.rows * batch_size) as u64,
+                width: (up.rows * threadgroup_batch_factor) as u64,
                 height: 1,
                 depth: 1,
             },
@@ -1281,10 +1298,10 @@ fn run_metal_fp8_expert_configured(
         encoder.set_buffer(3, Some(&final_output), 0);
         encoder.set_buffer(4, Some(&down_shape_buffer), 0);
         encoder.set_buffer(5, Some(&lut_buffer), 0);
-        encoder.set_threadgroup_memory_length(0, LANES * 4);
+        encoder.set_threadgroup_memory_length(0, threadgroup_memory_bytes);
         encoder.dispatch_thread_groups(
             MTLSize {
-                width: (down.rows * batch_size) as u64,
+                width: (down.rows * threadgroup_batch_factor) as u64,
                 height: 1,
                 depth: 1,
             },
@@ -1358,12 +1375,11 @@ fn run_metal_fp8_expert_configured(
     let wall_p10_ms = percentile(0.10);
     let wall_median_ms = percentile(0.50);
     let wall_p90_ms = percentile(0.90);
-    let timing_limit_ms = if batch_size == 1 { 3.0 } else { 4.0 };
     let per_position_ms = wall_median_ms / batch_size as f64;
     let per_position_speedup_vs_pw0034_batch_one = 1.020875 / per_position_ms;
     let median_timing_gate_passed = wall_median_ms <= timing_limit_ms;
     let per_position_speedup_gate_passed =
-        batch_size == 1 || per_position_speedup_vs_pw0034_batch_one >= 2.0;
+        per_position_speedup_vs_pw0034_batch_one >= minimum_per_position_speedup;
     let logical_bytes = [
         gate.weight.metadata.data_bytes,
         gate.scale.metadata.data_bytes,
@@ -1402,6 +1418,8 @@ fn run_metal_fp8_expert_configured(
             .and_then(|name| name.to_str())
             .ok_or("kernel file name is not UTF-8")?
             .to_owned(),
+        fp8_kernel,
+        threadgroup_memory_bytes,
         device: device.name().to_owned(),
         input_sha256: sha256_hex(&input_bytes),
         reference_sha256: sha256_hex(&reference_bytes),
@@ -1432,6 +1450,8 @@ fn run_metal_fp8_expert_configured(
         },
         dispatch_composition: if batch_size == 1 {
             "one serialized command buffer: gate FP8 GEMV, up FP8 GEMV, F32 SwiGLU, down FP8 GEMV"
+        } else if partial_values_per_lane == 8 {
+            "one serialized command buffer: gate shared-weight FP8 GEMM8, up shared-weight FP8 GEMM8, F32 SwiGLU, down shared-weight FP8 GEMM8"
         } else {
             "one serialized command buffer: gate FP8 GEMM8, up FP8 GEMM8, F32 SwiGLU, down FP8 GEMM8"
         },
@@ -1444,6 +1464,8 @@ fn run_metal_fp8_expert_configured(
         cache_state: "source OS-cache state uncontrolled; source copied into persistent application Metal buffers before timed series",
         implementation: if batch_size == 1 {
             "rust_owned_metal_source_fp8_complete_expert"
+        } else if partial_values_per_lane == 8 {
+            "rust_owned_metal_source_fp8_complete_expert_batch8_shared_weight"
         } else {
             "rust_owned_metal_source_fp8_complete_expert_batch8"
         },
@@ -1469,6 +1491,10 @@ pub fn run_metal_fp8_expert(
         MetalExpertConfig {
             batch_size: 1,
             fp8_kernel: "block_fp8_gemv_parallel_lut_blocked",
+            threadgroup_batch_factor: 1,
+            partial_values_per_lane: 1,
+            timing_limit_ms: 3.0,
+            minimum_per_position_speedup: 0.0,
         },
     )
 }
@@ -1492,6 +1518,37 @@ pub fn run_metal_fp8_expert_batch8(
         MetalExpertConfig {
             batch_size: 8,
             fp8_kernel: "block_fp8_gemm8_parallel_lut_blocked",
+            threadgroup_batch_factor: 8,
+            partial_values_per_lane: 1,
+            timing_limit_ms: 4.0,
+            minimum_per_position_speedup: 2.0,
+        },
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_fp8_expert_batch8_shared_weight(
+    gate_up_source: &Path,
+    down_source: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8ExpertReport, String> {
+    run_metal_fp8_expert_configured(
+        gate_up_source,
+        down_source,
+        kernel_path,
+        input_path,
+        reference_path,
+        output_path,
+        MetalExpertConfig {
+            batch_size: 8,
+            fp8_kernel: "block_fp8_gemm8_shared_weight_lut_blocked",
+            threadgroup_batch_factor: 1,
+            partial_values_per_lane: 8,
+            timing_limit_ms: 3.5,
+            minimum_per_position_speedup: 2.5,
         },
     )
 }
