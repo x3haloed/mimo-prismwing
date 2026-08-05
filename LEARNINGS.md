@@ -760,3 +760,14 @@ layers yields only a 2.605 routed-only token-position/s diagnostic before any
 non-MoE work. That kills naive batch-one serial source-FP8 execution as the
 performance schedule, not the faithful primitive: heterogeneous expert
 batching, route reuse, and MTP acceptance remain the decisive next mechanisms.
+
+PW-0035 shows that merely flattening batch and output rows does not realize
+that reuse. The source-FP8 batch-eight expert is correct (`1.63e-6` relative L2
+versus Torch), but two medians are 5.131 and 5.111 ms. Per-position improvement
+over PW-0034 is only 1.59–1.60×, failing the predeclared 2× and 4 ms gates.
+
+The kernel assigns each position to a separate threadgroup, so all eight
+positions reread the same weights. Its idealized perfect-reuse routed-only
+diagnostic is just 4.15–4.16 TPS before non-MoE work. This schedule is rejected;
+the next batching mechanism must share weight tiles across positions inside a
+threadgroup or delegate to a tuned GEMM primitive.

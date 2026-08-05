@@ -54,7 +54,13 @@ def dequantize(path: Path, name: str) -> torch.Tensor:
     return weight * scale.repeat_interleave(128, 0).repeat_interleave(128, 1)
 
 
-def generate(gate_up: Path, down_shard: Path, input_path: Path, expected_path: Path) -> dict:
+def generate(
+    gate_up: Path,
+    down_shard: Path,
+    input_path: Path,
+    expected_path: Path,
+    batch_size: int,
+) -> dict:
     gate = dequantize(gate_up, NAMES["gate"])
     up = dequantize(gate_up, NAMES["up"])
     down = dequantize(down_shard, NAMES["down"])
@@ -66,10 +72,13 @@ def generate(gate_up: Path, down_shard: Path, input_path: Path, expected_path: P
     # Exact PW-0015 batch-one construction: values are rounded to FP16, then
     # promoted to F32 for the source-FP8 reference computation.
     input_f16 = np.array(
-        [np.sin(column / 17.0) * 0.01 for column in range(4096)],
+        [
+            [np.sin((column + 19 * row) / 17.0) * 0.01 for column in range(4096)]
+            for row in range(batch_size)
+        ],
         dtype=np.float16,
     )
-    inputs = torch.from_numpy(input_f16).float().reshape(1, -1)
+    inputs = torch.from_numpy(input_f16).float()
     gate_values = inputs @ gate.T
     up_values = inputs @ up.T
     hidden = torch.sigmoid(gate_values) * gate_values * up_values
@@ -87,6 +96,7 @@ def generate(gate_up: Path, down_shard: Path, input_path: Path, expected_path: P
         "semantic": "mimo_layer43_expert32_source_fp8_complete_expert",
         "layer": LAYER,
         "expert": EXPERT,
+        "batch_size": batch_size,
         "source_files": [gate_up.name, down_shard.name],
         "tensors": NAMES,
         "input_f32_count": int(input_f32.size),
@@ -104,8 +114,15 @@ def main() -> None:
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--expected", required=True, type=Path)
     parser.add_argument("--report", required=True, type=Path)
+    parser.add_argument("--batch-size", type=int, choices=(1, 8), default=1)
     args = parser.parse_args()
-    report = generate(args.gate_up, args.down_shard, args.input, args.expected)
+    report = generate(
+        args.gate_up,
+        args.down_shard,
+        args.input,
+        args.expected,
+        args.batch_size,
+    )
     atomic_write_new(args.report, canonical_json(report))
 
 

@@ -370,6 +370,22 @@
             "idealized_batch1_serial_eight_experts_47_layers_tps": 2.605191103793419,
             "status": "promoted_native_target_faithful_complete_expert_primitive; naive_batch1_serial_schedule_killed; not_routed_layer_or_endpoint_tps",
             "provenance": "PW-0034; exact layer43 expert32 source FP8; Rust-owned Metal gate/up/F32-SwiGLU/down; serialized resident-buffer complete-expert wall"
+        },
+        "native_metal_source_fp8_complete_expert_batch8_flattened": {
+            "batch_size": 8,
+            "logical_source_and_io_bytes": 25434112,
+            "warmups": 5,
+            "measurements_per_process": 30,
+            "first_process_wall_median_ms": 5.131334,
+            "repeat_process_wall_median_ms": 5.110792,
+            "first_process_per_position_ms": 0.64141675,
+            "repeat_process_per_position_ms": 0.638849,
+            "per_position_speedup_vs_pw0034_batch_one": 1.5915939208011014,
+            "relative_l2_vs_torch_source_fp8": 0.0000016260831102360034,
+            "maximum_absolute_error_vs_torch_source_fp8": 0.00000000024738256,
+            "idealized_perfect_reuse_routed_only_tps": 4.146406323322717,
+            "status": "rejected_performance_gates_failed; correctness_reference_retained; not_endpoint_tps",
+            "provenance": "PW-0035; batch-row flattened 64-lane Metal; exact layer43 expert32 source FP8; each position rereads weights; resident-buffer complete-expert wall"
         }
     }
 }

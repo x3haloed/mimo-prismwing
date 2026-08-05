@@ -1,10 +1,10 @@
 # PW-0035 — Rust-owned Metal source-FP8 expert batch eight
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-04
 - Owner: Codex with project owner authorization
-- Commit and dirty state: based on `b6cea66`; contract dirty
+- Commit and dirty state: contract committed as `ab5fe82`; implementation dirty
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0034 source identities;
   PW-0015 deterministic batch-eight input semantic
@@ -61,7 +61,22 @@ Raw evidence will be written under
 
 ## Isolated attribution
 
-Pending.
+The new kernel flattens eight positions and each output row into independent
+64-lane threadgroups. It therefore reduces command-level repetition but each
+position still scans the same FP8 weights in a separate threadgroup; it does
+not share weight tiles across positions.
+
+After five warmups, the first report's 30 complete-expert measurements have a
+5.1313 ms median, 5.0482 ms p10, and 5.2560 ms p90. The repeat has a 5.1108 ms
+median, 4.9769 ms p10, and 5.3638 ms p90. Per-position times are 0.6414 and
+0.6388 ms, only 1.592× and 1.598× faster than PW-0034 batch one. Both the 4 ms
+median gate and 2× per-position gate fail.
+
+Under the deliberately idealized `A=8`, `U=1` perfect-reuse case—eight unique
+experts each receiving all eight positions at every routed layer—the two
+medians imply only 4.146 and 4.163 routed-only accepted TPS. This excludes
+routing, dense weights, attention, logits, storage, MTP, and endpoint work and
+is not a representative route-union claim.
 
 ## End-to-end result
 
@@ -69,8 +84,36 @@ Out of scope; no endpoint TPS claim is permitted.
 
 ## Correctness result
 
-Pending.
+Correctness passes even though performance does not. All `8×4,096` outputs
+agree with the independently dequantized Torch source-FP8 oracle at
+`1.62608e-6` relative L2 and `2.47383e-10` maximum absolute error. The
+1,024-output synthetic GEMM8 fixture is byte-exact to the Rust scalar oracle;
+the inherited SwiGLU fixture remains within `1.97745e-7`.
+
+The output SHA-256 is
+`8c198563b12f73a7c5fd181e2d173ffa55692c64ddd1d5386cb0ccdfac2a1393`.
+Two complete candidate processes and two independent fixture generations are
+byte-identical. Existing output paths fail closed. Rust has 15 passing tests,
+Python has 21, and clippy is clean with warnings denied.
+
+The first implementation run correctly exited nonzero when the performance
+gate failed but emitted no JSON. The reporter was then changed to preserve
+complete failed-gate metrics while retaining explicit false gate fields; the
+acceptance criteria were not weakened. Both the initial failure and measured
+reports are preserved in raw evidence.
+
+Raw evidence is under `/Volumes/Elements/mimo-prismwing/evidence/PW-0035`.
+Its `SHA256SUMS` manifest hashes to
+`c2a49a43c27ecfef9a7b37dbc337f4b107ad0aede8ea3ea48db1627f38062cd6`.
 
 ## Decision
 
-Pending.
+Reject flattened batch-row threadgroups as the faithful expert batching
+schedule. Retain the kernel as a correctness reference and diagnostic, but do
+not promote it as the batched runtime primitive.
+
+The hypothesis failed for a specific causal reason: dispatch topology alone
+does not realize expert-weight reuse. The next candidate must load a weight
+tile once and apply it to all eight positions inside the same threadgroup (or
+use a tuned native GEMM substrate), with a new predeclared experiment. No
+heterogeneous MoE integration should build on this rejected performance path.
