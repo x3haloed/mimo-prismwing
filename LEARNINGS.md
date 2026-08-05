@@ -463,3 +463,14 @@ affine four-row relative L2 error is 4.09%, better than the symmetric candidate
 but still L3. A fused real-expert path may improve the diagnostic, and a real
 endpoint around 10–25 TPS remains valuable; neither point converts this
 component measurement into endpoint throughput or fidelity.
+
+PW-0013 establishes the first real M1 storage artifact. `PWEXPRT1` copied an
+actual 4,096×2,048 routed-expert down projection and its scale grid without
+conversion, bound them to the complete locked source-shard SHA-256, aligned
+both payloads, and passed independent verification. The format refuses
+overwrite and detects a one-byte mutation.
+
+This promotes the container schema, not a complete expert or runtime. The real
+gate/up tensors live in the paired shard still being acquired; once present,
+the same format can carry all six weight/scale tensors and feed the fused
+expert experiment.

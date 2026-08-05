@@ -1,11 +1,14 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 const MAX_HEADER_BYTES: u64 = 256 * 1024 * 1024;
+const EXPERT_MAGIC: &[u8; 8] = b"PWEXPRT1";
+const EXPERT_ALIGNMENT: u64 = 64;
 
 #[derive(Debug, Serialize)]
 pub struct TensorRecord {
@@ -89,7 +92,9 @@ pub fn classify_tensor(name: &str) -> &'static str {
     }
 }
 
-fn read_safetensors_header(path: &Path) -> Result<(u64, serde_json::Map<String, Value>), String> {
+fn read_safetensors_header(
+    path: &Path,
+) -> Result<(u64, u64, serde_json::Map<String, Value>), String> {
     let mut file = File::open(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let file_bytes = file.metadata().map_err(|error| error.to_string())?.len();
     let mut prefix = [0_u8; 8];
@@ -110,6 +115,7 @@ fn read_safetensors_header(path: &Path) -> Result<(u64, serde_json::Map<String, 
         .map_err(|error| format!("{}: malformed header JSON: {error}", path.display()))?;
     Ok((
         file_bytes,
+        header_bytes,
         require_object(&value, "safetensors header")?.clone(),
     ))
 }
@@ -144,7 +150,7 @@ pub fn build_census(index_path: &Path, checkpoint_dir: &Path) -> Result<Census, 
     let mut shard_file_bytes = 0_u64;
     for shard in shard_names {
         let path: PathBuf = checkpoint_dir.join(&shard);
-        let (file_bytes, header) = read_safetensors_header(&path)?;
+        let (file_bytes, _header_bytes, header) = read_safetensors_header(&path)?;
         shard_file_bytes = shard_file_bytes
             .checked_add(file_bytes)
             .ok_or("shard byte overflow")?;
@@ -242,6 +248,271 @@ pub fn write_census(census: &Census, output: &Path) -> Result<(), String> {
     serde_json::to_writer_pretty(&mut file, census).map_err(|error| error.to_string())?;
     use std::io::Write;
     file.write_all(b"\n").map_err(|error| error.to_string())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExpertContainerTensor {
+    pub name: String,
+    pub dtype: String,
+    pub shape: Vec<u64>,
+    pub source_data_offsets: [u64; 2],
+    pub payload_offset: u64,
+    pub data_bytes: u64,
+    pub sha256: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExpertContainerHeader {
+    pub schema_version: u32,
+    pub source_file: String,
+    pub source_file_bytes: u64,
+    pub source_sha256: String,
+    pub payload_alignment: u64,
+    pub tensors: Vec<ExpertContainerTensor>,
+}
+
+fn align_up(value: u64, alignment: u64) -> Result<u64, String> {
+    if alignment == 0 || !alignment.is_power_of_two() {
+        return Err("alignment must be a nonzero power of two".to_owned());
+    }
+    value
+        .checked_add(alignment - 1)
+        .map(|sum| sum & !(alignment - 1))
+        .ok_or_else(|| "alignment overflow".to_owned())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn sha256_reader(reader: &mut File) -> Result<String, String> {
+    reader
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| error.to_string())?;
+    let mut digest = Sha256::new();
+    let mut buffer = vec![0_u8; 8 * 1024 * 1024];
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|error| error.to_string())?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    Ok(digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+fn parse_tensor_metadata(
+    header: &serde_json::Map<String, Value>,
+    name: &str,
+) -> Result<(String, Vec<u64>, u64, u64), String> {
+    let metadata = require_object(
+        header
+            .get(name)
+            .ok_or_else(|| format!("source tensor is absent: {name}"))?,
+        name,
+    )?;
+    let dtype = metadata
+        .get("dtype")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{name}: missing dtype"))?
+        .to_owned();
+    let shape = metadata
+        .get("shape")
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("{name}: missing shape"))?
+        .iter()
+        .map(|dimension| {
+            dimension
+                .as_u64()
+                .ok_or_else(|| format!("{name}: invalid shape"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let (start, end) = require_u64_pair(
+        metadata
+            .get("data_offsets")
+            .ok_or_else(|| format!("{name}: missing offsets"))?,
+        name,
+    )?;
+    Ok((dtype, shape, start, end))
+}
+
+pub fn repack_expert_container(
+    source: &Path,
+    output: &Path,
+    tensor_names: &[String],
+) -> Result<ExpertContainerHeader, String> {
+    if tensor_names.is_empty() {
+        return Err("at least one tensor is required".to_owned());
+    }
+    if output.exists() {
+        return Err(format!("refusing to overwrite {}", output.display()));
+    }
+    let mut names = tensor_names.to_vec();
+    names.sort();
+    if names.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err("duplicate tensor name".to_owned());
+    }
+    let (source_file_bytes, source_header_bytes, source_header) = read_safetensors_header(source)?;
+    let mut source_file = File::open(source).map_err(|error| error.to_string())?;
+    let source_sha256 = sha256_reader(&mut source_file)?;
+    let source_payload_start = 8_u64
+        .checked_add(source_header_bytes)
+        .ok_or("source payload offset overflow")?;
+    let mut payload = Vec::new();
+    let mut tensors = Vec::new();
+    for name in names {
+        let (dtype, shape, start, end) = parse_tensor_metadata(&source_header, &name)?;
+        let data_bytes = end.checked_sub(start).ok_or("source offsets reversed")?;
+        let payload_offset = align_up(payload.len() as u64, EXPERT_ALIGNMENT)?;
+        let padding = usize::try_from(payload_offset - payload.len() as u64)
+            .map_err(|_| "payload padding does not fit usize")?;
+        payload.resize(payload.len() + padding, 0);
+        let data_len = usize::try_from(data_bytes).map_err(|_| "tensor does not fit usize")?;
+        let mut data = vec![0_u8; data_len];
+        source_file
+            .seek(SeekFrom::Start(
+                source_payload_start
+                    .checked_add(start)
+                    .ok_or("source seek overflow")?,
+            ))
+            .map_err(|error| error.to_string())?;
+        source_file
+            .read_exact(&mut data)
+            .map_err(|error| format!("{name}: {error}"))?;
+        let tensor_sha256 = sha256_hex(&data);
+        payload.extend_from_slice(&data);
+        tensors.push(ExpertContainerTensor {
+            name,
+            dtype,
+            shape,
+            source_data_offsets: [start, end],
+            payload_offset,
+            data_bytes,
+            sha256: tensor_sha256,
+        });
+    }
+    let header = ExpertContainerHeader {
+        schema_version: 1,
+        source_file: source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("source file name is not UTF-8")?
+            .to_owned(),
+        source_file_bytes,
+        source_sha256,
+        payload_alignment: EXPERT_ALIGNMENT,
+        tensors,
+    };
+    let header_bytes = serde_json::to_vec(&header).map_err(|error| error.to_string())?;
+    let payload_start = align_up(
+        16_u64
+            .checked_add(header_bytes.len() as u64)
+            .ok_or("container header overflow")?,
+        EXPERT_ALIGNMENT,
+    )?;
+    let temporary = output.with_file_name(format!(
+        ".{}.tmp.{}",
+        output
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("output file name is not UTF-8")?,
+        std::process::id()
+    ));
+    let write_result = (|| -> Result<(), String> {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary)
+            .map_err(|error| error.to_string())?;
+        file.write_all(EXPERT_MAGIC)
+            .and_then(|_| file.write_all(&(header_bytes.len() as u64).to_le_bytes()))
+            .and_then(|_| file.write_all(&header_bytes))
+            .map_err(|error| error.to_string())?;
+        let current = 16 + header_bytes.len() as u64;
+        file.write_all(&vec![0_u8; (payload_start - current) as usize])
+            .and_then(|_| file.write_all(&payload))
+            .and_then(|_| file.sync_all())
+            .map_err(|error| error.to_string())?;
+        verify_expert_container(&temporary)?;
+        fs::hard_link(&temporary, output).map_err(|error| error.to_string())?;
+        Ok(())
+    })();
+    let _ = fs::remove_file(&temporary);
+    write_result?;
+    Ok(header)
+}
+
+pub fn verify_expert_container(path: &Path) -> Result<ExpertContainerHeader, String> {
+    let mut file = File::open(path).map_err(|error| error.to_string())?;
+    let file_bytes = file.metadata().map_err(|error| error.to_string())?.len();
+    let mut magic = [0_u8; 8];
+    file.read_exact(&mut magic)
+        .map_err(|error| error.to_string())?;
+    if &magic != EXPERT_MAGIC {
+        return Err("unknown expert-container magic".to_owned());
+    }
+    let mut header_length_bytes = [0_u8; 8];
+    file.read_exact(&mut header_length_bytes)
+        .map_err(|error| error.to_string())?;
+    let header_length = u64::from_le_bytes(header_length_bytes);
+    if header_length == 0 || header_length > MAX_HEADER_BYTES {
+        return Err("invalid expert-container header length".to_owned());
+    }
+    let mut raw_header = vec![0_u8; header_length as usize];
+    file.read_exact(&mut raw_header)
+        .map_err(|error| error.to_string())?;
+    let header: ExpertContainerHeader =
+        serde_json::from_slice(&raw_header).map_err(|error| error.to_string())?;
+    if header.schema_version != 1 || header.payload_alignment != EXPERT_ALIGNMENT {
+        return Err("unknown expert-container schema".to_owned());
+    }
+    let payload_start = align_up(16 + header_length, header.payload_alignment)?;
+    let mut previous_end = 0_u64;
+    let mut names = BTreeSet::new();
+    for tensor in &header.tensors {
+        if !names.insert(&tensor.name) {
+            return Err("duplicate tensor in expert container".to_owned());
+        }
+        if tensor.payload_offset % header.payload_alignment != 0
+            || tensor.payload_offset < previous_end
+        {
+            return Err("invalid or overlapping expert payload offsets".to_owned());
+        }
+        let end = tensor
+            .payload_offset
+            .checked_add(tensor.data_bytes)
+            .ok_or("expert payload overflow")?;
+        if payload_start
+            .checked_add(end)
+            .ok_or("file offset overflow")?
+            > file_bytes
+        {
+            return Err("expert payload exceeds container".to_owned());
+        }
+        let mut data = vec![
+            0_u8;
+            usize::try_from(tensor.data_bytes)
+                .map_err(|_| "tensor does not fit usize")?
+        ];
+        file.seek(SeekFrom::Start(payload_start + tensor.payload_offset))
+            .and_then(|_| file.read_exact(&mut data))
+            .map_err(|error| error.to_string())?;
+        if sha256_hex(&data) != tensor.sha256 {
+            return Err(format!("tensor hash mismatch: {}", tensor.name));
+        }
+        previous_end = end;
+    }
+    if payload_start + previous_end != file_bytes {
+        return Err("unexpected trailing or missing expert-container bytes".to_owned());
+    }
+    Ok(header)
 }
 
 pub fn read_header_length(path: &Path) -> Result<u64, String> {
@@ -590,6 +861,16 @@ pub fn evaluate_tiny_moe(fixture: &TinyMoeFixture, input: &[f64]) -> Result<Tiny
 mod tests {
     use super::*;
 
+    fn temporary_test_directory(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "prismwing-{name}-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        fs::create_dir_all(&path).expect("temporary directory");
+        path
+    }
+
     #[test]
     fn tensor_categories_are_explicit() {
         assert_eq!(
@@ -767,5 +1048,58 @@ mod tests {
                 "row {row}: actual {value}, expected {expected}"
             );
         }
+    }
+
+    #[test]
+    fn expert_container_round_trips_and_detects_tampering() {
+        let directory = temporary_test_directory("container");
+        let source = directory.join("source.safetensors");
+        let output = directory.join("expert.pwexpert");
+        let header = serde_json::json!({
+            "tensor.b": {"dtype": "U8", "shape": [3], "data_offsets": [4, 7]},
+            "tensor.a": {"dtype": "U8", "shape": [4], "data_offsets": [0, 4]}
+        });
+        let header_bytes = serde_json::to_vec(&header).expect("header JSON");
+        let mut source_file = File::create(&source).expect("source file");
+        source_file
+            .write_all(&(header_bytes.len() as u64).to_le_bytes())
+            .and_then(|_| source_file.write_all(&header_bytes))
+            .and_then(|_| source_file.write_all(&[1, 2, 3, 4, 9, 8, 7]))
+            .expect("source write");
+        source_file.sync_all().expect("source sync");
+
+        let names = vec!["tensor.b".to_owned(), "tensor.a".to_owned()];
+        let packed = repack_expert_container(&source, &output, &names).expect("repack");
+        assert_eq!(packed.tensors[0].name, "tensor.a");
+        assert_eq!(packed.tensors[1].name, "tensor.b");
+        let verified = verify_expert_container(&output).expect("verify");
+        assert_eq!(verified.tensors.len(), 2);
+        assert!(
+            repack_expert_container(&source, &output, &names)
+                .unwrap_err()
+                .contains("refusing to overwrite")
+        );
+
+        let mut tampered = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&output)
+            .expect("open output");
+        let mut raw_length = [0_u8; 8];
+        tampered.seek(SeekFrom::Start(8)).expect("seek length");
+        tampered.read_exact(&mut raw_length).expect("read length");
+        let payload_start =
+            align_up(16 + u64::from_le_bytes(raw_length), EXPERT_ALIGNMENT).expect("align");
+        tampered
+            .seek(SeekFrom::Start(payload_start))
+            .and_then(|_| tampered.write_all(&[0xff]))
+            .expect("tamper");
+        assert!(
+            verify_expert_container(&output)
+                .unwrap_err()
+                .contains("hash mismatch")
+        );
+        drop(tampered);
+        fs::remove_dir_all(directory).expect("temporary cleanup");
     }
 }

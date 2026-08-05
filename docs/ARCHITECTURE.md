@@ -52,6 +52,8 @@ The construction order follows the least-proven boundaries:
 - `TARGET.md` is the human-readable acceptance authority.
 - `spec/acceptance.yaml` is its machine-readable mirror.
 - `spec/model.lock.json` identifies every upstream checkpoint file.
+- `docs/EXPERT_CONTAINER.md` defines the lossless runtime tensor container;
+  generated containers remain external and are identified by experiment hash.
 - Rust runtime code owns accepted local inference state transitions.
 - A pinned C++/MLX kernel bridge may execute validated array operations but
   cannot weaken Rust-side artifact or state-transition checks.
