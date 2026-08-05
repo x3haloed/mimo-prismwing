@@ -14,4 +14,8 @@ if command -v swiftc >/dev/null 2>&1 && [ "$(uname -s)" = "Darwin" ]; then
     "$prismwing_test_dir/metal_fp8_gemv" \
         evals/fixtures/real/mtp-gate-fp8-gemv.json \
         kernels/block_fp8_gemv.metal
+    "$prismwing_test_dir/metal_fp8_gemv" \
+        evals/fixtures/real/mtp-gate-fp8-gemv.json \
+        kernels/block_fp8_gemv.metal \
+        block_fp8_gemv_parallel_lut_blocked 64
 fi

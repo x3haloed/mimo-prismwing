@@ -22,6 +22,20 @@
       "bytes": 4294967296,
       "status": "provisional_pending_PW-0002",
       "provenance": "LEARNINGS.md initial estimate"
+    },
+    "m1_naive_metal_block_fp8_gemv": {
+      "logical_weight_gib_per_second_median": 6.49803545115488,
+      "source_fp8_routed_only_tps_diagnostic": 0.737,
+      "status": "measured_component_diagnostic_not_endpoint_tps",
+      "provenance": "PW-0007; 16384x4096 real MTP FP8 projection; warm application buffers; batch 1"
+    },
+    "m1_parallel_blocked_lut_fp8_gemv": {
+      "logical_weight_gib_per_second_interleaved_median_mean": 37.76477121733443,
+      "source_fp8_routed_only_tps_diagnostic": 4.2843181336615945,
+      "source_fp8_A_over_U_required_for_50_tps_idealized": 11.670468541342302,
+      "candidate_int4_A_over_U_required_for_50_tps_idealized": 6.5630362507328925,
+      "status": "measured_component_diagnostic_not_endpoint_tps",
+      "provenance": "PW-0008; interleaved serial control and 64-lane blocked-LUT candidate; warm buffers; batch 1"
     }
   }
 }

@@ -26,6 +26,7 @@ struct Fixture: Decodable {
 struct GemvShape {
     var rows: UInt32
     var columns: UInt32
+    var blockRows: UInt32
     var blockColumns: UInt32
 }
 
@@ -34,12 +35,23 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
-guard CommandLine.arguments.count == 3 else {
-    fail("usage: metal_fp8_gemv <fixture.json> <kernel.metal>")
+guard (3...5).contains(CommandLine.arguments.count) else {
+    fail("usage: metal_fp8_gemv <fixture.json> <kernel.metal> [function] [parallel-lanes]")
 }
 
 let fixtureURL = URL(fileURLWithPath: CommandLine.arguments[1])
 let kernelURL = URL(fileURLWithPath: CommandLine.arguments[2])
+let functionName = CommandLine.arguments.count >= 4 ? CommandLine.arguments[3] : "block_fp8_gemv"
+let requestedLanes = CommandLine.arguments.count == 5 ? Int(CommandLine.arguments[4]) : 64
+let parallelFunctions = [
+    "block_fp8_gemv_parallel",
+    "block_fp8_gemv_parallel_lut",
+    "block_fp8_gemv_parallel_lut_blocked",
+]
+guard functionName == "block_fp8_gemv" || parallelFunctions.contains(functionName),
+      let requestedLanes, requestedLanes > 0, requestedLanes.nonzeroBitCount == 1 else {
+    fail("unsupported function or parallel width")
+}
 let fixture: Fixture
 do {
     fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: fixtureURL))
@@ -70,7 +82,7 @@ let library: MTLLibrary
 let pipeline: MTLComputePipelineState
 do {
     library = try device.makeLibrary(source: source, options: nil)
-    guard let function = library.makeFunction(name: "block_fp8_gemv") else {
+    guard let function = library.makeFunction(name: functionName) else {
         fail("kernel function is absent")
     }
     pipeline = try device.makeComputePipelineState(function: function)
@@ -79,9 +91,21 @@ do {
 }
 
 let flattened = fixture.raw.flatMap { $0 }
+func decodeFP8(_ value: UInt8) -> Float {
+    let sign: Float = value & 0x80 == 0 ? 1 : -1
+    let exponent = Int((value >> 3) & 0x0f)
+    let mantissa = Int(value & 0x07)
+    if exponent == 0 { return sign * pow(2, -6) * Float(mantissa) / 8 }
+    if exponent == 15 && mantissa == 7 {
+        return Float(bitPattern: UInt32(value & 0x80) << 24 | 0x7ff0_0000)
+    }
+    return sign * pow(2, Float(exponent - 7)) * (1 + Float(mantissa) / 8)
+}
+let decodeTable = (0...255).map { decodeFP8(UInt8($0)) }
 var shape = GemvShape(
     rows: UInt32(fixture.rows),
     columns: UInt32(fixture.columns),
+    blockRows: UInt32(fixture.rows),
     blockColumns: UInt32(fixture.blockColumns)
 )
 guard let weightBuffer = device.makeBuffer(bytes: flattened, length: flattened.count),
@@ -92,6 +116,10 @@ guard let weightBuffer = device.makeBuffer(bytes: flattened, length: flattened.c
       let inputBuffer = device.makeBuffer(
         bytes: fixture.input,
         length: fixture.input.count * MemoryLayout<Float>.stride
+      ),
+      let decodeBuffer = device.makeBuffer(
+        bytes: decodeTable,
+        length: decodeTable.count * MemoryLayout<Float>.stride
       ),
       let outputBuffer = device.makeBuffer(
         length: fixture.rows * MemoryLayout<Float>.stride,
@@ -109,10 +137,25 @@ encoder.setBuffer(scaleBuffer, offset: 0, index: 1)
 encoder.setBuffer(inputBuffer, offset: 0, index: 2)
 encoder.setBuffer(outputBuffer, offset: 0, index: 3)
 encoder.setBuffer(shapeBuffer, offset: 0, index: 4)
-encoder.dispatchThreads(
-    MTLSize(width: fixture.rows, height: 1, depth: 1),
-    threadsPerThreadgroup: MTLSize(width: min(fixture.rows, pipeline.maxTotalThreadsPerThreadgroup), height: 1, depth: 1)
-)
+if functionName == "block_fp8_gemv_parallel_lut" ||
+    functionName == "block_fp8_gemv_parallel_lut_blocked" {
+    encoder.setBuffer(decodeBuffer, offset: 0, index: 5)
+}
+if parallelFunctions.contains(functionName) {
+    guard pipeline.maxTotalThreadsPerThreadgroup >= requestedLanes else {
+        fail("device cannot dispatch requested parallel width")
+    }
+    encoder.setThreadgroupMemoryLength(requestedLanes * MemoryLayout<Float>.stride, index: 0)
+    encoder.dispatchThreadgroups(
+        MTLSize(width: fixture.rows, height: 1, depth: 1),
+        threadsPerThreadgroup: MTLSize(width: requestedLanes, height: 1, depth: 1)
+    )
+} else {
+    encoder.dispatchThreads(
+        MTLSize(width: fixture.rows, height: 1, depth: 1),
+        threadsPerThreadgroup: MTLSize(width: min(fixture.rows, pipeline.maxTotalThreadsPerThreadgroup), height: 1, depth: 1)
+    )
+}
 encoder.endEncoding()
 commandBuffer.commit()
 commandBuffer.waitUntilCompleted()
@@ -130,6 +173,7 @@ for row in 0..<fixture.rows {
 }
 let result: [String: Any] = [
     "device": device.name,
+    "kernel": functionName,
     "rows": fixture.rows,
     "columns": fixture.columns,
     "actual": actual,

@@ -359,3 +359,25 @@ GPU, with maximum absolute error below `8e-9` against the frozen oracle. This
 supersedes the statement that accelerated kernels were wholly unproven for the
 slice. The one-thread-per-row kernel is correctness machinery only; full expert
 shapes, parallel reduction, fused SwiGLU, and end-to-end speed remain unproven.
+
+PW-0007 measured that transparent kernel on a full 16,384×4,096 real MTP
+projection. Warm GPU median was 9.618 ms, or 6.498 GiB/s of logical FP8 weights.
+Because the matrix contains eight routed-expert gate-projection byte
+equivalents, the measured bandwidth implies only about 0.737 routed-only TPS
+for a cold source-FP8 ordinary token before all other work. The kernel missed
+its 10 GiB/s kill threshold and is rejected as a performance architecture while
+retained as a correctness oracle. Parallel column reduction is the next test.
+
+PW-0008 combined parallel reduction, a 256-entry FP8 decode table, and loops
+aligned to the source 128-column scale blocks. The selected 64-lane kernel
+repeated at 37.39 and 38.14 GiB/s between stable 6.49–6.50 GiB/s controls, a
+5.82× gain with unchanged correctness. It is promoted as the accelerated FP8
+projection baseline, not an endpoint performance default.
+
+The result makes a hard dependency visible. At 37.765 GiB/s, source-FP8 routed
+bytes alone permit only 4.284 ordinary-token equivalents per second. An
+otherwise-free 50 TPS endpoint would still need `A/U >= 11.67`. Even applying
+the same bandwidth to the estimated INT4 representation requires `A/U >= 6.56`.
+Real dense/spine traffic and compute make both necessary conditions optimistic;
+MTP/DFlash acceptance and route-union measurement are now a primary risk
+frontier.
