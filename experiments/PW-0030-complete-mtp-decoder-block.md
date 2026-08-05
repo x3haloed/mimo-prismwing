@@ -1,10 +1,10 @@
 # PW-0030 — Complete learned MTP decoder block
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: conditional
 - Date: 2026-08-04
 - Owner: Codex with project owner authorization
-- Commit and dirty state: based on `7582798`; contract dirty
+- Commit and dirty state: contract committed as `8fb2555`; implementation dirty
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; locked complete
   `model_mtp.safetensors` SHA-256
@@ -64,7 +64,26 @@ Raw evidence will be written under
 
 ## Isolated attribution
 
-Pending.
+The complete 1.1-GB MTP source and pinned model source pass their locked
+SHA-256 checks. Every used layer-zero tensor matches its predeclared name,
+dtype, shape, and byte offsets. Independent raw-bit decoding exactly matches
+the tensor library for input/pre-MLP norms, all 64 sinks, and the complete BF16
+output projection.
+
+Float64 scalar-dot maximum absolute errors are:
+
+| Projection | Max absolute error |
+|---|---:|
+| fused QKV | `1.91264e-6` |
+| MLP gate | `9.05227e-7` |
+| MLP up | `6.56720e-7` |
+| MLP down | `4.02478e-7` |
+
+All are more than two orders of magnitude below the `2e-4` gate. The actual
+Metal artifact contains exactly 8,192 finite little-endian F32 values and
+hashes to `fdb8ea39872939fd44bd01d383f384239ed074b156ee8cbbffe078fdba9a6108`.
+The producing run retained all 64 head guards and reports relative L2
+`2.79970e-7` versus the independently packed scalar candidate.
 
 ## End-to-end result
 
@@ -72,8 +91,37 @@ Out of scope; no endpoint TPS claim is permitted.
 
 ## Correctness result
 
-Pending.
+All five conditions pass. Candidate/source relative L2 evolves across the
+complete learned path as follows:
+
+| Boundary | Relative L2 |
+|---|---:|
+| affine8 Metal attention | 0.9841% |
+| BF16 projection plus attention residual | 0.4608% |
+| pre-MLP RMSNorm | 0.4289% |
+| learned FP8 SwiGLU MLP output | 0.6273% |
+| final decoder-block state | 0.6203% |
+
+The source final state hashes to
+`d89e298c4c0944d0d06f4fe6f62e8d86800f8e7163e74919a9099c93f8686814`;
+the candidate hashes to
+`42d997477cadc8dafefadc9feba6fddc7191a7464f7498c545ce416559dc9d05`.
+A second complete run is byte-identical.
+
+Raw evidence is under `/Volumes/Elements/mimo-prismwing/evidence/PW-0030`.
+Its `SHA256SUMS` manifest hashes to
+`d03880910b61fcff4035d0badbca6c7f7f1d5d64230371700bf9ad0b2f3d7fab`.
 
 ## Decision
 
-Pending.
+Promote the complete learned MTP decoder block as the current correctness
+reference and executable-foundation slice. PW-0029's Metal output now
+causally drives actual downstream projection, residual, normalization, dense
+SwiGLU, and final state rather than ending at an isolated attention tensor.
+
+Do not promote target fidelity or base-layer parity from the 0.6203% result.
+It is one deterministic final-token MTP block; it excludes accumulated layers,
+base MoE routing, logits, hosted-reference parity, and endpoint timing. Once
+EP0 shard1 completes, reproduce this ladder on an actual base layer and join it
+to the heterogeneous MoE substrate. Until then, MTP layer chaining and native
+checkpoint/runtime foundation remain honest independent work.

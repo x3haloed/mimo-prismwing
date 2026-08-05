@@ -308,6 +308,17 @@
             "learned_mtp_projected_sublayer_relative_l2_vs_source": 0.010576130822300911,
             "status": "promoted_learned_fidelity_attention_component_candidate; not_endpoint_tps_or_target_fidelity",
             "provenance": "PW-0029; two paired process orders at global context 8192; shared-KV Metal; packed buffers warm"
+        },
+        "complete_mtp_layer0_wht_affine8_block": {
+            "context": 17,
+            "attention_relative_l2_vs_source": 0.00984093826264143,
+            "post_attention_residual_relative_l2_vs_source": 0.004608370829373598,
+            "pre_mlp_normalized_relative_l2_vs_source": 0.004289387725293636,
+            "mlp_output_relative_l2_vs_source": 0.006273356731981039,
+            "final_block_state_relative_l2_vs_source": 0.0062025077641010284,
+            "maximum_projection_scalar_sample_abs_error": 0.0000019126369061872595,
+            "status": "promoted_complete_mtp_correctness_reference; not_base_layer_target_fidelity_or_endpoint_tps",
+            "provenance": "PW-0030; locked MTP layer0; actual affine8 Metal attention artifact through learned dense decoder block"
         }
     }
 }

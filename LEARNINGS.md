@@ -694,3 +694,16 @@ projected error versus source. Nine global plus 39 SWA cores give a 133.80 ms
 8K-context attention-only diagnostic. Affine8 is promoted into the complete
 layer branch, but neither this timing nor one MTP sublayer establishes endpoint
 TPS or target fidelity.
+
+PW-0030 closes the first complete learned decoder-block causal path. The actual
+8,192-value affine8 Metal attention result flows through the layer-zero BF16
+output projection, attention residual, pre-MLP RMSNorm, learned source-FP8
+16,384-wide dense SwiGLU, and final residual. Scalar spot checks for fused QKV
+and all three MLP projections are within `1.92e-6` absolute error.
+
+On the deterministic MTP final-token fixture, candidate/source relative L2 is
+0.984% at attention, 0.461% after projection/residual, 0.429% after RMSNorm,
+0.627% at the MLP output, and 0.620% at the final block state. This promotes a
+complete MTP correctness reference, not model fidelity: MTP is not a base
+layer, and one block cannot reveal accumulated error, MoE routing changes, or
+hosted-logit behavior. EP0 remains the required base-layer transition.
