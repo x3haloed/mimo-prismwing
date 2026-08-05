@@ -540,3 +540,17 @@ the narrow low-union regime is extremely correlation-sensitive. Actual
 hidden-state route traces are now required before inserting a favorable `U`
 into any throughput claim. The fixed DFlash block size and measured kernels
 remain useful bounds, but synthetic route reuse cannot rescue them.
+
+PW-0018 reverses the assumption that intermediate affine precisions offer the
+natural fidelity/performance tradeoff on M1. On a complete real expert, 5-bit
+and 6-bit are both slower than 8-bit. Affine 8-bit reduces source-FP8 relative
+L2 error from INT4's 15.48% to 0.912%, while its two interleaved medians average
+only 4.6% slower than INT4. The optimized kernel shape matters more than packed
+byte count for this warm component.
+
+On the heterogeneous routed block, affine 8-bit repeats at 11.146 and 11.113
+ms and 1.026% relative L2, compared with INT4's 9.906/9.756 ms and 17.02% error.
+Its 47-layer routed-only diagnostic is 15.29 TPS. The representation is 3.1%
+larger than source FP8, so it is not embodiment compression; it is a
+quality-oriented use of MLX's executable substrate. It is selected for a
+predeclared validation gate, not yet promoted for target fidelity.

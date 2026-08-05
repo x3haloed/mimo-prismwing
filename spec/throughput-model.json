@@ -146,6 +146,25 @@
             },
             "status": "synthetic_sensitivity_not_real_activation_distribution_or_endpoint_tps",
             "provenance": "PW-0017; actual layer43 source router; correlated standard-normal RMS1 inputs; seed 160043"
+        },
+        "m1_mlx_affine_int8_real_expert_and_moe_block": {
+            "mlx_version": "0.31.2",
+            "executable_bytes_per_expert": 25952256,
+            "complete_expert_batch8_wall_ms_repeat_medians": [
+                1.496271,
+                1.5943125
+            ],
+            "complete_expert_relative_l2_vs_source_fp8": 0.009119495221042717,
+            "heterogeneous_moe_block_wall_ms_repeat_medians": [
+                11.1463335,
+                11.112729
+            ],
+            "heterogeneous_moe_block_wall_ms_repeat_median_mean": 11.12953125,
+            "heterogeneous_moe_block_relative_l2_vs_source_fp8": 0.010261341529075707,
+            "47_layer_routed_only_accepted_tps_diagnostic": 15.29379469215712,
+            "exactness": "L3_bounded_approximation",
+            "status": "exploratory_candidate_selected_for_predeclared_validation_not_endpoint_tps_or_fidelity",
+            "provenance": "PW-0018; actual layer43 expert32 precision sweep and PW-0016 heterogeneous route fixture"
         }
   }
 }

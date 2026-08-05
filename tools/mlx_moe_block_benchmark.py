@@ -18,18 +18,44 @@ import torch
 try:
     from tools.mlx_full_expert_benchmark import (
         error_metrics,
-        full_expert,
         percentile,
-        quantize,
         tensor_names,
     )
     from tools.openrouter_reference import atomic_write_new, canonical_json
 except ModuleNotFoundError:
-    from mlx_full_expert_benchmark import error_metrics, full_expert, percentile, quantize, tensor_names
+    from mlx_full_expert_benchmark import error_metrics, percentile, tensor_names
     from openrouter_reference import atomic_write_new, canonical_json
 
 
 TOP_K = 8
+GROUP_SIZE = 128
+
+
+def quantize_candidate(weight: torch.Tensor, bits: int) -> tuple:
+    arrays = mx.quantize(
+        mx.array(weight.to(torch.float16).numpy()),
+        group_size=GROUP_SIZE,
+        bits=bits,
+        mode="affine",
+    )
+    mx.eval(*arrays)
+    return arrays
+
+
+def candidate_linear(inputs: mx.array, arrays: tuple, bits: int) -> mx.array:
+    return mx.quantized_matmul(
+        inputs,
+        *arrays,
+        group_size=GROUP_SIZE,
+        bits=bits,
+        mode="affine",
+    )
+
+
+def candidate_expert(inputs: mx.array, projections: dict, bits: int) -> mx.array:
+    gate = candidate_linear(inputs, projections["gate"], bits)
+    up = candidate_linear(inputs, projections["up"], bits)
+    return candidate_linear(mx.sigmoid(gate) * gate * up, projections["down"], bits)
 
 
 def load_all(paths: list[Path]) -> dict[str, torch.Tensor]:
@@ -78,6 +104,7 @@ def verify_fixture(result: dict, fixture: dict) -> None:
         fixture.get("schema_version") != 1
         or fixture.get("semantic") != result["semantic"]
         or fixture.get("layer") != result["layer"]
+        or ("bits" in fixture and fixture["bits"] != result["bits"])
         or fixture.get("selected_experts_by_position")
         != result["selected_experts_by_position"]
     ):
@@ -95,6 +122,7 @@ def benchmark(
     router_path: Path,
     expert_paths: list[Path],
     layer: int,
+    bits: int = 4,
     fixture: dict | None = None,
 ) -> dict:
     with safe_open(router_path, framework="pt", device="cpu") as tensors:
@@ -141,7 +169,7 @@ def benchmark(
     mx.reset_peak_memory()
     quantized = {
         expert: {
-            projection: quantize(weight)
+            projection: quantize_candidate(weight, bits)
             for projection, weight in projections.items()
         }
         for expert, projections in source_experts.items()
@@ -171,11 +199,10 @@ def benchmark(
         route_weights = selected_scores / (mx.sum(selected_scores, axis=-1, keepdims=True) + 1e-20)
         result = mx.zeros(mx_inputs.shape, dtype=mx.float32)
         for expert, (positions, slots, matrix) in placement.items():
-            expert_output = full_expert(
+            expert_output = candidate_expert(
                 mx_inputs[positions],
-                quantized[expert]["gate"],
-                quantized[expert]["up"],
-                quantized[expert]["down"],
+                quantized[expert],
+                bits,
             )
             weights = route_weights[positions, slots]
             result = result + matrix @ (expert_output * weights[:, None])
@@ -207,13 +234,15 @@ def benchmark(
     result = {
         "schema_version": 1,
         "semantic": "real_noaux_tc_router_heterogeneous_expert_weighted_sum",
-        "exactness": "L3_affine_INT4_experts_with_source_router",
+        "exactness": f"L3_affine_INT{bits}_experts_with_source_router",
         "device": str(mx.default_device()),
         "machine": platform.machine(),
         "mlx_version": "0.31.2",
         "layer": layer,
         "batch_size": batch_size,
         "top_k": TOP_K,
+        "bits": bits,
+        "group_size": GROUP_SIZE,
         "selected_experts_by_position": indices_np.tolist(),
         "route_weights_by_position": source_route_weights.numpy().tolist(),
         "unique_experts": sorted(schedule),
@@ -254,6 +283,7 @@ def main() -> int:
     parser.add_argument("--layer", type=int, default=43)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--fixture", type=Path)
+    parser.add_argument("--bits", type=int, default=4, choices=(2, 3, 4, 5, 6, 8))
     arguments = parser.parse_args()
     try:
         paths = sorted(arguments.expert_dir.glob("*.safetensors"))
@@ -264,7 +294,7 @@ def main() -> int:
             if arguments.fixture
             else None
         )
-        result = benchmark(arguments.router, paths, arguments.layer, fixture)
+        result = benchmark(arguments.router, paths, arguments.layer, arguments.bits, fixture)
         atomic_write_new(arguments.output, canonical_json(result))
         print(arguments.output)
         return 0
