@@ -1,0 +1,24 @@
+{
+  "model": "xiaomi/mimo-v2.5",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Return only the lowercase word: prismwing"
+    }
+  ],
+  "temperature": 0,
+  "max_tokens": 32,
+  "reasoning": {
+    "enabled": false
+  },
+  "logprobs": true,
+  "top_logprobs": 20,
+  "stream": false,
+  "provider": {
+    "order": [
+      "Parasail"
+    ],
+    "allow_fallbacks": false,
+    "require_parameters": true
+  }
+}

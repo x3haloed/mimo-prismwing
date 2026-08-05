@@ -286,3 +286,19 @@ workflow evidence than commit archaeology.
 Prismwing adopts both patterns in [the research and delivery
 workflow](docs/WORKFLOW.md) and keeps actual experiment history separately from
 the prospective plan under [the experiment ledger](experiments/README.md).
+
+## 9. OpenRouter reference viability
+
+PW-0001 established that, on 2026-08-04, Parasail was the only discovered
+OpenRouter MiMo-V2.5 endpoint advertising both `logprobs` and `top_logprobs`.
+A request pinned to Parasail with fallbacks disabled and all parameters
+required returned 20 alternative logprobs at every visible text token position.
+
+The initial request exhausted its completion budget on hidden reasoning and
+returned no scored text. Explicitly disabling reasoning produced the expected
+visible completion and complete top-20 payload. Reference fixtures must
+therefore pin reasoning disabled; accepting a successful HTTP response without
+checking visible token-level evidence would be a false pass.
+
+This proves only the text reference path. Image, multi-image, audio, video, and
+mixed-input logprob support remain unproven, so PW-0001 remains running.

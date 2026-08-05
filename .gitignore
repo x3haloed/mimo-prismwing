@@ -32,8 +32,10 @@ evals/runs/
 evals/reports/
 evals/fixtures/objects/
 
+# Python test/cache state
+.pytest_cache/
+
 # Local benchmark outputs
 benchmarks/raw/
 traces/
 profiles/
-
