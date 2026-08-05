@@ -1,7 +1,7 @@
 # PW-0001 — OpenRouter reference viability
 
-- Status: running
-- Disposition: unexecuted
+- Status: complete
+- Disposition: production
 - Date: 2026-08-04
 - Owner: Codex with project owner authorization
 - Commit and dirty state: implementation commit pending; repository dirty
@@ -80,6 +80,22 @@ write behavior, and offline tamper detection.
 
 ## Decision
 
-Text reference viability passes conditionally. Reasoning mode must be disabled
-explicitly for scored completions. The experiment remains running until every
-required modality is probed; no conclusion transfers from text to media.
+Text, single-image, multi-image, audio, video, and mixed image/audio requests
+all returned from pinned provider Parasail with 20 alternatives at every
+visible token position. The synthetic tasks also produced semantically correct
+answers; the image cases reached their deliberately small output limit only
+after correctly identifying the supplied colors.
+
+Additional external raw-evidence manifest hashes:
+
+- image: `ed78d4c973668c7775f83b66ca35de1b64e977527f7fc3ad9ffb77160f0c4845`
+- multi-image: `b80b99894804d70edcf1e8126635b5a2dd34358ebf429d94c238f4707c2a485e`
+- audio: `446967a10c0cc260c76096f6d0f5b6b54a9e61801d3361aafff93aba80cab372`
+- video: `d950008fbd855adf3286aea8c41c048a99269675f9fe1b9259e3dae6b5f5db4f`
+- mixed image/audio:
+  `39bf48021e94f57580f9e92f5dc478d601818e1b49c6909db8ff938479643c5e`
+
+Promote Parasail as the initial reference provider and the fail-closed capture
+tool as the reference acquisition path. This is a viability result, not a
+frozen final epoch: endpoint metadata, a larger canary set, fixture licenses,
+and final reference parameters must still be frozen before quality evaluation.

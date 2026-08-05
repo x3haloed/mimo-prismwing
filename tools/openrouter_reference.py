@@ -9,6 +9,7 @@ written to the request, response, manifest, or console.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -37,6 +38,40 @@ def sha256_bytes(value: bytes) -> str:
 def read_json(path: Path) -> Any:
     with path.open("rb") as handle:
         return json.load(handle)
+
+
+def materialize_assets(value: Any, base_dir: Path, assets: list[dict[str, Any]]) -> Any:
+    """Replace local fixture asset declarations with API-native content parts."""
+    if isinstance(value, list):
+        return [materialize_assets(item, base_dir, assets) for item in value]
+    if not isinstance(value, dict):
+        return value
+    if set(value) == {"prismwing_asset"}:
+        declaration = value["prismwing_asset"]
+        if not isinstance(declaration, dict):
+            raise ValueError("prismwing_asset must be an object")
+        relative = declaration.get("path")
+        kind = declaration.get("kind")
+        if not isinstance(relative, str) or kind not in {"image", "audio", "video"}:
+            raise ValueError("asset path and image/audio/video kind are required")
+        path = (base_dir / relative).resolve()
+        try:
+            path.relative_to(base_dir.resolve())
+        except ValueError as error:
+            raise ValueError("asset path escapes fixture directory") from error
+        raw = path.read_bytes()
+        digest = sha256_bytes(raw)
+        assets.append({"path": relative, "kind": kind, "sha256": digest, "bytes": len(raw)})
+        encoded = base64.b64encode(raw).decode("ascii")
+        if kind == "image":
+            media_type = declaration.get("media_type", "image/png")
+            return {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{encoded}"}}
+        if kind == "video":
+            media_type = declaration.get("media_type", "video/mp4")
+            return {"type": "video_url", "video_url": {"url": f"data:{media_type};base64,{encoded}"}}
+        audio_format = declaration.get("format", path.suffix.removeprefix("."))
+        return {"type": "input_audio", "input_audio": {"data": encoded, "format": audio_format}}
+    return {key: materialize_assets(item, base_dir, assets) for key, item in value.items()}
 
 
 def atomic_write_new(path: Path, value: bytes) -> None:
@@ -86,7 +121,9 @@ def validate_capture_request(payload: Any) -> dict[str, Any]:
 
 
 def capture(request_path: Path, output_dir: Path, key_path: Path) -> Path:
-    payload = validate_capture_request(read_json(request_path))
+    assets: list[dict[str, Any]] = []
+    payload = materialize_assets(read_json(request_path), request_path.parent, assets)
+    payload = validate_capture_request(payload)
     request_bytes = canonical_json(payload)
     key = read_key(key_path)
     http_request = Request(
@@ -129,6 +166,7 @@ def capture(request_path: Path, output_dir: Path, key_path: Path) -> Path:
         "response_headers": response_headers,
         "elapsed_ns": elapsed_ns,
         "captured_at_unix_ns": started_ns,
+        "assets": assets,
     }
     output_dir.mkdir(parents=True, exist_ok=False)
     try:

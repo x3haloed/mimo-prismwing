@@ -300,5 +300,13 @@ visible completion and complete top-20 payload. Reference fixtures must
 therefore pin reasoning disabled; accepting a successful HTTP response without
 checking visible token-level evidence would be a false pass.
 
-This proves only the text reference path. Image, multi-image, audio, video, and
-mixed-input logprob support remain unproven, so PW-0001 remains running.
+Subsequent PW-0001 probes established the same evidence path for single-image,
+multi-image, audio, video, and mixed image/audio inputs. Each response named
+Parasail, contained visible output, and supplied exactly 20 alternatives for
+every scored token position. The tiny synthetic tasks also received
+semantically correct responses.
+
+Parasail is therefore promoted as the initial reference provider. This proves
+reference-path viability, not a frozen final epoch or future availability; the
+endpoint remains an external single-provider dependency and requires drift
+canaries.

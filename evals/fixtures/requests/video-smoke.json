@@ -1,0 +1,17 @@
+{
+  "model": "xiaomi/mimo-v2.5",
+  "messages": [{
+    "role": "user",
+    "content": [
+      {"type": "text", "text": "The video changes between two colors. Answer exactly: firstcolor then secondcolor"},
+      {"prismwing_asset": {"kind": "video", "path": "assets/red-then-blue.mp4"}}
+    ]
+  }],
+  "temperature": 0,
+  "max_tokens": 32,
+  "reasoning": {"enabled": false},
+  "logprobs": true,
+  "top_logprobs": 20,
+  "stream": false,
+  "provider": {"order": ["Parasail"], "allow_fallbacks": false, "require_parameters": true}
+}

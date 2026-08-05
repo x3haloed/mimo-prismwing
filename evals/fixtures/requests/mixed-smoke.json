@@ -1,0 +1,18 @@
+{
+  "model": "xiaomi/mimo-v2.5",
+  "messages": [{
+    "role": "user",
+    "content": [
+      {"type": "text", "text": "Report the image color and whether the audio is silence or a steady tone. Answer exactly: color and silence-or-tone"},
+      {"prismwing_asset": {"kind": "image", "path": "assets/red.png"}},
+      {"prismwing_asset": {"kind": "audio", "path": "assets/tone.wav", "format": "wav"}}
+    ]
+  }],
+  "temperature": 0,
+  "max_tokens": 32,
+  "reasoning": {"enabled": false},
+  "logprobs": true,
+  "top_logprobs": 20,
+  "stream": false,
+  "provider": {"order": ["Parasail"], "allow_fallbacks": false, "require_parameters": true}
+}

@@ -6,6 +6,7 @@ import unittest
 from tools.openrouter_reference import (
     atomic_write_new,
     canonical_json,
+    materialize_assets,
     sha256_bytes,
     validate_capture_request,
     verify,
@@ -44,6 +45,25 @@ class ReferenceCaptureTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 atomic_write_new(path, b"second")
             self.assertEqual(path.read_bytes(), b"first")
+
+    def test_asset_materialization_is_hashed_and_bounded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pixel.png").write_bytes(b"png")
+            assets = []
+            result = materialize_assets(
+                {"prismwing_asset": {"kind": "image", "path": "pixel.png"}},
+                root,
+                assets,
+            )
+            self.assertTrue(result["image_url"]["url"].startswith("data:image/png;base64,"))
+            self.assertEqual(assets[0]["sha256"], sha256_bytes(b"png"))
+            with self.assertRaisesRegex(ValueError, "escapes"):
+                materialize_assets(
+                    {"prismwing_asset": {"kind": "image", "path": "../outside"}},
+                    root,
+                    [],
+                )
 
     def test_offline_verification_detects_tampering(self):
         with tempfile.TemporaryDirectory() as temporary:
