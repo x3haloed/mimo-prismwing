@@ -36,6 +36,18 @@
       "candidate_int4_A_over_U_required_for_50_tps_idealized": 6.5630362507328925,
       "status": "measured_component_diagnostic_not_endpoint_tps",
       "provenance": "PW-0008; interleaved serial control and 64-lane blocked-LUT candidate; warm buffers; batch 1"
+    },
+    "published_dflash8_idealized_bounds": {
+      "maximum_accepted_tokens_per_target_pass": 8,
+      "minimum_expert_union_factor": 1.0,
+      "maximum_A_over_U": 8.0,
+      "source_fp8_routed_only_tps_ceiling_at_measured_bandwidth": 34.274545069292756,
+      "source_fp8_minimum_bandwidth_gib_per_second_for_50_tps_at_maximum_A_over_U": 55.09157180786133,
+      "candidate_int4_routed_only_tps_ceiling_at_measured_bandwidth": 60.94740067226234,
+      "candidate_int4_maximum_U_at_A_8_for_50_tps": 1.2189480134452468,
+      "candidate_int4_maximum_average_unique_experts_per_layer_at_A_8_for_50_tps": 9.751584107537974,
+      "status": "necessary_idealized_component_bounds_not_endpoint_tps",
+      "provenance": "PW-0010; PW-0008 measured bandwidth; PW-0002 byte constants; pinned DFlash block_size 8"
     }
   }
 }

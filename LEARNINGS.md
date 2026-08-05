@@ -397,3 +397,18 @@ samples draft and target tokens without speculative-sampling correction, so it
 is not proven target-distribution preserving. The downloaded DFlash draft is
 an L2 candidate only for greedy decoding until a correct sampling verifier is
 implemented and tested.
+
+PW-0010 closes the published DFlash-8/source-FP8 branch on the measured M1
+kernel without waiting for a whole-model runtime. DFlash commits at most eight
+tokens per target pass, while a non-empty pass has `U >= 1`. Its maximum
+possible `A/U` is therefore 8, below PW-0008's source-FP8 requirement of
+11.6705. Even perfect acceptance, perfectly identical routes, and zero cost for
+everything else cap routed-only throughput at 34.275 TPS.
+
+The groupwise-INT4 estimate is not killed by that structural bound, but its
+remaining window is narrow: at the same measured bandwidth and perfect
+eight-token acceptance it needs `U <= 1.21895`, equivalent to only about 9.75
+unique experts per layer across all eight positions. This supersedes the looser
+claim that DFlash acceptance alone was the next unknown; joint `A/U` is the
+decisive quantity, and source FP8 has already failed it for the published block
+size.
