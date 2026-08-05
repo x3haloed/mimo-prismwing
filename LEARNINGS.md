@@ -720,3 +720,16 @@ oracle exactly in dtype, shape, offsets, bytes, and SHA-256. Hashing the
 cache; that diagnostic is not storage-cold latency or model throughput. Future
 native paths should consume this one authority rather than adding another
 safetensors parser.
+
+PW-0032 advances that authority into real native computation. The Rust binary
+projects the exact PW-0026 normalized hidden state through the complete learned
+14,848×4,096 fused FP8 QKV tensor and its mapped 116×32 scale grid without
+copying or pre-decoding weights. All 14,848 outputs match the MLX oracle at
+`1.15e-6` relative L2 and `1.67e-5` maximum absolute error; Q/K/V scalar-row
+checks are within `1.32e-6`.
+
+The readable single-thread path repeats byte-identically and takes 0.30 seconds
+warm (0.69 seconds first recorded), including validation, output `fsync`, hash,
+and JSON. This is the production native correctness reference, not the
+accelerated default or a TPS result. Its stable mapped-byte contract is now the
+oracle for a Metal or pinned-MLX projection path.

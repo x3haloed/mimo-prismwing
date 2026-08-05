@@ -1,6 +1,6 @@
 use prismwing::{
-    build_census, inspect_mapped_tensor, repack_expert_container, verify_expert_container,
-    write_census,
+    build_census, inspect_mapped_tensor, repack_expert_container, run_mapped_fp8_gemv,
+    verify_expert_container, write_census,
 };
 use std::path::PathBuf;
 
@@ -10,6 +10,9 @@ fn usage() -> ! {
     eprintln!("  prismwing repack <source.safetensors> <output.pwexpert> <tensor> [tensor ...]");
     eprintln!("  prismwing verify-container <container.pwexpert>");
     eprintln!("  prismwing inspect-tensor <source.safetensors> <tensor>");
+    eprintln!(
+        "  prismwing fp8-gemv <source.safetensors> <weight> <scale> <input.f32> <output.f32>"
+    );
     std::process::exit(2);
 }
 
@@ -41,6 +44,19 @@ fn main() {
                 println!();
                 Ok(None)
             })
+        }
+        Some("fp8-gemv") if arguments.len() == 7 => {
+            let source = PathBuf::from(&arguments[2]);
+            let input = PathBuf::from(&arguments[5]);
+            let output = PathBuf::from(&arguments[6]);
+            run_mapped_fp8_gemv(&source, &arguments[3], &arguments[4], &input, &output).and_then(
+                |report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(None)
+                },
+            )
         }
         _ => usage(),
     };

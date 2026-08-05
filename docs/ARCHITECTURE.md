@@ -60,6 +60,9 @@ The construction order follows the least-proven boundaries:
 - Rust runtime code owns accepted local inference state transitions.
 - A pinned C++/MLX kernel bridge may execute validated array operations but
   cannot weaken Rust-side artifact or state-transition checks.
+- The readable Rust mapped-FP8 GEMV is the source-projection correctness
+  reference. Accelerated Metal or MLX paths must consume the same validated
+  metadata contract and pass against this reference before promotion.
 - Frozen raw evidence owns measurements; Markdown reports interpret it but do
   not override it.
 

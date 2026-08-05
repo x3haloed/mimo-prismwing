@@ -327,6 +327,17 @@
             "application_warm_os_cache_warm_wall_seconds": 0.17,
             "status": "promoted_native_layout_authority; warm_cache_loader_diagnostic_not_forward_pass_or_endpoint_tps",
             "provenance": "PW-0031; Rust release read-only mmap; complete MTP metadata validation; independent Python raw-range equality"
+        },
+        "native_single_thread_mapped_fp8_qkv": {
+            "rows": 14848,
+            "columns": 4096,
+            "logical_bytes": 60908032,
+            "application_cold_os_cache_warm_wall_seconds": 0.69,
+            "application_warm_os_cache_warm_wall_seconds": 0.30,
+            "relative_l2_vs_mlx": 0.0000011489115649965242,
+            "maximum_absolute_error_vs_mlx": 0.000016689300537109375,
+            "status": "promoted_native_correctness_reference; not_accelerated_or_endpoint_tps",
+            "provenance": "PW-0032; Rust release single-thread mapped FP8 GEMV; real MTP layer0 fused QKV; output fsync included"
         }
     }
 }

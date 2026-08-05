@@ -107,6 +107,23 @@ pub struct MappedTensorInspection {
     pub mapping: &'static str,
 }
 
+#[derive(Debug, Serialize)]
+pub struct Fp8GemvReport {
+    pub schema_version: u32,
+    pub source_file: String,
+    pub weight: MappedTensorMetadata,
+    pub scale: MappedTensorMetadata,
+    pub input_f32: usize,
+    pub output_f32: usize,
+    pub input_sha256: String,
+    pub output_sha256: String,
+    pub output_first8: Vec<f32>,
+    pub logical_bytes: u64,
+    pub batch_size: u32,
+    pub concurrency: u32,
+    pub implementation: &'static str,
+}
+
 fn dtype_bytes(dtype: &str) -> Option<u64> {
     match dtype {
         "BOOL" | "U8" | "I8" | "F8_E4M3" | "F8_E4M3FN" | "F8_E5M2" => Some(1),
@@ -286,6 +303,142 @@ pub fn inspect_mapped_tensor(path: &Path, name: &str) -> Result<MappedTensorInsp
         tensor_sha256: sha256_hex(view.bytes),
         bytes_hashed: view.bytes.len() as u64,
         mapping: "read_only_memmap",
+    })
+}
+
+fn mapped_fp8_gemv(
+    mapped: &MappedSafetensors,
+    weight_name: &str,
+    scale_name: &str,
+    input: &[f32],
+) -> Result<Vec<f32>, String> {
+    let weight = mapped.tensor(weight_name)?;
+    let scale = mapped.tensor(scale_name)?;
+    if weight.metadata.dtype != "F8_E4M3" || weight.metadata.shape.len() != 2 {
+        return Err("FP8 GEMV weight must be F8_E4M3 rank two".to_owned());
+    }
+    let rows = usize::try_from(weight.metadata.shape[0]).map_err(|_| "rows do not fit usize")?;
+    let columns =
+        usize::try_from(weight.metadata.shape[1]).map_err(|_| "columns do not fit usize")?;
+    if rows == 0 || columns == 0 || !rows.is_multiple_of(128) || !columns.is_multiple_of(128) {
+        return Err("FP8 GEMV dimensions must be nonzero multiples of 128".to_owned());
+    }
+    if input.len() != columns || input.iter().any(|value| !value.is_finite()) {
+        return Err("FP8 GEMV input length or finiteness mismatch".to_owned());
+    }
+    let scale_rows = rows / 128;
+    let scale_columns = columns / 128;
+    if scale.metadata.dtype != "F32"
+        || scale.metadata.shape != [scale_rows as u64, scale_columns as u64]
+        || scale.bytes.len() != scale_rows * scale_columns * 4
+    {
+        return Err("FP8 GEMV scale grid mismatch".to_owned());
+    }
+    let scales = scale
+        .bytes
+        .chunks_exact(4)
+        .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four-byte scale")))
+        .collect::<Vec<_>>();
+    if scales.iter().any(|value| !value.is_finite()) {
+        return Err("FP8 GEMV scale is non-finite".to_owned());
+    }
+    let mut output = vec![0.0_f32; rows];
+    for (row, destination) in output.iter_mut().enumerate() {
+        let row_offset = row
+            .checked_mul(columns)
+            .ok_or("weight row offset overflow")?;
+        let scale_row = row / 128 * scale_columns;
+        let mut sum = 0.0_f32;
+        for (column, activation) in input.iter().enumerate() {
+            let decoded = decode_f8_e4m3fn(weight.bytes[row_offset + column]);
+            if !decoded.is_finite() {
+                return Err(format!(
+                    "non-finite FP8 weight at row {row}, column {column}"
+                ));
+            }
+            sum += decoded * scales[scale_row + column / 128] * activation;
+        }
+        *destination = sum;
+    }
+    if output.iter().any(|value| !value.is_finite()) {
+        return Err("FP8 GEMV produced non-finite output".to_owned());
+    }
+    Ok(output)
+}
+
+pub fn run_mapped_fp8_gemv(
+    source: &Path,
+    weight_name: &str,
+    scale_name: &str,
+    input_path: &Path,
+    output_path: &Path,
+) -> Result<Fp8GemvReport, String> {
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    let mapped = MappedSafetensors::open(source)?;
+    let weight = mapped.tensor(weight_name)?.metadata.clone();
+    let scale = mapped.tensor(scale_name)?.metadata.clone();
+    let input_bytes =
+        fs::read(input_path).map_err(|error| format!("{}: {error}", input_path.display()))?;
+    if !input_bytes.len().is_multiple_of(4) {
+        return Err("F32 input file length is not divisible by four".to_owned());
+    }
+    let input = input_bytes
+        .chunks_exact(4)
+        .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four-byte input")))
+        .collect::<Vec<_>>();
+    let output = mapped_fp8_gemv(&mapped, weight_name, scale_name, &input)?;
+    let output_bytes = output
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    let temporary = output_path.with_file_name(format!(
+        ".{}.tmp.{}",
+        output_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("output name is not UTF-8")?,
+        std::process::id()
+    ));
+    let write_result = (|| -> Result<(), String> {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary)
+            .map_err(|error| error.to_string())?;
+        file.write_all(&output_bytes)
+            .and_then(|_| file.sync_all())
+            .map_err(|error| error.to_string())?;
+        fs::hard_link(&temporary, output_path).map_err(|error| error.to_string())?;
+        Ok(())
+    })();
+    let _ = fs::remove_file(&temporary);
+    write_result?;
+    let logical_bytes = weight
+        .data_bytes
+        .checked_add(scale.data_bytes)
+        .and_then(|value| value.checked_add(input_bytes.len() as u64))
+        .and_then(|value| value.checked_add(output_bytes.len() as u64))
+        .ok_or("logical byte count overflow")?;
+    Ok(Fp8GemvReport {
+        schema_version: 1,
+        source_file: source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("source file name is not UTF-8")?
+            .to_owned(),
+        weight,
+        scale,
+        input_f32: input.len(),
+        output_f32: output.len(),
+        input_sha256: sha256_hex(&input_bytes),
+        output_sha256: sha256_hex(&output_bytes),
+        output_first8: output.iter().copied().take(8).collect(),
+        logical_bytes,
+        batch_size: 1,
+        concurrency: 1,
+        implementation: "single_thread_readable_mapped_fp8_reference",
     })
 }
 
@@ -1138,6 +1291,79 @@ mod tests {
             write_safetensors(&path, header, &payload);
             assert!(MappedSafetensors::open(&path).is_err(), "case {name}");
         }
+        fs::remove_dir_all(directory).expect("remove fixture directory");
+    }
+
+    #[test]
+    fn mapped_fp8_gemv_selects_row_and_column_scale_blocks() {
+        let directory = temporary_test_directory("mapped-fp8-gemv");
+        let source = directory.join("projection.safetensors");
+        let input_path = directory.join("input.f32");
+        let output_path = directory.join("output.f32");
+        let mut payload = vec![0x38; 256 * 256]; // E4M3 1.0
+        for scale in [1.0_f32, 2.0, 3.0, 4.0] {
+            payload.extend_from_slice(&scale.to_le_bytes());
+        }
+        write_safetensors(
+            &source,
+            r#"{"weight":{"dtype":"F8_E4M3","shape":[256,256],"data_offsets":[0,65536]},"scale":{"dtype":"F32","shape":[2,2],"data_offsets":[65536,65552]}}"#,
+            &payload,
+        );
+        let input = vec![1.0_f32; 256];
+        let input_bytes = input
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect::<Vec<_>>();
+        fs::write(&input_path, input_bytes).expect("input fixture");
+        let mapped = MappedSafetensors::open(&source).expect("mapped fixture");
+        let result = mapped_fp8_gemv(&mapped, "weight", "scale", &input).expect("GEMV");
+        assert!(result[..128].iter().all(|value| *value == 384.0));
+        assert!(result[128..].iter().all(|value| *value == 896.0));
+        let report = run_mapped_fp8_gemv(&source, "weight", "scale", &input_path, &output_path)
+            .expect("file GEMV");
+        assert_eq!(report.output_f32, 256);
+        assert!(
+            run_mapped_fp8_gemv(&source, "weight", "scale", &input_path, &output_path,)
+                .unwrap_err()
+                .contains("refusing to overwrite")
+        );
+        let mut invalid = input;
+        invalid[0] = f32::NAN;
+        assert!(mapped_fp8_gemv(&mapped, "weight", "scale", &invalid).is_err());
+        let short_input = directory.join("short.f32");
+        fs::write(&short_input, [0_u8; 3]).expect("short input fixture");
+        assert!(
+            run_mapped_fp8_gemv(
+                &source,
+                "weight",
+                "scale",
+                &short_input,
+                &directory.join("short-output.f32"),
+            )
+            .is_err()
+        );
+
+        let nonfinite_source = directory.join("nonfinite-scale.safetensors");
+        let mut nonfinite_payload = vec![0x38; 256 * 256];
+        for scale in [f32::NAN, 2.0, 3.0, 4.0] {
+            nonfinite_payload.extend_from_slice(&scale.to_le_bytes());
+        }
+        write_safetensors(
+            &nonfinite_source,
+            r#"{"weight":{"dtype":"F8_E4M3","shape":[256,256],"data_offsets":[0,65536]},"scale":{"dtype":"F32","shape":[2,2],"data_offsets":[65536,65552]}}"#,
+            &nonfinite_payload,
+        );
+        let nonfinite_mapped = MappedSafetensors::open(&nonfinite_source).expect("nonfinite map");
+        assert!(mapped_fp8_gemv(&nonfinite_mapped, "weight", "scale", &vec![1.0; 256]).is_err());
+
+        let bad_grid_source = directory.join("bad-grid.safetensors");
+        write_safetensors(
+            &bad_grid_source,
+            r#"{"weight":{"dtype":"F8_E4M3","shape":[256,256],"data_offsets":[0,65536]},"scale":{"dtype":"F32","shape":[1,4],"data_offsets":[65536,65552]}}"#,
+            &payload,
+        );
+        let bad_grid_mapped = MappedSafetensors::open(&bad_grid_source).expect("bad grid map");
+        assert!(mapped_fp8_gemv(&bad_grid_mapped, "weight", "scale", &vec![1.0; 256]).is_err());
         fs::remove_dir_all(directory).expect("remove fixture directory");
     }
 
