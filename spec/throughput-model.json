@@ -273,6 +273,26 @@
             "uniform_turbo4_projected_relative_l2": 0.19427712261676788,
             "status": "both_k_and_v_material; reject_single_side_precision_upgrade_as_default",
             "provenance": "PW-0027; exact PW-0026 learned fixture; one cache side changed per candidate"
+        },
+        "real_mtp_joint_wht_affine_kv_sweep": {
+            "context": 17,
+            "scale_dtype": "float16_per_128_values",
+            "max_context_cache_bytes_by_bits": {
+                "4": 7482157056,
+                "5": 9296013312,
+                "6": 11109869568,
+                "8": 14737582080
+            },
+            "projected_sublayer_relative_l2_by_bits": {
+                "4": 0.2097652703523636,
+                "5": 0.10003593564033508,
+                "6": 0.0433591865003109,
+                "8": 0.010576130822300911
+            },
+            "selected_candidate_bits": 8,
+            "selected_candidate_max_context_cache_gib": 13.725442886352539,
+            "status": "affine8_selected_for_accelerated_component_validation; not_target_fidelity_or_endpoint_tps",
+            "provenance": "PW-0028; exact PW-0026 learned MTP fixture; joint K/V WHT-affine sweep; modeled storage only"
         }
-  }
+    }
 }

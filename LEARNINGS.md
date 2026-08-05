@@ -666,3 +666,16 @@ Turbo4 V leaves 15.49% projected error; Turbo4 K with source V leaves 13.58%.
 Both sides materially contribute, and upgrading K alone is not a sufficient
 quality branch on this learned fixture. The next search must sweep joint K/V
 precision before optimizing another packed kernel.
+
+PW-0028 supersedes uniform Turbo4 as the default learned-KV fidelity branch.
+On the exact PW-0026 fixture, joint WHT-affine projected error falls
+monotonically from 20.98% at 4-bit to 10.00% at 5-bit, 4.34% at 6-bit, and
+1.058% at 8-bit. Turbo4 remains 19.43%; its Lloyd-Max representation is not
+equivalent to affine4 and neither 4-bit choice is quality-safe by assumption.
+
+WHT-affine8 is now the accelerated-implementation candidate, not a target
+default. Charging an FP16 scale plus packed codes per 128 values gives an exact
+modeled maximum-context hybrid KV footprint of 13.725 GiB, 39.0625% below
+FP16's 22.524 GiB but 1.912 times Turbo4. One deterministic context-17 MTP
+sublayer does not establish accumulated model fidelity or endpoint speed; the
+shared-KV Metal kernel and then base-layer/hosted gates remain mandatory.
