@@ -733,3 +733,17 @@ warm (0.69 seconds first recorded), including validation, output `fsync`, hash,
 and JSON. This is the production native correctness reference, not the
 accelerated default or a TPS result. Its stable mapped-byte contract is now the
 oracle for a Metal or pinned-MLX projection path.
+
+PW-0033 puts that exact authority behind Rust-owned Metal execution. The
+production 14,848×4,096 fused QKV projection matches the readable Rust output
+at `1.14e-6` relative L2 and `1.57e-5` maximum absolute error, and repeated
+complete processes produce byte-identical output. Layout and source semantics
+remain in the shared Rust validator; Metal receives explicit immutable buffers
+and dimensions.
+
+With five warmups and 30 serialized resident-buffer measurements, two process
+medians are 1.622 and 1.678 ms. The first is 184.95× faster than PW-0032's
+300 ms whole-command diagnostic, but that ratio is deliberately asymmetric:
+the baseline includes startup, mapping, validation, output `fsync`, hash, and
+JSON. This promotes the accelerated projection primitive, not a complete layer,
+token path, or endpoint TPS result.

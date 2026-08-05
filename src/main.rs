@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+use prismwing::run_metal_mapped_fp8_gemv;
 use prismwing::{
     build_census, inspect_mapped_tensor, repack_expert_container, run_mapped_fp8_gemv,
     verify_expert_container, write_census,
@@ -12,6 +14,10 @@ fn usage() -> ! {
     eprintln!("  prismwing inspect-tensor <source.safetensors> <tensor>");
     eprintln!(
         "  prismwing fp8-gemv <source.safetensors> <weight> <scale> <input.f32> <output.f32>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing metal-fp8-gemv <source.safetensors> <kernel.metal> <weight> <scale> <input.f32> <reference.f32> <output.f32>"
     );
     std::process::exit(2);
 }
@@ -57,6 +63,29 @@ fn main() {
                     Ok(None)
                 },
             )
+        }
+        #[cfg(target_os = "macos")]
+        Some("metal-fp8-gemv") if arguments.len() == 9 => {
+            let source = PathBuf::from(&arguments[2]);
+            let kernel = PathBuf::from(&arguments[3]);
+            let input = PathBuf::from(&arguments[6]);
+            let reference = PathBuf::from(&arguments[7]);
+            let output = PathBuf::from(&arguments[8]);
+            run_metal_mapped_fp8_gemv(
+                &source,
+                &kernel,
+                &arguments[4],
+                &arguments[5],
+                &input,
+                &reference,
+                &output,
+            )
+            .and_then(|report| {
+                serde_json::to_writer(std::io::stdout(), &report)
+                    .map_err(|error| error.to_string())?;
+                println!();
+                Ok(None)
+            })
         }
         _ => usage(),
     };

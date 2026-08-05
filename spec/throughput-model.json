@@ -338,6 +338,22 @@
             "maximum_absolute_error_vs_mlx": 0.000016689300537109375,
             "status": "promoted_native_correctness_reference; not_accelerated_or_endpoint_tps",
             "provenance": "PW-0032; Rust release single-thread mapped FP8 GEMV; real MTP layer0 fused QKV; output fsync included"
+        },
+        "native_metal_mapped_fp8_qkv": {
+            "rows": 14848,
+            "columns": 4096,
+            "logical_bytes": 60908032,
+            "warmups": 5,
+            "measurements_per_process": 30,
+            "first_process_wall_median_ms": 1.622042,
+            "repeat_process_wall_median_ms": 1.678375,
+            "first_process_wall_p10_ms": 1.605916,
+            "first_process_wall_p90_ms": 1.745416,
+            "relative_l2_vs_readable_rust": 0.0000011401907040371516,
+            "maximum_absolute_error_vs_readable_rust": 0.000015735626,
+            "diagnostic_speedup_vs_300ms_readable_whole_command": 184.9520542624667,
+            "status": "promoted_rust_owned_metal_projection_primitive; not_complete_layer_or_endpoint_tps",
+            "provenance": "PW-0033; Rust-owned Metal blocked-LUT 64-lane GEMV; real MTP layer0 fused QKV; serialized resident-buffer command wall; speedup baseline is intentionally asymmetric"
         }
     }
 }

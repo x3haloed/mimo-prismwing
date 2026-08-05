@@ -7,6 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::time::Instant;
 
 const MAX_HEADER_BYTES: u64 = 256 * 1024 * 1024;
 const EXPERT_MAGIC: &[u8; 8] = b"PWEXPRT1";
@@ -121,6 +123,47 @@ pub struct Fp8GemvReport {
     pub logical_bytes: u64,
     pub batch_size: u32,
     pub concurrency: u32,
+    pub implementation: &'static str,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Serialize)]
+pub struct MetalFp8GemvReport {
+    pub schema_version: u32,
+    pub source_file: String,
+    pub weight: MappedTensorMetadata,
+    pub scale: MappedTensorMetadata,
+    pub kernel_file: String,
+    pub kernel_function: &'static str,
+    pub device: String,
+    pub input_f32: usize,
+    pub output_f32: usize,
+    pub input_sha256: String,
+    pub reference_sha256: String,
+    pub output_sha256: String,
+    pub output_first8: Vec<f32>,
+    pub relative_l2: f64,
+    pub maximum_absolute_error: f32,
+    pub compile_ms: f64,
+    pub cold_wall_ms: f64,
+    pub warmups: usize,
+    pub measurements: usize,
+    pub wall_ms: Vec<f64>,
+    pub wall_p10_ms: f64,
+    pub wall_median_ms: f64,
+    pub wall_p90_ms: f64,
+    pub readable_baseline_ms: f64,
+    pub diagnostic_speedup: f64,
+    pub timing_asymmetry: &'static str,
+    pub logical_bytes: u64,
+    pub batch_size: u32,
+    pub concurrency: u32,
+    pub accepted_tokens: u32,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: u32,
+    #[serde(rename = "U")]
+    pub proposed_per_verification: u32,
+    pub cache_state: &'static str,
     pub implementation: &'static str,
 }
 
@@ -306,12 +349,21 @@ pub fn inspect_mapped_tensor(path: &Path, name: &str) -> Result<MappedTensorInsp
     })
 }
 
-fn mapped_fp8_gemv(
-    mapped: &MappedSafetensors,
+struct ValidatedMappedFp8<'a> {
+    weight: MappedTensorView<'a>,
+    scale: MappedTensorView<'a>,
+    rows: usize,
+    columns: usize,
+    scale_columns: usize,
+    scales: Vec<f32>,
+}
+
+fn validate_mapped_fp8<'a>(
+    mapped: &'a MappedSafetensors,
     weight_name: &str,
     scale_name: &str,
     input: &[f32],
-) -> Result<Vec<f32>, String> {
+) -> Result<ValidatedMappedFp8<'a>, String> {
     let weight = mapped.tensor(weight_name)?;
     let scale = mapped.tensor(scale_name)?;
     if weight.metadata.dtype != "F8_E4M3" || weight.metadata.shape.len() != 2 {
@@ -342,6 +394,38 @@ fn mapped_fp8_gemv(
     if scales.iter().any(|value| !value.is_finite()) {
         return Err("FP8 GEMV scale is non-finite".to_owned());
     }
+    if let Some(offset) = weight
+        .bytes
+        .iter()
+        .position(|bits| matches!(bits, 0x7f | 0xff))
+    {
+        return Err(format!("non-finite FP8 weight at byte offset {offset}"));
+    }
+    Ok(ValidatedMappedFp8 {
+        weight,
+        scale,
+        rows,
+        columns,
+        scale_columns,
+        scales,
+    })
+}
+
+fn mapped_fp8_gemv(
+    mapped: &MappedSafetensors,
+    weight_name: &str,
+    scale_name: &str,
+    input: &[f32],
+) -> Result<Vec<f32>, String> {
+    let validated = validate_mapped_fp8(mapped, weight_name, scale_name, input)?;
+    let ValidatedMappedFp8 {
+        weight,
+        rows,
+        columns,
+        scale_columns,
+        scales,
+        ..
+    } = validated;
     let mut output = vec![0.0_f32; rows];
     for (row, destination) in output.iter_mut().enumerate() {
         let row_offset = row
@@ -366,37 +450,34 @@ fn mapped_fp8_gemv(
     Ok(output)
 }
 
-pub fn run_mapped_fp8_gemv(
-    source: &Path,
-    weight_name: &str,
-    scale_name: &str,
-    input_path: &Path,
-    output_path: &Path,
-) -> Result<Fp8GemvReport, String> {
-    if output_path.exists() {
-        return Err(format!("refusing to overwrite {}", output_path.display()));
+fn read_f32_file(path: &Path, expected: Option<usize>) -> Result<(Vec<u8>, Vec<f32>), String> {
+    let bytes = fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    if !bytes.len().is_multiple_of(4) {
+        return Err(format!(
+            "{} length is not divisible by four",
+            path.display()
+        ));
     }
-    let mapped = MappedSafetensors::open(source)?;
-    let weight = mapped.tensor(weight_name)?.metadata.clone();
-    let scale = mapped.tensor(scale_name)?.metadata.clone();
-    let input_bytes =
-        fs::read(input_path).map_err(|error| format!("{}: {error}", input_path.display()))?;
-    if !input_bytes.len().is_multiple_of(4) {
-        return Err("F32 input file length is not divisible by four".to_owned());
-    }
-    let input = input_bytes
+    let values = bytes
         .chunks_exact(4)
-        .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four-byte input")))
+        .map(|chunk| f32::from_le_bytes(chunk.try_into().expect("four-byte F32")))
         .collect::<Vec<_>>();
-    let output = mapped_fp8_gemv(&mapped, weight_name, scale_name, &input)?;
-    let output_bytes = output
-        .iter()
-        .flat_map(|value| value.to_le_bytes())
-        .collect::<Vec<_>>();
-    let temporary = output_path.with_file_name(format!(
+    if expected.is_some_and(|length| values.len() != length) {
+        return Err(format!("{} F32 length mismatch", path.display()));
+    }
+    if values.iter().any(|value| !value.is_finite()) {
+        return Err(format!("{} contains non-finite F32", path.display()));
+    }
+    Ok((bytes, values))
+}
+
+fn write_create_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if path.exists() {
+        return Err(format!("refusing to overwrite {}", path.display()));
+    }
+    let temporary = path.with_file_name(format!(
         ".{}.tmp.{}",
-        output_path
-            .file_name()
+        path.file_name()
             .and_then(|name| name.to_str())
             .ok_or("output name is not UTF-8")?,
         std::process::id()
@@ -407,14 +488,33 @@ pub fn run_mapped_fp8_gemv(
             .write(true)
             .open(&temporary)
             .map_err(|error| error.to_string())?;
-        file.write_all(&output_bytes)
+        file.write_all(bytes)
             .and_then(|_| file.sync_all())
             .map_err(|error| error.to_string())?;
-        fs::hard_link(&temporary, output_path).map_err(|error| error.to_string())?;
+        fs::hard_link(&temporary, path).map_err(|error| error.to_string())?;
         Ok(())
     })();
     let _ = fs::remove_file(&temporary);
-    write_result?;
+    write_result
+}
+
+pub fn run_mapped_fp8_gemv(
+    source: &Path,
+    weight_name: &str,
+    scale_name: &str,
+    input_path: &Path,
+    output_path: &Path,
+) -> Result<Fp8GemvReport, String> {
+    let mapped = MappedSafetensors::open(source)?;
+    let weight = mapped.tensor(weight_name)?.metadata.clone();
+    let scale = mapped.tensor(scale_name)?.metadata.clone();
+    let (input_bytes, input) = read_f32_file(input_path, None)?;
+    let output = mapped_fp8_gemv(&mapped, weight_name, scale_name, &input)?;
+    let output_bytes = output
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    write_create_new(output_path, &output_bytes)?;
     let logical_bytes = weight
         .data_bytes
         .checked_add(scale.data_bytes)
@@ -439,6 +539,254 @@ pub fn run_mapped_fp8_gemv(
         batch_size: 1,
         concurrency: 1,
         implementation: "single_thread_readable_mapped_fp8_reference",
+    })
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_mapped_fp8_gemv(
+    source: &Path,
+    kernel_path: &Path,
+    weight_name: &str,
+    scale_name: &str,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8GemvReport, String> {
+    use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize};
+
+    const KERNEL_FUNCTION: &str = "block_fp8_gemv_parallel_lut_blocked";
+    const LANES: u64 = 64;
+    const WARMUPS: usize = 5;
+    const MEASUREMENTS: usize = 30;
+    const READABLE_BASELINE_MS: f64 = 300.0;
+
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    let mapped = MappedSafetensors::open(source)?;
+    let (input_bytes, input) = read_f32_file(input_path, None)?;
+    let validated = validate_mapped_fp8(&mapped, weight_name, scale_name, &input)?;
+    let (reference_bytes, reference) = read_f32_file(reference_path, Some(validated.rows))?;
+    let kernel_source = fs::read_to_string(kernel_path)
+        .map_err(|error| format!("{}: {error}", kernel_path.display()))?;
+    if !kernel_source.contains(&format!("kernel void {KERNEL_FUNCTION}")) {
+        return Err(format!("kernel source lacks {KERNEL_FUNCTION}"));
+    }
+
+    let device = Device::system_default().ok_or("no Metal device is available")?;
+    if device.max_threads_per_threadgroup().width < LANES {
+        return Err("Metal device cannot dispatch 64-lane threadgroups".to_owned());
+    }
+    let compile_options = CompileOptions::new();
+    compile_options.set_fast_math_enabled(false);
+    let compile_start = Instant::now();
+    let library = device
+        .new_library_with_source(&kernel_source, &compile_options)
+        .map_err(|error| format!("Metal compilation failed: {error}"))?;
+    let function = library
+        .get_function(KERNEL_FUNCTION, None)
+        .map_err(|error| format!("Metal kernel lookup failed: {error}"))?;
+    let pipeline = device
+        .new_compute_pipeline_state_with_function(&function)
+        .map_err(|error| format!("Metal pipeline creation failed: {error}"))?;
+    let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
+    if pipeline.max_total_threads_per_threadgroup() < LANES {
+        return Err("Metal pipeline cannot dispatch 64-lane threadgroups".to_owned());
+    }
+
+    #[repr(C)]
+    struct GemvShape {
+        rows: u32,
+        columns: u32,
+        block_rows: u32,
+        block_columns: u32,
+    }
+    let shape = GemvShape {
+        rows: u32::try_from(validated.rows).map_err(|_| "rows do not fit u32")?,
+        columns: u32::try_from(validated.columns).map_err(|_| "columns do not fit u32")?,
+        block_rows: 128,
+        block_columns: 128,
+    };
+    let decode_lut = (0_u16..=255)
+        .map(|bits| decode_f8_e4m3fn(bits as u8))
+        .collect::<Vec<_>>();
+    if decode_lut.len() != 256 {
+        return Err("FP8 decode LUT is incomplete".to_owned());
+    }
+
+    let shared = MTLResourceOptions::StorageModeShared;
+    let weight_buffer = device.new_buffer_with_data(
+        validated.weight.bytes.as_ptr().cast(),
+        validated.weight.bytes.len() as u64,
+        shared,
+    );
+    let scale_buffer = device.new_buffer_with_data(
+        validated.scale.bytes.as_ptr().cast(),
+        validated.scale.bytes.len() as u64,
+        shared,
+    );
+    let input_buffer = device.new_buffer_with_data(
+        input.as_ptr().cast(),
+        std::mem::size_of_val(input.as_slice()) as u64,
+        shared,
+    );
+    let output_buffer =
+        device.new_buffer((validated.rows * std::mem::size_of::<f32>()) as u64, shared);
+    let shape_buffer = device.new_buffer_with_data(
+        (&shape as *const GemvShape).cast(),
+        std::mem::size_of::<GemvShape>() as u64,
+        shared,
+    );
+    let lut_buffer = device.new_buffer_with_data(
+        decode_lut.as_ptr().cast(),
+        std::mem::size_of_val(decode_lut.as_slice()) as u64,
+        shared,
+    );
+    let queue = device.new_command_queue();
+
+    let dispatch = || -> Result<f64, String> {
+        let start = Instant::now();
+        let command_buffer = queue.new_command_buffer();
+        let encoder = command_buffer.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&weight_buffer), 0);
+        encoder.set_buffer(1, Some(&scale_buffer), 0);
+        encoder.set_buffer(2, Some(&input_buffer), 0);
+        encoder.set_buffer(3, Some(&output_buffer), 0);
+        encoder.set_buffer(4, Some(&shape_buffer), 0);
+        encoder.set_buffer(5, Some(&lut_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, LANES * std::mem::size_of::<f32>() as u64);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: validated.rows as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.end_encoding();
+        command_buffer.commit();
+        command_buffer.wait_until_completed();
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        if command_buffer.status() != MTLCommandBufferStatus::Completed {
+            return Err(format!(
+                "Metal command failed with status {:?}",
+                command_buffer.status()
+            ));
+        }
+        Ok(elapsed_ms)
+    };
+
+    let cold_wall_ms = dispatch()?;
+    for _ in 0..WARMUPS {
+        dispatch()?;
+    }
+    let mut wall_ms = Vec::with_capacity(MEASUREMENTS);
+    for _ in 0..MEASUREMENTS {
+        wall_ms.push(dispatch()?);
+    }
+
+    // SAFETY: StorageModeShared exposes a CPU-visible pointer, every submitted command has
+    // completed, and the buffer is at least rows * sizeof(f32) bytes long.
+    let output = unsafe {
+        std::slice::from_raw_parts(output_buffer.contents().cast::<f32>(), validated.rows).to_vec()
+    };
+    if output.iter().any(|value| !value.is_finite()) {
+        return Err("Metal FP8 GEMV produced non-finite output".to_owned());
+    }
+    let mut squared_error = 0.0_f64;
+    let mut squared_reference = 0.0_f64;
+    let mut maximum_absolute_error = 0.0_f32;
+    for (&candidate, &expected) in output.iter().zip(&reference) {
+        let difference = candidate - expected;
+        squared_error += f64::from(difference) * f64::from(difference);
+        squared_reference += f64::from(expected) * f64::from(expected);
+        maximum_absolute_error = maximum_absolute_error.max(difference.abs());
+    }
+    if squared_reference == 0.0 {
+        return Err("reference output has zero L2 norm".to_owned());
+    }
+    let relative_l2 = (squared_error / squared_reference).sqrt();
+    if relative_l2 > 2.0e-5 || maximum_absolute_error > 2.0e-4 {
+        return Err(format!(
+            "Metal parity failed: relative L2 {relative_l2}, max abs {maximum_absolute_error}"
+        ));
+    }
+    let output_bytes = output
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    write_create_new(output_path, &output_bytes)?;
+
+    let mut ordered = wall_ms.clone();
+    ordered.sort_by(f64::total_cmp);
+    let percentile = |fraction: f64| -> f64 {
+        ordered[((ordered.len() - 1) as f64 * fraction).round() as usize]
+    };
+    let wall_p10_ms = percentile(0.10);
+    let wall_median_ms = percentile(0.50);
+    let wall_p90_ms = percentile(0.90);
+    let diagnostic_speedup = READABLE_BASELINE_MS / wall_median_ms;
+    if wall_median_ms > 5.0 || diagnostic_speedup < 20.0 {
+        return Err(format!(
+            "Metal timing gate failed: median {wall_median_ms} ms, diagnostic speedup {diagnostic_speedup}x"
+        ));
+    }
+    let logical_bytes = validated
+        .weight
+        .metadata
+        .data_bytes
+        .checked_add(validated.scale.metadata.data_bytes)
+        .and_then(|value| value.checked_add(input_bytes.len() as u64))
+        .and_then(|value| value.checked_add(output_bytes.len() as u64))
+        .ok_or("logical byte count overflow")?;
+    Ok(MetalFp8GemvReport {
+        schema_version: 1,
+        source_file: source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("source file name is not UTF-8")?
+            .to_owned(),
+        weight: validated.weight.metadata.clone(),
+        scale: validated.scale.metadata.clone(),
+        kernel_file: kernel_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("kernel file name is not UTF-8")?
+            .to_owned(),
+        kernel_function: KERNEL_FUNCTION,
+        device: device.name().to_owned(),
+        input_f32: input.len(),
+        output_f32: output.len(),
+        input_sha256: sha256_hex(&input_bytes),
+        reference_sha256: sha256_hex(&reference_bytes),
+        output_sha256: sha256_hex(&output_bytes),
+        output_first8: output.iter().copied().take(8).collect(),
+        relative_l2,
+        maximum_absolute_error,
+        compile_ms,
+        cold_wall_ms,
+        warmups: WARMUPS,
+        measurements: MEASUREMENTS,
+        wall_ms,
+        wall_p10_ms,
+        wall_median_ms,
+        wall_p90_ms,
+        readable_baseline_ms: READABLE_BASELINE_MS,
+        diagnostic_speedup,
+        timing_asymmetry: "PW-0032 baseline includes process, mapping, validation, GEMV, fsync, hashing, and JSON; Metal series times serialized command creation, dispatch, and wait against resident application buffers",
+        logical_bytes,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        accepted_per_verification: 0,
+        proposed_per_verification: 0,
+        cache_state: "source OS-cache state uncontrolled; application Metal buffers warm after cold dispatch",
+        implementation: "rust_owned_mapped_fp8_metal_blocked_lut_64_lane",
     })
 }
 
@@ -1355,6 +1703,22 @@ mod tests {
         );
         let nonfinite_mapped = MappedSafetensors::open(&nonfinite_source).expect("nonfinite map");
         assert!(mapped_fp8_gemv(&nonfinite_mapped, "weight", "scale", &vec![1.0; 256]).is_err());
+
+        let nonfinite_weight_source = directory.join("nonfinite-weight.safetensors");
+        let mut nonfinite_weight_payload = payload.clone();
+        nonfinite_weight_payload[123] = 0x7f;
+        write_safetensors(
+            &nonfinite_weight_source,
+            r#"{"weight":{"dtype":"F8_E4M3","shape":[256,256],"data_offsets":[0,65536]},"scale":{"dtype":"F32","shape":[2,2],"data_offsets":[65536,65552]}}"#,
+            &nonfinite_weight_payload,
+        );
+        let nonfinite_weight_mapped =
+            MappedSafetensors::open(&nonfinite_weight_source).expect("nonfinite weight map");
+        assert!(
+            mapped_fp8_gemv(&nonfinite_weight_mapped, "weight", "scale", &vec![1.0; 256])
+                .unwrap_err()
+                .contains("non-finite FP8 weight")
+        );
 
         let bad_grid_source = directory.join("bad-grid.safetensors");
         write_safetensors(

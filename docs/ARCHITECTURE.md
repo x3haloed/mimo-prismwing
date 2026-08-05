@@ -63,6 +63,10 @@ The construction order follows the least-proven boundaries:
 - The readable Rust mapped-FP8 GEMV is the source-projection correctness
   reference. Accelerated Metal or MLX paths must consume the same validated
   metadata contract and pass against this reference before promotion.
+- The promoted Metal FP8 projection is dispatched by Rust only after that
+  shared mapped-tensor validator establishes dtype, dimensions, scale grid,
+  finite encodings, and input shape. MSL owns parallel arithmetic, not source
+  layout inference or artifact authority.
 - Frozen raw evidence owns measurements; Markdown reports interpret it but do
   not override it.
 
