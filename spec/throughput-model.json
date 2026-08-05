@@ -168,6 +168,27 @@
             "predeclared_validation_int8_over_int4_time_ratio": 1.0999536369352043,
             "status": "validated_default_quality_research_substrate_not_endpoint_tps_or_target_fidelity",
             "provenance": "PW-0018 exploration; PW-0019 predeclared three-pair validation; actual layer43 heterogeneous route fixture"
+        },
+        "atomic_turboquant_mimo_kv_compatibility": {
+            "maximum_context_tokens": 1048576,
+            "global_attention_layers": 9,
+            "sliding_attention_layers": 39,
+            "sliding_window_tokens": 128,
+            "logical_k_dimension": 192,
+            "padded_k_dimension": 256,
+            "v_dimension": 128,
+            "fp16_bytes_at_max_context": 24184750080,
+            "turbo2_block_bytes_per_128": 34,
+            "turbo2_bytes_at_max_context": 3854444544,
+            "turbo3_block_bytes_per_128": 50,
+            "turbo3_bytes_at_max_context": 5668300800,
+            "turbo4_block_bytes_per_128": 68,
+            "turbo4_bytes_at_max_context": 7708889088,
+            "deterministic_fixture_wht_score_relative_l2": 1.0533791806e-7,
+            "deterministic_fixture_turbo3_output_relative_l2": 0.227303400279,
+            "deterministic_fixture_turbo4_output_relative_l2": 0.230426569065,
+            "status": "direct_fork_rejected_missing_dk256_dv128_metal_specialization; packing_and_wht_retained_as_research_input",
+            "provenance": "PW-0020; Atomic fork 074bf826e1b06005a51737d29387e36657f41bf7; deterministic MiMo 192/128 attention fixture"
         }
   }
 }

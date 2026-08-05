@@ -566,3 +566,24 @@ This is not target promotion: the evidence is still one synthetic-input MoE
 block, the representation is L3 and larger than source FP8, and accumulated
 whole-layer/logit behavior is unknown. INT4 remains available for compact
 performance experiments but is not the default quality candidate.
+
+PW-0020 rejects direct reuse of Atomic Chat's llama.cpp TurboQuant fork for
+MiMo, while preserving it as valuable implementation evidence. The compiled C
+formats are 34, 50, and 68 bytes per 128 values for Turbo2/3/4. With MiMo's
+192-wide K padded to 256 and 128-wide V, the exact one-million-token hybrid KV
+footprints are 3.590, 5.279, and 7.179 GiB, versus 22.524 GiB for FP16. This
+supersedes paper-level raw-bit estimates that omitted block overhead and K
+padding.
+
+The blocking mismatch is topological, not theoretical: cache allocation and
+query rotation correctly make K 256-wide, and Metal dispatch uses that padded
+dimension, but the fork has no `dk256_dv128` flash-attention specialization.
+Its visible `dk192_dv128` specialization cannot be selected by that path.
+Direct reuse is killed; a minimal corrected port is the active branch.
+
+Exact WHT preserves a deterministic MiMo-shaped attention score vector to
+`1.05e-7` relative L2, but low-bit quantization is not automatically
+fidelity-safe. On the same synthetic causal-attention fixture, output relative
+L2 is 52.2% for Turbo2, 22.7% for Turbo3, and 23.0% for Turbo4. These are
+component diagnostics, not model-quality estimates; real attention activations
+and hosted-reference logits remain mandatory.
