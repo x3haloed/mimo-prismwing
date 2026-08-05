@@ -1,10 +1,10 @@
 # PW-0040 — Union-parallel source-FP8 MoE schedule
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: based on `672e84d`; contract dirty
+- Commit and dirty state: contract committed as `b481117`; implementation dirty
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0039 exact router, input,
   expert artifacts, and Torch source-FP8 reference
@@ -63,7 +63,28 @@ Raw evidence will be written under
 
 ## Isolated attribution
 
-Pending.
+The first attempt failed before measurement because Metal requires the
+multidimensional dispatch built-ins to use matching vector types. Changing the
+group, thread-index, and thread-count declarations to `uint3` corrected the ABI;
+the failure is preserved in raw evidence.
+
+The candidate concatenates the exact validated expert-major weight and scale
+bytes, dispatches all nine gates, all ups, one flat union SwiGLU, all downs,
+then the nine scatters. In candidate/control then control/candidate process
+orders, candidate medians are `17.809458` and `17.822000` ms while controls are
+`17.101917` and `17.107833` ms. Candidate mean is `17.815729` ms versus
+`17.104875` ms control: a 0.9601× speedup, or 4.16% slowdown. Candidate p10/p90
+pairs are `17.616125/18.153417` and `17.447958/18.144500` ms.
+
+Packing preserves the same `231,005,184` logical source/I/O bytes but this
+shared diagnostic implementation retains the serial buffers too, so reported
+Metal buffers rise from `232,520,704` to `463,197,184` bytes. Complete candidate
+process wall is 1.71 seconds and peak process footprint is 903,843,712 bytes.
+Removing duplicate control buffers could reduce embodiment cost, but cannot
+satisfy the missing 20% speedup and is not a reason to rerun this schedule.
+
+The candidate's fixed-fixture routed-only `A=8`, `U=1.125` diagnostic is
+9.5541 TPS, below the promoted schedule. It is not endpoint TPS.
 
 ## End-to-end result
 
@@ -71,8 +92,29 @@ Out of scope; no endpoint TPS claim is permitted.
 
 ## Correctness result
 
-Pending.
+The independent two-expert, batch-eight, `128×128` scalar fixture covers every
+expert-major weight, scale, input, and output offset; maximum absolute error is
+`1.6763806e-8`. Candidate, repeat, and both controls are byte-identical with
+SHA-256
+`ca5b3b38fb0c3fe27b0cd5b8b150a428f5b827ae04e6bc04eb6c02c264ef167e`.
+Complete output remains `1.709222e-6` relative L2 and `7.366907e-11` maximum
+absolute error versus independent Torch source FP8. Create-new rejection exits
+1. Rust has 15 passing tests, Python has 21, and clippy is clean with warnings
+denied.
+
+Raw evidence is under `/Volumes/Elements/mimo-prismwing/evidence/PW-0040`.
+Its `SHA256SUMS` manifest hashes to
+`ff0bba21625b77cd98c046831e0b2f78c9d579b51277d1724720db16eb086ca2`.
 
 ## Decision
 
-Pending.
+Reject union-parallel phase scheduling. The proposed occupancy mechanism is
+not present on this workload: broader phase dispatch is consistently slower
+than keeping each expert's intermediates temporally local. Retain the exact
+expert-major kernel and command only as a correctness-backed diagnostic, not a
+default.
+
+PW-0039 remains the promoted dynamic target-faithful MoE schedule. A further
+performance experiment must change a different mechanism—such as avoiding
+padding work, reducing exact source bytes, or using a better matrix primitive—
+rather than merely reordering the same padded expert work.

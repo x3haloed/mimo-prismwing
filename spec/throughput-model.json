@@ -460,6 +460,20 @@
             "routed_only_accepted_tps_diagnostic_A8": 9.945275635980831,
             "status": "promoted_dynamic_target_faithful_layer43_moe_component; not_complete_layer_or_endpoint_tps",
             "provenance": "PW-0039; exact native router causally drives per-request gather/shared-weight source-FP8 experts/scatter; fixed PW-0037 real input and nine-expert union; 5 warmups and 30 integrated measurements"
+        },
+        "native_union_parallel_source_fp8_moe_schedule": {
+            "candidate_wall_median_ms_repeats": [17.809458, 17.822],
+            "control_wall_median_ms_repeats": [17.101917, 17.107833],
+            "candidate_mean_median_ms": 17.815729,
+            "control_mean_median_ms": 17.104875,
+            "candidate_speedup_vs_control": 0.9600996400427958,
+            "candidate_resident_buffer_bytes": 463197184,
+            "control_resident_buffer_bytes": 232520704,
+            "candidate_routed_only_accepted_tps_diagnostic_A8": 9.554072469189826,
+            "relative_l2_vs_torch_source_fp8": 0.0000017092220248352147,
+            "union_kernel_fixture_maximum_absolute_error": 0.000000016763806,
+            "status": "rejected_performance_gates_failed; exact_diagnostic_kernel_retained; not_endpoint_tps",
+            "provenance": "PW-0040; paired candidate/control process orders; expert-major packed exact source-FP8 gate/up/SwiGLU/down scheduling; dynamic PW-0039 route fixture"
         }
     }
 }

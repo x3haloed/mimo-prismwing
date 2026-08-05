@@ -298,6 +298,8 @@ pub struct MetalFp8MoeReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub minimum_topk_boundary_margin: Option<f32>,
     pub scatter_fixture_maximum_absolute_error: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub union_kernel_fixture_maximum_absolute_error: Option<f32>,
     pub compile_ms: f64,
     pub cold_wall_ms: f64,
     pub warmups: usize,
@@ -1788,7 +1790,10 @@ pub fn run_metal_fp8_moe_block(
         input_path,
         reference_path,
         output_path,
-        None,
+        MoeExecutionMode {
+            dynamic_router_path: None,
+            union_parallel: false,
+        },
     )
 }
 
@@ -1809,8 +1814,41 @@ pub fn run_metal_dynamic_fp8_moe_block(
         input_path,
         reference_path,
         output_path,
-        Some(router_path),
+        MoeExecutionMode {
+            dynamic_router_path: Some(router_path),
+            union_parallel: false,
+        },
     )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_union_parallel_fp8_moe_block(
+    manifest_path: &Path,
+    artifact_root: &Path,
+    router_path: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8MoeReport, String> {
+    run_metal_fp8_moe_block_impl(
+        manifest_path,
+        artifact_root,
+        kernel_path,
+        input_path,
+        reference_path,
+        output_path,
+        MoeExecutionMode {
+            dynamic_router_path: Some(router_path),
+            union_parallel: true,
+        },
+    )
+}
+
+#[cfg(target_os = "macos")]
+struct MoeExecutionMode<'a> {
+    dynamic_router_path: Option<&'a Path>,
+    union_parallel: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -1821,7 +1859,7 @@ fn run_metal_fp8_moe_block_impl(
     input_path: &Path,
     reference_path: &Path,
     output_path: &Path,
-    dynamic_router_path: Option<&Path>,
+    mode: MoeExecutionMode<'_>,
 ) -> Result<MetalFp8MoeReport, String> {
     use metal::{
         CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize, NSRange,
@@ -1833,6 +1871,7 @@ fn run_metal_fp8_moe_block_impl(
     const SWIGLU_KERNEL: &str = "swiglu_f32";
     const SCATTER_KERNEL: &str = "route_weighted_scatter_add_f32";
     const ROUTER_KERNEL: &str = "f32_gemm8_shared_weight";
+    const UNION_EXPERT_KERNEL: &str = "block_fp8_expert_union_gemm8_shared_weight_lut_blocked";
     const ROUTER_SHA256: &str = "12c1579d28b78dd69ec9342eb9d1f378efc5aa3c2f2a28b5ec73578e6a8bbcdd";
     const ROUTER_WEIGHT: &str = "model.layers.43.mlp.gate.weight";
     const ROUTER_BIAS: &str = "model.layers.43.mlp.gate.e_score_correction_bias";
@@ -1845,6 +1884,9 @@ fn run_metal_fp8_moe_block_impl(
 
     if output_path.exists() {
         return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    if mode.union_parallel && mode.dynamic_router_path.is_none() {
+        return Err("union-parallel MoE requires dynamic router authority".to_owned());
     }
     let manifest_bytes =
         fs::read(manifest_path).map_err(|error| format!("{}: {error}", manifest_path.display()))?;
@@ -1981,7 +2023,7 @@ fn run_metal_fp8_moe_block_impl(
         return Err("MoE input or reference hash mismatch".to_owned());
     }
 
-    let dynamic_router_source = if let Some(router_path) = dynamic_router_path {
+    let dynamic_router_source = if let Some(router_path) = mode.dynamic_router_path {
         let mut router_file = File::open(router_path)
             .map_err(|error| format!("{}: {error}", router_path.display()))?;
         if sha256_reader(&mut router_file)? != ROUTER_SHA256 {
@@ -2017,6 +2059,9 @@ fn run_metal_fp8_moe_block_impl(
     let mut required_kernels = vec![EXPERT_KERNEL, SWIGLU_KERNEL, SCATTER_KERNEL];
     if dynamic_router_source.is_some() {
         required_kernels.push(ROUTER_KERNEL);
+    }
+    if mode.union_parallel {
+        required_kernels.push(UNION_EXPERT_KERNEL);
     }
     for function in required_kernels {
         if !kernel_source.contains(&format!("kernel void {function}")) {
@@ -2063,9 +2108,148 @@ fn run_metal_fp8_moe_block_impl(
     } else {
         None
     };
+    let union_expert_pipeline = if mode.union_parallel {
+        let function = library
+            .get_function(UNION_EXPERT_KERNEL, None)
+            .map_err(|error| format!("union expert kernel: {error}"))?;
+        Some(
+            device
+                .new_compute_pipeline_state_with_function(&function)
+                .map_err(|error| format!("union expert pipeline: {error}"))?,
+        )
+    } else {
+        None
+    };
     let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
     let shared = MTLResourceOptions::StorageModeShared;
     let queue = device.new_command_queue();
+
+    let union_kernel_fixture_maximum_absolute_error =
+        if let Some(pipeline) = union_expert_pipeline.as_ref() {
+            #[repr(C)]
+            struct FixtureShape {
+                rows: u32,
+                columns: u32,
+                block_rows: u32,
+                block_columns: u32,
+            }
+            const FIXTURE_EXPERTS: usize = 2;
+            const FIXTURE_ROWS: usize = 128;
+            const FIXTURE_COLUMNS: usize = 128;
+            let fixture_weights = (0..FIXTURE_EXPERTS * FIXTURE_ROWS * FIXTURE_COLUMNS)
+                .map(|index| if index % 3 == 0 { 0xb8_u8 } else { 0x38_u8 })
+                .collect::<Vec<_>>();
+            let fixture_scales = [0.5_f32, 0.25_f32];
+            let fixture_input = (0..FIXTURE_EXPERTS * BATCH * FIXTURE_COLUMNS)
+                .map(|index| ((index % 13) as f32 - 6.0) * 0.01)
+                .collect::<Vec<_>>();
+            let mut fixture_expected = vec![0.0_f32; FIXTURE_EXPERTS * BATCH * FIXTURE_ROWS];
+            for expert in 0..FIXTURE_EXPERTS {
+                for position in 0..BATCH {
+                    for row in 0..FIXTURE_ROWS {
+                        let mut sum = 0.0_f32;
+                        for column in 0..FIXTURE_COLUMNS {
+                            let weight_index = expert * FIXTURE_ROWS * FIXTURE_COLUMNS
+                                + row * FIXTURE_COLUMNS
+                                + column;
+                            sum += decode_f8_e4m3fn(fixture_weights[weight_index])
+                                * fixture_scales[expert]
+                                * fixture_input[expert * BATCH * FIXTURE_COLUMNS
+                                    + position * FIXTURE_COLUMNS
+                                    + column];
+                        }
+                        fixture_expected
+                            [expert * BATCH * FIXTURE_ROWS + position * FIXTURE_ROWS + row] = sum;
+                    }
+                }
+            }
+            let fixture_shape = FixtureShape {
+                rows: FIXTURE_ROWS as u32,
+                columns: FIXTURE_COLUMNS as u32,
+                block_rows: 128,
+                block_columns: 128,
+            };
+            let fixture_weight_buffer = device.new_buffer_with_data(
+                fixture_weights.as_ptr().cast(),
+                fixture_weights.len() as u64,
+                shared,
+            );
+            let fixture_scale_buffer = device.new_buffer_with_data(
+                fixture_scales.as_ptr().cast(),
+                std::mem::size_of_val(&fixture_scales) as u64,
+                shared,
+            );
+            let fixture_input_buffer = device.new_buffer_with_data(
+                fixture_input.as_ptr().cast(),
+                std::mem::size_of_val(fixture_input.as_slice()) as u64,
+                shared,
+            );
+            let fixture_output_buffer = device.new_buffer(
+                std::mem::size_of_val(fixture_expected.as_slice()) as u64,
+                shared,
+            );
+            let fixture_shape_buffer = device.new_buffer_with_data(
+                (&fixture_shape as *const FixtureShape).cast(),
+                std::mem::size_of::<FixtureShape>() as u64,
+                shared,
+            );
+            let fixture_lut = (0_u16..=255)
+                .map(|bits| decode_f8_e4m3fn(bits as u8))
+                .collect::<Vec<_>>();
+            let fixture_lut_buffer = device.new_buffer_with_data(
+                fixture_lut.as_ptr().cast(),
+                std::mem::size_of_val(fixture_lut.as_slice()) as u64,
+                shared,
+            );
+            let fixture_command = queue.new_command_buffer();
+            let fixture_encoder = fixture_command.new_compute_command_encoder();
+            fixture_encoder.set_compute_pipeline_state(pipeline);
+            fixture_encoder.set_buffer(0, Some(&fixture_weight_buffer), 0);
+            fixture_encoder.set_buffer(1, Some(&fixture_scale_buffer), 0);
+            fixture_encoder.set_buffer(2, Some(&fixture_input_buffer), 0);
+            fixture_encoder.set_buffer(3, Some(&fixture_output_buffer), 0);
+            fixture_encoder.set_buffer(4, Some(&fixture_shape_buffer), 0);
+            fixture_encoder.set_buffer(5, Some(&fixture_lut_buffer), 0);
+            fixture_encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
+            fixture_encoder.dispatch_thread_groups(
+                MTLSize {
+                    width: FIXTURE_ROWS as u64,
+                    height: FIXTURE_EXPERTS as u64,
+                    depth: 1,
+                },
+                MTLSize {
+                    width: LANES,
+                    height: 1,
+                    depth: 1,
+                },
+            );
+            fixture_encoder.end_encoding();
+            fixture_command.commit();
+            fixture_command.wait_until_completed();
+            if fixture_command.status() != MTLCommandBufferStatus::Completed {
+                return Err("union expert kernel fixture command failed".to_owned());
+            }
+            // SAFETY: the completed fixture output matches the allocated expected length.
+            let fixture_actual = unsafe {
+                std::slice::from_raw_parts(
+                    fixture_output_buffer.contents().cast::<f32>(),
+                    fixture_expected.len(),
+                )
+            };
+            let maximum_error = fixture_actual
+                .iter()
+                .zip(&fixture_expected)
+                .map(|(&actual, &expected)| (actual - expected).abs())
+                .fold(0.0_f32, f32::max);
+            if fixture_actual.iter().any(|value| !value.is_finite()) || maximum_error > 2.0e-5 {
+                return Err(format!(
+                    "union expert kernel fixture failed: {maximum_error}"
+                ));
+            }
+            Some(maximum_error)
+        } else {
+            None
+        };
 
     #[repr(C)]
     struct ScatterShape {
@@ -2236,6 +2420,12 @@ fn run_metal_fp8_moe_block_impl(
     });
 
     let mut experts = Vec::with_capacity(manifest.experts.len());
+    let mut packed_gate_weights = Vec::new();
+    let mut packed_gate_scales = Vec::new();
+    let mut packed_up_weights = Vec::new();
+    let mut packed_up_scales = Vec::new();
+    let mut packed_down_weights = Vec::new();
+    let mut packed_down_scales = Vec::new();
     let mut logical_source_bytes = 0_u64;
     let mut expert_position_counts = BTreeMap::new();
     for entry in &manifest.experts {
@@ -2291,6 +2481,12 @@ fn run_metal_fp8_moe_block_impl(
                 .checked_add(bytes)
                 .ok_or("MoE logical source bytes overflow")?;
         }
+        packed_gate_weights.extend_from_slice(gate.weight.bytes);
+        packed_gate_scales.extend_from_slice(gate.scale.bytes);
+        packed_up_weights.extend_from_slice(up.weight.bytes);
+        packed_up_scales.extend_from_slice(up.scale.bytes);
+        packed_down_weights.extend_from_slice(down.weight.bytes);
+        packed_down_scales.extend_from_slice(down.scale.bytes);
         let make_buffer = |bytes: &[u8]| {
             device.new_buffer_with_data(bytes.as_ptr().cast(), bytes.len() as u64, shared)
         };
@@ -2339,6 +2535,49 @@ fn run_metal_fp8_moe_block_impl(
         });
         expert_position_counts.insert(entry.expert, entry.positions.len());
     }
+
+    struct UnionBuffers {
+        gate_weight: metal::Buffer,
+        gate_scale: metal::Buffer,
+        up_weight: metal::Buffer,
+        up_scale: metal::Buffer,
+        down_weight: metal::Buffer,
+        down_scale: metal::Buffer,
+        input: metal::Buffer,
+        gate_output: metal::Buffer,
+        up_output: metal::Buffer,
+        hidden_output: metal::Buffer,
+        expert_output: metal::Buffer,
+        hidden_count: metal::Buffer,
+    }
+    let union_buffers = if mode.union_parallel {
+        let make_buffer = |bytes: &[u8]| {
+            device.new_buffer_with_data(bytes.as_ptr().cast(), bytes.len() as u64, shared)
+        };
+        let union_hidden_count = (experts.len() * BATCH * INTERMEDIATE) as u32;
+        Some(UnionBuffers {
+            gate_weight: make_buffer(&packed_gate_weights),
+            gate_scale: make_buffer(&packed_gate_scales),
+            up_weight: make_buffer(&packed_up_weights),
+            up_scale: make_buffer(&packed_up_scales),
+            down_weight: make_buffer(&packed_down_weights),
+            down_scale: make_buffer(&packed_down_scales),
+            input: device.new_buffer((experts.len() * BATCH * HIDDEN * 4) as u64, shared),
+            gate_output: device
+                .new_buffer((experts.len() * BATCH * INTERMEDIATE * 4) as u64, shared),
+            up_output: device.new_buffer((experts.len() * BATCH * INTERMEDIATE * 4) as u64, shared),
+            hidden_output: device
+                .new_buffer((experts.len() * BATCH * INTERMEDIATE * 4) as u64, shared),
+            expert_output: device.new_buffer((experts.len() * BATCH * HIDDEN * 4) as u64, shared),
+            hidden_count: device.new_buffer_with_data(
+                (&union_hidden_count as *const u32).cast(),
+                std::mem::size_of::<u32>() as u64,
+                shared,
+            ),
+        })
+    } else {
+        None
+    };
 
     let gate_output = device.new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
     let up_output = device.new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
@@ -2430,7 +2669,7 @@ fn run_metal_fp8_moe_block_impl(
                 return Err("dynamic router selected unknown expert union".to_owned());
             }
             let mut counts = BTreeMap::new();
-            for expert in &experts {
+            for (expert_index, expert) in experts.iter().enumerate() {
                 let placements = schedule
                     .get(&expert.expert)
                     .ok_or("dynamic expert schedule absent")?;
@@ -2451,9 +2690,18 @@ fn run_metal_fp8_moe_block_impl(
                 };
                 // SAFETY: each shared buffer was allocated to the exact copied slice size.
                 unsafe {
+                    let gathered_destination = if let Some(union) = union_buffers.as_ref() {
+                        union
+                            .input
+                            .contents()
+                            .cast::<f32>()
+                            .add(expert_index * BATCH * HIDDEN)
+                    } else {
+                        expert.input.contents().cast::<f32>()
+                    };
                     std::ptr::copy_nonoverlapping(
                         gathered.as_ptr(),
-                        expert.input.contents().cast::<f32>(),
+                        gathered_destination,
                         gathered.len(),
                     );
                     std::ptr::copy_nonoverlapping(
@@ -2487,24 +2735,21 @@ fn run_metal_fp8_moe_block_impl(
         );
         blit.end_encoding();
         let encoder = command.new_compute_command_encoder();
-        for expert in &experts {
-            let expert_count = dynamic_counts
-                .as_ref()
-                .and_then(|counts| counts.get(&expert.expert))
-                .copied()
-                .unwrap_or(expert.count);
-            encoder.set_compute_pipeline_state(&expert_pipeline);
-            encoder.set_buffer(0, Some(&expert.gate_weight), 0);
-            encoder.set_buffer(1, Some(&expert.gate_scale), 0);
-            encoder.set_buffer(2, Some(&expert.input), 0);
-            encoder.set_buffer(3, Some(&gate_output), 0);
+        if let (Some(union), Some(union_pipeline)) =
+            (union_buffers.as_ref(), union_expert_pipeline.as_ref())
+        {
+            encoder.set_compute_pipeline_state(union_pipeline);
+            encoder.set_buffer(0, Some(&union.gate_weight), 0);
+            encoder.set_buffer(1, Some(&union.gate_scale), 0);
+            encoder.set_buffer(2, Some(&union.input), 0);
+            encoder.set_buffer(3, Some(&union.gate_output), 0);
             encoder.set_buffer(4, Some(&gate_shape_buffer), 0);
             encoder.set_buffer(5, Some(&lut_buffer), 0);
             encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
             encoder.dispatch_thread_groups(
                 MTLSize {
                     width: INTERMEDIATE as u64,
-                    height: 1,
+                    height: experts.len() as u64,
                     depth: 1,
                 },
                 MTLSize {
@@ -2513,13 +2758,13 @@ fn run_metal_fp8_moe_block_impl(
                     depth: 1,
                 },
             );
-            encoder.set_buffer(0, Some(&expert.up_weight), 0);
-            encoder.set_buffer(1, Some(&expert.up_scale), 0);
-            encoder.set_buffer(3, Some(&up_output), 0);
+            encoder.set_buffer(0, Some(&union.up_weight), 0);
+            encoder.set_buffer(1, Some(&union.up_scale), 0);
+            encoder.set_buffer(3, Some(&union.up_output), 0);
             encoder.dispatch_thread_groups(
                 MTLSize {
                     width: INTERMEDIATE as u64,
-                    height: 1,
+                    height: experts.len() as u64,
                     depth: 1,
                 },
                 MTLSize {
@@ -2529,13 +2774,13 @@ fn run_metal_fp8_moe_block_impl(
                 },
             );
             encoder.set_compute_pipeline_state(&swiglu_pipeline);
-            encoder.set_buffer(0, Some(&gate_output), 0);
-            encoder.set_buffer(1, Some(&up_output), 0);
-            encoder.set_buffer(2, Some(&hidden_output), 0);
-            encoder.set_buffer(3, Some(&hidden_count_buffer), 0);
+            encoder.set_buffer(0, Some(&union.gate_output), 0);
+            encoder.set_buffer(1, Some(&union.up_output), 0);
+            encoder.set_buffer(2, Some(&union.hidden_output), 0);
+            encoder.set_buffer(3, Some(&union.hidden_count), 0);
             encoder.dispatch_threads(
                 MTLSize {
-                    width: (BATCH * INTERMEDIATE) as u64,
+                    width: (experts.len() * BATCH * INTERMEDIATE) as u64,
                     height: 1,
                     depth: 1,
                 },
@@ -2545,18 +2790,18 @@ fn run_metal_fp8_moe_block_impl(
                     depth: 1,
                 },
             );
-            encoder.set_compute_pipeline_state(&expert_pipeline);
-            encoder.set_buffer(0, Some(&expert.down_weight), 0);
-            encoder.set_buffer(1, Some(&expert.down_scale), 0);
-            encoder.set_buffer(2, Some(&hidden_output), 0);
-            encoder.set_buffer(3, Some(&expert_output), 0);
+            encoder.set_compute_pipeline_state(union_pipeline);
+            encoder.set_buffer(0, Some(&union.down_weight), 0);
+            encoder.set_buffer(1, Some(&union.down_scale), 0);
+            encoder.set_buffer(2, Some(&union.hidden_output), 0);
+            encoder.set_buffer(3, Some(&union.expert_output), 0);
             encoder.set_buffer(4, Some(&down_shape_buffer), 0);
             encoder.set_buffer(5, Some(&lut_buffer), 0);
             encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
             encoder.dispatch_thread_groups(
                 MTLSize {
                     width: HIDDEN as u64,
-                    height: 1,
+                    height: experts.len() as u64,
                     depth: 1,
                 },
                 MTLSize {
@@ -2565,24 +2810,133 @@ fn run_metal_fp8_moe_block_impl(
                     depth: 1,
                 },
             );
-            encoder.set_compute_pipeline_state(&scatter_pipeline);
-            encoder.set_buffer(0, Some(&expert_output), 0);
-            encoder.set_buffer(1, Some(&expert.route_weights), 0);
-            encoder.set_buffer(2, Some(&expert.positions), 0);
-            encoder.set_buffer(3, Some(&block_output), 0);
-            encoder.set_buffer(4, Some(&expert.scatter_shape), 0);
-            encoder.dispatch_threads(
-                MTLSize {
-                    width: (expert_count * HIDDEN) as u64,
-                    height: 1,
-                    depth: 1,
-                },
-                MTLSize {
-                    width: 256,
-                    height: 1,
-                    depth: 1,
-                },
-            );
+            for (expert_index, expert) in experts.iter().enumerate() {
+                let expert_count = dynamic_counts
+                    .as_ref()
+                    .and_then(|counts| counts.get(&expert.expert))
+                    .copied()
+                    .ok_or("union-parallel expert count absent")?;
+                encoder.set_compute_pipeline_state(&scatter_pipeline);
+                encoder.set_buffer(
+                    0,
+                    Some(&union.expert_output),
+                    (expert_index * BATCH * HIDDEN * 4) as u64,
+                );
+                encoder.set_buffer(1, Some(&expert.route_weights), 0);
+                encoder.set_buffer(2, Some(&expert.positions), 0);
+                encoder.set_buffer(3, Some(&block_output), 0);
+                encoder.set_buffer(4, Some(&expert.scatter_shape), 0);
+                encoder.dispatch_threads(
+                    MTLSize {
+                        width: (expert_count * HIDDEN) as u64,
+                        height: 1,
+                        depth: 1,
+                    },
+                    MTLSize {
+                        width: 256,
+                        height: 1,
+                        depth: 1,
+                    },
+                );
+            }
+        } else {
+            for expert in &experts {
+                let expert_count = dynamic_counts
+                    .as_ref()
+                    .and_then(|counts| counts.get(&expert.expert))
+                    .copied()
+                    .unwrap_or(expert.count);
+                encoder.set_compute_pipeline_state(&expert_pipeline);
+                encoder.set_buffer(0, Some(&expert.gate_weight), 0);
+                encoder.set_buffer(1, Some(&expert.gate_scale), 0);
+                encoder.set_buffer(2, Some(&expert.input), 0);
+                encoder.set_buffer(3, Some(&gate_output), 0);
+                encoder.set_buffer(4, Some(&gate_shape_buffer), 0);
+                encoder.set_buffer(5, Some(&lut_buffer), 0);
+                encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
+                encoder.dispatch_thread_groups(
+                    MTLSize {
+                        width: INTERMEDIATE as u64,
+                        height: 1,
+                        depth: 1,
+                    },
+                    MTLSize {
+                        width: LANES,
+                        height: 1,
+                        depth: 1,
+                    },
+                );
+                encoder.set_buffer(0, Some(&expert.up_weight), 0);
+                encoder.set_buffer(1, Some(&expert.up_scale), 0);
+                encoder.set_buffer(3, Some(&up_output), 0);
+                encoder.dispatch_thread_groups(
+                    MTLSize {
+                        width: INTERMEDIATE as u64,
+                        height: 1,
+                        depth: 1,
+                    },
+                    MTLSize {
+                        width: LANES,
+                        height: 1,
+                        depth: 1,
+                    },
+                );
+                encoder.set_compute_pipeline_state(&swiglu_pipeline);
+                encoder.set_buffer(0, Some(&gate_output), 0);
+                encoder.set_buffer(1, Some(&up_output), 0);
+                encoder.set_buffer(2, Some(&hidden_output), 0);
+                encoder.set_buffer(3, Some(&hidden_count_buffer), 0);
+                encoder.dispatch_threads(
+                    MTLSize {
+                        width: (BATCH * INTERMEDIATE) as u64,
+                        height: 1,
+                        depth: 1,
+                    },
+                    MTLSize {
+                        width: 256,
+                        height: 1,
+                        depth: 1,
+                    },
+                );
+                encoder.set_compute_pipeline_state(&expert_pipeline);
+                encoder.set_buffer(0, Some(&expert.down_weight), 0);
+                encoder.set_buffer(1, Some(&expert.down_scale), 0);
+                encoder.set_buffer(2, Some(&hidden_output), 0);
+                encoder.set_buffer(3, Some(&expert_output), 0);
+                encoder.set_buffer(4, Some(&down_shape_buffer), 0);
+                encoder.set_buffer(5, Some(&lut_buffer), 0);
+                encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
+                encoder.dispatch_thread_groups(
+                    MTLSize {
+                        width: HIDDEN as u64,
+                        height: 1,
+                        depth: 1,
+                    },
+                    MTLSize {
+                        width: LANES,
+                        height: 1,
+                        depth: 1,
+                    },
+                );
+                encoder.set_compute_pipeline_state(&scatter_pipeline);
+                encoder.set_buffer(0, Some(&expert_output), 0);
+                encoder.set_buffer(1, Some(&expert.route_weights), 0);
+                encoder.set_buffer(2, Some(&expert.positions), 0);
+                encoder.set_buffer(3, Some(&block_output), 0);
+                encoder.set_buffer(4, Some(&expert.scatter_shape), 0);
+                encoder.dispatch_threads(
+                    MTLSize {
+                        width: (expert_count * HIDDEN) as u64,
+                        height: 1,
+                        depth: 1,
+                    },
+                    MTLSize {
+                        width: 256,
+                        height: 1,
+                        depth: 1,
+                    },
+                );
+            }
         }
         encoder.end_encoding();
         command.commit();
@@ -2641,7 +2995,9 @@ fn run_metal_fp8_moe_block_impl(
     let wall_median_ms = percentile(0.50);
     let wall_p90_ms = percentile(0.90);
     let median_timing_gate_passed = wall_median_ms
-        <= if dynamic_router_source.is_some() {
+        <= if mode.union_parallel {
+            14.0
+        } else if dynamic_router_source.is_some() {
             20.0
         } else {
             25.0
@@ -2661,8 +3017,14 @@ fn run_metal_fp8_moe_block_impl(
     } else {
         0
     };
+    let union_resident_bytes = if mode.union_parallel {
+        logical_source_bytes + (experts.len() * BATCH * (HIDDEN * 2 + INTERMEDIATE * 3) * 4) as u64
+    } else {
+        0
+    };
     let resident_buffer_bytes = logical_source_bytes
         .checked_add(router_resident_bytes)
+        .and_then(|value| value.checked_add(union_resident_bytes))
         .and_then(|value| value.checked_add((manifest.experts.len() * BATCH * HIDDEN * 4) as u64))
         .and_then(|value| value.checked_add((BATCH * INTERMEDIATE * 4 * 3) as u64))
         .and_then(|value| value.checked_add((BATCH * HIDDEN * 4 * 2) as u64))
@@ -2672,7 +3034,9 @@ fn run_metal_fp8_moe_block_impl(
         / manifest.real_expert_positions as f64;
     Ok(MetalFp8MoeReport {
         schema_version: 1,
-        semantic: if dynamic_router_source.is_some() {
+        semantic: if mode.union_parallel {
+            "mimo_layer43_native_union_parallel_source_fp8_moe_block".to_owned()
+        } else if dynamic_router_source.is_some() {
             "mimo_layer43_native_dynamic_source_fp8_moe_block".to_owned()
         } else {
             manifest.semantic
@@ -2708,6 +3072,7 @@ fn run_metal_fp8_moe_block_impl(
             .as_ref()
             .map(|_| dynamic_minimum_boundary_margin.get()),
         scatter_fixture_maximum_absolute_error,
+        union_kernel_fixture_maximum_absolute_error,
         compile_ms,
         cold_wall_ms,
         warmups: WARMUPS,
@@ -2725,13 +3090,18 @@ fn run_metal_fp8_moe_block_impl(
         accepted_per_verification: 8,
         expert_union_factor: manifest.experts.len() as f64 / manifest.top_k as f64,
         cache_state: "selected source artifacts OS-cache state uncontrolled; all model and application buffers resident before timed series",
-        scheduling_limitation: if dynamic_router_source.is_some() {
+        scheduling_limitation: if mode.union_parallel {
+            "exact fixed layer43 input; dynamic native routes; selected expert union preloaded and packed"
+                .to_owned()
+        } else if dynamic_router_source.is_some() {
             "exact fixed layer43 input; dynamic native routes; selected expert union preloaded"
                 .to_owned()
         } else {
             manifest.scheduling
         },
-        implementation: if dynamic_router_source.is_some() {
+        implementation: if mode.union_parallel {
+            "rust_owned_metal_dynamic_router_union_parallel_source_fp8_moe_block"
+        } else if dynamic_router_source.is_some() {
             "rust_owned_metal_dynamic_router_source_fp8_moe_block"
         } else {
             "rust_owned_metal_fixture_scheduled_source_fp8_moe_block"

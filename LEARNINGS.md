@@ -827,3 +827,16 @@ diagnostic is 9.945 TPS at `A=8`, `U=1.125`. The earlier limitation that native
 router output did not drive expert execution is superseded. Representative
 decode routes, a complete base transformer layer, and endpoint TPS remain
 unmeasured; this result promotes the causal component, not those extrapolations.
+
+PW-0040 falsifies expert-union phase parallelism as the missing performance
+mechanism. Despite exact expert-major indexing and byte-identical complete
+output, two paired candidate medians average 17.8157 ms versus 17.1049 ms for
+PW-0039 control—a 4.16% slowdown rather than the required 20% gain. Keeping
+each expert's gate/up/SwiGLU/down work temporally local is better on this M1
+fixture than dispatching each phase across the whole union.
+
+The diagnostic implementation also duplicates packed and serial buffers,
+raising reported Metal buffers from 232.5 MB to 463.2 MB and peak process
+footprint to 903.8 MB. Deduplicating those buffers would improve embodiment but
+would not rescue the failed timing gate. The union-parallel schedule is
+rejected; the PW-0039 schedule remains the executable default.

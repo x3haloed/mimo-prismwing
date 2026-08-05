@@ -330,6 +330,68 @@ kernel void block_fp8_gemm8_shared_weight_lut_blocked(
     }
 }
 
+kernel void block_fp8_expert_union_gemm8_shared_weight_lut_blocked(
+    device const uchar *weights [[buffer(0)]],
+    device const float *scales [[buffer(1)]],
+    device const float *input [[buffer(2)]],
+    device float *output [[buffer(3)]],
+    constant GemvShape &shape [[buffer(4)]],
+    constant float *decode_lut [[buffer(5)]],
+    threadgroup float *partial [[threadgroup(0)]],
+    uint3 group [[threadgroup_position_in_grid]],
+    uint3 thread_index [[thread_position_in_threadgroup]],
+    uint3 threads [[threads_per_threadgroup]]) {
+    constexpr uint batch = 8;
+    const uint row = group.x;
+    const uint expert = group.y;
+    const uint lane = thread_index.x;
+    const uint lanes = threads.x;
+    if (row >= shape.rows || shape.block_rows == 0 || shape.block_columns == 0 ||
+        shape.columns % shape.block_columns != 0) {
+        return;
+    }
+    const uint weight_expert_stride = shape.rows * shape.columns;
+    const uint row_offset = expert * weight_expert_stride + row * shape.columns;
+    const uint scale_columns = shape.columns / shape.block_columns;
+    const uint scale_rows = (shape.rows + shape.block_rows - 1) / shape.block_rows;
+    const uint scale_expert_stride = scale_rows * scale_columns;
+    const uint scale_row_offset = expert * scale_expert_stride +
+        (row / shape.block_rows) * scale_columns;
+    const uint input_expert_offset = expert * batch * shape.columns;
+    const uint output_expert_offset = expert * batch * shape.rows;
+    float sums[batch] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    for (uint block = 0; block < scale_columns; ++block) {
+        const float scale = scales[scale_row_offset + block];
+        const uint column_base = block * shape.block_columns;
+        for (uint within = lane; within < shape.block_columns; within += lanes) {
+            const uint column = column_base + within;
+            const float weight = decode_lut[weights[row_offset + column]] * scale;
+            for (uint position = 0; position < batch; ++position) {
+                sums[position] += weight *
+                    input[input_expert_offset + position * shape.columns + column];
+            }
+        }
+    }
+    for (uint position = 0; position < batch; ++position) {
+        partial[lane * batch + position] = sums[position];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+        if (lane < offset) {
+            for (uint position = 0; position < batch; ++position) {
+                partial[lane * batch + position] +=
+                    partial[(lane + offset) * batch + position];
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        for (uint position = 0; position < batch; ++position) {
+            output[output_expert_offset + position * shape.rows + row] = partial[position];
+        }
+    }
+}
+
 inline float decode_signed_int4(uchar nibble) {
     const uchar value = nibble & 0x0f;
     return value < 8 ? float(value) : float(value) - 16.0f;
