@@ -386,6 +386,10 @@ pub struct MetalFp8MoeReport {
     pub relative_l2: f64,
     pub maximum_absolute_error: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidate_input_relative_l2: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidate_input_maximum_absolute_error: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub router_file_sha256: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub maximum_route_weight_absolute_error: Option<f32>,
@@ -2523,6 +2527,7 @@ pub fn run_metal_fp8_moe_block(
             union_parallel: false,
             fused_gate_up: false,
             simdgroup_matrix: false,
+            candidate_input_error: None,
         },
     )
 }
@@ -2549,6 +2554,74 @@ pub fn run_metal_dynamic_fp8_moe_block(
             union_parallel: false,
             fused_gate_up: false,
             simdgroup_matrix: false,
+            candidate_input_error: None,
+        },
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub struct RealAttentionMoeRequest<'a> {
+    pub manifest_path: &'a Path,
+    pub artifact_root: &'a Path,
+    pub router_path: &'a Path,
+    pub kernel_path: &'a Path,
+    pub source_input_path: &'a Path,
+    pub candidate_input_path: &'a Path,
+    pub reference_path: &'a Path,
+    pub output_path: &'a Path,
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_dynamic_real_attention_fp8_moe_block(
+    request: RealAttentionMoeRequest<'_>,
+) -> Result<MetalFp8MoeReport, String> {
+    let RealAttentionMoeRequest {
+        manifest_path,
+        artifact_root,
+        router_path,
+        kernel_path,
+        source_input_path,
+        candidate_input_path,
+        reference_path,
+        output_path,
+    } = request;
+    const BATCH_INPUTS: usize = 8 * 4096;
+    let manifest_bytes =
+        fs::read(manifest_path).map_err(|error| format!("{}: {error}", manifest_path.display()))?;
+    let unique: UniqueJson = serde_json::from_slice(&manifest_bytes)
+        .map_err(|error| format!("{}: {error}", manifest_path.display()))?;
+    let manifest: MetalMoeManifest =
+        serde_json::from_value(unique.0).map_err(|error| format!("manifest: {error}"))?;
+    if manifest.semantic != "mimo_layer43_real_attention_dynamic_source_fp8_moe_block"
+        || manifest.scheduling != "independent_real_attention_source_routes"
+    {
+        return Err("real-attention MoE entry point received the wrong manifest".to_owned());
+    }
+    let (source_bytes, source_input) = read_f32_file(source_input_path, Some(BATCH_INPUTS))?;
+    if sha256_hex(&source_bytes) != manifest.input_sha256 {
+        return Err("real-attention source input hash mismatch".to_owned());
+    }
+    let (_, candidate_input) = read_f32_file(candidate_input_path, Some(BATCH_INPUTS))?;
+    let candidate_input_error = numerical_error(&candidate_input, &source_input)?;
+    if candidate_input_error.0 > 4.0e-5 || candidate_input_error.1 > 3.0e-5 {
+        return Err(format!(
+            "real-attention candidate input parity failed: relative L2 {}, max abs {}",
+            candidate_input_error.0, candidate_input_error.1
+        ));
+    }
+    run_metal_fp8_moe_block_impl(
+        manifest_path,
+        artifact_root,
+        kernel_path,
+        candidate_input_path,
+        reference_path,
+        output_path,
+        MoeExecutionMode {
+            dynamic_router_path: Some(router_path),
+            union_parallel: false,
+            fused_gate_up: false,
+            simdgroup_matrix: false,
+            candidate_input_error: Some(candidate_input_error),
         },
     )
 }
@@ -2575,6 +2648,7 @@ pub fn run_metal_union_parallel_fp8_moe_block(
             union_parallel: true,
             fused_gate_up: false,
             simdgroup_matrix: false,
+            candidate_input_error: None,
         },
     )
 }
@@ -2601,6 +2675,7 @@ pub fn run_metal_fused_gate_up_fp8_moe_block(
             union_parallel: false,
             fused_gate_up: true,
             simdgroup_matrix: false,
+            candidate_input_error: None,
         },
     )
 }
@@ -2627,6 +2702,7 @@ pub fn run_metal_simdgroup_matrix_fp8_moe_block(
             union_parallel: false,
             fused_gate_up: false,
             simdgroup_matrix: true,
+            candidate_input_error: None,
         },
     )
 }
@@ -2637,6 +2713,7 @@ struct MoeExecutionMode<'a> {
     union_parallel: bool,
     fused_gate_up: bool,
     simdgroup_matrix: bool,
+    candidate_input_error: Option<(f64, f32)>,
 }
 
 #[cfg(target_os = "macos")]
@@ -2828,7 +2905,7 @@ fn run_metal_fp8_moe_block_impl(
     }
     let (input_bytes, input) = read_f32_file(input_path, Some(BATCH * HIDDEN))?;
     let (reference_bytes, reference) = read_f32_file(reference_path, Some(BATCH * HIDDEN))?;
-    if sha256_hex(&input_bytes) != manifest.input_sha256
+    if (mode.candidate_input_error.is_none() && sha256_hex(&input_bytes) != manifest.input_sha256)
         || sha256_hex(&reference_bytes) != manifest.reference_sha256
     {
         return Err("MoE input or reference hash mismatch".to_owned());
@@ -4223,6 +4300,8 @@ fn run_metal_fp8_moe_block_impl(
         padding_overhead_fraction,
         relative_l2,
         maximum_absolute_error,
+        candidate_input_relative_l2: mode.candidate_input_error.map(|error| error.0),
+        candidate_input_maximum_absolute_error: mode.candidate_input_error.map(|error| error.1),
         router_file_sha256: dynamic_router_source.as_ref().map(|_| ROUTER_SHA256),
         maximum_route_weight_absolute_error: dynamic_router_source
             .as_ref()
