@@ -96,10 +96,12 @@ func relativeL2(_ actual: [Float], _ expected: [Float]) -> Double {
     return sqrt(error/reference)
 }
 
-guard CommandLine.arguments.count == 5, let format = Int(CommandLine.arguments[3]), [3,4].contains(format),
+guard (5...6).contains(CommandLine.arguments.count), let format = Int(CommandLine.arguments[3]), [3,4].contains(format),
       let context = Int(CommandLine.arguments[4]), [17,128,1024,8192].contains(context) else {
-    fail("usage: metal_turbo_attention <kernel.metal> <locked-ggml-turbo-quant.c> <3|4> <17|128|1024|8192>")
+    fail("usage: metal_turbo_attention <kernel.metal> <locked-ggml-turbo-quant.c> <3|4> <17|128|1024|8192> [serial|parallel32]")
 }
+let variant = CommandLine.arguments.count == 6 ? CommandLine.arguments[5] : "serial"
+guard ["serial", "parallel32"].contains(variant) else { fail("unknown kernel variant") }
 let kernelSource = try String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8)
 let lockedSource = try String(contentsOfFile: CommandLine.arguments[2], encoding: .utf8)
 let s1 = signs("s1", source: lockedSource), s2 = signs("s2", source: lockedSource)
@@ -139,7 +141,8 @@ for i in 0..<128 { scalarRotated[i] /= denominator; baselineOutput[i] /= baselin
 guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { fail("Metal unavailable") }
 let compileStart = DispatchTime.now().uptimeNanoseconds
 let library = try device.makeLibrary(source: kernelSource, options: nil)
-guard let function = library.makeFunction(name: "turbo_attention_256_128") else { fail("kernel absent") }
+let functionName = variant == "serial" ? "turbo_attention_256_128" : "turbo_attention_256_128_parallel32"
+guard let function = library.makeFunction(name: functionName) else { fail("kernel absent") }
 let pipeline = try device.makeComputePipelineState(function: function)
 let compileMs = Double(DispatchTime.now().uptimeNanoseconds-compileStart)/1e6
 var guarded = [Float](repeating: Float.nan, count: 130), shape = Shape(context: UInt32(context), format: UInt32(format), keyStride: UInt32(keyStride), valueStride: UInt32(valueStride))
@@ -148,7 +151,8 @@ let kb=buffer(packedKeys), vb=buffer(packedValues), qb=buffer(query), ob=buffer(
 func run() -> (Double,Double) {
     let command=queue.makeCommandBuffer()!, encoder=command.makeComputeCommandEncoder()!; encoder.setComputePipelineState(pipeline)
     [kb,vb,qb,ob,sb,s1b,s2b].enumerated().forEach { encoder.setBuffer($0.element,offset:0,index:$0.offset) }
-    encoder.dispatchThreads(MTLSize(width:1,height:1,depth:1),threadsPerThreadgroup:MTLSize(width:1,height:1,depth:1)); encoder.endEncoding()
+    let lanes = variant == "serial" ? 1 : 32
+    encoder.dispatchThreads(MTLSize(width:lanes,height:1,depth:1),threadsPerThreadgroup:MTLSize(width:lanes,height:1,depth:1)); encoder.endEncoding()
     let start=DispatchTime.now().uptimeNanoseconds; command.commit(); command.waitUntilCompleted(); if let e=command.error { fail("Metal: \(e)") }
     return (Double(DispatchTime.now().uptimeNanoseconds-start)/1e6,(command.gpuEndTime-command.gpuStartTime)*1000)
 }
@@ -157,5 +161,5 @@ let pointer=ob.contents().bindMemory(to:Float.self,capacity:130), actual=Array(U
 guard pointer[0].isNaN && pointer[129].isNaN else { fail("output guard changed") }
 let maxError=zip(actual,scalar).map { abs($0-$1) }.max()!, rel=relativeL2(actual,scalar)
 guard actual.allSatisfy({$0.isFinite}), rel <= 1e-4, maxError <= 2e-4 else { fail("parity rel=\(rel) max=\(maxError)") }
-let result:[String:Any] = ["schema_version":1,"device":device.name,"format":"turbo\(format)","context":context,"batch_size":1,"concurrency":1,"accepted_tokens":1,"A":"not_applicable","U":"not_applicable","bytes_read":packedKeys.count+packedValues.count+query.count*4,"compile_ms":compileMs,"cold_wall_ms":cold.0,"cold_gpu_ms":cold.1,"warmups":10,"measurements":50,"wall_median_ms":percentile(walls,0.5),"wall_p95_ms":percentile(walls,0.95),"gpu_median_ms":percentile(gpus,0.5),"gpu_p95_ms":percentile(gpus,0.95),"metal_vs_scalar_relative_l2":rel,"metal_vs_scalar_max_abs":maxError,"score_relative_l2_vs_fp32":relativeL2(candidateScores,baselineScores),"output_relative_l2_vs_fp32":relativeL2(scalar,baselineOutput),"guard_intact":true,"cache_state":"packed application buffers warm; no model or storage I/O"]
+let result:[String:Any] = ["schema_version":1,"device":device.name,"format":"turbo\(format)","kernel_variant":variant,"lanes":variant == "serial" ? 1 : 32,"context":context,"batch_size":1,"concurrency":1,"accepted_tokens":1,"A":"not_applicable","U":"not_applicable","bytes_read":packedKeys.count+packedValues.count+query.count*4,"compile_ms":compileMs,"cold_wall_ms":cold.0,"cold_gpu_ms":cold.1,"warmups":10,"measurements":50,"wall_median_ms":percentile(walls,0.5),"wall_p95_ms":percentile(walls,0.95),"gpu_median_ms":percentile(gpus,0.5),"gpu_p95_ms":percentile(gpus,0.95),"metal_vs_scalar_relative_l2":rel,"metal_vs_scalar_max_abs":maxError,"score_relative_l2_vs_fp32":relativeL2(candidateScores,baselineScores),"output_relative_l2_vs_fp32":relativeL2(scalar,baselineOutput),"guard_intact":true,"cache_state":"packed application buffers warm; no model or storage I/O"]
 let data=try JSONSerialization.data(withJSONObject:result,options:[.sortedKeys]); FileHandle.standardOutput.write(data); FileHandle.standardOutput.write(Data("\n".utf8))

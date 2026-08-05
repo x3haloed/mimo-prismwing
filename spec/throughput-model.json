@@ -203,6 +203,20 @@
             "maximum_metal_vs_scalar_relative_l2": 8.332791892022661e-7,
             "status": "accelerated_correctness_reference; serial_performance_branch_rejected; not_endpoint_tps_or_model_fidelity",
             "provenance": "PW-0021; runtime-compiled Metal; packed application buffers warm; deterministic MiMo-shaped fixture"
+        },
+        "m1_parallel32_turbo_attention": {
+            "lanes": 32,
+            "batch_size": 1,
+            "concurrency": 1,
+            "warmups": 10,
+            "measurements": 50,
+            "turbo3_gpu_median_ms_by_context": {"17": 0.6715003401041031, "128": 0.8999574929475784, "1024": 4.163540899753571, "8192": 31.805790960788727},
+            "turbo4_gpu_median_ms_by_context": {"17": 0.4832502454519272, "128": 0.8583739399909973, "1024": 3.925209864974022, "8192": 29.968250542879105},
+            "turbo3_paired_8192_mean_speedup_vs_serial": 29.241520155447056,
+            "turbo4_paired_8192_mean_speedup_vs_serial": 29.448629162695667,
+            "maximum_metal_vs_scalar_relative_l2": 3.4564307740890868e-6,
+            "status": "promoted_synthetic_accelerated_attention_component; not_endpoint_tps_or_model_fidelity",
+            "provenance": "PW-0022; two paired process orders at context 8192; runtime-compiled Metal; packed application buffers warm"
         }
   }
 }

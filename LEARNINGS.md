@@ -601,3 +601,15 @@ killed for performance and retained as the oracle for a parallel reduction.
 Synthetic quantization error also remains material across contexts, with
 Turbo3/Turbo4 output relative L2 generally around 20–30%; real activations are
 still the fidelity gate.
+
+PW-0022 replaces that serial schedule with an associative 32-lane online
+softmax reduction. At context 8,192, two paired process orders improve mean GPU
+median from 931.5 to 31.86 ms for Turbo3 and from 883.2 to 29.99 ms for Turbo4:
+29.24× and 29.45× gains. The result is stable across order and comfortably
+passes the predeclared 8× gate.
+
+The parallel merge remains numerically faithful to the scalar reference: worst
+relative L2 is `3.46e-6` through context 8,192, including a 17-token
+nonmultiple-of-32 case. This promotes the 32-lane synthetic component schedule,
+not endpoint throughput. Multi-head GQA scheduling, attention projections,
+RoPE, KV append, all layers, and real activations remain outside the slice.

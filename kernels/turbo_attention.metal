@@ -103,3 +103,64 @@ kernel void turbo_attention_256_128(
     rotate_inverse(accumulator, signs1, signs2);
     for (uint column = 0; column < 128; ++column) output_with_guards[column + 1] = accumulator[column];
 }
+
+kernel void turbo_attention_256_128_parallel32(
+        device const uchar * keys [[buffer(0)]],
+        device const uchar * values [[buffer(1)]],
+        device const float * query [[buffer(2)]],
+        device float * output_with_guards [[buffer(3)]],
+        constant TurboAttentionShape & shape [[buffer(4)]],
+        device const float * signs1 [[buffer(5)]],
+        device const float * signs2 [[buffer(6)]],
+        uint lane [[thread_index_in_threadgroup]],
+        uint threads [[threads_per_threadgroup]]) {
+    if (threads != 32 || (shape.format != 3 && shape.format != 4)) return;
+
+    float rotated_query[256];
+    for (uint index = 0; index < 256; ++index) rotated_query[index] = query[index];
+    rotate_forward(rotated_query, signs1, signs2);
+    rotate_forward(rotated_query + 128, signs1, signs2);
+
+    float accumulator[128];
+    for (uint column = 0; column < 128; ++column) accumulator[column] = 0.0f;
+    float maximum = -INFINITY;
+    float denominator = 0.0f;
+    for (uint token = lane; token < shape.context; token += 32) {
+        device const uchar * key = keys + token * shape.key_stride;
+        device const uchar * value = values + token * shape.value_stride;
+        float score = 0.0f;
+        for (uint column = 0; column < 256; ++column) score += rotated_query[column] * dequant(key, shape.format, column);
+        score *= 0.07216878364870322f;
+        float next_maximum = max(maximum, score);
+        float previous_scale = isinf(maximum) ? 0.0f : exp(maximum - next_maximum);
+        float current_scale = exp(score - next_maximum);
+        denominator = denominator * previous_scale + current_scale;
+        for (uint column = 0; column < 128; ++column) accumulator[column] = accumulator[column] * previous_scale + current_scale * dequant(value, shape.format, column);
+        maximum = next_maximum;
+    }
+
+    threadgroup float partial_maximum[32];
+    threadgroup float partial_denominator[32];
+    threadgroup float partial_output[32 * 128];
+    partial_maximum[lane] = maximum;
+    partial_denominator[lane] = denominator;
+    for (uint column = 0; column < 128; ++column) partial_output[lane * 128 + column] = accumulator[column];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    if (lane == 0) {
+        float merged_maximum = -INFINITY;
+        for (uint item = 0; item < 32; ++item) if (partial_denominator[item] > 0.0f) merged_maximum = max(merged_maximum, partial_maximum[item]);
+        float merged_denominator = 0.0f;
+        float merged[128];
+        for (uint column = 0; column < 128; ++column) merged[column] = 0.0f;
+        for (uint item = 0; item < 32; ++item) {
+            if (partial_denominator[item] == 0.0f) continue;
+            float scale = exp(partial_maximum[item] - merged_maximum);
+            merged_denominator += partial_denominator[item] * scale;
+            for (uint column = 0; column < 128; ++column) merged[column] += partial_output[item * 128 + column] * scale;
+        }
+        for (uint column = 0; column < 128; ++column) merged[column] /= merged_denominator;
+        rotate_inverse(merged, signs1, signs2);
+        for (uint column = 0; column < 128; ++column) output_with_guards[column + 1] = merged[column];
+    }
+}
