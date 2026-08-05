@@ -96,7 +96,11 @@ def create_lock(repository: str, revision: str, checkpoint_dir: Path) -> dict[st
     }
 
 
-def verify_lock(lock_path: Path, checkpoint_dir: Path, require_complete: bool) -> None:
+def verify_lock(
+    lock_path: Path,
+    checkpoint_dir: Path,
+    require_complete: bool,
+) -> dict[str, Any]:
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
     if lock.get("schema_version") != SCHEMA_VERSION:
         raise ValueError("unknown checkpoint lock schema")
@@ -106,18 +110,41 @@ def verify_lock(lock_path: Path, checkpoint_dir: Path, require_complete: bool) -
     if sum(item.get("bytes", -1) for item in files) != lock.get("total_bytes"):
         raise ValueError("checkpoint lock byte total mismatch")
     missing = []
+    observations = []
     for item in files:
         path = checkpoint_dir / item["path"]
         if not path.is_file():
             missing.append(item["path"])
+            observations.append({"path": item["path"], "status": "missing"})
             continue
         if path.stat().st_size != item["bytes"]:
             raise ValueError(f"size mismatch: {item['path']}")
-        if sha256_file(path) != item["sha256"]:
+        actual_sha256 = sha256_file(path)
+        if actual_sha256 != item["sha256"]:
             raise ValueError(f"SHA-256 mismatch: {item['path']}")
+        observations.append(
+            {
+                "path": item["path"],
+                "status": "verified",
+                "bytes": item["bytes"],
+                "sha256": actual_sha256,
+            }
+        )
     if require_complete and missing:
         raise ValueError(f"checkpoint incomplete: {len(missing)} files missing")
     print(f"verified {len(files) - len(missing)}/{len(files)} files; missing={len(missing)}")
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "evidence_class": "local_checkpoint_lock_verification",
+        "lock_sha256": sha256_file(lock_path),
+        "repository": lock.get("repository"),
+        "revision": lock.get("revision"),
+        "require_complete": require_complete,
+        "complete": not missing,
+        "verified_files": len(files) - len(missing),
+        "missing_files": missing,
+        "files": observations,
+    }
 
 
 def parser() -> argparse.ArgumentParser:
@@ -132,6 +159,7 @@ def parser() -> argparse.ArgumentParser:
     verify.add_argument("--lock", required=True, type=Path)
     verify.add_argument("--checkpoint-dir", required=True, type=Path)
     verify.add_argument("--require-complete", action="store_true")
+    verify.add_argument("--manifest", type=Path)
     return root
 
 
@@ -143,7 +171,12 @@ def main() -> int:
             atomic_write_new(arguments.output, canonical_json(lock))
             print(arguments.output)
         else:
-            verify_lock(arguments.lock, arguments.checkpoint_dir, arguments.require_complete)
+            result = verify_lock(
+                arguments.lock, arguments.checkpoint_dir, arguments.require_complete
+            )
+            if arguments.manifest is not None:
+                atomic_write_new(arguments.manifest, canonical_json(result))
+                print(arguments.manifest)
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"error: {error}", file=sys.stderr)

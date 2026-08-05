@@ -24,9 +24,43 @@ class CheckpointLockTests(unittest.TestCase):
             }
             lock_path = root / "lock.json"
             lock_path.write_bytes(canonical_json(lock))
-            verify_lock(lock_path, root, require_complete=False)
+            result = verify_lock(lock_path, root, require_complete=False)
+            self.assertFalse(result["complete"])
+            self.assertEqual(result["verified_files"], 1)
+            self.assertEqual(result["missing_files"], ["two.bin"])
+            self.assertEqual(result["files"][0]["status"], "verified")
+            self.assertEqual(result["files"][1], {"path": "two.bin", "status": "missing"})
             with self.assertRaisesRegex(ValueError, "incomplete"):
                 verify_lock(lock_path, root, require_complete=True)
+
+    def test_complete_verification_manifest_is_hash_bound(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload = b"checkpoint"
+            (root / "one.bin").write_bytes(payload)
+            lock = {
+                "schema_version": 1,
+                "repository": "owner/model",
+                "revision": "a" * 40,
+                "file_count": 1,
+                "total_bytes": len(payload),
+                "files": [
+                    {
+                        "path": "one.bin",
+                        "bytes": len(payload),
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                    }
+                ],
+            }
+            lock_path = root / "lock.json"
+            encoded_lock = canonical_json(lock)
+            lock_path.write_bytes(encoded_lock)
+            result = verify_lock(lock_path, root, require_complete=True)
+            self.assertTrue(result["complete"])
+            self.assertEqual(result["repository"], "owner/model")
+            self.assertEqual(result["revision"], "a" * 40)
+            self.assertEqual(result["lock_sha256"], hashlib.sha256(encoded_lock).hexdigest())
+            self.assertEqual(result["files"][0]["sha256"], hashlib.sha256(payload).hexdigest())
 
     def test_sha256_file(self):
         with tempfile.TemporaryDirectory() as temporary:
