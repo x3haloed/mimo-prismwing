@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
@@ -247,6 +247,157 @@ pub fn read_header_length(path: &Path) -> Result<u64, String> {
     Ok(u64::from_le_bytes(prefix))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct TinyExpert {
+    pub gate: Vec<Vec<f64>>,
+    pub up: Vec<Vec<f64>>,
+    pub down: Vec<Vec<f64>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TinyExpected {
+    pub topk_indices: Vec<usize>,
+    pub topk_weights: Vec<f64>,
+    pub output: Vec<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TinyMoeFixture {
+    pub schema_version: u32,
+    pub semantic: String,
+    pub hidden_size: usize,
+    pub intermediate_size: usize,
+    pub groups: usize,
+    pub topk_group: usize,
+    pub top_k: usize,
+    pub normalize_topk: bool,
+    pub routed_scaling_factor: f64,
+    pub inputs: Vec<Vec<f64>>,
+    pub router_weight: Vec<Vec<f64>>,
+    pub correction_bias: Vec<f64>,
+    pub experts: Vec<TinyExpert>,
+    pub expected: Vec<TinyExpected>,
+}
+
+#[derive(Debug)]
+pub struct TinyMoeResult {
+    pub topk_indices: Vec<usize>,
+    pub topk_weights: Vec<f64>,
+    pub output: Vec<f64>,
+}
+
+fn dot(row: &[f64], vector: &[f64]) -> Result<f64, String> {
+    if row.len() != vector.len() {
+        return Err("linear dimension mismatch".to_owned());
+    }
+    Ok(row
+        .iter()
+        .zip(vector)
+        .map(|(left, right)| left * right)
+        .sum())
+}
+
+fn linear(matrix: &[Vec<f64>], vector: &[f64]) -> Result<Vec<f64>, String> {
+    matrix.iter().map(|row| dot(row, vector)).collect()
+}
+
+fn evaluate_expert(expert: &TinyExpert, input: &[f64]) -> Result<Vec<f64>, String> {
+    let gate = linear(&expert.gate, input)?;
+    let up = linear(&expert.up, input)?;
+    if gate.len() != up.len() {
+        return Err("SwiGLU gate/up dimension mismatch".to_owned());
+    }
+    let activated: Vec<f64> = gate
+        .iter()
+        .zip(up)
+        .map(|(gate_value, up_value)| gate_value / (1.0 + (-gate_value).exp()) * up_value)
+        .collect();
+    linear(&expert.down, &activated)
+}
+
+pub fn evaluate_tiny_moe(fixture: &TinyMoeFixture, input: &[f64]) -> Result<TinyMoeResult, String> {
+    if fixture.schema_version != 1 || fixture.semantic != "mimo_v2_noaux_tc_swiglu_moe" {
+        return Err("unknown tiny MoE fixture schema or semantic".to_owned());
+    }
+    if input.len() != fixture.hidden_size
+        || fixture.router_weight.len() != fixture.experts.len()
+        || fixture.correction_bias.len() != fixture.experts.len()
+        || fixture.groups == 0
+        || !fixture.experts.len().is_multiple_of(fixture.groups)
+        || fixture.topk_group == 0
+        || fixture.topk_group > fixture.groups
+    {
+        return Err("invalid tiny MoE dimensions".to_owned());
+    }
+    let scores: Vec<f64> = fixture
+        .router_weight
+        .iter()
+        .map(|row| dot(row, input).map(|logit| 1.0 / (1.0 + (-logit).exp())))
+        .collect::<Result<_, _>>()?;
+    let choice: Vec<f64> = scores
+        .iter()
+        .zip(&fixture.correction_bias)
+        .map(|(score, bias)| score + bias)
+        .collect();
+    let group_size = fixture.experts.len() / fixture.groups;
+    let mut group_scores = Vec::with_capacity(fixture.groups);
+    for group in 0..fixture.groups {
+        let mut values = choice[group * group_size..(group + 1) * group_size].to_vec();
+        values.sort_by(|left, right| right.total_cmp(left));
+        group_scores.push(values.iter().take(2).sum::<f64>());
+    }
+    let mut groups: Vec<usize> = (0..fixture.groups).collect();
+    groups.sort_by(|left, right| {
+        group_scores[*right]
+            .total_cmp(&group_scores[*left])
+            .then(left.cmp(right))
+    });
+    groups.truncate(fixture.topk_group);
+    let selected_groups: BTreeSet<usize> = groups.into_iter().collect();
+    let mut indices: Vec<usize> = (0..fixture.experts.len())
+        .filter(|index| selected_groups.contains(&(index / group_size)))
+        .collect();
+    indices.sort_by(|left, right| {
+        choice[*right]
+            .total_cmp(&choice[*left])
+            .then(left.cmp(right))
+    });
+    indices.truncate(fixture.top_k);
+    if indices.len() != fixture.top_k {
+        return Err("not enough experts after group selection".to_owned());
+    }
+    let denominator = if fixture.normalize_topk {
+        scores
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| indices.contains(index))
+            .map(|(_, score)| score)
+            .sum::<f64>()
+            + 1e-20
+    } else {
+        1.0
+    };
+    let weights: Vec<f64> = indices
+        .iter()
+        .map(|index| scores[*index] / denominator * fixture.routed_scaling_factor)
+        .collect();
+    let mut output = vec![0.0; fixture.hidden_size];
+    for (index, weight) in indices.iter().zip(&weights) {
+        let expert_output = evaluate_expert(&fixture.experts[*index], input)?;
+        if expert_output.len() != fixture.hidden_size {
+            return Err("expert output dimension mismatch".to_owned());
+        }
+        for (destination, value) in output.iter_mut().zip(expert_output) {
+            *destination += weight * value;
+        }
+    }
+    Ok(TinyMoeResult {
+        topk_indices: indices,
+        topk_weights: weights,
+        output,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,5 +417,24 @@ mod tests {
             classify_tensor("audio_encoder.layers.0.weight"),
             "audio_path"
         );
+    }
+
+    #[test]
+    fn source_derived_tiny_moe_fixture_matches() {
+        let fixture: TinyMoeFixture = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/moe-noaux-tc-swiglu.json"
+        ))
+        .expect("fixture parses");
+        assert_eq!(fixture.inputs.len(), fixture.expected.len());
+        for (input, expected) in fixture.inputs.iter().zip(&fixture.expected) {
+            let result = evaluate_tiny_moe(&fixture, input).expect("evaluation");
+            assert_eq!(result.topk_indices, expected.topk_indices);
+            for (actual, wanted) in result.topk_weights.iter().zip(&expected.topk_weights) {
+                assert!((actual - wanted).abs() < 1e-14);
+            }
+            for (actual, wanted) in result.output.iter().zip(&expected.output) {
+                assert!((actual - wanted).abs() < 1e-14);
+            }
+        }
     }
 }

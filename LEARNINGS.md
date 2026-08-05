@@ -310,3 +310,15 @@ Parasail is therefore promoted as the initial reference provider. This proves
 reference-path viability, not a frozen final epoch or future availability; the
 endpoint remains an external single-provider dependency and requires drift
 canaries.
+
+## 10. First executable MiMo semantic
+
+PW-0003 confirms from the pinned Xiaomi source that `noaux_tc` routing uses
+sigmoid scores plus correction bias for group/expert selection, but gathers and
+normalizes the original uncorrected sigmoid scores for mixture weights. The
+expert equation is `down(silu(gate(x)) * up(x))` and token output is the
+weighted sum of selected expert outputs.
+
+A reproducible two-token tiny fixture now defends that distinction in an
+independent Rust f64 scalar implementation. This is component evidence only;
+FP8 decoding and sampled-real tensor parity are not yet proven.
