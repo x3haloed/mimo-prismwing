@@ -1,10 +1,10 @@
 # PW-0037 — Fixture-scheduled source-FP8 heterogeneous MoE block
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: production
 - Date: 2026-08-04
 - Owner: Codex with project owner authorization
-- Commit and dirty state: based on `94bbc6b`; contract dirty
+- Commit and dirty state: contract committed as `4fcdf63`; implementation dirty
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0016 selected-range manifest
   SHA-256 `62b15f1c6aabbbacb9a5c730af30b8f78ded0516666024dd3dbfefbe74549f22`;
@@ -67,7 +67,30 @@ Raw evidence will be written under
 
 ## Isolated attribution
 
-Pending.
+The frozen source router selects experts `{3,8,63,98,141,152,182,185,208}`.
+Seven receive eight positions, expert 98 receives five, and expert 141 receives
+three. The fixed batch-eight shared-weight kernel therefore executes 72 slots
+for 64 real placements: 12.5% explicit padding overhead. The runtime validates
+and holds `226,809,856` logical source/input/output bytes and reports
+`228,186,112` resident buffer bytes.
+
+After five warmups, the first 30 whole-MoE command measurements have a 16.1445
+ms median, 15.9973 ms p10, and 16.2484 ms p90. The repeat has a 16.1581 ms
+median, 16.0336 ms p10, and 16.2485 ms p90. First-dispatch times are 30.56 and
+28.87 ms. Complete process wall is 1.76 and 1.46 seconds, including exact hash
+verification of all selected artifacts, mapping, buffer construction, 35
+dispatches, output `fsync`, hashing, and JSON.
+
+Mean resident-buffer median is 16.1513 ms. Reusing this one layer's observed
+`A=8`, `U=9/8` behavior over all 47 routed layers gives 10.539 routed-only
+accepted TPS. It excludes router recomputation, every dense/attention/logit
+path, storage misses, MTP draft work, and endpoint overhead and cannot be
+treated as representative route reuse.
+
+PW-0016's affine-INT4 block was faster at 9.83 ms and 17.31 routed-only TPS,
+but differed from source FP8 by 17.02%. PW-0037 establishes the faithful native
+cost rather than carrying that lower-fidelity number forward as a target-mode
+default.
 
 ## End-to-end result
 
@@ -75,8 +98,37 @@ Out of scope; no endpoint TPS claim is permitted.
 
 ## Correctness result
 
-Pending.
+The independent generator repeats byte-identically for input, complete Torch
+source-FP8 output, and route manifest. It verifies all 12 selected artifacts
+against PW-0016's pinned extraction hashes and emits a duplicate-free
+six-tensor authority map for every expert.
+
+The first runtime attempt failed closed because expert 63's up weight and scale
+are split across shard-selected artifacts; no measurement was emitted. The
+manifest/runtime were corrected to name and validate all six tensor authorities
+independently. This preserved failure is evidence that source layout is not
+inferred from projection grouping.
+
+All `8×4,096` final values match independent Torch at `1.70815e-6` relative L2
+and `7.27596e-11` maximum absolute error. The new route-weighted scatter fixture
+is byte-exact. Repeated complete outputs are byte-identical with SHA-256
+`fae802459b2c7ebccd5cf6d5e6b065ad2d00c12400e4a1f94894c5851fd47e8e`;
+create-new rejection passes. Rust has 15 passing tests, Python has 21, and
+clippy is clean with warnings denied.
+
+Raw evidence is under `/Volumes/Elements/mimo-prismwing/evidence/PW-0037`.
+Its `SHA256SUMS` manifest hashes to
+`aee7074c716b44ac00d51d1c213dd788ddf62ca08146da368baecfacf867df49`.
 
 ## Decision
 
-Pending.
+Promote fixture-scheduled heterogeneous source-FP8 expert execution and
+route-weighted reduction. The real selected expert set now causally determines
+gather, padded native execution, weighting, scatter, and the complete observed
+output under one Rust-owned runtime.
+
+Do not promote dynamic routed-layer or endpoint claims. Route IDs and weights
+are independently source-derived but frozen in the manifest; the runtime has
+not yet recomputed router logits/top-k. The next native authority is the exact
+layer-43 noaux-tc router feeding this scheduler, followed by base-layer hidden
+states when EP0 completes.

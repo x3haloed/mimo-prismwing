@@ -34,6 +34,29 @@ kernel void swiglu_f32(
     output[index] = (value / (1.0f + exp(-value))) * up[index];
 }
 
+struct ScatterShape {
+    uint count;
+    uint width;
+};
+
+kernel void route_weighted_scatter_add_f32(
+    device const float *expert_output [[buffer(0)]],
+    device const float *route_weights [[buffer(1)]],
+    device const uint *positions [[buffer(2)]],
+    device float *block_output [[buffer(3)]],
+    constant ScatterShape &shape [[buffer(4)]],
+    uint index [[thread_position_in_grid]]) {
+    const uint local_position = index / shape.width;
+    const uint column = index % shape.width;
+    if (local_position >= shape.count || column >= shape.width) {
+        return;
+    }
+    const uint destination = positions[local_position] * shape.width + column;
+    block_output[destination] +=
+        expert_output[local_position * shape.width + column] *
+        route_weights[local_position];
+}
+
 kernel void block_fp8_gemv(
     device const uchar *weights [[buffer(0)]],
     device const float *scales [[buffer(1)]],

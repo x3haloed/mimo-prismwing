@@ -402,6 +402,26 @@
             "idealized_perfect_reuse_routed_only_tps": 10.996602934919647,
             "status": "promoted_shared_weight_source_fp8_batch8_component; not_heterogeneous_layer_or_endpoint_tps",
             "provenance": "PW-0036; paired process orders; one 64-lane threadgroup per row; decoded FP8 weight shared across eight positions; exact layer43 expert32 complete expert"
+        },
+        "native_fixture_scheduled_source_fp8_heterogeneous_moe_block": {
+            "layer": 43,
+            "batch_size": 8,
+            "top_k": 8,
+            "unique_experts": 9,
+            "expert_union_factor_U": 1.125,
+            "real_expert_positions": 64,
+            "padded_expert_positions": 72,
+            "padding_overhead_fraction": 0.125,
+            "logical_source_and_io_bytes": 226809856,
+            "resident_buffer_bytes": 228186112,
+            "first_wall_median_ms": 16.1445,
+            "repeat_wall_median_ms": 16.158083,
+            "mean_wall_median_ms": 16.1512915,
+            "relative_l2_vs_torch_source_fp8": 0.000001708146237328145,
+            "maximum_absolute_error_vs_torch_source_fp8": 0.000000000072759576,
+            "routed_only_accepted_tps_diagnostic_A8": 10.53864738664687,
+            "status": "promoted_fixture_scheduled_heterogeneous_source_fp8_moe_execution; not_dynamic_router_or_endpoint_tps",
+            "provenance": "PW-0037; exact PW-0016 selected ranges and frozen source routes; Rust-owned Metal gather/shared-weight expert/scatter-add; 5 warmups and 30 whole-MoE measurements"
         }
     }
 }

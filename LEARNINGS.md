@@ -783,3 +783,20 @@ relative L2 from independent Torch source FP8. The idealized perfect-reuse
 routed-only diagnostic rises to 10.997 TPS, still before non-MoE work and under
 an unrealistically favorable `A=8`, `U=1`. This promotes the shared-weight
 batch component; uneven heterogeneous route batches are now the next gate.
+
+PW-0037 closes that gate for the frozen PW-0016 route fixture. One Rust-owned
+Metal command sequence gathers and executes nine exact source-FP8 experts,
+applies source route weights, and scatter-adds all 64 real placements. Seven
+experts have batch eight, one has five, and one has three; fixed batch-eight
+execution exposes 12.5% padding rather than hiding it.
+
+Two whole-MoE medians are 16.145 and 16.158 ms, giving a 10.539 routed-only
+accepted-TPS diagnostic at this fixture's `A=8`, `U=1.125`. Complete output is
+`1.71e-6` relative L2 from independent Torch source FP8. This replaces
+PW-0016's faster 9.83 ms affine-INT4 number as the target-faithful component
+cost; the older path's 17.02% error keeps it modified/conditional.
+
+The first native attempt also exposed a real artifact fact: an expert weight
+and its scale may live in different selected shard artifacts. Six independent
+tensor authorities per expert are now explicit and fail closed. Routing remains
+fixture-static; native noaux-tc selection is the next causal boundary.

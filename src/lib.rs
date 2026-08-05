@@ -236,6 +236,85 @@ struct MetalExpertConfig {
     minimum_per_position_speedup: f64,
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Debug, Deserialize)]
+struct MetalMoeManifest {
+    schema_version: u32,
+    semantic: String,
+    revision: String,
+    layer: u32,
+    batch_size: usize,
+    top_k: usize,
+    input_sha256: String,
+    reference_sha256: String,
+    selected_experts_by_position: Vec<Vec<u32>>,
+    route_weights_by_position: Vec<Vec<f32>>,
+    real_expert_positions: usize,
+    padded_expert_positions: usize,
+    experts: Vec<MetalMoeExpertManifest>,
+    artifact_sha256: BTreeMap<String, String>,
+    scheduling: String,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Deserialize)]
+struct MetalMoeExpertManifest {
+    expert: u32,
+    prefix: String,
+    positions: Vec<u32>,
+    slots: Vec<u32>,
+    route_weights: Vec<f32>,
+    tensor_files: BTreeMap<String, String>,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Serialize)]
+pub struct MetalFp8MoeReport {
+    pub schema_version: u32,
+    pub semantic: String,
+    pub manifest_sha256: String,
+    pub input_sha256: String,
+    pub reference_sha256: String,
+    pub output_sha256: String,
+    pub output_first8: Vec<f32>,
+    pub device: String,
+    pub kernel_file: String,
+    pub expert_kernel: &'static str,
+    pub scatter_kernel: &'static str,
+    pub layer: u32,
+    pub batch_size: usize,
+    pub top_k: usize,
+    pub unique_experts: usize,
+    pub expert_position_counts: BTreeMap<u32, usize>,
+    pub real_expert_positions: usize,
+    pub padded_expert_positions: usize,
+    pub padding_overhead_fraction: f64,
+    pub relative_l2: f64,
+    pub maximum_absolute_error: f32,
+    pub scatter_fixture_maximum_absolute_error: f32,
+    pub compile_ms: f64,
+    pub cold_wall_ms: f64,
+    pub warmups: usize,
+    pub measurements: usize,
+    pub wall_ms: Vec<f64>,
+    pub wall_p10_ms: f64,
+    pub wall_median_ms: f64,
+    pub wall_p90_ms: f64,
+    pub median_timing_gate_passed: bool,
+    pub routed_only_accepted_tps_diagnostic: f64,
+    pub logical_source_and_io_bytes: u64,
+    pub resident_buffer_bytes: u64,
+    pub batch_concurrency: u32,
+    pub accepted_tokens: u32,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: u32,
+    #[serde(rename = "U")]
+    pub expert_union_factor: f64,
+    pub cache_state: &'static str,
+    pub scheduling_limitation: String,
+    pub implementation: &'static str,
+}
+
 fn dtype_bytes(dtype: &str) -> Option<u64> {
     match dtype {
         "BOOL" | "U8" | "I8" | "F8_E4M3" | "F8_E4M3FN" | "F8_E5M2" => Some(1),
@@ -435,6 +514,14 @@ fn validate_mapped_fp8<'a>(
 ) -> Result<ValidatedMappedFp8<'a>, String> {
     let weight = mapped.tensor(weight_name)?;
     let scale = mapped.tensor(scale_name)?;
+    validate_fp8_views(weight, scale, input)
+}
+
+fn validate_fp8_views<'a>(
+    weight: MappedTensorView<'a>,
+    scale: MappedTensorView<'a>,
+    input: &[f32],
+) -> Result<ValidatedMappedFp8<'a>, String> {
     if weight.metadata.dtype != "F8_E4M3" || weight.metadata.shape.len() != 2 {
         return Err("FP8 GEMV weight must be F8_E4M3 rank two".to_owned());
     }
@@ -1551,6 +1638,673 @@ pub fn run_metal_fp8_expert_batch8_shared_weight(
             minimum_per_position_speedup: 2.5,
         },
     )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_fp8_moe_block(
+    manifest_path: &Path,
+    artifact_root: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8MoeReport, String> {
+    use metal::{
+        CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize, NSRange,
+    };
+    use std::path::Component;
+
+    const REVISION: &str = "63651580ca774f8504f676040460aed3e1244ac1";
+    const EXPERT_KERNEL: &str = "block_fp8_gemm8_shared_weight_lut_blocked";
+    const SWIGLU_KERNEL: &str = "swiglu_f32";
+    const SCATTER_KERNEL: &str = "route_weighted_scatter_add_f32";
+    const LANES: u64 = 64;
+    const BATCH: usize = 8;
+    const HIDDEN: usize = 4096;
+    const INTERMEDIATE: usize = 2048;
+    const WARMUPS: usize = 5;
+    const MEASUREMENTS: usize = 30;
+
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    let manifest_bytes =
+        fs::read(manifest_path).map_err(|error| format!("{}: {error}", manifest_path.display()))?;
+    let unique: UniqueJson = serde_json::from_slice(&manifest_bytes)
+        .map_err(|error| format!("{}: {error}", manifest_path.display()))?;
+    let manifest: MetalMoeManifest =
+        serde_json::from_value(unique.0).map_err(|error| format!("manifest: {error}"))?;
+    if manifest.schema_version != 1
+        || manifest.semantic != "mimo_layer43_fixture_scheduled_source_fp8_moe_block"
+        || manifest.revision != REVISION
+        || manifest.layer != 43
+        || manifest.batch_size != BATCH
+        || manifest.top_k != 8
+        || manifest.real_expert_positions != 64
+        || manifest.padded_expert_positions != 72
+        || manifest.experts.len() != 9
+        || manifest.scheduling != "fixture_static_source_routes"
+    {
+        return Err("unknown heterogeneous MoE manifest identity".to_owned());
+    }
+    if manifest.selected_experts_by_position.len() != BATCH
+        || manifest.route_weights_by_position.len() != BATCH
+        || manifest
+            .selected_experts_by_position
+            .iter()
+            .any(|row| row.len() != manifest.top_k)
+        || manifest
+            .route_weights_by_position
+            .iter()
+            .any(|row| row.len() != manifest.top_k || row.iter().any(|value| !value.is_finite()))
+    {
+        return Err("heterogeneous MoE route matrix mismatch".to_owned());
+    }
+    for weights in &manifest.route_weights_by_position {
+        let sum: f32 = weights.iter().sum();
+        if weights.iter().any(|value| *value < 0.0) || (sum - 1.0).abs() > 1.0e-5 {
+            return Err("heterogeneous MoE route weights are not normalized".to_owned());
+        }
+    }
+    let mut expert_ids = BTreeSet::new();
+    let mut placements = BTreeSet::new();
+    let mut counts = Vec::new();
+    let mut prior_expert = None;
+    for expert in &manifest.experts {
+        let count = expert.positions.len();
+        if prior_expert.is_some_and(|prior| expert.expert <= prior)
+            || !expert_ids.insert(expert.expert)
+            || !matches!(count, 3 | 5 | 8)
+            || expert.slots.len() != count
+            || expert.route_weights.len() != count
+            || expert
+                .route_weights
+                .iter()
+                .any(|weight| !weight.is_finite())
+            || expert.prefix != format!("model.layers.43.mlp.experts.{}", expert.expert)
+        {
+            return Err("heterogeneous MoE expert manifest mismatch".to_owned());
+        }
+        prior_expert = Some(expert.expert);
+        counts.push(count);
+        for index in 0..count {
+            let position = expert.positions[index] as usize;
+            let slot = expert.slots[index] as usize;
+            if position >= BATCH
+                || slot >= manifest.top_k
+                || !placements.insert((position, slot))
+                || manifest.selected_experts_by_position[position][slot] != expert.expert
+                || (manifest.route_weights_by_position[position][slot]
+                    - expert.route_weights[index])
+                    .abs()
+                    > f32::EPSILON
+            {
+                return Err("heterogeneous MoE placement mismatch".to_owned());
+            }
+        }
+    }
+    counts.sort_unstable();
+    if counts != [3, 5, 8, 8, 8, 8, 8, 8, 8] || placements.len() != 64 {
+        return Err("heterogeneous MoE count distribution mismatch".to_owned());
+    }
+
+    let resolve_artifact = |name: &str| -> Result<PathBuf, String> {
+        let relative = Path::new(name);
+        let mut components = relative.components();
+        if !matches!(components.next(), Some(Component::Normal(_)))
+            || components.next().is_some()
+            || relative.file_name().and_then(|value| value.to_str()) != Some(name)
+        {
+            return Err(format!("unsafe artifact name: {name}"));
+        }
+        Ok(artifact_root.join(relative))
+    };
+    let mut verified_artifacts = BTreeSet::new();
+    for (name, expected_hash) in &manifest.artifact_sha256 {
+        if expected_hash.len() != 64 || !expected_hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(format!("invalid artifact SHA-256: {name}"));
+        }
+        let path = resolve_artifact(name)?;
+        let mut file = File::open(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+        if sha256_reader(&mut file)? != *expected_hash {
+            return Err(format!("artifact SHA-256 mismatch: {name}"));
+        }
+        verified_artifacts.insert(name.clone());
+    }
+    let expected_tensor_file_keys = BTreeSet::from([
+        "gate_weight",
+        "gate_scale",
+        "up_weight",
+        "up_scale",
+        "down_weight",
+        "down_scale",
+    ]);
+    for expert in &manifest.experts {
+        if expert
+            .tensor_files
+            .keys()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>()
+            != expected_tensor_file_keys
+            || expert
+                .tensor_files
+                .values()
+                .any(|name| !verified_artifacts.contains(name))
+        {
+            return Err("expert references an unauthoritative artifact".to_owned());
+        }
+    }
+    let (input_bytes, input) = read_f32_file(input_path, Some(BATCH * HIDDEN))?;
+    let (reference_bytes, reference) = read_f32_file(reference_path, Some(BATCH * HIDDEN))?;
+    if sha256_hex(&input_bytes) != manifest.input_sha256
+        || sha256_hex(&reference_bytes) != manifest.reference_sha256
+    {
+        return Err("MoE input or reference hash mismatch".to_owned());
+    }
+
+    let kernel_source = fs::read_to_string(kernel_path)
+        .map_err(|error| format!("{}: {error}", kernel_path.display()))?;
+    for function in [EXPERT_KERNEL, SWIGLU_KERNEL, SCATTER_KERNEL] {
+        if !kernel_source.contains(&format!("kernel void {function}")) {
+            return Err(format!("kernel source lacks {function}"));
+        }
+    }
+    let device = Device::system_default().ok_or("no Metal device is available")?;
+    if device.max_threads_per_threadgroup().width < LANES {
+        return Err("Metal device cannot dispatch 64-lane threadgroups".to_owned());
+    }
+    let options = CompileOptions::new();
+    options.set_fast_math_enabled(false);
+    let compile_start = Instant::now();
+    let library = device
+        .new_library_with_source(&kernel_source, &options)
+        .map_err(|error| format!("Metal compilation failed: {error}"))?;
+    let expert_function = library
+        .get_function(EXPERT_KERNEL, None)
+        .map_err(|error| format!("expert kernel: {error}"))?;
+    let swiglu_function = library
+        .get_function(SWIGLU_KERNEL, None)
+        .map_err(|error| format!("SwiGLU kernel: {error}"))?;
+    let scatter_function = library
+        .get_function(SCATTER_KERNEL, None)
+        .map_err(|error| format!("scatter kernel: {error}"))?;
+    let expert_pipeline = device
+        .new_compute_pipeline_state_with_function(&expert_function)
+        .map_err(|error| format!("expert pipeline: {error}"))?;
+    let swiglu_pipeline = device
+        .new_compute_pipeline_state_with_function(&swiglu_function)
+        .map_err(|error| format!("SwiGLU pipeline: {error}"))?;
+    let scatter_pipeline = device
+        .new_compute_pipeline_state_with_function(&scatter_function)
+        .map_err(|error| format!("scatter pipeline: {error}"))?;
+    let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
+    let shared = MTLResourceOptions::StorageModeShared;
+    let queue = device.new_command_queue();
+
+    #[repr(C)]
+    struct ScatterShape {
+        count: u32,
+        width: u32,
+    }
+    let scatter_fixture_output = [
+        1.0_f32, 2.0, 3.0, 4.0, -1.0, -2.0, -3.0, -4.0, 0.5, 1.5, 2.5, 3.5,
+    ];
+    let scatter_fixture_weights = [0.25_f32, 0.5, 2.0];
+    let scatter_fixture_positions = [2_u32, 0, 1];
+    let scatter_fixture_shape = ScatterShape { count: 3, width: 4 };
+    let scatter_fixture_expected = [
+        -0.5_f32, -1.0, -1.5, -2.0, 1.0, 3.0, 5.0, 7.0, 0.25, 0.5, 0.75, 1.0,
+    ];
+    let fixture_source = device.new_buffer_with_data(
+        scatter_fixture_output.as_ptr().cast(),
+        std::mem::size_of_val(&scatter_fixture_output) as u64,
+        shared,
+    );
+    let fixture_weights = device.new_buffer_with_data(
+        scatter_fixture_weights.as_ptr().cast(),
+        std::mem::size_of_val(&scatter_fixture_weights) as u64,
+        shared,
+    );
+    let fixture_positions = device.new_buffer_with_data(
+        scatter_fixture_positions.as_ptr().cast(),
+        std::mem::size_of_val(&scatter_fixture_positions) as u64,
+        shared,
+    );
+    let fixture_destination = device.new_buffer((12 * 4) as u64, shared);
+    let fixture_shape = device.new_buffer_with_data(
+        (&scatter_fixture_shape as *const ScatterShape).cast(),
+        std::mem::size_of::<ScatterShape>() as u64,
+        shared,
+    );
+    let fixture_command = queue.new_command_buffer();
+    let fixture_blit = fixture_command.new_blit_command_encoder();
+    fixture_blit.fill_buffer(&fixture_destination, NSRange::new(0, 12 * 4), 0);
+    fixture_blit.end_encoding();
+    let fixture_encoder = fixture_command.new_compute_command_encoder();
+    fixture_encoder.set_compute_pipeline_state(&scatter_pipeline);
+    fixture_encoder.set_buffer(0, Some(&fixture_source), 0);
+    fixture_encoder.set_buffer(1, Some(&fixture_weights), 0);
+    fixture_encoder.set_buffer(2, Some(&fixture_positions), 0);
+    fixture_encoder.set_buffer(3, Some(&fixture_destination), 0);
+    fixture_encoder.set_buffer(4, Some(&fixture_shape), 0);
+    fixture_encoder.dispatch_threads(
+        MTLSize {
+            width: 12,
+            height: 1,
+            depth: 1,
+        },
+        MTLSize {
+            width: 12,
+            height: 1,
+            depth: 1,
+        },
+    );
+    fixture_encoder.end_encoding();
+    fixture_command.commit();
+    fixture_command.wait_until_completed();
+    if fixture_command.status() != MTLCommandBufferStatus::Completed {
+        return Err("scatter fixture command failed".to_owned());
+    }
+    // SAFETY: the completed shared fixture destination is exactly 12 F32 values.
+    let fixture_actual =
+        unsafe { std::slice::from_raw_parts(fixture_destination.contents().cast::<f32>(), 12) };
+    let scatter_fixture_maximum_absolute_error = fixture_actual
+        .iter()
+        .zip(&scatter_fixture_expected)
+        .map(|(&actual, &expected)| (actual - expected).abs())
+        .fold(0.0_f32, f32::max);
+    if scatter_fixture_maximum_absolute_error > 1.0e-6 {
+        return Err(format!(
+            "scatter fixture failed: {scatter_fixture_maximum_absolute_error}"
+        ));
+    }
+
+    #[repr(C)]
+    struct GemvShape {
+        rows: u32,
+        columns: u32,
+        block_rows: u32,
+        block_columns: u32,
+    }
+    struct ExpertBuffers {
+        count: usize,
+        input: metal::Buffer,
+        gate_weight: metal::Buffer,
+        gate_scale: metal::Buffer,
+        up_weight: metal::Buffer,
+        up_scale: metal::Buffer,
+        down_weight: metal::Buffer,
+        down_scale: metal::Buffer,
+        route_weights: metal::Buffer,
+        positions: metal::Buffer,
+        scatter_shape: metal::Buffer,
+    }
+    let gate_shape = GemvShape {
+        rows: INTERMEDIATE as u32,
+        columns: HIDDEN as u32,
+        block_rows: 128,
+        block_columns: 128,
+    };
+    let down_shape = GemvShape {
+        rows: HIDDEN as u32,
+        columns: INTERMEDIATE as u32,
+        block_rows: 128,
+        block_columns: 128,
+    };
+    let gate_shape_buffer = device.new_buffer_with_data(
+        (&gate_shape as *const GemvShape).cast(),
+        std::mem::size_of::<GemvShape>() as u64,
+        shared,
+    );
+    let down_shape_buffer = device.new_buffer_with_data(
+        (&down_shape as *const GemvShape).cast(),
+        std::mem::size_of::<GemvShape>() as u64,
+        shared,
+    );
+    let hidden_count = (BATCH * INTERMEDIATE) as u32;
+    let hidden_count_buffer = device.new_buffer_with_data(
+        (&hidden_count as *const u32).cast(),
+        std::mem::size_of::<u32>() as u64,
+        shared,
+    );
+    let decode_lut = (0_u16..=255)
+        .map(|bits| decode_f8_e4m3fn(bits as u8))
+        .collect::<Vec<_>>();
+    let lut_buffer = device.new_buffer_with_data(
+        decode_lut.as_ptr().cast(),
+        std::mem::size_of_val(decode_lut.as_slice()) as u64,
+        shared,
+    );
+
+    let mut experts = Vec::with_capacity(manifest.experts.len());
+    let mut logical_source_bytes = 0_u64;
+    let mut expert_position_counts = BTreeMap::new();
+    for entry in &manifest.experts {
+        let open_tensor_file = |key: &str| -> Result<MappedSafetensors, String> {
+            let name = entry
+                .tensor_files
+                .get(key)
+                .ok_or_else(|| format!("expert {} lacks {key} authority", entry.expert))?;
+            MappedSafetensors::open(&resolve_artifact(name)?)
+        };
+        let gate_weight_mapping = open_tensor_file("gate_weight")?;
+        let gate_scale_mapping = open_tensor_file("gate_scale")?;
+        let up_weight_mapping = open_tensor_file("up_weight")?;
+        let up_scale_mapping = open_tensor_file("up_scale")?;
+        let down_weight_mapping = open_tensor_file("down_weight")?;
+        let down_scale_mapping = open_tensor_file("down_scale")?;
+        let gate_name = format!("{}.gate_proj.weight", entry.prefix);
+        let up_name = format!("{}.up_proj.weight", entry.prefix);
+        let down_name = format!("{}.down_proj.weight", entry.prefix);
+        let gate = validate_fp8_views(
+            gate_weight_mapping.tensor(&gate_name)?,
+            gate_scale_mapping.tensor(&format!("{gate_name}_scale_inv"))?,
+            &input[..HIDDEN],
+        )?;
+        let up = validate_fp8_views(
+            up_weight_mapping.tensor(&up_name)?,
+            up_scale_mapping.tensor(&format!("{up_name}_scale_inv"))?,
+            &input[..HIDDEN],
+        )?;
+        let down = validate_fp8_views(
+            down_weight_mapping.tensor(&down_name)?,
+            down_scale_mapping.tensor(&format!("{down_name}_scale_inv"))?,
+            &vec![0.0; INTERMEDIATE],
+        )?;
+        if gate.rows != INTERMEDIATE
+            || gate.columns != HIDDEN
+            || up.rows != INTERMEDIATE
+            || up.columns != HIDDEN
+            || down.rows != HIDDEN
+            || down.columns != INTERMEDIATE
+        {
+            return Err(format!("expert {} shape mismatch", entry.expert));
+        }
+        for bytes in [
+            gate.weight.metadata.data_bytes,
+            gate.scale.metadata.data_bytes,
+            up.weight.metadata.data_bytes,
+            up.scale.metadata.data_bytes,
+            down.weight.metadata.data_bytes,
+            down.scale.metadata.data_bytes,
+        ] {
+            logical_source_bytes = logical_source_bytes
+                .checked_add(bytes)
+                .ok_or("MoE logical source bytes overflow")?;
+        }
+        let make_buffer = |bytes: &[u8]| {
+            device.new_buffer_with_data(bytes.as_ptr().cast(), bytes.len() as u64, shared)
+        };
+        let mut gathered = vec![0.0_f32; BATCH * HIDDEN];
+        for (local, position) in entry.positions.iter().enumerate() {
+            let source = &input[*position as usize * HIDDEN..(*position as usize + 1) * HIDDEN];
+            gathered[local * HIDDEN..(local + 1) * HIDDEN].copy_from_slice(source);
+        }
+        let mut route_weights = vec![0.0_f32; BATCH];
+        route_weights[..entry.route_weights.len()].copy_from_slice(&entry.route_weights);
+        let mut positions = vec![0_u32; BATCH];
+        positions[..entry.positions.len()].copy_from_slice(&entry.positions);
+        let scatter_shape = ScatterShape {
+            count: entry.positions.len() as u32,
+            width: HIDDEN as u32,
+        };
+        experts.push(ExpertBuffers {
+            count: entry.positions.len(),
+            input: device.new_buffer_with_data(
+                gathered.as_ptr().cast(),
+                std::mem::size_of_val(gathered.as_slice()) as u64,
+                shared,
+            ),
+            gate_weight: make_buffer(gate.weight.bytes),
+            gate_scale: make_buffer(gate.scale.bytes),
+            up_weight: make_buffer(up.weight.bytes),
+            up_scale: make_buffer(up.scale.bytes),
+            down_weight: make_buffer(down.weight.bytes),
+            down_scale: make_buffer(down.scale.bytes),
+            route_weights: device.new_buffer_with_data(
+                route_weights.as_ptr().cast(),
+                std::mem::size_of_val(route_weights.as_slice()) as u64,
+                shared,
+            ),
+            positions: device.new_buffer_with_data(
+                positions.as_ptr().cast(),
+                std::mem::size_of_val(positions.as_slice()) as u64,
+                shared,
+            ),
+            scatter_shape: device.new_buffer_with_data(
+                (&scatter_shape as *const ScatterShape).cast(),
+                std::mem::size_of::<ScatterShape>() as u64,
+                shared,
+            ),
+        });
+        expert_position_counts.insert(entry.expert, entry.positions.len());
+    }
+
+    let gate_output = device.new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
+    let up_output = device.new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
+    let hidden_output = device.new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
+    let expert_output = device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
+    let block_output = device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
+    let dispatch = || -> Result<f64, String> {
+        let start = Instant::now();
+        let command = queue.new_command_buffer();
+        let blit = command.new_blit_command_encoder();
+        blit.fill_buffer(
+            &block_output,
+            NSRange::new(0, (BATCH * HIDDEN * std::mem::size_of::<f32>()) as u64),
+            0,
+        );
+        blit.end_encoding();
+        let encoder = command.new_compute_command_encoder();
+        for expert in &experts {
+            encoder.set_compute_pipeline_state(&expert_pipeline);
+            encoder.set_buffer(0, Some(&expert.gate_weight), 0);
+            encoder.set_buffer(1, Some(&expert.gate_scale), 0);
+            encoder.set_buffer(2, Some(&expert.input), 0);
+            encoder.set_buffer(3, Some(&gate_output), 0);
+            encoder.set_buffer(4, Some(&gate_shape_buffer), 0);
+            encoder.set_buffer(5, Some(&lut_buffer), 0);
+            encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
+            encoder.dispatch_thread_groups(
+                MTLSize {
+                    width: INTERMEDIATE as u64,
+                    height: 1,
+                    depth: 1,
+                },
+                MTLSize {
+                    width: LANES,
+                    height: 1,
+                    depth: 1,
+                },
+            );
+            encoder.set_buffer(0, Some(&expert.up_weight), 0);
+            encoder.set_buffer(1, Some(&expert.up_scale), 0);
+            encoder.set_buffer(3, Some(&up_output), 0);
+            encoder.dispatch_thread_groups(
+                MTLSize {
+                    width: INTERMEDIATE as u64,
+                    height: 1,
+                    depth: 1,
+                },
+                MTLSize {
+                    width: LANES,
+                    height: 1,
+                    depth: 1,
+                },
+            );
+            encoder.set_compute_pipeline_state(&swiglu_pipeline);
+            encoder.set_buffer(0, Some(&gate_output), 0);
+            encoder.set_buffer(1, Some(&up_output), 0);
+            encoder.set_buffer(2, Some(&hidden_output), 0);
+            encoder.set_buffer(3, Some(&hidden_count_buffer), 0);
+            encoder.dispatch_threads(
+                MTLSize {
+                    width: (BATCH * INTERMEDIATE) as u64,
+                    height: 1,
+                    depth: 1,
+                },
+                MTLSize {
+                    width: 256,
+                    height: 1,
+                    depth: 1,
+                },
+            );
+            encoder.set_compute_pipeline_state(&expert_pipeline);
+            encoder.set_buffer(0, Some(&expert.down_weight), 0);
+            encoder.set_buffer(1, Some(&expert.down_scale), 0);
+            encoder.set_buffer(2, Some(&hidden_output), 0);
+            encoder.set_buffer(3, Some(&expert_output), 0);
+            encoder.set_buffer(4, Some(&down_shape_buffer), 0);
+            encoder.set_buffer(5, Some(&lut_buffer), 0);
+            encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
+            encoder.dispatch_thread_groups(
+                MTLSize {
+                    width: HIDDEN as u64,
+                    height: 1,
+                    depth: 1,
+                },
+                MTLSize {
+                    width: LANES,
+                    height: 1,
+                    depth: 1,
+                },
+            );
+            encoder.set_compute_pipeline_state(&scatter_pipeline);
+            encoder.set_buffer(0, Some(&expert_output), 0);
+            encoder.set_buffer(1, Some(&expert.route_weights), 0);
+            encoder.set_buffer(2, Some(&expert.positions), 0);
+            encoder.set_buffer(3, Some(&block_output), 0);
+            encoder.set_buffer(4, Some(&expert.scatter_shape), 0);
+            encoder.dispatch_threads(
+                MTLSize {
+                    width: (expert.count * HIDDEN) as u64,
+                    height: 1,
+                    depth: 1,
+                },
+                MTLSize {
+                    width: 256,
+                    height: 1,
+                    depth: 1,
+                },
+            );
+        }
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        if command.status() != MTLCommandBufferStatus::Completed {
+            return Err(format!("Metal MoE command failed: {:?}", command.status()));
+        }
+        Ok(elapsed_ms)
+    };
+
+    let cold_wall_ms = dispatch()?;
+    for _ in 0..WARMUPS {
+        dispatch()?;
+    }
+    let mut wall_ms = Vec::with_capacity(MEASUREMENTS);
+    for _ in 0..MEASUREMENTS {
+        wall_ms.push(dispatch()?);
+    }
+    // SAFETY: the completed shared block output is exactly batch * hidden F32 values.
+    let output = unsafe {
+        std::slice::from_raw_parts(block_output.contents().cast::<f32>(), BATCH * HIDDEN).to_vec()
+    };
+    if output.iter().any(|value| !value.is_finite()) {
+        return Err("Metal MoE block produced non-finite output".to_owned());
+    }
+    let mut squared_error = 0.0_f64;
+    let mut squared_reference = 0.0_f64;
+    let mut maximum_absolute_error = 0.0_f32;
+    for (&candidate, &expected) in output.iter().zip(&reference) {
+        let difference = candidate - expected;
+        squared_error += f64::from(difference) * f64::from(difference);
+        squared_reference += f64::from(expected) * f64::from(expected);
+        maximum_absolute_error = maximum_absolute_error.max(difference.abs());
+    }
+    if squared_reference == 0.0 {
+        return Err("MoE reference has zero L2 norm".to_owned());
+    }
+    let relative_l2 = (squared_error / squared_reference).sqrt();
+    if relative_l2 > 4.0e-5 || maximum_absolute_error > 3.0e-8 {
+        return Err(format!(
+            "MoE parity failed: relative L2 {relative_l2}, max abs {maximum_absolute_error}"
+        ));
+    }
+    let output_bytes = output
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    write_create_new(output_path, &output_bytes)?;
+    let mut ordered = wall_ms.clone();
+    ordered.sort_by(f64::total_cmp);
+    let percentile = |fraction: f64| -> f64 {
+        ordered[((ordered.len() - 1) as f64 * fraction).round() as usize]
+    };
+    let wall_p10_ms = percentile(0.10);
+    let wall_median_ms = percentile(0.50);
+    let wall_p90_ms = percentile(0.90);
+    let median_timing_gate_passed = wall_median_ms <= 25.0;
+    let logical_source_and_io_bytes = logical_source_bytes
+        .checked_add(input_bytes.len() as u64)
+        .and_then(|value| value.checked_add(output_bytes.len() as u64))
+        .ok_or("MoE logical byte count overflow")?;
+    let resident_buffer_bytes = logical_source_bytes
+        .checked_add((manifest.experts.len() * BATCH * HIDDEN * 4) as u64)
+        .and_then(|value| value.checked_add((BATCH * INTERMEDIATE * 4 * 3) as u64))
+        .and_then(|value| value.checked_add((BATCH * HIDDEN * 4 * 2) as u64))
+        .ok_or("MoE resident byte count overflow")?;
+    let padding_overhead_fraction = (manifest.padded_expert_positions
+        - manifest.real_expert_positions) as f64
+        / manifest.real_expert_positions as f64;
+    Ok(MetalFp8MoeReport {
+        schema_version: 1,
+        semantic: manifest.semantic,
+        manifest_sha256: sha256_hex(&manifest_bytes),
+        input_sha256: sha256_hex(&input_bytes),
+        reference_sha256: sha256_hex(&reference_bytes),
+        output_sha256: sha256_hex(&output_bytes),
+        output_first8: output.iter().copied().take(8).collect(),
+        device: device.name().to_owned(),
+        kernel_file: kernel_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("kernel file name is not UTF-8")?
+            .to_owned(),
+        expert_kernel: EXPERT_KERNEL,
+        scatter_kernel: SCATTER_KERNEL,
+        layer: manifest.layer,
+        batch_size: manifest.batch_size,
+        top_k: manifest.top_k,
+        unique_experts: manifest.experts.len(),
+        expert_position_counts,
+        real_expert_positions: manifest.real_expert_positions,
+        padded_expert_positions: manifest.padded_expert_positions,
+        padding_overhead_fraction,
+        relative_l2,
+        maximum_absolute_error,
+        scatter_fixture_maximum_absolute_error,
+        compile_ms,
+        cold_wall_ms,
+        warmups: WARMUPS,
+        measurements: MEASUREMENTS,
+        wall_ms,
+        wall_p10_ms,
+        wall_median_ms,
+        wall_p90_ms,
+        median_timing_gate_passed,
+        routed_only_accepted_tps_diagnostic: BATCH as f64 * 1000.0 / (wall_median_ms * 47.0),
+        logical_source_and_io_bytes,
+        resident_buffer_bytes,
+        batch_concurrency: 1,
+        accepted_tokens: 0,
+        accepted_per_verification: 8,
+        expert_union_factor: manifest.experts.len() as f64 / manifest.top_k as f64,
+        cache_state: "selected source artifacts OS-cache state uncontrolled; all expert and routing buffers resident before timed series",
+        scheduling_limitation: manifest.scheduling,
+        implementation: "rust_owned_metal_fixture_scheduled_source_fp8_moe_block",
+    })
 }
 
 #[derive(Debug, Serialize)]

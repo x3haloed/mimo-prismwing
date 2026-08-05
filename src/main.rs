@@ -5,7 +5,7 @@ use prismwing::{
 #[cfg(target_os = "macos")]
 use prismwing::{
     run_metal_fp8_expert, run_metal_fp8_expert_batch8, run_metal_fp8_expert_batch8_shared_weight,
-    run_metal_mapped_fp8_gemv,
+    run_metal_fp8_moe_block, run_metal_mapped_fp8_gemv,
 };
 use std::path::PathBuf;
 
@@ -33,6 +33,10 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing metal-fp8-expert-batch8-shared-weight <gate-up.safetensors> <down.safetensors> <kernel.metal> <input.f32> <reference.f32> <output.f32>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing metal-fp8-moe-block <manifest.json> <artifact-dir> <kernel.metal> <input.f32> <reference.f32> <output.f32>"
     );
     std::process::exit(2);
 }
@@ -151,6 +155,22 @@ fn main() {
                     println!();
                     Ok(None)
                 })
+            }
+            #[cfg(target_os = "macos")]
+            Some("metal-fp8-moe-block") if arguments.len() == 8 => {
+                let manifest = PathBuf::from(&arguments[2]);
+                let artifacts = PathBuf::from(&arguments[3]);
+                let kernel = PathBuf::from(&arguments[4]);
+                let input = PathBuf::from(&arguments[5]);
+                let reference = PathBuf::from(&arguments[6]);
+                let output = PathBuf::from(&arguments[7]);
+                run_metal_fp8_moe_block(&manifest, &artifacts, &kernel, &input, &reference, &output)
+                    .and_then(|report| {
+                        serde_json::to_writer(std::io::stdout(), &report)
+                            .map_err(|error| error.to_string())?;
+                        println!();
+                        Ok(None)
+                    })
             }
             _ => usage(),
         };

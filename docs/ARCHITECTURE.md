@@ -75,6 +75,11 @@ The construction order follows the least-proven boundaries:
   threadgroup and applies each decoded source-FP8 weight to eight positions.
   A flattened position-row schedule is retained only as a correctness control;
   it is not an executable default because it rereads weights per position.
+- The fixture-scheduled heterogeneous MoE path owns explicit per-tensor source
+  authorities, gathers uneven expert batches, executes padded shared-weight
+  kernels, and performs route-weighted scatter-add in Metal. Frozen route IDs
+  and weights are still an input authority; dynamic router selection is not yet
+  part of the native causal path.
 - Frozen raw evidence owns measurements; Markdown reports interpret it but do
   not override it.
 
