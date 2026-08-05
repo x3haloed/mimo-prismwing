@@ -322,3 +322,14 @@ weighted sum of selected expert outputs.
 A reproducible two-token tiny fixture now defends that distinction in an
 independent Rust f64 scalar implementation. This is component evidence only;
 FP8 decoding and sampled-real tensor parity are not yet proven.
+
+PW-0004 subsequently crossed the first sampled-real representation boundary.
+The pinned MTP shard stores quantized projection weights as safetensors
+`F8_E4M3` with one f32 inverse scale per 128×128 block. An independent Rust
+E4M3FN bit decoder exactly reproduced 32 real library-decoded values, and block
+dequantization matched within `1e-9` in f32.
+
+An exhaustive fixture subsequently matched PyTorch's f32 output bits for all
+256 byte patterns, including subnormals, signed zero, maximum finite values,
+and signed NaNs. This supersedes the statement that FP8 format edge cases were
+unproven. Production matrix execution and accumulation parity remain unproven.

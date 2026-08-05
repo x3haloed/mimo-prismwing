@@ -286,6 +286,36 @@ pub struct TinyMoeResult {
     pub output: Vec<f64>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RealFp8Fixture {
+    pub schema_version: u32,
+    pub semantic: String,
+    pub raw_u8: Vec<Vec<u8>>,
+    pub decoded_fp8: Vec<Vec<f32>>,
+    pub scale_inv: f32,
+    pub dequantized: Vec<Vec<f32>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExhaustiveFp8Fixture {
+    pub schema_version: u32,
+    pub semantic: String,
+    pub expected_f32_bits: Vec<u32>,
+}
+
+pub fn decode_f8_e4m3fn(bits: u8) -> f32 {
+    let sign = if bits & 0x80 == 0 { 1.0 } else { -1.0 };
+    let exponent = i32::from((bits >> 3) & 0x0f);
+    let mantissa = i32::from(bits & 0x07);
+    if exponent == 0 {
+        sign * 2.0_f32.powi(-6) * (mantissa as f32 / 8.0)
+    } else if exponent == 15 && mantissa == 7 {
+        f32::from_bits(u32::from(bits & 0x80) << 24 | 0x7ff0_0000)
+    } else {
+        sign * 2.0_f32.powi(exponent - 7) * (1.0 + mantissa as f32 / 8.0)
+    }
+}
+
 fn dot(row: &[f64], vector: &[f64]) -> Result<f64, String> {
     if row.len() != vector.len() {
         return Err("linear dimension mismatch".to_owned());
@@ -435,6 +465,51 @@ mod tests {
             for (actual, wanted) in result.output.iter().zip(&expected.output) {
                 assert!((actual - wanted).abs() < 1e-14);
             }
+        }
+    }
+
+    #[test]
+    fn sampled_real_fp8_block_matches() {
+        let fixture: RealFp8Fixture = serde_json::from_str(include_str!(
+            "../evals/fixtures/real/mtp-gate-fp8-block.json"
+        ))
+        .expect("fixture parses");
+        assert_eq!(fixture.schema_version, 1);
+        assert_eq!(fixture.semantic, "safetensors_f8_e4m3fn_block_dequant");
+        assert_eq!(fixture.raw_u8.len(), fixture.decoded_fp8.len());
+        for ((raw_row, decoded_row), dequantized_row) in fixture
+            .raw_u8
+            .iter()
+            .zip(&fixture.decoded_fp8)
+            .zip(&fixture.dequantized)
+        {
+            assert_eq!(raw_row.len(), decoded_row.len());
+            assert_eq!(raw_row.len(), dequantized_row.len());
+            for ((bits, expected), expected_dequantized) in
+                raw_row.iter().zip(decoded_row).zip(dequantized_row)
+            {
+                let decoded = decode_f8_e4m3fn(*bits);
+                assert_eq!(decoded, *expected);
+                assert!((decoded * fixture.scale_inv - expected_dequantized).abs() < 1e-9);
+            }
+        }
+    }
+
+    #[test]
+    fn every_fp8_encoding_matches_oracle() {
+        let fixture: ExhaustiveFp8Fixture = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/f8-e4m3fn-all-bytes.json"
+        ))
+        .expect("fixture parses");
+        assert_eq!(fixture.schema_version, 1);
+        assert_eq!(fixture.semantic, "f8_e4m3fn_exhaustive_f32_bits");
+        assert_eq!(fixture.expected_f32_bits.len(), 256);
+        for bits in 0_u8..=u8::MAX {
+            assert_eq!(
+                decode_f8_e4m3fn(bits).to_bits(),
+                fixture.expected_f32_bits[usize::from(bits)],
+                "FP8 byte 0x{bits:02x}"
+            );
         }
     }
 }
