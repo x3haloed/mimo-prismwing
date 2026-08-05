@@ -303,6 +303,19 @@ pub struct ExhaustiveFp8Fixture {
     pub expected_f32_bits: Vec<u32>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RealFp8GemvFixture {
+    pub schema_version: u32,
+    pub semantic: String,
+    pub rows: usize,
+    pub columns: usize,
+    pub block_columns: usize,
+    pub raw_u8: Vec<Vec<u8>>,
+    pub scale_inv: Vec<f32>,
+    pub input: Vec<f32>,
+    pub expected_f32: Vec<f32>,
+}
+
 pub fn decode_f8_e4m3fn(bits: u8) -> f32 {
     let sign = if bits & 0x80 == 0 { 1.0 } else { -1.0 };
     let exponent = i32::from((bits >> 3) & 0x0f);
@@ -314,6 +327,32 @@ pub fn decode_f8_e4m3fn(bits: u8) -> f32 {
     } else {
         sign * 2.0_f32.powi(exponent - 7) * (1.0 + mantissa as f32 / 8.0)
     }
+}
+
+pub fn block_fp8_gemv(
+    rows: &[Vec<u8>],
+    scales: &[f32],
+    block_columns: usize,
+    input: &[f32],
+) -> Result<Vec<f32>, String> {
+    if block_columns == 0
+        || input.is_empty()
+        || !input.len().is_multiple_of(block_columns)
+        || scales.len() != input.len() / block_columns
+        || rows.iter().any(|row| row.len() != input.len())
+    {
+        return Err("invalid block-FP8 GEMV dimensions".to_owned());
+    }
+    rows.iter()
+        .map(|row| {
+            let mut sum = 0.0_f32;
+            for (column, (bits, activation)) in row.iter().zip(input).enumerate() {
+                let scale = scales[column / block_columns];
+                sum += decode_f8_e4m3fn(*bits) * scale * activation;
+            }
+            Ok(sum)
+        })
+        .collect()
 }
 
 fn dot(row: &[f64], vector: &[f64]) -> Result<f64, String> {
@@ -511,5 +550,41 @@ mod tests {
                 "FP8 byte 0x{bits:02x}"
             );
         }
+    }
+
+    #[test]
+    fn production_width_real_fp8_gemv_matches() {
+        let fixture: RealFp8GemvFixture = serde_json::from_str(include_str!(
+            "../evals/fixtures/real/mtp-gate-fp8-gemv.json"
+        ))
+        .expect("fixture parses");
+        assert_eq!(fixture.schema_version, 1);
+        assert_eq!(fixture.semantic, "mimo_block_fp8_gemv_slice");
+        assert_eq!(fixture.raw_u8.len(), fixture.rows);
+        assert_eq!(fixture.input.len(), fixture.columns);
+        let actual = block_fp8_gemv(
+            &fixture.raw_u8,
+            &fixture.scale_inv,
+            fixture.block_columns,
+            &fixture.input,
+        )
+        .expect("GEMV");
+        assert_eq!(actual.len(), fixture.expected_f32.len());
+        for (row, (value, expected)) in actual.iter().zip(&fixture.expected_f32).enumerate() {
+            assert!(
+                (value - expected).abs() < 2e-7,
+                "row {row}: actual {value}, expected {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn block_fp8_gemv_rejects_bad_layouts() {
+        let row = vec![vec![0_u8; 4]];
+        let input = vec![0.0_f32; 4];
+        assert!(block_fp8_gemv(&row, &[1.0], 0, &input).is_err());
+        assert!(block_fp8_gemv(&row, &[1.0], 3, &input).is_err());
+        assert!(block_fp8_gemv(&row, &[1.0, 1.0], 4, &input).is_err());
+        assert!(block_fp8_gemv(&[vec![0_u8; 3]], &[1.0], 4, &input).is_err());
     }
 }

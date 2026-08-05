@@ -345,4 +345,10 @@ dequantization matched within `1e-9` in f32.
 An exhaustive fixture subsequently matched PyTorch's f32 output bits for all
 256 byte patterns, including subnormals, signed zero, maximum finite values,
 and signed NaNs. This supersedes the statement that FP8 format edge cases were
-unproven. Production matrix execution and accumulation parity remain unproven.
+unproven.
+
+PW-0005 then exercised four real MTP projection rows at the production input
+width of 4,096, crossing all 32 column-scale blocks per row. The dependency-free
+Rust scalar GEMV matched safetensors/PyTorch f32 matmul within `2e-7`. This
+supersedes the absence of production-width accumulation evidence for a small
+row slice, but full matrices and accelerated kernels remain unproven.
