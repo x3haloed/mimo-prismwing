@@ -412,3 +412,24 @@ unique experts per layer across all eight positions. This supersedes the looser
 claim that DFlash acceptance alone was the next unknown; joint `A/U` is the
 decisive quantity, and source FP8 has already failed it for the published block
 size.
+
+PW-0011 replaces the hypothetical 4.5-bit bandwidth projection with a real
+directly executable candidate. Symmetric signed INT4 with one f32 scale per
+row×128 group occupies 12.75 MiB per routed expert and 4.68164 GiB per cold
+ordinary token. A real 16,384×4,096 M1 Metal projection repeated at 1.0710 and
+1.0705 ms between FP8 controls, a 1.53× projection-time gain and 31.009 GiB/s
+of physical INT4-plus-scale traffic.
+
+That gain does not rescue DFlash-8 as a Prismwing 50 argument by itself. The
+measured INT4 path needs `A/U >= 7.5488`; perfect eight-token acceptance permits
+only `U <= 1.05977`, or about 8.48 unique experts per layer across the entire
+block. Its routed-only ceiling is 52.989 TPS before dense work and all runtime
+overhead. A complete, faithful endpoint below 50 would still be a valuable
+project result and milestone; these idealized bounds are branch-selection
+evidence, not achieved throughput or a reason to abandon delivery.
+
+The embodiment is also explicitly L3. Four real production-width rows show
+9.84% relative L2 projection error versus source FP8, despite 0.9961 cosine
+similarity. This does not predict whole-model quality, but it prevents the
+kernel's exact agreement with its quantized oracle from being mistaken for
+target fidelity.

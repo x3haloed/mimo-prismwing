@@ -48,6 +48,20 @@
       "candidate_int4_maximum_average_unique_experts_per_layer_at_A_8_for_50_tps": 9.751584107537974,
       "status": "necessary_idealized_component_bounds_not_endpoint_tps",
       "provenance": "PW-0010; PW-0008 measured bandwidth; PW-0002 byte constants; pinned DFlash block_size 8"
+    },
+    "m1_direct_signed_int4_group128_gemv": {
+      "expert_bytes": 13369344,
+      "cold_routed_bytes_per_token": 5026873344,
+      "executable_gib_per_second_interleaved_median_mean": 31.009198786814277,
+      "projection_time_speedup_over_interleaved_fp8_control": 1.5338346191648329,
+      "routed_only_ordinary_token_tps_diagnostic": 6.623575210199796,
+      "A_over_U_required_for_50_tps_idealized": 7.548793274514925,
+      "dflash8_maximum_U_at_A_8_for_50_tps": 1.0597720336319674,
+      "dflash8_maximum_average_unique_experts_per_layer_at_A_8_for_50_tps": 8.478176269055739,
+      "dflash8_routed_only_tps_ceiling_at_U_1": 52.98860168159837,
+      "exactness": "L3_bounded_approximation",
+      "status": "measured_component_diagnostic_not_endpoint_tps_or_fidelity",
+      "provenance": "PW-0011; interleaved FP8 control and 32-lane signed-INT4 group128 candidate; warm buffers; batch 1"
     }
   }
 }

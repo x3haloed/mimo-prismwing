@@ -316,6 +316,19 @@ pub struct RealFp8GemvFixture {
     pub expected_f32: Vec<f32>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RealInt4GemvFixture {
+    pub schema_version: u32,
+    pub semantic: String,
+    pub rows: usize,
+    pub columns: usize,
+    pub block_columns: usize,
+    pub packed_u8: Vec<Vec<u8>>,
+    pub scale: Vec<Vec<f32>>,
+    pub input: Vec<f32>,
+    pub expected_f32: Vec<f32>,
+}
+
 pub fn decode_f8_e4m3fn(bits: u8) -> f32 {
     let sign = if bits & 0x80 == 0 { 1.0 } else { -1.0 };
     let exponent = i32::from((bits >> 3) & 0x0f);
@@ -349,6 +362,48 @@ pub fn block_fp8_gemv(
             for (column, (bits, activation)) in row.iter().zip(input).enumerate() {
                 let scale = scales[column / block_columns];
                 sum += decode_f8_e4m3fn(*bits) * scale * activation;
+            }
+            Ok(sum)
+        })
+        .collect()
+}
+
+fn decode_signed_nibble(nibble: u8) -> f32 {
+    let value = nibble & 0x0f;
+    if value < 8 {
+        f32::from(value)
+    } else {
+        f32::from(value) - 16.0
+    }
+}
+
+pub fn group_int4_gemv(
+    rows: &[Vec<u8>],
+    scales: &[Vec<f32>],
+    block_columns: usize,
+    input: &[f32],
+) -> Result<Vec<f32>, String> {
+    if block_columns == 0
+        || !block_columns.is_multiple_of(2)
+        || input.is_empty()
+        || !input.len().is_multiple_of(block_columns)
+        || rows.len() != scales.len()
+        || rows.iter().any(|row| row.len() * 2 != input.len())
+        || scales
+            .iter()
+            .any(|row| row.len() != input.len() / block_columns)
+    {
+        return Err("invalid group-INT4 GEMV dimensions".to_owned());
+    }
+    rows.iter()
+        .zip(scales)
+        .map(|(row, row_scales)| {
+            let mut sum = 0.0_f32;
+            for (packed_column, bits) in row.iter().enumerate() {
+                let column = packed_column * 2;
+                let scale = row_scales[column / block_columns];
+                sum += decode_signed_nibble(*bits) * scale * input[column];
+                sum += decode_signed_nibble(*bits >> 4) * scale * input[column + 1];
             }
             Ok(sum)
         })
@@ -586,5 +641,39 @@ mod tests {
         assert!(block_fp8_gemv(&row, &[1.0], 3, &input).is_err());
         assert!(block_fp8_gemv(&row, &[1.0, 1.0], 4, &input).is_err());
         assert!(block_fp8_gemv(&[vec![0_u8; 3]], &[1.0], 4, &input).is_err());
+    }
+
+    #[test]
+    fn production_width_real_int4_gemv_matches() {
+        let fixture: RealInt4GemvFixture = serde_json::from_str(include_str!(
+            "../evals/fixtures/real/mtp-gate-int4-gemv.json"
+        ))
+        .expect("fixture parses");
+        assert_eq!(fixture.schema_version, 1);
+        assert_eq!(fixture.semantic, "mimo_signed_int4_group128_gemv_slice");
+        assert_eq!(fixture.packed_u8.len(), fixture.rows);
+        assert_eq!(fixture.input.len(), fixture.columns);
+        let actual = group_int4_gemv(
+            &fixture.packed_u8,
+            &fixture.scale,
+            fixture.block_columns,
+            &fixture.input,
+        )
+        .expect("GEMV");
+        for (row, (value, expected)) in actual.iter().zip(&fixture.expected_f32).enumerate() {
+            assert!(
+                (value - expected).abs() < 2e-7,
+                "row {row}: actual {value}, expected {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn group_int4_gemv_rejects_bad_layouts() {
+        let input = vec![0.0_f32; 4];
+        assert!(group_int4_gemv(&[vec![0; 2]], &[vec![1.0]], 0, &input).is_err());
+        assert!(group_int4_gemv(&[vec![0; 2]], &[vec![1.0]], 3, &input).is_err());
+        assert!(group_int4_gemv(&[vec![0; 1]], &[vec![1.0]], 4, &input).is_err());
+        assert!(group_int4_gemv(&[vec![0; 2]], &[vec![]], 4, &input).is_err());
     }
 }
