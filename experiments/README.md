@@ -6,8 +6,9 @@ evidence only when it has a record here and a raw-evidence manifest or hash.
 
 The architecture-level candidate portfolio and its shared compression contract
 live in [`docs/EMBODIMENT_JUMPS.md`](../docs/EMBODIMENT_JUMPS.md). PW-0044
-through PW-0048 are reserved there as proposed, unexecuted experiments. The next
-unreserved experiment ID is PW-0049.
+through PW-0048 are reserved there as proposed, unexecuted experiments.
+PW-0049 is reserved for the prerequisite real base decoder-layer transition.
+The next unreserved experiment ID is PW-0050.
 
 Use sequential IDs such as `PW-0001-checkpoint-census.md`. Never renumber,
 delete, or overwrite a negative result. If stronger evidence reverses a

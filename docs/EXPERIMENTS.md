@@ -213,6 +213,19 @@ These are predeclared hypotheses, not evidence. Execute their cheap kill tests
 in dependency order, preserve target-faithful and modified branches separately,
 and give every combined mechanism a new experiment ID.
 
+## E10 — Base-layer causal transition
+
+[PW-0049](../experiments/PW-0049-real-base-decoder-layer.md) joins the promoted
+attention and dynamic source-FP8 MoE work across one real learned base-model
+decoder layer. It is the immediate checkpoint-unblocked correctness step and a
+prerequisite for the slow complete text endpoint and representative routed
+activation traces required by PW-0044 through PW-0046.
+
+The layer-local fixture must derive routes and selected expert work from its
+own learned attention output. PW-0039's frozen post-attention input, routes, and
+expert union remain component controls and cannot be substituted for this
+causal boundary.
+
 ## Black-swan budget
 
 No more than 10% of research time before Prismwing 10 goes to black swans:

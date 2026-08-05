@@ -116,4 +116,5 @@ before each mechanism independently passes its attribution gate.
 7. A combined branch receives a new experiment ID. Do not overwrite the
    component records or promote a microbenchmark as endpoint TPS.
 
-The next unreserved experiment ID after this portfolio is `PW-0049`.
+PW-0049 is reserved for the prerequisite real base-model decoder-layer causal
+transition. The next unreserved experiment ID is `PW-0050`.
