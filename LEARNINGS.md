@@ -814,3 +814,16 @@ must remain frozen runtime inputs is superseded for this fixture. The remaining
 gap is composition, not router semantics: the new decision authority must now
 causally feed PW-0037's gather/expert/scatter path in one timed command before a
 dynamic routed-layer claim is warranted.
+
+PW-0039 completes that composition. Every timed request dispatches the exact
+router, derives the heterogeneous schedule in Rust, rewrites gather and routing
+buffers from those decisions, and then executes the nine source-FP8 experts and
+weighted scatter. The output remains `1.71e-6` relative L2 from independent
+Torch and repeats byte-identically.
+
+Two integrated medians average 17.1149 ms, only 0.9636 ms (5.97%) above
+PW-0037's frozen-schedule control. The corresponding fixed-fixture routed-only
+diagnostic is 9.945 TPS at `A=8`, `U=1.125`. The earlier limitation that native
+router output did not drive expert execution is superseded. Representative
+decode routes, a complete base transformer layer, and endpoint TPS remain
+unmeasured; this result promotes the causal component, not those extrapolations.

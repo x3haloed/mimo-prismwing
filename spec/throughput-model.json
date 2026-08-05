@@ -437,8 +437,29 @@
             "maximum_route_weight_absolute_error": 0.000000014901161,
             "minimum_topk_boundary_margin": 0.00015354156,
             "kernel_fixture_maximum_absolute_error": 0.000000005995389,
-            "status": "promoted_native_fixture_router_authority; not_integrated_dynamic_routed_layer_or_endpoint_tps",
-            "provenance": "PW-0038; exact layer43 F32 router and PW-0037 input; Rust-owned Metal shared-weight batch8 projection plus native noaux-tc selection; 5 warmups and 30 measurements per process"
+            "status": "promoted_native_fixture_router_authority; integrated_into_dynamic_moe_by_PW0039; not_endpoint_tps",
+            "provenance": "PW-0038; exact layer43 F32 router and PW-0037 input; Rust-owned Metal shared-weight batch8 projection plus native noaux-tc selection; integrated with expert execution by PW-0039"
+        },
+        "native_dynamic_source_fp8_heterogeneous_moe_block": {
+            "layer": 43,
+            "batch_size": 8,
+            "top_k": 8,
+            "unique_experts": 9,
+            "expert_union_factor_U": 1.125,
+            "logical_source_and_io_bytes": 231005184,
+            "resident_buffer_bytes": 232520704,
+            "warmups": 5,
+            "measurements_per_process": 30,
+            "wall_median_ms_repeats": [17.075666, 17.154208],
+            "wall_median_ms_repeat_mean": 17.114937,
+            "dynamic_over_pw0037_control_ms": 0.9636455,
+            "dynamic_over_pw0037_control_fraction": 0.0596637,
+            "relative_l2_vs_torch_source_fp8": 0.0000017092220248352147,
+            "maximum_absolute_error_vs_torch_source_fp8": 0.00000000007366907,
+            "maximum_route_weight_absolute_error": 0.000000014901161,
+            "routed_only_accepted_tps_diagnostic_A8": 9.945275635980831,
+            "status": "promoted_dynamic_target_faithful_layer43_moe_component; not_complete_layer_or_endpoint_tps",
+            "provenance": "PW-0039; exact native router causally drives per-request gather/shared-weight source-FP8 experts/scatter; fixed PW-0037 real input and nine-expert union; 5 warmups and 30 integrated measurements"
         }
     }
 }

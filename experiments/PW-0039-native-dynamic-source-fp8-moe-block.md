@@ -1,10 +1,10 @@
 # PW-0039 — Native dynamically routed source-FP8 MoE block
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: production
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: based on `bda836b`; contract dirty
+- Commit and dirty state: contract committed as `d8b5ade`; implementation dirty
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; exact layer-43 router SHA-256
   `12c1579d28b78dd69ec9342eb9d1f378efc5aa3c2f2a28b5ec73578e6a8bbcdd`;
@@ -69,7 +69,24 @@ Raw evidence will be written under
 
 ## Isolated attribution
 
-Pending.
+Each measured request starts before router dispatch, waits for the `256×4,096`
+F32 projection, computes sigmoid/correction-biased top eight and normalized
+weights in Rust, derives the nine expert schedules, rewrites gather, weight,
+position, and scatter-shape buffers, then dispatches all source-FP8 expert and
+scatter work. No frozen route value supplies an execution buffer.
+
+Two final-code 30-measurement medians after five warmups are `17.075666` and
+`17.154208` ms, with p10/p90 pairs `16.777292/17.298958` and
+`16.798542/17.440125` ms. Their mean is `17.114937` ms, `0.963646` ms (5.97%)
+above PW-0037's frozen-schedule 16.151292 ms control. The final cold request is
+27.786792 ms and complete process wall is 1.49 seconds. The complete resident
+path reports `231,005,184` logical source/I/O bytes and `232,520,704` resident
+buffer bytes.
+
+At this exact fixture's `A=8`, `U=1.125`, repeating the mean component cost
+over 47 routed layers gives 9.9453 routed-only accepted TPS. This excludes all
+non-MoE work, storage misses, draft-model cost, acceptance failures, and
+endpoint overhead, so it is not endpoint TPS.
 
 ## End-to-end result
 
@@ -77,8 +94,32 @@ Out of scope; no endpoint TPS claim is permitted.
 
 ## Correctness result
 
-Pending.
+Every iteration recomputes the exact nine-expert union and `{8×7,5,3}` count
+distribution. Selected sets equal the independent Torch oracle, route-weight
+maximum absolute error is `1.4901161e-8`, and the minimum top-eight boundary
+margin is `1.5354156e-4`.
+
+Complete output has relative L2 `1.709222e-6` and maximum absolute error
+`7.366907e-11` versus independent Torch source FP8. Separate final-code
+processes are byte-identical with SHA-256
+`ca5b3b38fb0c3fe27b0cd5b8b150a428f5b827ae04e6bc04eb6c02c264ef167e`.
+Create-new rejection exits 1. The refactored frozen-schedule control still
+produces PW-0037's exact `fae802...` output at a 16.132875 ms median. Rust has
+15 passing tests, Python has 21, and clippy is clean with warnings denied.
+
+Raw evidence is under `/Volumes/Elements/mimo-prismwing/evidence/PW-0039`.
+Its `SHA256SUMS` manifest hashes to
+`e6209140991c7e6362f628c62e52e3d60a6545362442e59bee1e5cc92f9a37f1`.
 
 ## Decision
 
-Pending.
+Promote the dynamically routed target-faithful layer-43 MoE block. For this
+real fixture, native router decisions now causally determine expert gather,
+execution, weighting, scatter, and observable output in one measured request.
+The frozen route manifest is retained only as an independent correctness
+oracle and tensor-authority inventory.
+
+Do not generalize this fixed-input union to real decode distributions or claim
+a complete transformer layer. The next causal boundary is a base decoder-layer
+input and its learned attention/norm tensors; exact EP0 source material remains
+the preferred authority when its durable download completes.

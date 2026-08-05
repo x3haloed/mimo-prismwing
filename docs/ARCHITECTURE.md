@@ -82,9 +82,12 @@ The construction order follows the least-proven boundaries:
 - The promoted native layer-43 router validates the exact F32 projection and
   correction bias, shares projection weights across eight positions in Metal,
   and owns noaux-tc selection and normalization in Rust. It emits a canonical,
-  hash-bound route artifact matching the frozen oracle. Router output is not
-  yet wired into heterogeneous expert execution inside one timed request, so
-  the complete dynamic routed-layer causal path remains unpromoted.
+  hash-bound route artifact matching the frozen oracle.
+- The promoted dynamic MoE path dispatches that router inside every measured
+  request, derives gather/weight/position/scatter buffers from its decisions,
+  and executes the heterogeneous source-FP8 expert union. Frozen routes are
+  parity oracle only. This closes the layer-43 routed-MLP causal path for one
+  exact input fixture, not a complete decoder layer or representative decode.
 - Frozen raw evidence owns measurements; Markdown reports interpret it but do
   not override it.
 

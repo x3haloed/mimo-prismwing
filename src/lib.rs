@@ -291,6 +291,12 @@ pub struct MetalFp8MoeReport {
     pub padding_overhead_fraction: f64,
     pub relative_l2: f64,
     pub maximum_absolute_error: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub router_file_sha256: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maximum_route_weight_absolute_error: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimum_topk_boundary_margin: Option<f32>,
     pub scatter_fixture_maximum_absolute_error: f32,
     pub compile_ms: f64,
     pub cold_wall_ms: f64,
@@ -325,6 +331,81 @@ struct NativeRouteArtifact {
     top_k: usize,
     selected_experts_by_position: Vec<Vec<u32>>,
     route_weights_by_position: Vec<Vec<f32>>,
+}
+
+#[cfg(target_os = "macos")]
+struct NativeRoutes {
+    selected: Vec<Vec<u32>>,
+    weights: Vec<Vec<f32>>,
+    minimum_boundary_margin: f32,
+}
+
+#[cfg(target_os = "macos")]
+fn select_noaux_tc_routes(
+    logits: &[f32],
+    correction: &[f32],
+    batch: usize,
+    rows: usize,
+    top_k: usize,
+) -> Result<NativeRoutes, String> {
+    if logits.len() != batch * rows
+        || correction.len() != rows
+        || top_k == 0
+        || top_k >= rows
+        || logits.iter().any(|value| !value.is_finite())
+        || correction.iter().any(|value| !value.is_finite())
+    {
+        return Err("invalid noaux-tc router inputs".to_owned());
+    }
+    let mut selected = Vec::with_capacity(batch);
+    let mut route_weights = Vec::with_capacity(batch);
+    let mut minimum_boundary_margin = f32::INFINITY;
+    for position in 0..batch {
+        let scores = logits[position * rows..(position + 1) * rows]
+            .iter()
+            .map(|logit| 1.0_f32 / (1.0 + (-logit).exp()))
+            .collect::<Vec<_>>();
+        let corrected = scores
+            .iter()
+            .zip(correction)
+            .map(|(score, bias)| score + bias)
+            .collect::<Vec<_>>();
+        let mut indices = (0..rows).collect::<Vec<_>>();
+        indices.sort_by(|left, right| {
+            corrected[*right]
+                .total_cmp(&corrected[*left])
+                .then(left.cmp(right))
+        });
+        let margin = corrected[indices[top_k - 1]] - corrected[indices[top_k]];
+        if !margin.is_finite() || margin <= 0.0 {
+            return Err(format!(
+                "noaux-tc top-k boundary is tied at position {position}"
+            ));
+        }
+        minimum_boundary_margin = minimum_boundary_margin.min(margin);
+        let chosen = &indices[..top_k];
+        let denominator = chosen.iter().map(|index| scores[*index]).sum::<f32>() + 1.0e-20;
+        let weights = chosen
+            .iter()
+            .map(|index| scores[*index] / denominator)
+            .collect::<Vec<_>>();
+        if weights
+            .iter()
+            .any(|value| !value.is_finite() || *value < 0.0)
+            || (weights.iter().sum::<f32>() - 1.0).abs() > 1.0e-6
+        {
+            return Err(format!(
+                "noaux-tc route weights invalid at position {position}"
+            ));
+        }
+        selected.push(chosen.iter().map(|index| *index as u32).collect());
+        route_weights.push(weights);
+    }
+    Ok(NativeRoutes {
+        selected,
+        weights: route_weights,
+        minimum_boundary_margin,
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -1700,6 +1781,48 @@ pub fn run_metal_fp8_moe_block(
     reference_path: &Path,
     output_path: &Path,
 ) -> Result<MetalFp8MoeReport, String> {
+    run_metal_fp8_moe_block_impl(
+        manifest_path,
+        artifact_root,
+        kernel_path,
+        input_path,
+        reference_path,
+        output_path,
+        None,
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_dynamic_fp8_moe_block(
+    manifest_path: &Path,
+    artifact_root: &Path,
+    router_path: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8MoeReport, String> {
+    run_metal_fp8_moe_block_impl(
+        manifest_path,
+        artifact_root,
+        kernel_path,
+        input_path,
+        reference_path,
+        output_path,
+        Some(router_path),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn run_metal_fp8_moe_block_impl(
+    manifest_path: &Path,
+    artifact_root: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+    dynamic_router_path: Option<&Path>,
+) -> Result<MetalFp8MoeReport, String> {
     use metal::{
         CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize, NSRange,
     };
@@ -1709,6 +1832,10 @@ pub fn run_metal_fp8_moe_block(
     const EXPERT_KERNEL: &str = "block_fp8_gemm8_shared_weight_lut_blocked";
     const SWIGLU_KERNEL: &str = "swiglu_f32";
     const SCATTER_KERNEL: &str = "route_weighted_scatter_add_f32";
+    const ROUTER_KERNEL: &str = "f32_gemm8_shared_weight";
+    const ROUTER_SHA256: &str = "12c1579d28b78dd69ec9342eb9d1f378efc5aa3c2f2a28b5ec73578e6a8bbcdd";
+    const ROUTER_WEIGHT: &str = "model.layers.43.mlp.gate.weight";
+    const ROUTER_BIAS: &str = "model.layers.43.mlp.gate.e_score_correction_bias";
     const LANES: u64 = 64;
     const BATCH: usize = 8;
     const HIDDEN: usize = 4096;
@@ -1854,9 +1981,44 @@ pub fn run_metal_fp8_moe_block(
         return Err("MoE input or reference hash mismatch".to_owned());
     }
 
+    let dynamic_router_source = if let Some(router_path) = dynamic_router_path {
+        let mut router_file = File::open(router_path)
+            .map_err(|error| format!("{}: {error}", router_path.display()))?;
+        if sha256_reader(&mut router_file)? != ROUTER_SHA256 {
+            return Err("layer-43 router artifact SHA-256 mismatch".to_owned());
+        }
+        let mapped = MappedSafetensors::open(router_path)?;
+        let weight = mapped.tensor(ROUTER_WEIGHT)?;
+        let bias = mapped.tensor(ROUTER_BIAS)?;
+        if weight.metadata.dtype != "F32"
+            || weight.metadata.shape != [256, HIDDEN as u64]
+            || weight.bytes.len() != 256 * HIDDEN * 4
+            || bias.metadata.dtype != "F32"
+            || bias.metadata.shape != [256]
+            || bias.bytes.len() != 256 * 4
+        {
+            return Err("layer-43 router tensor layout mismatch".to_owned());
+        }
+        let correction = bias
+            .bytes
+            .chunks_exact(4)
+            .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four-byte bias")))
+            .collect::<Vec<_>>();
+        if correction.iter().any(|value| !value.is_finite()) {
+            return Err("router correction bias is non-finite".to_owned());
+        }
+        Some((weight.bytes.to_vec(), correction))
+    } else {
+        None
+    };
+
     let kernel_source = fs::read_to_string(kernel_path)
         .map_err(|error| format!("{}: {error}", kernel_path.display()))?;
-    for function in [EXPERT_KERNEL, SWIGLU_KERNEL, SCATTER_KERNEL] {
+    let mut required_kernels = vec![EXPERT_KERNEL, SWIGLU_KERNEL, SCATTER_KERNEL];
+    if dynamic_router_source.is_some() {
+        required_kernels.push(ROUTER_KERNEL);
+    }
+    for function in required_kernels {
         if !kernel_source.contains(&format!("kernel void {function}")) {
             return Err(format!("kernel source lacks {function}"));
         }
@@ -1889,6 +2051,18 @@ pub fn run_metal_fp8_moe_block(
     let scatter_pipeline = device
         .new_compute_pipeline_state_with_function(&scatter_function)
         .map_err(|error| format!("scatter pipeline: {error}"))?;
+    let router_pipeline = if dynamic_router_source.is_some() {
+        let function = library
+            .get_function(ROUTER_KERNEL, None)
+            .map_err(|error| format!("router kernel: {error}"))?;
+        Some(
+            device
+                .new_compute_pipeline_state_with_function(&function)
+                .map_err(|error| format!("router pipeline: {error}"))?,
+        )
+    } else {
+        None
+    };
     let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
     let shared = MTLResourceOptions::StorageModeShared;
     let queue = device.new_command_queue();
@@ -1979,6 +2153,7 @@ pub fn run_metal_fp8_moe_block(
         block_columns: u32,
     }
     struct ExpertBuffers {
+        expert: u32,
         count: usize,
         input: metal::Buffer,
         gate_weight: metal::Buffer,
@@ -2027,6 +2202,38 @@ pub fn run_metal_fp8_moe_block(
         std::mem::size_of_val(decode_lut.as_slice()) as u64,
         shared,
     );
+    struct DynamicRouterBuffers {
+        weight: metal::Buffer,
+        input: metal::Buffer,
+        output: metal::Buffer,
+        shape: metal::Buffer,
+    }
+    let dynamic_router = dynamic_router_source.as_ref().map(|(weight, _)| {
+        let shape = GemvShape {
+            rows: 256,
+            columns: HIDDEN as u32,
+            block_rows: 1,
+            block_columns: 1,
+        };
+        DynamicRouterBuffers {
+            weight: device.new_buffer_with_data(
+                weight.as_ptr().cast(),
+                weight.len() as u64,
+                shared,
+            ),
+            input: device.new_buffer_with_data(
+                input.as_ptr().cast(),
+                std::mem::size_of_val(input.as_slice()) as u64,
+                shared,
+            ),
+            output: device.new_buffer((BATCH * 256 * 4) as u64, shared),
+            shape: device.new_buffer_with_data(
+                (&shape as *const GemvShape).cast(),
+                std::mem::size_of::<GemvShape>() as u64,
+                shared,
+            ),
+        }
+    });
 
     let mut experts = Vec::with_capacity(manifest.experts.len());
     let mut logical_source_bytes = 0_u64;
@@ -2101,6 +2308,7 @@ pub fn run_metal_fp8_moe_block(
             width: HIDDEN as u32,
         };
         experts.push(ExpertBuffers {
+            expert: entry.expert,
             count: entry.positions.len(),
             input: device.new_buffer_with_data(
                 gathered.as_ptr().cast(),
@@ -2137,8 +2345,139 @@ pub fn run_metal_fp8_moe_block(
     let hidden_output = device.new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
     let expert_output = device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
     let block_output = device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
+    let dynamic_maximum_route_weight_error = std::cell::Cell::new(0.0_f32);
+    let dynamic_minimum_boundary_margin = std::cell::Cell::new(f32::INFINITY);
     let dispatch = || -> Result<f64, String> {
         let start = Instant::now();
+        let dynamic_counts = if let (Some(router), Some(pipeline), Some((_, correction))) = (
+            dynamic_router.as_ref(),
+            router_pipeline.as_ref(),
+            dynamic_router_source.as_ref(),
+        ) {
+            let router_command = queue.new_command_buffer();
+            let router_encoder = router_command.new_compute_command_encoder();
+            router_encoder.set_compute_pipeline_state(pipeline);
+            router_encoder.set_buffer(0, Some(&router.weight), 0);
+            router_encoder.set_buffer(1, Some(&router.input), 0);
+            router_encoder.set_buffer(2, Some(&router.output), 0);
+            router_encoder.set_buffer(3, Some(&router.shape), 0);
+            router_encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
+            router_encoder.dispatch_thread_groups(
+                MTLSize {
+                    width: 256,
+                    height: 1,
+                    depth: 1,
+                },
+                MTLSize {
+                    width: LANES,
+                    height: 1,
+                    depth: 1,
+                },
+            );
+            router_encoder.end_encoding();
+            router_command.commit();
+            router_command.wait_until_completed();
+            if router_command.status() != MTLCommandBufferStatus::Completed {
+                return Err("dynamic router command failed".to_owned());
+            }
+            // SAFETY: the completed shared router output is exactly batch * 256 F32 logits.
+            let logits = unsafe {
+                std::slice::from_raw_parts(router.output.contents().cast::<f32>(), BATCH * 256)
+            };
+            let routes = select_noaux_tc_routes(logits, correction, BATCH, 256, 8)?;
+            dynamic_minimum_boundary_margin.set(routes.minimum_boundary_margin);
+            let mut schedule = BTreeMap::<u32, Vec<(u32, f32)>>::new();
+            let mut maximum_route_weight_error = 0.0_f32;
+            for position in 0..BATCH {
+                let selected_set = routes.selected[position]
+                    .iter()
+                    .copied()
+                    .collect::<BTreeSet<_>>();
+                let reference_set = manifest.selected_experts_by_position[position]
+                    .iter()
+                    .copied()
+                    .collect::<BTreeSet<_>>();
+                if selected_set != reference_set {
+                    return Err(format!(
+                        "dynamic router selected set mismatch at position {position}"
+                    ));
+                }
+                for (&expert_id, &weight) in routes.selected[position]
+                    .iter()
+                    .zip(&routes.weights[position])
+                {
+                    let reference_slot = manifest.selected_experts_by_position[position]
+                        .iter()
+                        .position(|value| *value == expert_id)
+                        .ok_or("dynamic route expert absent from oracle")?;
+                    let route_weight_error = (weight
+                        - manifest.route_weights_by_position[position][reference_slot])
+                        .abs();
+                    maximum_route_weight_error = maximum_route_weight_error.max(route_weight_error);
+                    if route_weight_error > 2.0e-6 {
+                        return Err("dynamic route weight parity failed".to_owned());
+                    }
+                    schedule
+                        .entry(expert_id)
+                        .or_default()
+                        .push((position as u32, weight));
+                }
+            }
+            dynamic_maximum_route_weight_error.set(maximum_route_weight_error);
+            if schedule.len() != experts.len()
+                || schedule.keys().copied().collect::<BTreeSet<_>>() != expert_ids
+            {
+                return Err("dynamic router selected unknown expert union".to_owned());
+            }
+            let mut counts = BTreeMap::new();
+            for expert in &experts {
+                let placements = schedule
+                    .get(&expert.expert)
+                    .ok_or("dynamic expert schedule absent")?;
+                let count = placements.len();
+                let mut gathered = vec![0.0_f32; BATCH * HIDDEN];
+                let mut weights = [0.0_f32; BATCH];
+                let mut positions = [0_u32; BATCH];
+                for (local, &(position, weight)) in placements.iter().enumerate() {
+                    gathered[local * HIDDEN..(local + 1) * HIDDEN].copy_from_slice(
+                        &input[position as usize * HIDDEN..(position as usize + 1) * HIDDEN],
+                    );
+                    weights[local] = weight;
+                    positions[local] = position;
+                }
+                let scatter_shape = ScatterShape {
+                    count: count as u32,
+                    width: HIDDEN as u32,
+                };
+                // SAFETY: each shared buffer was allocated to the exact copied slice size.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        gathered.as_ptr(),
+                        expert.input.contents().cast::<f32>(),
+                        gathered.len(),
+                    );
+                    std::ptr::copy_nonoverlapping(
+                        weights.as_ptr(),
+                        expert.route_weights.contents().cast::<f32>(),
+                        weights.len(),
+                    );
+                    std::ptr::copy_nonoverlapping(
+                        positions.as_ptr(),
+                        expert.positions.contents().cast::<u32>(),
+                        positions.len(),
+                    );
+                    std::ptr::copy_nonoverlapping(
+                        &scatter_shape,
+                        expert.scatter_shape.contents().cast::<ScatterShape>(),
+                        1,
+                    );
+                }
+                counts.insert(expert.expert, count);
+            }
+            Some(counts)
+        } else {
+            None
+        };
         let command = queue.new_command_buffer();
         let blit = command.new_blit_command_encoder();
         blit.fill_buffer(
@@ -2149,6 +2488,11 @@ pub fn run_metal_fp8_moe_block(
         blit.end_encoding();
         let encoder = command.new_compute_command_encoder();
         for expert in &experts {
+            let expert_count = dynamic_counts
+                .as_ref()
+                .and_then(|counts| counts.get(&expert.expert))
+                .copied()
+                .unwrap_or(expert.count);
             encoder.set_compute_pipeline_state(&expert_pipeline);
             encoder.set_buffer(0, Some(&expert.gate_weight), 0);
             encoder.set_buffer(1, Some(&expert.gate_scale), 0);
@@ -2229,7 +2573,7 @@ pub fn run_metal_fp8_moe_block(
             encoder.set_buffer(4, Some(&expert.scatter_shape), 0);
             encoder.dispatch_threads(
                 MTLSize {
-                    width: (expert.count * HIDDEN) as u64,
+                    width: (expert_count * HIDDEN) as u64,
                     height: 1,
                     depth: 1,
                 },
@@ -2296,13 +2640,30 @@ pub fn run_metal_fp8_moe_block(
     let wall_p10_ms = percentile(0.10);
     let wall_median_ms = percentile(0.50);
     let wall_p90_ms = percentile(0.90);
-    let median_timing_gate_passed = wall_median_ms <= 25.0;
+    let median_timing_gate_passed = wall_median_ms
+        <= if dynamic_router_source.is_some() {
+            20.0
+        } else {
+            25.0
+        };
+    let router_source_bytes = dynamic_router_source
+        .as_ref()
+        .map_or(0_u64, |(weight, correction)| {
+            (weight.len() + correction.len() * 4) as u64
+        });
     let logical_source_and_io_bytes = logical_source_bytes
-        .checked_add(input_bytes.len() as u64)
+        .checked_add(router_source_bytes)
+        .and_then(|value| value.checked_add(input_bytes.len() as u64))
         .and_then(|value| value.checked_add(output_bytes.len() as u64))
         .ok_or("MoE logical byte count overflow")?;
+    let router_resident_bytes = if dynamic_router_source.is_some() {
+        router_source_bytes + (BATCH * HIDDEN * 4 + BATCH * 256 * 4) as u64
+    } else {
+        0
+    };
     let resident_buffer_bytes = logical_source_bytes
-        .checked_add((manifest.experts.len() * BATCH * HIDDEN * 4) as u64)
+        .checked_add(router_resident_bytes)
+        .and_then(|value| value.checked_add((manifest.experts.len() * BATCH * HIDDEN * 4) as u64))
         .and_then(|value| value.checked_add((BATCH * INTERMEDIATE * 4 * 3) as u64))
         .and_then(|value| value.checked_add((BATCH * HIDDEN * 4 * 2) as u64))
         .ok_or("MoE resident byte count overflow")?;
@@ -2311,7 +2672,11 @@ pub fn run_metal_fp8_moe_block(
         / manifest.real_expert_positions as f64;
     Ok(MetalFp8MoeReport {
         schema_version: 1,
-        semantic: manifest.semantic,
+        semantic: if dynamic_router_source.is_some() {
+            "mimo_layer43_native_dynamic_source_fp8_moe_block".to_owned()
+        } else {
+            manifest.semantic
+        },
         manifest_sha256: sha256_hex(&manifest_bytes),
         input_sha256: sha256_hex(&input_bytes),
         reference_sha256: sha256_hex(&reference_bytes),
@@ -2335,6 +2700,13 @@ pub fn run_metal_fp8_moe_block(
         padding_overhead_fraction,
         relative_l2,
         maximum_absolute_error,
+        router_file_sha256: dynamic_router_source.as_ref().map(|_| ROUTER_SHA256),
+        maximum_route_weight_absolute_error: dynamic_router_source
+            .as_ref()
+            .map(|_| dynamic_maximum_route_weight_error.get()),
+        minimum_topk_boundary_margin: dynamic_router_source
+            .as_ref()
+            .map(|_| dynamic_minimum_boundary_margin.get()),
         scatter_fixture_maximum_absolute_error,
         compile_ms,
         cold_wall_ms,
@@ -2352,9 +2724,18 @@ pub fn run_metal_fp8_moe_block(
         accepted_tokens: 0,
         accepted_per_verification: 8,
         expert_union_factor: manifest.experts.len() as f64 / manifest.top_k as f64,
-        cache_state: "selected source artifacts OS-cache state uncontrolled; all expert and routing buffers resident before timed series",
-        scheduling_limitation: manifest.scheduling,
-        implementation: "rust_owned_metal_fixture_scheduled_source_fp8_moe_block",
+        cache_state: "selected source artifacts OS-cache state uncontrolled; all model and application buffers resident before timed series",
+        scheduling_limitation: if dynamic_router_source.is_some() {
+            "exact fixed layer43 input; dynamic native routes; selected expert union preloaded"
+                .to_owned()
+        } else {
+            manifest.scheduling
+        },
+        implementation: if dynamic_router_source.is_some() {
+            "rust_owned_metal_dynamic_router_source_fp8_moe_block"
+        } else {
+            "rust_owned_metal_fixture_scheduled_source_fp8_moe_block"
+        },
     })
 }
 
@@ -2607,71 +2988,35 @@ pub fn run_metal_noaux_tc_router(
     if logits.iter().any(|value| !value.is_finite()) {
         return Err("router logits are non-finite".to_owned());
     }
-    let mut selected_experts_by_position = Vec::with_capacity(BATCH);
-    let mut route_weights_by_position = Vec::with_capacity(BATCH);
+    let routes = select_noaux_tc_routes(&logits, &correction, BATCH, ROWS, TOP_K)?;
+    let selected_experts_by_position = routes.selected;
+    let route_weights_by_position = routes.weights;
     let mut maximum_route_weight_absolute_error = 0.0_f32;
-    let mut minimum_topk_boundary_margin = f32::INFINITY;
     let mut union = BTreeSet::new();
     for position in 0..BATCH {
-        let scores = logits[position * ROWS..(position + 1) * ROWS]
-            .iter()
-            .map(|logit| 1.0_f32 / (1.0 + (-logit).exp()))
-            .collect::<Vec<_>>();
-        let corrected = scores
-            .iter()
-            .zip(&correction)
-            .map(|(score, bias)| score + bias)
-            .collect::<Vec<_>>();
-        let mut indices = (0..ROWS).collect::<Vec<_>>();
-        indices.sort_by(|left, right| {
-            corrected[*right]
-                .total_cmp(&corrected[*left])
-                .then(left.cmp(right))
-        });
-        let margin = corrected[indices[TOP_K - 1]] - corrected[indices[TOP_K]];
-        if !margin.is_finite() || margin <= 0.0 {
-            return Err(format!(
-                "router top-k boundary is tied at position {position}"
-            ));
-        }
-        minimum_topk_boundary_margin = minimum_topk_boundary_margin.min(margin);
-        let chosen = &indices[..TOP_K];
-        let denominator = chosen.iter().map(|index| scores[*index]).sum::<f32>() + 1.0e-20;
-        let weights = chosen
-            .iter()
-            .map(|index| scores[*index] / denominator)
-            .collect::<Vec<_>>();
-        if weights.iter().any(|value| !value.is_finite())
-            || (weights.iter().sum::<f32>() - 1.0).abs() > 1.0e-6
-        {
-            return Err(format!("router weights invalid at position {position}"));
-        }
+        let chosen = &selected_experts_by_position[position];
+        let weights = &route_weights_by_position[position];
         let reference_ids = &reference.selected_experts_by_position[position];
         let reference_weights = &reference.route_weights_by_position[position];
         if reference_ids.len() != TOP_K || reference_weights.len() != TOP_K {
             return Err("router reference row mismatch".to_owned());
         }
         let candidate_set = chosen.iter().copied().collect::<BTreeSet<_>>();
-        let reference_set = reference_ids
-            .iter()
-            .map(|value| *value as usize)
-            .collect::<BTreeSet<_>>();
+        let reference_set = reference_ids.iter().copied().collect::<BTreeSet<_>>();
         if candidate_set != reference_set {
             return Err(format!(
                 "router selected set mismatch at position {position}"
             ));
         }
-        for (&index, &candidate_weight) in chosen.iter().zip(&weights) {
+        for (&index, &candidate_weight) in chosen.iter().zip(weights) {
             let reference_slot = reference_ids
                 .iter()
-                .position(|value| *value as usize == index)
+                .position(|value| *value == index)
                 .ok_or("router reference expert absent")?;
             maximum_route_weight_absolute_error = maximum_route_weight_absolute_error
                 .max((candidate_weight - reference_weights[reference_slot]).abs());
-            union.insert(index as u32);
+            union.insert(index);
         }
-        selected_experts_by_position.push(chosen.iter().map(|index| *index as u32).collect());
-        route_weights_by_position.push(weights);
     }
     if maximum_route_weight_absolute_error > 2.0e-6 {
         return Err(format!(
@@ -2723,7 +3068,7 @@ pub fn run_metal_noaux_tc_router(
         selected_experts_by_position,
         route_weights_by_position,
         maximum_route_weight_absolute_error,
-        minimum_topk_boundary_margin,
+        minimum_topk_boundary_margin: routes.minimum_boundary_margin,
         kernel_fixture_maximum_absolute_error,
         compile_ms,
         cold_wall_ms,
