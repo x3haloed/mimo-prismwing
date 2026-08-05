@@ -1,7 +1,7 @@
 import Foundation
 import Metal
 
-struct Shape { var context, format, keyStride, valueStride, qHeads, kvHeads: UInt32 }
+struct Shape { var context, format, keyStride, valueStride, qHeads, kvHeads, useSinks: UInt32 }
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data("error: \(message)\n".utf8)); exit(1)
@@ -112,16 +112,28 @@ if variant == "gqa4" || variant == "gqa8" {
     let qHeads = 64, kvHeads = variant == "gqa4" ? 4 : 8
     if variant == "gqa8" && context != 128 { fail("SWA GQA requires context 128") }
     let keyStride = format == 3 ? 100 : 136, valueStride = format == 3 ? 50 : 68
+    let useSinks = variant == "gqa8", ropeBase: Float = useSinks ? 10_000 : 10_000_000
+    let sinkBiases = (0..<qHeads).map { Float(sin(Double($0) * 0.37) * 0.5) }
+    func applyRoPE(_ values: inout [Float], position: Int) {
+        for pair in 0..<32 {
+            let angle = Float(position) / pow(ropeBase, Float(2 * pair) / 64)
+            let cosine = cos(angle), sine = sin(angle), first = values[pair], second = values[pair + 32]
+            values[pair] = first * cosine - second * sine
+            values[pair + 32] = second * cosine + first * sine
+        }
+    }
     var queries = [Float](repeating: 0, count: qHeads * 256)
     for head in 0..<qHeads { for column in 0..<192 { queries[head*256+column] = nextValue() } }
+    for head in 0..<qHeads { var query=Array(queries[(head*256)..<((head+1)*256)]);applyRoPE(&query,position:context-1);queries.replaceSubrange((head*256)..<((head+1)*256),with:query) }
     var packedKeys = [UInt8](), packedValues = [UInt8]()
     var decodedKeys = Array(repeating: [[Float]](), count: kvHeads)
     var decodedValues = Array(repeating: [[Float]](), count: kvHeads)
     for head in 0..<kvHeads {
-        for _ in 0..<context {
+        for token in 0..<context {
             var key = [Float](repeating: 0, count: 256), value = [Float](repeating: 0, count: 128)
             for column in 0..<192 { key[column] = nextValue() }
-            for column in 0..<128 { value[column] = nextValue() }
+            applyRoPE(&key,position:token)
+            for column in 0..<128 { value[column] = nextValue() * 0.707 }
             let keyPacked = quantize(key, format: format, s1: s1, s2: s2)
             let valuePacked = quantize(value, format: format, s1: s1, s2: s2)
             packedKeys += keyPacked; packedValues += valuePacked
@@ -142,6 +154,11 @@ if variant == "gqa4" || variant == "gqa8" {
             for column in 0..<128 { accumulator[column]=accumulator[column]*oldScale+newScale*decodedValues[kvHead][token][column] }
             maximum=nextMaximum
         }
+        if useSinks {
+            let sink=sinkBiases[qHead],nextMaximum=max(maximum,sink),dataScale=exp(maximum-nextMaximum),sinkScale=exp(sink-nextMaximum)
+            denominator=denominator*dataScale+sinkScale
+            for column in 0..<128 { accumulator[column] *= dataScale }
+        }
         for column in 0..<128 { accumulator[column] /= denominator }
         rotate(&accumulator, inverse: true, s1: s1, s2: s2); expected += accumulator
     }
@@ -150,12 +167,12 @@ if variant == "gqa4" || variant == "gqa8" {
     guard let function=library.makeFunction(name:"turbo_gqa_attention_256_128_parallel32") else { fail("GQA kernel absent") }
     let pipeline=try device.makeComputePipelineState(function:function), compileMs=Double(DispatchTime.now().uptimeNanoseconds-compileStart)/1e6
     let guarded=[Float](repeating:Float.nan,count:qHeads*130)
-    var shape=Shape(context:UInt32(context),format:UInt32(format),keyStride:UInt32(keyStride),valueStride:UInt32(valueStride),qHeads:UInt32(qHeads),kvHeads:UInt32(kvHeads))
+    var shape=Shape(context:UInt32(context),format:UInt32(format),keyStride:UInt32(keyStride),valueStride:UInt32(valueStride),qHeads:UInt32(qHeads),kvHeads:UInt32(kvHeads),useSinks:useSinks ? 1 : 0)
     func makeBuffer<T>(_ values:[T])->MTLBuffer { values.withUnsafeBytes { device.makeBuffer(bytes:$0.baseAddress!,length:$0.count)! } }
-    let kb=makeBuffer(packedKeys),vb=makeBuffer(packedValues),qb=makeBuffer(queries),ob=makeBuffer(guarded),sb=device.makeBuffer(bytes:&shape,length:MemoryLayout<Shape>.stride)!,s1b=makeBuffer(s1),s2b=makeBuffer(s2)
+    let kb=makeBuffer(packedKeys),vb=makeBuffer(packedValues),qb=makeBuffer(queries),ob=makeBuffer(guarded),sb=device.makeBuffer(bytes:&shape,length:MemoryLayout<Shape>.stride)!,s1b=makeBuffer(s1),s2b=makeBuffer(s2),sinkb=makeBuffer(sinkBiases)
     func runGQA()->(Double,Double) {
         let command=queue.makeCommandBuffer()!,encoder=command.makeComputeCommandEncoder()!;encoder.setComputePipelineState(pipeline)
-        [kb,vb,qb,ob,sb,s1b,s2b].enumerated().forEach { encoder.setBuffer($0.element,offset:0,index:$0.offset) }
+        [kb,vb,qb,ob,sb,s1b,s2b,sinkb].enumerated().forEach { encoder.setBuffer($0.element,offset:0,index:$0.offset) }
         encoder.dispatchThreadgroups(MTLSize(width:qHeads,height:1,depth:1),threadsPerThreadgroup:MTLSize(width:32,height:1,depth:1));encoder.endEncoding()
         let start=DispatchTime.now().uptimeNanoseconds;command.commit();command.waitUntilCompleted();if let error=command.error { fail("Metal: \(error)") }
         return (Double(DispatchTime.now().uptimeNanoseconds-start)/1e6,(command.gpuEndTime-command.gpuStartTime)*1000)
@@ -165,7 +182,7 @@ if variant == "gqa4" || variant == "gqa8" {
     for head in 0..<qHeads { guards = guards && pointer[head*130].isNaN && pointer[head*130+129].isNaN; actual += Array(UnsafeBufferPointer(start:pointer+head*130+1,count:128)) }
     let maxError=zip(actual,expected).map{abs($0-$1)}.max()!,rel=relativeL2(actual,expected)
     guard guards,actual.allSatisfy({$0.isFinite}),rel<=3e-4,maxError<=5e-4 else { fail("GQA parity rel=\(rel) max=\(maxError) guards=\(guards)") }
-    let result:[String:Any]=["schema_version":1,"device":device.name,"format":"turbo\(format)","mode":variant=="gqa4" ? "global" : "swa","q_heads":qHeads,"kv_heads":kvHeads,"context":context,"batch_size":1,"concurrency":1,"accepted_tokens":1,"A":"not_applicable","U":"not_applicable","bytes_read":packedKeys.count+packedValues.count+queries.count*4,"compile_ms":compileMs,"cold_wall_ms":cold.0,"cold_gpu_ms":cold.1,"warmups":10,"measurements":30,"wall_median_ms":percentile(walls,0.5),"wall_p95_ms":percentile(walls,0.95),"gpu_median_ms":percentile(gpus,0.5),"gpu_p95_ms":percentile(gpus,0.95),"metal_vs_scalar_relative_l2":rel,"metal_vs_scalar_max_abs":maxError,"all_head_guards_intact":guards,"cache_state":"packed application buffers warm; no model or storage I/O"]
+    let result:[String:Any]=["schema_version":1,"device":device.name,"format":"turbo\(format)","mode":variant=="gqa4" ? "global" : "swa","q_heads":qHeads,"kv_heads":kvHeads,"context":context,"rope_dim":64,"rope_base":ropeBase,"value_scale":0.707,"uses_sinks":useSinks,"q_position":context-1,"batch_size":1,"concurrency":1,"accepted_tokens":1,"A":"not_applicable","U":"not_applicable","bytes_read":packedKeys.count+packedValues.count+queries.count*4+(useSinks ? sinkBiases.count*4 : 0),"compile_ms":compileMs,"cold_wall_ms":cold.0,"cold_gpu_ms":cold.1,"warmups":10,"measurements":30,"wall_median_ms":percentile(walls,0.5),"wall_p95_ms":percentile(walls,0.95),"gpu_median_ms":percentile(gpus,0.5),"gpu_p95_ms":percentile(gpus,0.95),"metal_vs_scalar_relative_l2":rel,"metal_vs_scalar_max_abs":maxError,"all_head_guards_intact":guards,"cache_state":"packed application buffers warm; no model or storage I/O"]
     let data=try JSONSerialization.data(withJSONObject:result,options:[.sortedKeys]);FileHandle.standardOutput.write(data);FileHandle.standardOutput.write(Data("\n".utf8));exit(0)
 }
 var query = [Float](repeating: 0, count: 256)
@@ -206,7 +223,7 @@ let functionName = variant == "serial" ? "turbo_attention_256_128" : "turbo_atte
 guard let function = library.makeFunction(name: functionName) else { fail("kernel absent") }
 let pipeline = try device.makeComputePipelineState(function: function)
 let compileMs = Double(DispatchTime.now().uptimeNanoseconds-compileStart)/1e6
-var guarded = [Float](repeating: Float.nan, count: 130), shape = Shape(context: UInt32(context), format: UInt32(format), keyStride: UInt32(keyStride), valueStride: UInt32(valueStride), qHeads: 1, kvHeads: 1)
+var guarded = [Float](repeating: Float.nan, count: 130), shape = Shape(context: UInt32(context), format: UInt32(format), keyStride: UInt32(keyStride), valueStride: UInt32(valueStride), qHeads: 1, kvHeads: 1, useSinks: 0)
 func buffer<T>(_ values: [T]) -> MTLBuffer { values.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count)! } }
 let kb=buffer(packedKeys), vb=buffer(packedValues), qb=buffer(query), ob=buffer(guarded), sb=device.makeBuffer(bytes:&shape,length:MemoryLayout<Shape>.stride)!, s1b=buffer(s1), s2b=buffer(s2)
 func run() -> (Double,Double) {

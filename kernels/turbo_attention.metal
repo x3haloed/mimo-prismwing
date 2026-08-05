@@ -8,6 +8,7 @@ struct TurboAttentionShape {
     uint value_stride;
     uint q_heads;
     uint kv_heads;
+    uint use_sinks;
 };
 
 constant float turbo3_centroids[8] = {
@@ -47,6 +48,7 @@ kernel void turbo_gqa_attention_256_128_parallel32(
         constant TurboAttentionShape & shape [[buffer(4)]],
         device const float * signs1 [[buffer(5)]],
         device const float * signs2 [[buffer(6)]],
+        device const float * sinks [[buffer(7)]],
         uint lane [[thread_index_in_threadgroup]],
         uint q_head [[threadgroup_position_in_grid]],
         uint threads [[threads_per_threadgroup]]) {
@@ -92,6 +94,13 @@ kernel void turbo_gqa_attention_256_128_parallel32(
             float scale = exp(partial_maximum[item] - merged_maximum);
             merged_denominator += partial_denominator[item] * scale;
             for (uint column = 0; column < 128; ++column) merged[column] += partial_output[item * 128 + column] * scale;
+        }
+        if (shape.use_sinks != 0) {
+            float sink = sinks[q_head];
+            float final_maximum = max(merged_maximum, sink);
+            float data_scale = exp(merged_maximum - final_maximum);
+            merged_denominator = merged_denominator * data_scale + exp(sink - final_maximum);
+            for (uint column = 0; column < 128; ++column) merged[column] *= data_scale;
         }
         for (uint column = 0; column < 128; ++column) merged[column] /= merged_denominator;
         rotate_inverse(merged, signs1, signs2);

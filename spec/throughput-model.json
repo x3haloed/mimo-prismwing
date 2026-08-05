@@ -231,6 +231,17 @@
             "maximum_metal_vs_scalar_relative_l2": 2.2830489158478072e-6,
             "status": "correct_global_and_swa_gqa_schedule; performance_requires_shared_kv_scan; not_endpoint_tps_or_model_fidelity",
             "provenance": "PW-0023; 64 Q heads; exact 4/8 KV-head mapping; packed application buffers warm"
+        },
+        "mimo_attention_semantics": {
+            "rope_dimension": 64,
+            "global_rope_base": 10000000,
+            "swa_rope_base": 10000,
+            "value_scale": 0.707,
+            "global_uses_sink": false,
+            "swa_uses_per_q_head_sink": true,
+            "maximum_metal_vs_scalar_relative_l2": 4.088797030986737e-7,
+            "status": "synthetic_semantics_validated; learned_tensors_and_real_activations_pending",
+            "provenance": "PW-0024; pinned modeling_mimo_v2.py source equations; deterministic 64Q GQA fixtures"
         }
   }
 }

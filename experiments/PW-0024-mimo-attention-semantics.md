@@ -1,10 +1,10 @@
 # PW-0024 — MiMo RoPE, value-scale, and sink semantics
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-04
 - Owner: Codex with project owner authorization
-- Commit and dirty state: based on `66f01dd`; contract dirty
+- Commit and dirty state: contract committed as `a1bda88`; implementation dirty
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; source
   `modeling_mimo_v2.py` SHA-256
@@ -55,7 +55,20 @@ Raw evidence will be written under
 
 ## Isolated attribution
 
-Pending.
+All runs use context 128, batch one, concurrency one, one accepted token, 10
+warm-ups, and 30 measurements:
+
+| Format/mode | GPU median / p95 ms | Wall median / p95 ms |
+| --- | ---: | ---: |
+| Turbo3 global | 3.396 / 4.227 | 3.669 / 4.983 |
+| Turbo3 SWA | 3.464 / 4.507 | 3.782 / 5.020 |
+| Turbo4 global | 3.228 / 4.192 | 3.548 / 4.867 |
+| Turbo4 SWA | 3.410 / 4.369 | 3.750 / 4.844 |
+
+The wrapper records RoPE dimension 64, Q position 127, bases 10,000,000 and
+10,000, value scale 0.707, and sink presence per mode. Packed buffers are warm
+with no model/storage I/O. `A` and `U` are not applicable. The added semantics
+do not materially alter PW-0023's context-128 timing.
 
 ## End-to-end result
 
@@ -63,8 +76,22 @@ Out of scope; no endpoint TPS claim is permitted.
 
 ## Correctness result
 
-Pending.
+All five conditions pass. Every one of 8,192 outputs and all 128 guards are
+checked per run. Metal-versus-scalar relative L2 is at most `4.09e-7`, below
+`3e-4`; maximum absolute error is at most `3.58e-7`, below `5e-4`.
+
+Global mode applies partial RoPE and value scaling without a sink. SWA uses its
+distinct RoPE base and merges one deterministic sink state per Q head into the
+stable denominator with no numerator contribution.
+
+Raw evidence is under
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0024`. The SHA-256 of its
+`SHA256SUMS` manifest is
+`7acbc17b6037187028f0b3c4a7424dd06ef671fc35de59e1c59ec7c211d34fba`.
 
 ## Decision
 
-Pending.
+Promote partial RoPE, pre-cache value scaling, and SWA sink-state merging into
+the transformer-layer fixture. The next correctness rung requires learned
+QKV/output projection, norm, and sink tensors plus real layer input; synthetic
+semantics cannot substitute for those values.

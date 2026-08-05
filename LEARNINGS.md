@@ -626,3 +626,14 @@ global and 39 SWA layers is roughly 1.26 seconds before projections, MoE, MTP,
 or endpoint work. This makes multi-head attention a measured bottleneck. The
 next optimization must share each KV-head scan across its GQA query group;
 attention can no longer be omitted from throughput reasoning.
+
+PW-0024 adds three source-required semantics to that executable path: partial
+RoPE covers 64 of 192 Q/K dimensions with base 10,000,000 globally and 10,000
+for SWA; V is scaled by 0.707 before cache quantization; and each SWA Q head has
+a sink logit that adds denominator probability mass with zero value numerator.
+Metal matches the scalar source equations at worst `4.09e-7` relative L2.
+
+These semantics now advance to the real transformer-layer fixture. Learned
+QKV/output projections, norms, sink biases, and actual layer inputs remain
+unavailable until the common `model_pp0_ep0_shard1.safetensors` payload is
+acquired or selectively materialized.
