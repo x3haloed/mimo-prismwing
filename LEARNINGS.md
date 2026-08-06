@@ -985,3 +985,14 @@ quantization. PW-0050/PW-0052 instead dequantized weights and multiplied raw
 F32 activations. Component F32 fixtures validated that diagnostic arithmetic,
 but they could not establish the omitted production activation semantics across
 48 layers.
+
+PW-0053 implements that declared dynamic activation semantic exactly against a
+PyTorch 2.13.0 byte-level E4M3FN fixture, but rejects its omission as the
+primary cause of the hosted mismatch. The frozen chat continuation changed
+from `.3` to `. -`; hosted-token logprob error worsened from 13.5370 to 13.7936
+nats at the first position and improved from 8.0002 to 7.4905 at the second,
+with top-1 agreement still 0/2. The quantizer remains a correctness repair,
+not a successful parity repair. The next source-directed semantic gap is BF16
+execution-boundary rounding: existing component gates deliberately validated
+F32 diagnostic arithmetic and therefore cannot authorize 48-layer accumulated
+behavior for a BF16 model.

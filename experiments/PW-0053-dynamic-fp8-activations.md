@@ -1,10 +1,10 @@
 # PW-0053 — Dynamic FP8 activation semantics
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: contract and fixture generator precede runtime change
+- Commit and dirty state: clean `05c2bed437bdf6aa570848cbdd92fb77c071c4ed`
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0052 hosted manifest
   `f9c5dd42a76e0eb87581fa427fe03c69ad32903c5711e5078a002ab7514732ea`
@@ -76,10 +76,38 @@ FP8 matrix boundary.
 The byte-level semantic gate passes. All 26 Rust tests, 35 Python tests, strict
 Clippy, and the release build pass before endpoint execution.
 
+The raw two-token walk completed in 291.025 seconds and changed the diagnostic
+continuation from `[122046,13]` (`瀛.`) to `[122982,122046]` (`棪瀛`). Its report
+hash is `df45aa60896d014318abeb7bfaa52552d14d34b460b69a789ce339d38bd1dbf2`.
+
+The frozen 27-token chat walk completed in 924.155 seconds and generated
+`[13,481]` (`. -`) rather than hosted `[9707,0]` (`Hello!`). It processed
+890,624 dynamic activation groups containing 113,999,872 values. Logical
+source traffic was 83,325,157,120 bytes and measured process disk reads were
+84,586,336,256 bytes. The report is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0053/chat-001/endpoint.json`,
+SHA-256 `6e716542f0790952add3efc24ff937c0e51f24ec73ca9119bc6678d0857599b7`.
+
+The shared-host contract remained healthy: minimum system free memory was 82%,
+peak process residency was 4,418,895,872 bytes, swap did not grow, no new
+throttled pages appeared, and every protected service remained alive.
+
 ## Correctness result
 
-Unexecuted.
+The candidate preserved all local gates but did not approach hosted parity.
+For hosted token 9707 at step one, local logprob moved from -13.598146 to
+-13.854777 while hosted was -0.061158: error worsened from 13.5370 to 13.7936
+nats. For hosted token 0 at step two, local logprob moved from -8.017008 to
+-7.507362 while hosted was -0.016850: error improved from 8.0002 to 7.4905
+nats. Top-1 agreement remained 0/2. The opposite movements and still-enormous
+errors satisfy the kill criterion for activation-quantizer omission as the
+primary accumulated mismatch.
 
 ## Decision
 
-Unexecuted.
+Keep the implementation as a correctness repair: it exactly realizes the
+checkpoint's declared activation scheme and does not weaken another semantic.
+Reject it as the primary explanation for PW-0052. Do not tune quantizer scales
+against the hosted text. The next source-derived falsification is explicit
+BF16 execution-boundary rounding, for which the current F32 component fixtures
+provide no accumulated whole-model authority.
