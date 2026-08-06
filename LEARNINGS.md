@@ -1291,3 +1291,13 @@ layer 29, while expert sets remain exact through layer 46. The 800.724-second
 safe walk peaked at 4.171 GB RSS in the LM head, ended at 2.909 GB, retained
 at least 72% free memory, reduced swap use, and caused no throttling or
 protected-service loss. Localize layer 29 from exact layer 28.
+
+PW-0084 localizes layer 29 to one softmax probability after every incoming,
+RMSNorm, QKV, RoPE, value, and centered-score bit matches. Position 22, head
+15, source 20 rounds to adjacent BF16 probabilities in PyTorch and Rust; that
+single quantum causes nine attention-value differences and ultimately all 20
+PW-0083 final-state differences. Router and expert arithmetic are downstream,
+and expert sets remain exact. The 466.678-second safe Rust trace peaked at 750
+MB RSS, returned to 149 MB, retained 82% free memory, and caused no swap
+growth, throttling, or service loss. Freeze the 23-value row and discriminate
+exponential, denominator, and normalization order before changing softmax.
