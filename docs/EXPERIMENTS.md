@@ -217,14 +217,18 @@ and give every combined mechanism a new experiment ID.
 
 [PW-0049](../experiments/PW-0049-real-base-decoder-layer.md) joins the promoted
 attention and dynamic source-FP8 MoE work across one real learned base-model
-decoder layer. It is the immediate checkpoint-unblocked correctness step and a
-prerequisite for the slow complete text endpoint and representative routed
-activation traces required by PW-0044 through PW-0046.
+decoder layer. It now passes as the target-faithful correctness baseline and
+provides the first causally derived route trace for PW-0044 through PW-0046.
 
 The layer-local fixture must derive routes and selected expert work from its
 own learned attention output. PW-0039's frozen post-attention input, routes, and
 expert union remain component controls and cannot be substituted for this
 causal boundary.
+
+The seeded trace selects 56 unique experts for eight positions (`U=7.0`). Its
+bounded expanded-F32 Accelerate embodiment is deliberately not a performance
+default; the result advances the correctness ladder and changes the search
+priors, not endpoint TPS.
 
 ## Black-swan budget
 

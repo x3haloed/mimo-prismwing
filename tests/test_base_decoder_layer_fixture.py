@@ -1,11 +1,23 @@
+import copy
+import hashlib
 import json
 from pathlib import Path
+import tempfile
 import unittest
 
 import numpy as np
 
-from tools.generate_base_decoder_layer_fixture import attention_query, noaux_tc_route, rope
-from tools.generate_base_decoder_layer_moe_fixture import build_schedule
+from tools.generate_base_decoder_layer_fixture import (
+    attention_query,
+    noaux_tc_route,
+    rope,
+    validate_semantic_fixture,
+)
+from tools.generate_base_decoder_layer_moe_fixture import (
+    build_schedule,
+    load_f32_artifact,
+    validate_extraction_authority,
+)
 
 
 class BaseDecoderLayerFixtureTests(unittest.TestCase):
@@ -19,6 +31,39 @@ class BaseDecoderLayerFixtureTests(unittest.TestCase):
         self.assertEqual(fixture["parameters"]["rope_dim"], 64)
         self.assertEqual(fixture["parameters"]["sliding_window"], 128)
         self.assertEqual(len(fixture["tensors"]), 8)
+        validate_semantic_fixture(fixture)
+
+    def test_semantic_fixture_rejects_wrong_revision_source_position_and_shape(self):
+        fixture = json.loads(
+            Path("evals/fixtures/real/base-layer43-context128.json").read_text()
+        )
+        mutations = (
+            ("revision", "wrong", "semantic fixture"),
+            ("source_file", "model_pp0_ep0_shard0.safetensors", "source authority"),
+            ("query_start", 119, "semantic fixture"),
+        )
+        for key, value, message in mutations:
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, message):
+                candidate = copy.deepcopy(fixture)
+                candidate[key] = value
+                validate_semantic_fixture(candidate)
+        candidate = copy.deepcopy(fixture)
+        candidate["tensors"]["model.layers.43.self_attn.qkv_proj.weight"]["shape"] = [1, 1]
+        with self.assertRaisesRegex(ValueError, "tensor shape"):
+            validate_semantic_fixture(candidate)
+
+    def test_attention_artifact_rejects_wrong_input_hash(self):
+        payload = np.arange(8, dtype="<f4").tobytes()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "input.f32").write_bytes(payload)
+            record = {
+                "file": "input.f32",
+                "sha256": hashlib.sha256(payload + b"wrong").hexdigest(),
+                "shape": [2, 4],
+            }
+            with self.assertRaisesRegex(ValueError, "artifact hash mismatch"):
+                load_f32_artifact(root, record, (2, 4))
 
     def test_partial_rope_preserves_unrotated_tail_and_norm(self):
         values = np.arange(2 * 192, dtype=np.float32).reshape(2, 192) / 100
@@ -62,6 +107,30 @@ class BaseDecoderLayerFixtureTests(unittest.TestCase):
             duplicate = selected.copy()
             duplicate[0, 1] = duplicate[0, 0]
             build_schedule(duplicate, weights)
+
+    def test_extraction_rejects_wrong_route_and_expert_authority(self):
+        schedule = {1: {"positions": [0], "slots": [0], "route_weights": [1.0]}}
+        extraction = {
+            "schema_version": 1,
+            "revision": "63651580ca774f8504f676040460aed3e1244ac1",
+            "layer": 43,
+            "experts": [1],
+            "source_slices": [
+                {
+                    "output_file": "expert.safetensors",
+                    "evidence_class": "pinned_local_verified_lossless_tensor_ranges",
+                }
+            ],
+        }
+        validate_extraction_authority(extraction, schedule)
+        wrong_expert = copy.deepcopy(extraction)
+        wrong_expert["experts"] = [2]
+        with self.assertRaisesRegex(ValueError, "extraction identity"):
+            validate_extraction_authority(wrong_expert, schedule)
+        wrong_authority = copy.deepcopy(extraction)
+        wrong_authority["source_slices"][0]["evidence_class"] = "unverified"
+        with self.assertRaisesRegex(ValueError, "verification authority"):
+            validate_extraction_authority(wrong_authority, schedule)
 
 
 if __name__ == "__main__":

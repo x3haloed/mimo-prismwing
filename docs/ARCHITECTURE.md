@@ -88,6 +88,13 @@ The construction order follows the least-proven boundaries:
   and executes the heterogeneous source-FP8 expert union. Frozen routes are
   parity oracle only. This closes the layer-43 routed-MLP causal path for one
   exact input fixture, not a complete decoder layer or representative decode.
+- The PW-0049 correctness baseline owns one complete real base layer from
+  source-FP8 QKV through SWA, residual/norm, dynamic routing, 56 selected
+  experts, weighted scatter, and the final residual. Rust uses Accelerate
+  SGEMM for the bounded source-FP8-to-F32 QKV and selected-expert correctness
+  path, Metal for BF16 output projection and routing, and preserves every
+  oracle boundary by hash. Its `U=7.0` trace and roughly 7.06 GB routed-MoE
+  residency make it an oracle baseline, not the performance architecture.
 - Frozen raw evidence owns measurements; Markdown reports interpret it but do
   not override it.
 

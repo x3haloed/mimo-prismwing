@@ -98,6 +98,30 @@ def build_schedule(
     return schedule
 
 
+def validate_extraction_authority(
+    extraction: dict[str, Any], schedule: dict[int, dict[str, list]]
+) -> None:
+    if (
+        extraction.get("schema_version") != 1
+        or extraction.get("revision") != REVISION
+        or extraction.get("layer") != LAYER
+        or extraction.get("experts") != sorted(schedule)
+    ):
+        raise ValueError("selected-expert extraction identity mismatch")
+    source_slices = extraction.get("source_slices")
+    if not isinstance(source_slices, list) or not source_slices:
+        raise ValueError("selected-expert extraction authority is empty")
+    outputs = [item.get("output_file") for item in source_slices]
+    if None in outputs or len(set(outputs)) != len(outputs):
+        raise ValueError("duplicate selected-expert output file")
+    if any(
+        item.get("evidence_class")
+        != "pinned_local_verified_lossless_tensor_ranges"
+        for item in source_slices
+    ):
+        raise ValueError("expert artifact lacks local verification authority")
+
+
 def generate(
     attention_manifest_path: Path,
     expert_root: Path,
@@ -129,23 +153,13 @@ def generate(
     schedule = build_schedule(selected, route_weights)
 
     extraction = json.loads(extraction_manifest_path.read_text(encoding="utf-8"))
-    if (
-        extraction.get("schema_version") != 1
-        or extraction.get("revision") != REVISION
-        or extraction.get("layer") != LAYER
-        or extraction.get("experts") != sorted(schedule)
-    ):
-        raise ValueError("selected-expert extraction identity mismatch")
+    validate_extraction_authority(extraction, schedule)
     locked_outputs = {item["output_file"]: item for item in extraction["source_slices"]}
-    if len(locked_outputs) != len(extraction["source_slices"]):
-        raise ValueError("duplicate selected-expert output file")
 
     tensor_values: dict[str, torch.Tensor] = {}
     tensor_files: dict[str, str] = {}
     artifact_hashes: dict[str, str] = {}
     for name, authority in sorted(locked_outputs.items()):
-        if authority.get("evidence_class") != "pinned_local_verified_lossless_tensor_ranges":
-            raise ValueError(f"expert artifact lacks local verification authority: {name}")
         path = expert_root / name
         actual_hash = sha256_file(path)
         if actual_hash != authority.get("output_sha256"):

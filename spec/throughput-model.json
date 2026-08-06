@@ -461,6 +461,23 @@
             "status": "promoted_dynamic_target_faithful_layer43_moe_component; not_complete_layer_or_endpoint_tps",
             "provenance": "PW-0039; exact native router causally drives per-request gather/shared-weight source-FP8 experts/scatter; fixed PW-0037 real input and nine-expert union; 5 warmups and 30 integrated measurements"
         },
+        "real_base_layer_correctness_baseline": {
+            "layer": 43,
+            "batch_size": 8,
+            "top_k": 8,
+            "unique_experts": 56,
+            "expert_union_factor_U": 7.0,
+            "qkv_wall_ms_repeats": [272.424042, 274.061417],
+            "attention_cpu_wall_ms_repeats": [11.5755, 11.395625],
+            "output_projection_wall_ms_repeats": [8.376292, 8.15925],
+            "moe_wall_median_ms_repeats": [231.154042, 227.887917],
+            "moe_wall_median_ms_repeat_mean": 229.5209795,
+            "moe_resident_buffer_bytes": 7058908160,
+            "final_relative_l2": 0.00000036429356905362716,
+            "final_maximum_absolute_error": 0.0000023841858,
+            "status": "promoted_target_faithful_base_layer_correctness_baseline; expanded_f32_not_performance_default; not_endpoint_tps",
+            "provenance": "PW-0049; verified MiMo revision 63651580; seeded context128 layer43 input; Rust-owned Accelerate QKV and selected-expert SGEMM, CPU SWA/scatter, Metal BF16 output/router; byte-identical repeated final state"
+        },
         "native_union_parallel_source_fp8_moe_schedule": {
             "candidate_wall_median_ms_repeats": [17.809458, 17.822],
             "control_wall_median_ms_repeats": [17.101917, 17.107833],

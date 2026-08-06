@@ -1,15 +1,18 @@
 # PW-0049 — Real base-model decoder layer
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: contract pending; no execution
+- Commit and dirty state: contract `08c6fb7`; result implementation is the
+  commit containing this record
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; the completed checkpoint and
   every used artifact must pass the committed model lock before execution
-- Hardware, OS, compiler, storage, memory pressure: Apple M1 Mac mini;
-  remaining environment fields unmeasured
+- Hardware, OS, compiler, storage, memory pressure: Apple M1 Mac mini,
+  Macmini9,1, 16 GB; macOS 26.6 (25G72); Rust 1.96.0 release; verified
+  checkpoint and selected evidence on internal APFS SSD; memory pressure not
+  independently sampled
 - Related records: PW-0029, PW-0030, PW-0039, PW-0044
 
 ## Hypothesis and mechanism
@@ -88,24 +91,62 @@ validated source checkpoint views and runtime-derived routes. PW-0039 is a
 component control only; its frozen post-attention input and expert union are
 not a valid base-layer baseline.
 
-Raw evidence will be written under
-`/Volumes/Elements/mimo-prismwing/evidence/PW-0049`.
+Raw evidence is under
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0049`. The final 74-file
+`SHA256SUMS` manifest hashes to
+`afabfbc14b33eba0e9af92e2c8cefd206d3e8aa7cc354ed272ee08fed5bca5e6`;
+the complete checkpoint-verification manifest hashes to
+`9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`.
 
 ## Isolated attribution
 
-Unexecuted. The first attribution is semantic composition across learned
-attention, residual/norm, and dynamic expert selection. Performance attribution
-begins only after that full causal path passes.
+The first native Metal-only composition failed honestly at `7.390976e-6`
+maximum final error. Stable RMS reduction lowered MoE-input maximum error from
+`5.245209e-6` to `1.430512e-6`. Increasing FP8 Metal reduction width and a
+compensated FP8 kernel did not cross the final gate and were rejected.
+
+A bounded Rust-owned Accelerate path did. It decodes only the independently
+selected 56-expert source-FP8 union to F32, executes the 64 real route
+placements with native SGEMM, and scatters in Rust. The same Accelerate SGEMM
+for source-FP8 QKV reduced QKV relative L2 to `1.4169e-7`. No Python output,
+frozen route, or oracle activation supplies execution.
 
 ## End-to-end result
 
-Unexecuted. No endpoint or TPS claim exists.
+Two final-code process walls are `60.055` and `59.554` seconds. They include a
+complete SHA-256 pass over the 34.37 GB source shard, source validation,
+selected-expert decoding, compilation, warmups, and measurements, so they are
+evidence-process walls rather than resident layer latency.
+
+Resident component diagnostics are approximately 272--274 ms QKV, 11--12 ms
+CPU SWA, 7--8 ms output projection, and 227--231 ms median routed MoE. The MoE
+uses one warmup and five measurements, has `U=7.0`, and reports 7,058,908,160
+resident bytes. This is a faithful correctness baseline and decisively not a
+performance default or endpoint TPS result.
 
 ## Correctness result
 
-Unexecuted.
+The complete final state passes at relative L2 `3.642936e-7` and maximum
+absolute error `2.384186e-6`. QKV, post-attention, MoE-input, and routed-MoE
+relative L2 values are respectively `1.416872e-7`, `9.070980e-8`,
+`1.035320e-7`, and `5.464336e-7`. Route sets are exact, maximum route-weight
+error is `6.705523e-8`, and the minimum top-k boundary margin is
+`7.410049e-4`.
+
+Independent final-code processes produce byte-identical MoE inputs, MoE
+outputs, and final states. Final output SHA-256 is
+`efa95f0df1c08f4fea0e049c0f66f54d71ae06f8f33024c0406295cad411f2fb`.
+Rust has 18 passing tests, Python has 33, clippy is clean with warnings denied,
+and the release build succeeds.
 
 ## Decision
 
-Unexecuted. This is the immediate checkpoint-unblocked risk frontier and the
-prerequisite for representative route traces and the slow complete text path.
+Promote this command as the first complete target-faithful base decoder-layer
+correctness baseline. It closes the learned attention-to-routing-to-final-
+residual causal boundary and unblocks representative activation work.
+
+Do not promote its expanded-F32 Accelerate expert embodiment or infer endpoint
+TPS. The seeded layer-local input's `U=7.0` supersedes the assumption that
+PW-0039's `U=1.125` frozen fixture is representative. The next work must use
+this trace to falsify or promote the predeclared topology/embodiment jumps, and
+must still build the slow complete text endpoint before a delivery claim.

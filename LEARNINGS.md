@@ -873,3 +873,24 @@ The exact tile design is rejected, not the general existence of matrix units.
 A future cooperative TensorOps path with wider tiles or a genuinely reused
 decoded-tile cache would be a different mechanism. On the present M1/macOS
 substrate, PW-0039 remains the best faithful native MoE implementation.
+
+PW-0049 closes the next causal boundary: a frozen production-width layer-43
+input now flows through learned source-FP8 QKV, source-faithful SWA,
+post-attention residual/norm, native noaux-tc routing, all selected source-FP8
+experts, weighted scatter, and the final residual under one Rust authority.
+Two independent final-code processes are byte-identical and pass the final
+gate at `3.64e-7` relative L2 and `2.384e-6` maximum absolute error.
+
+The experiment supersedes two assumptions. First, sequential FP32 RMS
+reduction was not numerically stable enough at this boundary; an f64 reduction
+with the prescribed FP32 variance preserves semantics and materially improves
+parity. Second, PW-0039's nine-expert `U=1.125` fixture is not representative:
+the seeded real attention path selects 56 experts for eight positions,
+`U=7.0`, with a healthy `7.41e-4` top-k margin.
+
+The correctness embodiment expands only that selected source-FP8 union and
+uses Accelerate SGEMM. Its routed MoE medians are 231.154 and 227.888 ms with
+about 7.06 GB resident state; QKV is another 272--274 ms. This is decisive
+evidence against treating expanded F32 as a performance default. PW-0049 is
+the oracle and trace source for the predeclared topology/embodiment jumps, not
+an endpoint TPS result.

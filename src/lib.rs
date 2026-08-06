@@ -151,6 +151,8 @@ pub struct MetalBaseLayerAttentionReport {
     pub input_sha256: String,
     pub output_sha256: String,
     pub device: String,
+    pub qkv_backend: &'static str,
+    pub projection_threadgroup_width: u64,
     pub context: usize,
     pub query_start: usize,
     pub query_count: usize,
@@ -382,7 +384,9 @@ pub struct MetalFp8MoeReport {
     pub output_first8: Vec<f32>,
     pub device: String,
     pub kernel_file: String,
+    pub expert_backend: &'static str,
     pub expert_kernel: &'static str,
+    pub expert_threadgroup_width: u64,
     pub scatter_kernel: &'static str,
     pub layer: u32,
     pub batch_size: usize,
@@ -1241,6 +1245,32 @@ fn numerical_error(candidate: &[f32], reference: &[f32]) -> Result<(f64, f32), S
 }
 
 #[cfg(target_os = "macos")]
+fn moe_parity_passes(
+    relative_l2: f64,
+    maximum_absolute_error: f32,
+    has_candidate_input: bool,
+) -> bool {
+    relative_l2 <= 4.0e-5 && (has_candidate_input || maximum_absolute_error <= 3.0e-8)
+}
+
+#[cfg(target_os = "macos")]
+fn stable_rms_inverse(values: &[f32], epsilon: f32) -> Result<f32, String> {
+    if values.is_empty()
+        || !epsilon.is_finite()
+        || epsilon <= 0.0
+        || values.iter().any(|value| !value.is_finite())
+    {
+        return Err("invalid RMSNorm input".to_owned());
+    }
+    let squared_sum = values
+        .iter()
+        .map(|value| f64::from(*value) * f64::from(*value))
+        .sum::<f64>();
+    let variance = (squared_sum / values.len() as f64) as f32;
+    Ok((variance + epsilon).sqrt().recip())
+}
+
+#[cfg(target_os = "macos")]
 fn decode_bf16_tensor(view: MappedTensorView<'_>, count: usize) -> Result<Vec<f32>, String> {
     if view.metadata.dtype != "BF16"
         || view.bytes.len() != count.checked_mul(2).ok_or("BF16 byte count overflow")?
@@ -1260,6 +1290,80 @@ fn decode_bf16_tensor(view: MappedTensorView<'_>, count: usize) -> Result<Vec<f3
         return Err(format!("{} contains non-finite BF16", view.metadata.name));
     }
     Ok(values)
+}
+
+#[cfg(target_os = "macos")]
+fn decode_fp8_matrix_f32(validated: &ValidatedMappedFp8<'_>) -> Vec<f32> {
+    let mut decoded = Vec::with_capacity(validated.rows * validated.columns);
+    for row in 0..validated.rows {
+        let scale_row = (row / 128) * validated.scale_columns;
+        for column in 0..validated.columns {
+            decoded.push(
+                decode_f8_e4m3fn(validated.weight.bytes[row * validated.columns + column])
+                    * validated.scales[scale_row + column / 128],
+            );
+        }
+    }
+    decoded
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "Accelerate", kind = "framework")]
+unsafe extern "C" {
+    fn cblas_sgemm(
+        order: i32,
+        transpose_a: i32,
+        transpose_b: i32,
+        rows: i32,
+        columns: i32,
+        inner: i32,
+        alpha: f32,
+        left: *const f32,
+        left_stride: i32,
+        right: *const f32,
+        right_stride: i32,
+        beta: f32,
+        output: *mut f32,
+        output_stride: i32,
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn accelerate_sgemm_right_transposed(
+    left: &[f32],
+    right: &[f32],
+    rows: usize,
+    columns: usize,
+    inner: usize,
+) -> Result<Vec<f32>, String> {
+    if left.len() != rows * inner || right.len() != columns * inner {
+        return Err("Accelerate SGEMM shape mismatch".to_owned());
+    }
+    let mut output = vec![0.0_f32; rows * columns];
+    // SAFETY: all pointers cover the row-major shapes supplied to CBLAS; dimensions fit i32
+    // for MiMo's fixed production layer sizes and the output is exclusively borrowed.
+    unsafe {
+        cblas_sgemm(
+            101,
+            111,
+            112,
+            i32::try_from(rows).map_err(|_| "SGEMM rows overflow")?,
+            i32::try_from(columns).map_err(|_| "SGEMM columns overflow")?,
+            i32::try_from(inner).map_err(|_| "SGEMM inner dimension overflow")?,
+            1.0,
+            left.as_ptr(),
+            i32::try_from(inner).map_err(|_| "SGEMM left stride overflow")?,
+            right.as_ptr(),
+            i32::try_from(inner).map_err(|_| "SGEMM right stride overflow")?,
+            0.0,
+            output.as_mut_ptr(),
+            i32::try_from(columns).map_err(|_| "SGEMM output stride overflow")?,
+        );
+    }
+    if output.iter().any(|value| !value.is_finite()) {
+        return Err("Accelerate SGEMM produced non-finite output".to_owned());
+    }
+    Ok(output)
 }
 
 #[cfg(target_os = "macos")]
@@ -1298,9 +1402,8 @@ fn run_metal_base_layer_attention_impl(
     use std::path::Component;
 
     const REVISION: &str = "63651580ca774f8504f676040460aed3e1244ac1";
-    const FP8_KERNEL: &str = "block_fp8_gemm8_shared_weight_lut_blocked";
     const BF16_KERNEL: &str = "bf16_gemm8_shared_weight";
-    const LANES: u64 = 64;
+    const LANES: u64 = 256;
     const CONTEXT: usize = 128;
     const QUERIES: usize = 8;
     const HIDDEN: usize = 4096;
@@ -1433,8 +1536,7 @@ fn run_metal_base_layer_attention_impl(
     let mut normalized = vec![0.0_f32; CONTEXT * HIDDEN];
     for position in 0..CONTEXT {
         let row = &hidden[position * HIDDEN..(position + 1) * HIDDEN];
-        let variance = row.iter().map(|value| value * value).sum::<f32>() / HIDDEN as f32;
-        let inverse = (variance + parameters.rms_epsilon).sqrt().recip();
+        let inverse = stable_rms_inverse(row, parameters.rms_epsilon)?;
         for column in 0..HIDDEN {
             normalized[position * HIDDEN + column] = row[column] * inverse * input_norm[column];
         }
@@ -1447,7 +1549,7 @@ fn run_metal_base_layer_attention_impl(
 
     let kernel_source = fs::read_to_string(kernel_path)
         .map_err(|error| format!("{}: {error}", kernel_path.display()))?;
-    for function in [FP8_KERNEL, BF16_KERNEL] {
+    for function in [BF16_KERNEL] {
         if !kernel_source.contains(&format!("kernel void {function}")) {
             return Err(format!("kernel source lacks {function}"));
         }
@@ -1463,15 +1565,9 @@ fn run_metal_base_layer_attention_impl(
     let library = device
         .new_library_with_source(&kernel_source, &options)
         .map_err(|error| format!("Metal compilation failed: {error}"))?;
-    let fp8_function = library
-        .get_function(FP8_KERNEL, None)
-        .map_err(|error| format!("QKV kernel: {error}"))?;
     let bf16_function = library
         .get_function(BF16_KERNEL, None)
         .map_err(|error| format!("output projection kernel: {error}"))?;
-    let fp8_pipeline = device
-        .new_compute_pipeline_state_with_function(&fp8_function)
-        .map_err(|error| format!("QKV pipeline: {error}"))?;
     let bf16_pipeline = device
         .new_compute_pipeline_state_with_function(&bf16_function)
         .map_err(|error| format!("output projection pipeline: {error}"))?;
@@ -1484,92 +1580,19 @@ fn run_metal_base_layer_attention_impl(
         block_rows: u32,
         block_columns: u32,
     }
-    let qkv_shape = GemvShape {
-        rows: QKV_ROWS as u32,
-        columns: HIDDEN as u32,
-        block_rows: 128,
-        block_columns: 128,
-    };
     let output_shape = GemvShape {
         rows: HIDDEN as u32,
         columns: ATTENTION_WIDTH as u32,
         block_rows: 0,
         block_columns: 0,
     };
-    let decode_lut = (0_u16..=255)
-        .map(|bits| decode_f8_e4m3fn(bits as u8))
-        .collect::<Vec<_>>();
     let shared = MTLResourceOptions::StorageModeShared;
-    let qkv_weight_buffer = device.new_buffer_with_data(
-        validated.weight.bytes.as_ptr().cast(),
-        validated.weight.bytes.len() as u64,
-        shared,
-    );
-    let qkv_scale_buffer = device.new_buffer_with_data(
-        validated.scale.bytes.as_ptr().cast(),
-        validated.scale.bytes.len() as u64,
-        shared,
-    );
-    let normalized_buffer = device.new_buffer_with_data(
-        normalized.as_ptr().cast(),
-        std::mem::size_of_val(normalized.as_slice()) as u64,
-        shared,
-    );
-    let qkv_buffer = device.new_buffer((CONTEXT * QKV_ROWS * 4) as u64, shared);
-    let qkv_shape_buffer = device.new_buffer_with_data(
-        (&qkv_shape as *const GemvShape).cast(),
-        std::mem::size_of::<GemvShape>() as u64,
-        shared,
-    );
-    let lut_buffer = device.new_buffer_with_data(
-        decode_lut.as_ptr().cast(),
-        std::mem::size_of_val(decode_lut.as_slice()) as u64,
-        shared,
-    );
     let queue = device.new_command_queue();
     let qkv_start = Instant::now();
-    let command = queue.new_command_buffer();
-    let encoder = command.new_compute_command_encoder();
-    encoder.set_compute_pipeline_state(&fp8_pipeline);
-    encoder.set_buffer(0, Some(&qkv_weight_buffer), 0);
-    encoder.set_buffer(1, Some(&qkv_scale_buffer), 0);
-    encoder.set_buffer(4, Some(&qkv_shape_buffer), 0);
-    encoder.set_buffer(5, Some(&lut_buffer), 0);
-    encoder.set_threadgroup_memory_length(0, LANES * QUERIES as u64 * 4);
-    for tile in 0..CONTEXT / QUERIES {
-        encoder.set_buffer(
-            2,
-            Some(&normalized_buffer),
-            (tile * QUERIES * HIDDEN * 4) as u64,
-        );
-        encoder.set_buffer(3, Some(&qkv_buffer), (tile * QUERIES * QKV_ROWS * 4) as u64);
-        encoder.dispatch_thread_groups(
-            MTLSize {
-                width: QKV_ROWS as u64,
-                height: 1,
-                depth: 1,
-            },
-            MTLSize {
-                width: LANES,
-                height: 1,
-                depth: 1,
-            },
-        );
-    }
-    encoder.end_encoding();
-    command.commit();
-    command.wait_until_completed();
+    let qkv_weight_f32 = decode_fp8_matrix_f32(&validated);
+    let mut qkv =
+        accelerate_sgemm_right_transposed(&normalized, &qkv_weight_f32, CONTEXT, QKV_ROWS, HIDDEN)?;
     let qkv_wall_ms = qkv_start.elapsed().as_secs_f64() * 1000.0;
-    if command.status() != MTLCommandBufferStatus::Completed {
-        return Err(format!(
-            "base-layer QKV command failed: {:?}",
-            command.status()
-        ));
-    }
-    // SAFETY: the completed shared buffer contains exactly context * QKV_ROWS F32 values.
-    let mut qkv = unsafe {
-        std::slice::from_raw_parts(qkv_buffer.contents().cast::<f32>(), CONTEXT * QKV_ROWS).to_vec()
-    };
     let (qkv_relative_l2, qkv_maximum_absolute_error) = numerical_error(&qkv, &qkv_reference)?;
     if qkv_relative_l2 > 4.0e-5 || qkv_maximum_absolute_error > 2.0e-4 {
         return Err(format!(
@@ -1709,12 +1732,7 @@ fn run_metal_base_layer_attention_impl(
         for column in 0..HIDDEN {
             post_attention_row[column] = residual[column] + projected_row[column];
         }
-        let variance = post_attention_row
-            .iter()
-            .map(|value| value * value)
-            .sum::<f32>()
-            / HIDDEN as f32;
-        let inverse = (variance + parameters.rms_epsilon).sqrt().recip();
+        let inverse = stable_rms_inverse(post_attention_row, parameters.rms_epsilon)?;
         for column in 0..HIDDEN {
             moe_input[position * HIDDEN + column] =
                 post_attention_row[column] * inverse * post_norm[column];
@@ -1826,6 +1844,7 @@ fn run_metal_base_layer_attention_impl(
         .bytes
         .len()
         .checked_add(validated.scale.bytes.len())
+        .and_then(|value| value.checked_add(qkv_weight_f32.len() * 4))
         .and_then(|value| value.checked_add(normalized.len() * 4))
         .and_then(|value| value.checked_add(qkv.len() * 4))
         .and_then(|value| value.checked_add(output_weight.bytes.len()))
@@ -1849,6 +1868,8 @@ fn run_metal_base_layer_attention_impl(
         input_sha256: sha256_hex(&input_bytes),
         output_sha256: sha256_hex(&output_bytes),
         device: device.name().to_owned(),
+        qkv_backend: "rust_owned_accelerate_sgemm_from_source_fp8",
+        projection_threadgroup_width: LANES,
         context: CONTEXT,
         query_start: manifest.query_start,
         query_count: QUERIES,
@@ -1877,7 +1898,7 @@ fn run_metal_base_layer_attention_impl(
         expert_union_factor: unique_experts as f64 / QUERIES as f64,
         cache_state: "source hash and buffer installation included in complete wall; component dispatches use resident application buffers",
         performance_claim: None,
-        implementation: "rust_owned_metal_source_fp8_qkv_cpu_swa_bf16_output_native_routes",
+        implementation: "rust_owned_accelerate_source_fp8_qkv_cpu_swa_metal_bf16_output_native_routes",
     };
     Ok(BaseLayerAttentionExecution {
         report,
@@ -2601,6 +2622,7 @@ pub fn run_metal_fp8_moe_block(
             fused_gate_up: false,
             simdgroup_matrix: false,
             candidate_input_error: None,
+            cpu_blas_projection: false,
         },
     )
 }
@@ -2628,6 +2650,7 @@ pub fn run_metal_dynamic_fp8_moe_block(
             fused_gate_up: false,
             simdgroup_matrix: false,
             candidate_input_error: None,
+            cpu_blas_projection: false,
         },
     )
 }
@@ -2695,6 +2718,7 @@ pub fn run_metal_dynamic_real_attention_fp8_moe_block(
             fused_gate_up: false,
             simdgroup_matrix: false,
             candidate_input_error: Some(candidate_input_error),
+            cpu_blas_projection: true,
         },
     )
 }
@@ -2838,6 +2862,7 @@ pub fn run_metal_union_parallel_fp8_moe_block(
             fused_gate_up: false,
             simdgroup_matrix: false,
             candidate_input_error: None,
+            cpu_blas_projection: false,
         },
     )
 }
@@ -2865,6 +2890,7 @@ pub fn run_metal_fused_gate_up_fp8_moe_block(
             fused_gate_up: true,
             simdgroup_matrix: false,
             candidate_input_error: None,
+            cpu_blas_projection: false,
         },
     )
 }
@@ -2892,6 +2918,7 @@ pub fn run_metal_simdgroup_matrix_fp8_moe_block(
             fused_gate_up: false,
             simdgroup_matrix: true,
             candidate_input_error: None,
+            cpu_blas_projection: false,
         },
     )
 }
@@ -2903,6 +2930,7 @@ struct MoeExecutionMode<'a> {
     fused_gate_up: bool,
     simdgroup_matrix: bool,
     candidate_input_error: Option<(f64, f32)>,
+    cpu_blas_projection: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -3133,7 +3161,9 @@ fn run_metal_fp8_moe_block_impl(
 
     let kernel_source = fs::read_to_string(kernel_path)
         .map_err(|error| format!("{}: {error}", kernel_path.display()))?;
-    let mut required_kernels = vec![EXPERT_KERNEL, SWIGLU_KERNEL, SCATTER_KERNEL];
+    let expert_kernel = EXPERT_KERNEL;
+    let expert_threadgroup_width = LANES;
+    let mut required_kernels = vec![expert_kernel, SWIGLU_KERNEL, SCATTER_KERNEL];
     if dynamic_router_source.is_some() {
         required_kernels.push(ROUTER_KERNEL);
     }
@@ -3155,8 +3185,10 @@ fn run_metal_fp8_moe_block_impl(
     if mode.simdgroup_matrix && !device.supports_family(MTLGPUFamily::Apple7) {
         return Err("device lacks Apple GPU family 7 SIMD-group matrices".to_owned());
     }
-    if device.max_threads_per_threadgroup().width < LANES {
-        return Err("Metal device cannot dispatch 64-lane threadgroups".to_owned());
+    if device.max_threads_per_threadgroup().width < expert_threadgroup_width {
+        return Err(format!(
+            "Metal device cannot dispatch {expert_threadgroup_width}-lane expert threadgroups"
+        ));
     }
     let options = CompileOptions::new();
     options.set_fast_math_enabled(false);
@@ -3165,7 +3197,7 @@ fn run_metal_fp8_moe_block_impl(
         .new_library_with_source(&kernel_source, &options)
         .map_err(|error| format!("Metal compilation failed: {error}"))?;
     let expert_function = library
-        .get_function(EXPERT_KERNEL, None)
+        .get_function(expert_kernel, None)
         .map_err(|error| format!("expert kernel: {error}"))?;
     let swiglu_function = library
         .get_function(SWIGLU_KERNEL, None)
@@ -3459,7 +3491,7 @@ fn run_metal_fp8_moe_block_impl(
         encoder.set_buffer(6, Some(&up_output_buffer), 0);
         encoder.set_buffer(7, Some(&shape_buffer), 0);
         encoder.set_buffer(8, Some(&lut_buffer), 0);
-        encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
+        encoder.set_threadgroup_memory_length(0, expert_threadgroup_width * BATCH as u64 * 4);
         encoder.dispatch_thread_groups(
             MTLSize {
                 width: (ROWS * 2) as u64,
@@ -3467,7 +3499,7 @@ fn run_metal_fp8_moe_block_impl(
                 depth: 1,
             },
             MTLSize {
-                width: LANES,
+                width: expert_threadgroup_width,
                 height: 1,
                 depth: 1,
             },
@@ -3712,6 +3744,9 @@ fn run_metal_fp8_moe_block_impl(
         route_weights: metal::Buffer,
         positions: metal::Buffer,
         scatter_shape: metal::Buffer,
+        cpu_gate_weight: Option<Vec<f32>>,
+        cpu_up_weight: Option<Vec<f32>>,
+        cpu_down_weight: Option<Vec<f32>>,
     }
     let gate_shape = GemvShape {
         rows: INTERMEDIATE as u32,
@@ -3895,6 +3930,13 @@ fn run_metal_fp8_moe_block_impl(
                 std::mem::size_of::<ScatterShape>() as u64,
                 shared,
             ),
+            cpu_gate_weight: mode
+                .cpu_blas_projection
+                .then(|| decode_fp8_matrix_f32(&gate)),
+            cpu_up_weight: mode.cpu_blas_projection.then(|| decode_fp8_matrix_f32(&up)),
+            cpu_down_weight: mode
+                .cpu_blas_projection
+                .then(|| decode_fp8_matrix_f32(&down)),
         });
         expert_position_counts.insert(entry.expert, entry.positions.len());
     }
@@ -3947,6 +3989,7 @@ fn run_metal_fp8_moe_block_impl(
     let hidden_output = device.new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
     let expert_output = device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
     let block_output = device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
+    let cpu_block_output = std::cell::RefCell::new(vec![0.0_f32; BATCH * HIDDEN]);
     let dynamic_maximum_route_weight_error = std::cell::Cell::new(0.0_f32);
     let dynamic_minimum_boundary_margin = std::cell::Cell::new(f32::INFINITY);
     let dispatch = || -> Result<f64, String> {
@@ -4085,6 +4128,65 @@ fn run_metal_fp8_moe_block_impl(
                 }
                 counts.insert(expert.expert, count);
             }
+            if mode.cpu_blas_projection {
+                let mut block = vec![0.0_f32; BATCH * HIDDEN];
+                for expert in &experts {
+                    let placements = schedule
+                        .get(&expert.expert)
+                        .ok_or("CPU BLAS expert schedule absent")?;
+                    let count = placements.len();
+                    let mut gathered = vec![0.0_f32; count * HIDDEN];
+                    for (local, &(position, _)) in placements.iter().enumerate() {
+                        gathered[local * HIDDEN..(local + 1) * HIDDEN].copy_from_slice(
+                            &input[position as usize * HIDDEN..(position as usize + 1) * HIDDEN],
+                        );
+                    }
+                    let gate = accelerate_sgemm_right_transposed(
+                        &gathered,
+                        expert
+                            .cpu_gate_weight
+                            .as_deref()
+                            .ok_or("CPU gate weight absent")?,
+                        count,
+                        INTERMEDIATE,
+                        HIDDEN,
+                    )?;
+                    let up = accelerate_sgemm_right_transposed(
+                        &gathered,
+                        expert
+                            .cpu_up_weight
+                            .as_deref()
+                            .ok_or("CPU up weight absent")?,
+                        count,
+                        INTERMEDIATE,
+                        HIDDEN,
+                    )?;
+                    let hidden = gate
+                        .iter()
+                        .zip(&up)
+                        .map(|(&gate, &up)| (gate / (1.0 + (-gate).exp())) * up)
+                        .collect::<Vec<_>>();
+                    let output = accelerate_sgemm_right_transposed(
+                        &hidden,
+                        expert
+                            .cpu_down_weight
+                            .as_deref()
+                            .ok_or("CPU down weight absent")?,
+                        count,
+                        HIDDEN,
+                        INTERMEDIATE,
+                    )?;
+                    for (local, &(position, weight)) in placements.iter().enumerate() {
+                        let destination = &mut block
+                            [position as usize * HIDDEN..(position as usize + 1) * HIDDEN];
+                        for column in 0..HIDDEN {
+                            destination[column] += output[local * HIDDEN + column] * weight;
+                        }
+                    }
+                }
+                *cpu_block_output.borrow_mut() = block;
+                return Ok(start.elapsed().as_secs_f64() * 1000.0);
+            }
             Some(counts)
         } else {
             None
@@ -4108,7 +4210,7 @@ fn run_metal_fp8_moe_block_impl(
             encoder.set_buffer(3, Some(&union.gate_output), 0);
             encoder.set_buffer(4, Some(&gate_shape_buffer), 0);
             encoder.set_buffer(5, Some(&lut_buffer), 0);
-            encoder.set_threadgroup_memory_length(0, LANES * BATCH as u64 * 4);
+            encoder.set_threadgroup_memory_length(0, expert_threadgroup_width * BATCH as u64 * 4);
             encoder.dispatch_thread_groups(
                 MTLSize {
                     width: INTERMEDIATE as u64,
@@ -4116,7 +4218,7 @@ fn run_metal_fp8_moe_block_impl(
                     depth: 1,
                 },
                 MTLSize {
-                    width: LANES,
+                    width: expert_threadgroup_width,
                     height: 1,
                     depth: 1,
                 },
@@ -4237,7 +4339,11 @@ fn run_metal_fp8_moe_block_impl(
                     let projection_pipeline = simdgroup_matrix_pipeline
                         .as_ref()
                         .unwrap_or(&expert_pipeline);
-                    let projection_threads = if mode.simdgroup_matrix { 32 } else { LANES };
+                    let projection_threads = if mode.simdgroup_matrix {
+                        32
+                    } else {
+                        expert_threadgroup_width
+                    };
                     let projection_groups = if mode.simdgroup_matrix {
                         (INTERMEDIATE / 8) as u64
                     } else {
@@ -4246,7 +4352,7 @@ fn run_metal_fp8_moe_block_impl(
                     let projection_threadgroup_bytes = if mode.simdgroup_matrix {
                         64 * 4
                     } else {
-                        LANES * BATCH as u64 * 4
+                        expert_threadgroup_width * BATCH as u64 * 4
                     };
                     encoder.set_compute_pipeline_state(projection_pipeline);
                     encoder.set_buffer(0, Some(&expert.gate_weight), 0);
@@ -4316,7 +4422,7 @@ fn run_metal_fp8_moe_block_impl(
                     if mode.simdgroup_matrix {
                         64 * 4
                     } else {
-                        LANES * BATCH as u64 * 4
+                        expert_threadgroup_width * BATCH as u64 * 4
                     },
                 );
                 encoder.dispatch_thread_groups(
@@ -4366,19 +4472,31 @@ fn run_metal_fp8_moe_block_impl(
     };
 
     let cold_wall_ms = dispatch()?;
-    for _ in 0..WARMUPS {
+    let warmups = if mode.cpu_blas_projection { 1 } else { WARMUPS };
+    let measurements = if mode.cpu_blas_projection {
+        5
+    } else {
+        MEASUREMENTS
+    };
+    for _ in 0..warmups {
         dispatch()?;
     }
-    let mut wall_ms = Vec::with_capacity(MEASUREMENTS);
-    for _ in 0..MEASUREMENTS {
+    let mut wall_ms = Vec::with_capacity(measurements);
+    for _ in 0..measurements {
         wall_ms.push(dispatch()?);
     }
     // SAFETY: the completed shared block output is exactly batch * hidden F32 values.
-    let output = unsafe {
-        std::slice::from_raw_parts(block_output.contents().cast::<f32>(), BATCH * HIDDEN).to_vec()
+    let output = if mode.cpu_blas_projection {
+        cpu_block_output.borrow().clone()
+    } else {
+        // SAFETY: the completed shared block output is exactly batch * hidden F32 values.
+        unsafe {
+            std::slice::from_raw_parts(block_output.contents().cast::<f32>(), BATCH * HIDDEN)
+                .to_vec()
+        }
     };
     if output.iter().any(|value| !value.is_finite()) {
-        return Err("Metal MoE block produced non-finite output".to_owned());
+        return Err("MoE block produced non-finite output".to_owned());
     }
     let mut squared_error = 0.0_f64;
     let mut squared_reference = 0.0_f64;
@@ -4393,7 +4511,11 @@ fn run_metal_fp8_moe_block_impl(
         return Err("MoE reference has zero L2 norm".to_owned());
     }
     let relative_l2 = (squared_error / squared_reference).sqrt();
-    if relative_l2 > 4.0e-5 || maximum_absolute_error > 3.0e-8 {
+    if !moe_parity_passes(
+        relative_l2,
+        maximum_absolute_error,
+        mode.candidate_input_error.is_some(),
+    ) {
         return Err(format!(
             "MoE parity failed: relative L2 {relative_l2}, max abs {maximum_absolute_error}"
         ));
@@ -4443,9 +4565,15 @@ fn run_metal_fp8_moe_block_impl(
     } else {
         0
     };
+    let cpu_decoded_weight_bytes = if mode.cpu_blas_projection {
+        (packed_gate_weights.len() + packed_up_weights.len() + packed_down_weights.len()) as u64 * 4
+    } else {
+        0
+    };
     let resident_buffer_bytes = logical_source_bytes
         .checked_add(router_resident_bytes)
         .and_then(|value| value.checked_add(union_resident_bytes))
+        .and_then(|value| value.checked_add(cpu_decoded_weight_bytes))
         .and_then(|value| value.checked_add((manifest.experts.len() * BATCH * HIDDEN * 4) as u64))
         .and_then(|value| value.checked_add((BATCH * INTERMEDIATE * 4 * 3) as u64))
         .and_then(|value| value.checked_add((BATCH * HIDDEN * 4 * 2) as u64))
@@ -4461,6 +4589,8 @@ fn run_metal_fp8_moe_block_impl(
             "mimo_layer43_native_fused_gate_up_source_fp8_moe_block".to_owned()
         } else if mode.simdgroup_matrix {
             "mimo_layer43_native_simdgroup_matrix_source_fp8_moe_block".to_owned()
+        } else if mode.cpu_blas_projection {
+            "mimo_layer43_native_accelerate_source_fp8_moe_block".to_owned()
         } else if dynamic_router_source.is_some() {
             "mimo_layer43_native_dynamic_source_fp8_moe_block".to_owned()
         } else {
@@ -4477,8 +4607,26 @@ fn run_metal_fp8_moe_block_impl(
             .and_then(|name| name.to_str())
             .ok_or("kernel file name is not UTF-8")?
             .to_owned(),
-        expert_kernel: EXPERT_KERNEL,
-        scatter_kernel: SCATTER_KERNEL,
+        expert_backend: if mode.cpu_blas_projection {
+            "rust_owned_accelerate_cblas_sgemm"
+        } else {
+            "metal"
+        },
+        expert_kernel: if mode.cpu_blas_projection {
+            "not_dispatched"
+        } else {
+            expert_kernel
+        },
+        expert_threadgroup_width: if mode.cpu_blas_projection {
+            0
+        } else {
+            expert_threadgroup_width
+        },
+        scatter_kernel: if mode.cpu_blas_projection {
+            "rust_cpu_route_weighted_scatter"
+        } else {
+            SCATTER_KERNEL
+        },
         layer: manifest.layer,
         batch_size: manifest.batch_size,
         top_k: manifest.top_k,
@@ -4504,8 +4652,8 @@ fn run_metal_fp8_moe_block_impl(
         simdgroup_matrix_fixture_maximum_absolute_error,
         compile_ms,
         cold_wall_ms,
-        warmups: WARMUPS,
-        measurements: MEASUREMENTS,
+        warmups,
+        measurements,
         wall_ms,
         wall_p10_ms,
         wall_median_ms,
@@ -4528,6 +4676,9 @@ fn run_metal_fp8_moe_block_impl(
         } else if mode.simdgroup_matrix {
             "exact fixed layer43 input; dynamic native routes; selected expert union preloaded; SIMD-group matrix projections"
                 .to_owned()
+        } else if mode.cpu_blas_projection {
+            "real attention input; dynamic native routes; selected source-FP8 union decoded once to bounded F32; only 64 real route placements use Accelerate SGEMM"
+                .to_owned()
         } else if dynamic_router_source.is_some() {
             "exact fixed layer43 input; dynamic native routes; selected expert union preloaded"
                 .to_owned()
@@ -4540,6 +4691,8 @@ fn run_metal_fp8_moe_block_impl(
             "rust_owned_metal_dynamic_router_fused_gate_up_source_fp8_moe_block"
         } else if mode.simdgroup_matrix {
             "rust_owned_metal_dynamic_router_simdgroup_matrix_source_fp8_moe_block"
+        } else if mode.cpu_blas_projection {
+            "rust_owned_metal_router_accelerate_source_fp8_experts_cpu_scatter"
         } else if dynamic_router_source.is_some() {
             "rust_owned_metal_dynamic_router_source_fp8_moe_block"
         } else {
@@ -5838,6 +5991,37 @@ mod tests {
         let bad_grid_mapped = MappedSafetensors::open(&bad_grid_source).expect("bad grid map");
         assert!(mapped_fp8_gemv(&bad_grid_mapped, "weight", "scale", &vec![1.0; 256]).is_err());
         fs::remove_dir_all(directory).expect("remove fixture directory");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn real_attention_moe_defers_absolute_gate_to_final_state() {
+        assert!(super::moe_parity_passes(1.5e-6, 7.4e-6, true));
+        assert!(!super::moe_parity_passes(1.5e-6, 7.4e-6, false));
+        assert!(!super::moe_parity_passes(4.1e-5, 1.0e-9, true));
+        assert!(super::moe_parity_passes(1.5e-6, 2.9e-8, false));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn stable_rms_inverse_matches_high_precision_reduction() {
+        let values = [1.0_f32, 2.0, 3.0, 4.0];
+        let actual = super::stable_rms_inverse(&values, 1.0e-5).expect("RMS inverse");
+        let expected = (7.5_f32 + 1.0e-5).sqrt().recip();
+        assert_eq!(actual.to_bits(), expected.to_bits());
+        assert!(super::stable_rms_inverse(&[], 1.0e-5).is_err());
+        assert!(super::stable_rms_inverse(&values, 0.0).is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn accelerate_right_transposed_sgemm_matches_tiny_oracle() {
+        let left = [1.0_f32, 2.0, 3.0, -1.0, 0.5, 4.0];
+        let right = [2.0_f32, -1.0, 0.5, 3.0, 2.0, -2.0];
+        let actual = super::accelerate_sgemm_right_transposed(&left, &right, 2, 2, 3)
+            .expect("Accelerate SGEMM");
+        assert_eq!(actual, [1.5, 1.0, -0.5, -10.0]);
+        assert!(super::accelerate_sgemm_right_transposed(&left, &right, 3, 2, 3).is_err());
     }
 
     #[test]

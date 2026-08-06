@@ -25,6 +25,73 @@ except ModuleNotFoundError:
     from openrouter_reference import atomic_write_new, canonical_json
 
 
+REVISION = "63651580ca774f8504f676040460aed3e1244ac1"
+SOURCE_FILE = "model_pp0_ep0_shard1.safetensors"
+SOURCE_FILE_SHA256 = "7b92a89c4710b0253a15f1355567bbfc94b57cb8fb8a6dbddca01bacf12d0985"
+MODEL_SOURCE = "modeling_mimo_v2.py"
+MODEL_SOURCE_SHA256 = "a8c3cb3aae473bcc15f023010547c919f15eba6546e6ed7efb61a8937b12f3ad"
+EXPECTED_PARAMETERS = {
+    "hidden_size": 4096,
+    "q_heads": 64,
+    "kv_heads": 8,
+    "qk_head_dim": 192,
+    "v_head_dim": 128,
+    "rope_dim": 64,
+    "rope_theta": 10_000,
+    "sliding_window": 128,
+    "value_scale": 0.707,
+    "rms_epsilon": 1e-5,
+    "router_experts": 256,
+    "top_k": 8,
+}
+EXPECTED_TENSORS = {
+    "model.layers.43.input_layernorm.weight": ("BF16", [4096]),
+    "model.layers.43.mlp.gate.e_score_correction_bias": ("F32", [256]),
+    "model.layers.43.mlp.gate.weight": ("F32", [256, 4096]),
+    "model.layers.43.post_attention_layernorm.weight": ("BF16", [4096]),
+    "model.layers.43.self_attn.attention_sink_bias": ("BF16", [64]),
+    "model.layers.43.self_attn.o_proj.weight": ("BF16", [4096, 8192]),
+    "model.layers.43.self_attn.qkv_proj.weight": ("F8_E4M3", [14848, 4096]),
+    "model.layers.43.self_attn.qkv_proj.weight_scale_inv": ("F32", [116, 32]),
+}
+
+
+def validate_semantic_fixture(fixture: dict[str, Any]) -> None:
+    """Fail closed unless this is the exact PW-0049 semantic authority."""
+    if (
+        fixture.get("schema_version") != 1
+        or fixture.get("semantic")
+        != "mimo_base_layer43_source_attention_to_dynamic_routes"
+        or fixture.get("revision") != REVISION
+        or fixture.get("layer") != 43
+        or fixture.get("context") != 128
+        or fixture.get("query_start") != 120
+        or fixture.get("query_count") != 8
+        or fixture.get("seed") != 260049
+    ):
+        raise ValueError("unknown base-layer semantic fixture")
+    if (
+        fixture.get("source_file") != SOURCE_FILE
+        or fixture.get("source_file_sha256") != SOURCE_FILE_SHA256
+        or fixture.get("model_source") != MODEL_SOURCE
+        or fixture.get("model_source_sha256") != MODEL_SOURCE_SHA256
+    ):
+        raise ValueError("base-layer source authority mismatch")
+    if fixture.get("parameters") != EXPECTED_PARAMETERS:
+        raise ValueError("base-layer parameter authority mismatch")
+    tensors = fixture.get("tensors")
+    if not isinstance(tensors, dict) or set(tensors) != set(EXPECTED_TENSORS):
+        raise ValueError("base-layer tensor authority mismatch")
+    for name, (dtype, shape) in EXPECTED_TENSORS.items():
+        metadata = tensors[name]
+        if (
+            not isinstance(metadata, dict)
+            or metadata.get("dtype") != dtype
+            or metadata.get("shape") != shape
+        ):
+            raise ValueError(f"base-layer tensor shape mismatch: {name}")
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -180,15 +247,7 @@ def generate(
     output_dir: Path,
 ) -> dict[str, Any]:
     fixture = json.loads(semantic_fixture_path.read_text(encoding="utf-8"))
-    if (
-        fixture.get("schema_version") != 1
-        or fixture.get("semantic") != "mimo_base_layer43_source_attention_to_dynamic_routes"
-        or fixture.get("layer") != 43
-        or fixture.get("context") != 128
-        or fixture.get("query_start") != 120
-        or fixture.get("query_count") != 8
-    ):
-        raise ValueError("unknown base-layer semantic fixture")
+    validate_semantic_fixture(fixture)
     source_name = fixture["source_file"]
     source_lock, _ = require_verified_source(
         lock_path, verification_path, checkpoint_dir, source_name
