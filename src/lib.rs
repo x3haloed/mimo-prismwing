@@ -15,7 +15,10 @@ mod staged_metal_expert;
 #[cfg(target_os = "macos")]
 mod text_endpoint;
 #[cfg(target_os = "macos")]
-pub use staged_metal_expert::{StagedMetalExpertReport, run_staged_metal_fp8_expert};
+pub use staged_metal_expert::{
+    BoundedRoutedRowReport, StagedMetalExpertReport, run_bounded_metal_routed_row,
+    run_staged_metal_fp8_expert,
+};
 #[cfg(target_os = "macos")]
 pub use text_endpoint::{
     FullPrefixTraceReport, Layer0TraceReport, Layer1ExpertTraceReport, Layer1RoutingTraceReport,
