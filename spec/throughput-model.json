@@ -688,6 +688,27 @@
             "status": "rejected_first_causal_proposal_mismatch; no_target_verification_authorized; not_endpoint_tps_or_default",
             "provenance": "PW-0103; clean commit 8a99f2f2e3f171e16e4c54893ecb73392cc1e200; pinned SGLang shifted-token/pre-final-norm hidden transition; manifest 65404539dc1b0f0e5b8cf0a0962b1b65fcd5e5fdcfe15ae2f1fd5ebdd49992a7; Gate 8 passed"
         },
+        "pw0104_real_route_exact_cache_policy_bound": {
+            "positions": 27,
+            "routed_layers": 47,
+            "top_k": 8,
+            "accesses": 10152,
+            "unique_layer_experts": 2353,
+            "expert_bytes": 25171968,
+            "six_gib_capacity_experts": 255,
+            "six_gib_belady_hit_ratio": 0.5053191489361702,
+            "eight_gib_capacity_experts": 341,
+            "eight_gib_lru_hit_ratio": 0.0,
+            "eight_gib_lfu_hit_ratio": 0.3683018124507486,
+            "eight_gib_belady_hit_ratio": 0.6003743104806935,
+            "eight_gib_belady_misses": 4057,
+            "eight_gib_belady_logical_miss_bytes": 102122674176,
+            "eight_gib_belady_logical_miss_bytes_per_token": 3782321265.7777777,
+            "minimum_required_hit_ratio": 0.93,
+            "gap_to_minimum_required": 0.3296256895193065,
+            "status": "rejected_exact_6_to_8_gib_cache_as_primary_throughput_mechanism_for_this_trace; offline_oracle_not_endpoint_tps",
+            "provenance": "PW-0104; clean commit 01cc65e1281bb93cf0292e9bb66f0798d2b86dbe; authenticated PW-0091 route replay; manifest 7e88f6613f5a3f84970763f90ce357cbdff77e499f2f3673c4482829b918ab17"
+        },
         "native_simdgroup_matrix_source_fp8_moe_schedule": {
             "candidate_wall_median_ms_repeats": [22.450083, 22.531125],
             "control_wall_median_ms_repeats": [17.107709, 17.089417],

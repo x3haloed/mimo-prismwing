@@ -1601,3 +1601,19 @@ hashes to
 `65404539dc1b0f0e5b8cf0a0962b1b65fcd5e5fdcfe15ae2f1fd5ebdd49992a7`;
 Gate 8 passed all 11 boundaries and released to 154,553,152 bytes physical
 footprint.
+
+PW-0104 rejects a 6--8 GiB exact expert cache as the primary throughput
+mechanism on the authenticated PW-0091 causal trace. Its 27 positions produce
+10,152 accesses to 2,353 distinct layer-local experts. At 8 GiB (341 equal-size
+expert payloads), an offline Belady oracle with impossible knowledge of the
+entire future reaches only 60.037431% hits, leaving 4,057 misses and
+102,122,674,176 logical source bytes; this is 32.962569 percentage points below
+the predeclared 93% minimum. Causal lifetime LFU reaches 36.830181%, while LRU
+gets no hits because 341 slots cannot span the 376 accesses between token
+boundaries. The earlier planning possibility that replacement or prefetch
+could turn a 6--8 GiB exact cache into the main Prismwing-50 mechanism is
+superseded for this trace. Prefetch may still hide latency, and a larger
+hardware-resident cache changes the premise. This short text trace does not
+replace E2's eventual multimodal million-position corpus or establish a
+universal cache rate. The immutable manifest hashes to
+`7e88f6613f5a3f84970763f90ce357cbdff77e499f2f3673c4482829b918ab17`.

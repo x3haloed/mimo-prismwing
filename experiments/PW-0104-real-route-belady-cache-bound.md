@@ -1,10 +1,11 @@
 # PW-0104 — Real-route Belady cache bound
 
-- Status: planned
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Commit and dirty state: to be recorded by the analysis manifest
+- Commit and dirty state: `01cc65e1281bb93cf0292e9bb66f0798d2b86dbe`,
+  clean executable
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0091 manifest
   `87466b59480a5a5b4256c490f1dfe670fe09f28d21d169085ab13bb1b4b7ab59`
@@ -49,9 +50,35 @@ analysis reports logical source miss bytes only.
 
 ## Result
 
-Unexecuted.
+The authenticated PW-0091 trace contains exactly 10,152 accesses to 2,353
+distinct layer-local experts. The canonical access-list SHA-256 is
+`1127968ca78291ed36530f0e3921c8b3e6751ef9731e11421fb89c7952a3b56f`.
+At 6 GiB (255 experts), offline Belady reaches 5,130 hits out of 10,152,
+50.531915%. At 8 GiB (341 experts), it reaches 6,095 hits, 60.037431%.
+The latter leaves 4,057 misses, 102,122,674,176 logical source bytes, or
+3,782,321,265.78 bytes per causal token. It misses the predeclared 93% floor
+by 32.962569 percentage points.
+
+The causal controls are strictly worse. At 8 GiB lifetime LFU reaches
+36.830181%; LRU reaches zero because the 341-slot cache cannot span the 376
+layer-expert accesses between adjacent token boundaries. The analysis checks
+that Belady upper-bounds both controls at every integer-GiB capacity from one
+through ten, that hits are monotonic with capacity, and that hit/miss and byte
+ledgers close exactly. The immutable evidence manifest is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0104/cache-001/manifest.json`,
+SHA-256
+`7e88f6613f5a3f84970763f90ce357cbdff77e499f2f3673c4482829b918ab17`.
+
+This is deterministic policy replay, not a model process or performance run;
+Gate 8 is inapplicable because no model tensors are loaded. It reports no
+endpoint TPS or avoided physical I/O.
 
 ## Decision
 
-Run the deterministic policy replay before implementing any resident-cache or
-prefetch service.
+Reject a 6--8 GiB exact resident cache, cache-replacement engineering, or
+prefetch as the primary Prismwing-50 throughput mechanism for this trace. Even
+future knowledge cannot supply the required reuse. Prefetch can still hide
+some latency, and larger companion hardware could change the capacity premise;
+both are separate mechanisms. Preserve the single short text trace limitation:
+this result does not replace E2's multimodal million-position corpus and does
+not assert a universal workload hit rate.
