@@ -63,11 +63,18 @@ per-token-group activation representation to FP8 linears.
 
 ## Isolated attribution
 
-Unexecuted.
+The independent PyTorch 2.13.0 fixture contains 512 seeded F32 activations in
+four token groups, including signed zero, sub-epsilon values, saturation, and
+ordinary values. Its content hashes to
+`b04d86b500afaaed48f36821c42a3d423f65a3a93ca30425f513645f832dcb5a`.
+Rust matches every F32 scale bit, every encoded E4M3FN byte, and every
+dequantized F32 bit. Production accounting records groups and values at each
+FP8 matrix boundary.
 
 ## End-to-end result
 
-Unexecuted.
+The byte-level semantic gate passes. All 26 Rust tests, 35 Python tests, strict
+Clippy, and the release build pass before endpoint execution.
 
 ## Correctness result
 

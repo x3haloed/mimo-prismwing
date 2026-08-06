@@ -161,6 +161,8 @@ pub struct EndpointLedger {
     pub fp8_matrices_expanded: u64,
     pub bf16_matrices_expanded: u64,
     pub routed_expert_executions: u64,
+    pub dynamic_activation_groups: u64,
+    pub dynamic_activation_values: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -871,6 +873,80 @@ fn rms_norm(
     Ok(output)
 }
 
+struct DynamicFp8Activations {
+    dequantized: Vec<f32>,
+    scales: Vec<f32>,
+    encoded: Vec<u8>,
+}
+
+fn encode_f8_e4m3fn(value: f32) -> Result<u8, String> {
+    if !value.is_finite() || value.abs() > 448.0 {
+        return Err("E4M3FN encoder requires a finite value in [-448,448]".to_owned());
+    }
+    if value == 0.0 {
+        return Ok(if value.is_sign_negative() { 0x80 } else { 0 });
+    }
+    let magnitude = value.abs();
+    let mut best = 0_u8;
+    let mut best_distance = f32::INFINITY;
+    for candidate in 0_u8..=0x7e {
+        let decoded = super::decode_f8_e4m3fn(candidate);
+        let distance = (magnitude - decoded).abs();
+        if distance < best_distance
+            || (distance == best_distance && candidate & 1 == 0 && best & 1 != 0)
+        {
+            best = candidate;
+            best_distance = distance;
+        }
+    }
+    Ok(best | if value.is_sign_negative() { 0x80 } else { 0 })
+}
+
+fn dynamic_fp8_activations(
+    input: &[f32],
+    rows: usize,
+    columns: usize,
+) -> Result<DynamicFp8Activations, String> {
+    const GROUP: usize = 128;
+    const EPSILON: f32 = 1.0e-10;
+    const FP8_MAX: f32 = 448.0;
+    if rows == 0
+        || columns == 0
+        || !columns.is_multiple_of(GROUP)
+        || input.len() != rows * columns
+        || input.iter().any(|value| !value.is_finite())
+    {
+        return Err("dynamic FP8 activation shape or value mismatch".to_owned());
+    }
+    let mut dequantized = Vec::with_capacity(input.len());
+    let mut encoded = Vec::with_capacity(input.len());
+    let mut scales = Vec::with_capacity(rows * columns / GROUP);
+    for row in input.chunks_exact(columns) {
+        for group in row.chunks_exact(GROUP) {
+            let absmax = group
+                .iter()
+                .map(|value| value.abs())
+                .fold(0.0_f32, f32::max)
+                .max(EPSILON);
+            let scale = absmax / FP8_MAX;
+            if !scale.is_finite() || scale <= 0.0 {
+                return Err("dynamic FP8 activation scale is invalid".to_owned());
+            }
+            scales.push(scale);
+            for &value in group {
+                let byte = encode_f8_e4m3fn((value / scale).clamp(-FP8_MAX, FP8_MAX))?;
+                encoded.push(byte);
+                dequantized.push(super::decode_f8_e4m3fn(byte) * scale);
+            }
+        }
+    }
+    Ok(DynamicFp8Activations {
+        dequantized,
+        scales,
+        encoded,
+    })
+}
+
 fn fp8_linear(
     checkpoint: &Checkpoint,
     weight_name: &str,
@@ -896,8 +972,17 @@ fn fp8_linear(
             .checked_add(validated.weight.metadata.data_bytes + validated.scale.metadata.data_bytes)
             .ok_or("logical byte ledger overflow")?;
         ledger.fp8_matrices_expanded += 1;
+        let quantized = dynamic_fp8_activations(input, rows, columns)?;
+        ledger.dynamic_activation_groups += quantized.scales.len() as u64;
+        ledger.dynamic_activation_values += quantized.encoded.len() as u64;
         let decoded = decode_fp8_matrix_f32(&validated);
-        accelerate_sgemm_right_transposed(input, &decoded, rows, output_columns, columns)?
+        accelerate_sgemm_right_transposed(
+            &quantized.dequantized,
+            &decoded,
+            rows,
+            output_columns,
+            columns,
+        )?
     };
     release_matrix_transients(checkpoint)?;
     Ok(output)
@@ -977,7 +1062,16 @@ fn full_qkv_linear(
             .checked_add(weight.metadata.data_bytes + scale.metadata.data_bytes)
             .ok_or("logical byte ledger overflow")?;
         ledger.fp8_matrices_expanded += 1;
-        accelerate_sgemm_right_transposed(input, &decoded, rows, OUTPUT_ROWS, HIDDEN)?
+        let quantized = dynamic_fp8_activations(input, rows, HIDDEN)?;
+        ledger.dynamic_activation_groups += quantized.scales.len() as u64;
+        ledger.dynamic_activation_values += quantized.encoded.len() as u64;
+        accelerate_sgemm_right_transposed(
+            &quantized.dequantized,
+            &decoded,
+            rows,
+            OUTPUT_ROWS,
+            HIDDEN,
+        )?
     };
     release_matrix_transients(checkpoint)?;
     Ok(output)
@@ -1660,9 +1754,9 @@ pub fn run_slow_text_endpoint(
         accepted_tokens: 2,
         accepted_per_verification: 1,
         cache_state: "cold process; verified source mmap; one matrix expanded at a time; retained per-layer K/V",
-        exactness: "L0 source weights and routes; reordered FP32 arithmetic under component gates",
+        exactness: "L0 source weights and routes; dynamic per-token-group E4M3FN activations; reordered FP32 accumulation under component gates",
         performance_claim: None,
-        implementation: "single_rust_authority_tokenizers_mmap_accelerate_bounded_source_fp8_bf16",
+        implementation: "single_rust_authority_tokenizers_mmap_accelerate_dynamic_activation_source_fp8_bf16",
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;
@@ -1771,5 +1865,76 @@ mod tests {
                 assert!((actual - expected).abs() <= 1.0e-6);
             }
         }
+    }
+
+    #[test]
+    fn dynamic_fp8_activations_match_pytorch_bytes() {
+        fn flatten_i64(value: &Value, output: &mut Vec<i64>) {
+            if let Some(values) = value.as_array() {
+                for value in values {
+                    flatten_i64(value, output);
+                }
+            } else {
+                output.push(value.as_i64().expect("integer fixture value"));
+            }
+        }
+
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0053-dynamic-fp8-activation.json"
+        ))
+        .expect("valid dynamic activation fixture");
+        assert_eq!(
+            fixture["semantic"],
+            "dynamic_fp8_e4m3fn_per_token_group_128"
+        );
+        let mut input_bits = Vec::new();
+        flatten_i64(&fixture["input_f32_bits"], &mut input_bits);
+        let input = input_bits
+            .into_iter()
+            .map(|bits| f32::from_bits((bits as i32) as u32))
+            .collect::<Vec<_>>();
+        let actual = dynamic_fp8_activations(&input, 2, 256).expect("valid activations");
+
+        let mut scale_bits = Vec::new();
+        flatten_i64(&fixture["scale_f32_bits"], &mut scale_bits);
+        assert_eq!(
+            actual
+                .scales
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>(),
+            scale_bits
+                .into_iter()
+                .map(|bits| (bits as i32) as u32)
+                .collect::<Vec<_>>()
+        );
+        let mut encoded = Vec::new();
+        flatten_i64(&fixture["encoded_u8"], &mut encoded);
+        assert_eq!(
+            actual.encoded,
+            encoded
+                .into_iter()
+                .map(|value| value as u8)
+                .collect::<Vec<_>>()
+        );
+        let mut dequantized_bits = Vec::new();
+        flatten_i64(&fixture["dequantized_f32_bits"], &mut dequantized_bits);
+        assert_eq!(
+            actual
+                .dequantized
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>(),
+            dequantized_bits
+                .into_iter()
+                .map(|bits| (bits as i32) as u32)
+                .collect::<Vec<_>>()
+        );
+
+        assert!(dynamic_fp8_activations(&[], 0, 128).is_err());
+        assert!(dynamic_fp8_activations(&[0.0; 127], 1, 127).is_err());
+        let mut nonfinite = [0.0_f32; 128];
+        nonfinite[3] = f32::NAN;
+        assert!(dynamic_fp8_activations(&nonfinite, 1, 128).is_err());
     }
 }
