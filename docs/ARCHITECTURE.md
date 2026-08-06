@@ -108,6 +108,11 @@ The construction order follows the least-proven boundaries:
   SSD, so no shared-event arena scheduler is an active authority. A named
   faster device or lossless executable-byte reduction must change the premise
   before that topology is reopened.
+- PW-0109 rejects the lossless 128-neuron block-permutation representation on
+  the selected real route. It preserves source scale topology and exact expert
+  functions, but exposes effectively no incremental residual compression. It
+  is not an artifact format or decoder authority; finer neuron permutations or
+  learned bases necessarily enter a separately named representation branch.
 - The PW-0049 correctness baseline owns one complete real base layer from
   source-FP8 QKV through SWA, residual/norm, dynamic routing, 56 selected
   experts, weighted scatter, and the final residual. Rust uses Accelerate

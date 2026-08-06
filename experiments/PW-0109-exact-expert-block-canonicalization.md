@@ -1,10 +1,10 @@
 # PW-0109 — Exact expert block canonicalization
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Contract commit: pending
+- Contract commit: `e3d47f1cdbc866cf70a056ba0dfe87b643ee4e82`
 - Artifact authority: PW-0106 layer-4 selected-expert artifact
   `fac61c2cfad4b00248c96a52b68360fecd39e2c912e6ffd6643e3f06ade00d21`;
   manifest
@@ -103,4 +103,54 @@ before claiming generality or building an executable codec.
 
 ## Result
 
-Not yet executed.
+The implementation at
+`f91121f0a3491ab41733a1e3dddc6f82e18538ee` extracted 16 exact
+1,573,248-byte neuron-block records from each of the eight authenticated
+experts. The 201,375,744-byte ledger closes exactly. Every expert assignment is
+a bijection, XOR reversal passes, and inverse block scatter reproduces all 48
+source tensor hashes. Five focused Python tests cover exact XOR, component
+lengths, tiny gate/up row movement, down column/scale movement, nonaliasing,
+bounds, and inverse-count failures.
+
+Expert 9 is the deterministic reference. Every other expert selects a
+nonidentity permutation, but exact assigned XOR popcounts remain approximately
+93.0--93.7 million bits per expert. That apparent assignment activity does not
+translate into compressible shared structure. All three compared streams have
+the same 201,375,744 logical bytes:
+
+| Stream | zstd 1 bytes / ratio | zstd 19 bytes / ratio |
+| --- | ---: | ---: |
+| Unmodified expert-major | 177,024,596 / 87.908% | 176,833,045 / 87.812% |
+| Identity reference/XOR | 191,564,246 / 95.128% | 191,719,443 / 95.205% |
+| Aligned reference/XOR | 191,481,312 / 95.087% | 191,648,055 / 95.169% |
+
+At the fast setting, alignment improves identity-delta by only 0.0433%, far
+below the 10% mechanism gate, and is 8.167% larger than the unmodified control.
+It reduces source bytes by only 4.913%, far below the 25% physical gate.
+Single-thread zstd decompression to `/dev/null` takes 190.621 ms, yielding an
+optimistic transformed acquisition-plus-decode bound of 245.804 ms rather than
+47.7 ms. High analysis compression is no better and is not a runtime proposal.
+
+Gate 8 passes with 78% minimum free memory, 508,133,376-byte peak RSS,
+82,200,640-byte final physical footprint, zero swap growth, zero new throttled
+pages, and stable protected services. Temporary 604,127,232-byte streams were
+released and never entered Git. The immutable run manifest at
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0109/run-001/manifest.json`
+hashes to
+`9e0f15f65269d1b5c53536f18cda62df039d13ed19f48242f3eef91966b43bab`.
+The clean analyzer at
+`4dd03eae8c01715b3e2f373354d7b6ac82b214f7` emitted `analysis-001.json`, hash
+`a298ae0b3022fa5f22e06a573af9d1bfdc9471eb33c8fafcd7e664cf26d0b12d`.
+The updated throughput model hashes to
+`0b8d0db57e0b4869517c620c2292433eb0508ec03bfdc10901e2d9500a44a38f`.
+
+## Decision
+
+Reject 128-neuron block canonicalization as an executable-byte mechanism for
+this selected real route. Do not expand it to all 256 experts, build a runtime
+decoder, or infer that arbitrary-neuron canonicalization will succeed: that
+deeper representation would expand or replace source scale topology and needs
+independent evidence. The unmodified codec control shows a modest generic
+12.1% high-level compression opportunity, but its measured CPU decode cost and
+insufficient byte reduction fail the physical bound. No endpoint, artifact
+default, or L3 arithmetic change is authorized.

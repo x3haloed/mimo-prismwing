@@ -263,12 +263,23 @@ tests the promoted acquisition mechanism directly. Three concurrent real
 Metal-I/O command buffers reach 58.034 ms cold for the exact 201.376 MB selected
 payload, missing the 47.7 ms physical continuation bound. The internal-SSD
 shared-event arena pipeline is therefore rejected before construction.
+[PW-0109](../experiments/PW-0109-exact-expert-block-canonicalization.md) tests
+whether exact 128-neuron symmetry can reduce that payload without changing
+source scale topology. Aligned residuals compress to 95.087%, only 0.0433%
+better than identity-delta and worse than the unmodified control, so this
+representation is rejected before full-layer expansion or decoder work.
 
 Do not build an internal-SSD Metal-I/O/compute arena over the unchanged
 payload. Reopen this mechanism only for a named faster storage configuration
 or after an exact executable representation reduces selected bytes enough to
 change PW-0108's bound. Preserve PW-0106 C2, PW-0107 C3, and PW-0108's
 three-buffer loader as distinct controls.
+
+Any next exact byte-reduction experiment must change a premise PW-0109 did not
+test—such as a representation that replaces the source scale layout or a
+learned common basis—and must rederive decode cost against PW-0108 before
+implementation. Generic storage compression and block permutation are not
+active paths.
 
 **Go:** for a changed physical premise, rederive the acquisition bound before
 implementation, reproduce exact bytes and PW-0106's unchanged candidate

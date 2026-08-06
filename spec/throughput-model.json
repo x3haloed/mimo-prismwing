@@ -805,6 +805,28 @@
             "status": "rejected_internal_ssd_metal_io_overlap_before_phase_b; retain_exact_loader_as_conditional_hardware_control; not_endpoint_tps_or_default",
             "provenance": "PW-0108; contract 81638393be2b7b0ebeddcfdf73e2e05e5a0d738d; runtime ea83a9b4d9a46379ad4d6b4a9932934b03a0ab8f; raw report 6f7d816b4f39c00b967642bdf300e7baea8563a5fca593ab5d0943b5df047d68; clean analyzer c48ded6beb46b95d093e8a87580dc9f4de1ff90e; analysis 5281fd36c06e2a2e5767918bbb63f0fe33cbec4a1478b4281806d6fdf56ac43d; Gate 8 passed"
         },
+        "pw0109_exact_expert_block_canonicalization": {
+            "batch_size": 1,
+            "concurrency": 1,
+            "layer": 4,
+            "selected_experts": 8,
+            "block_neurons": 128,
+            "blocks_per_expert": 16,
+            "logical_bytes": 201375744,
+            "unmodified_fast_compressed_bytes": 177024596,
+            "unmodified_fast_compressed_ratio": 0.8790760619114087,
+            "identity_delta_fast_compressed_bytes": 191564246,
+            "identity_delta_fast_compressed_ratio": 0.951277657352814,
+            "aligned_delta_fast_compressed_bytes": 191481312,
+            "aligned_delta_fast_compressed_ratio": 0.9508658202648279,
+            "aligned_fast_gain_vs_identity_delta": 0.00043293047492798387,
+            "aligned_fast_gain_vs_unmodified": -0.08166501337475163,
+            "aligned_fast_decompression_ms": 190.62145899806637,
+            "aligned_fast_optimistic_transformed_bound_ms": 245.8038472167234,
+            "physical_continuation_bound_ms": 47.7,
+            "status": "rejected_exact_128_neuron_block_canonicalization; generic_codec_control_insufficient; not_endpoint_tps_or_default",
+            "provenance": "PW-0109; contract e3d47f1cdbc866cf70a056ba0dfe87b643ee4e82; implementation f91121f0a3491ab41733a1e3dddc6f82e18538ee; raw manifest 9e0f15f65269d1b5c53536f18cda62df039d13ed19f48242f3eef91966b43bab; clean analyzer 4dd03eae8c01715b3e2f373354d7b6ac82b214f7; analysis a298ae0b3022fa5f22e06a573af9d1bfdc9471eb33c8fafcd7e664cf26d0b12d; Gate 8 passed"
+        },
         "native_simdgroup_matrix_source_fp8_moe_schedule": {
             "candidate_wall_median_ms_repeats": [22.450083, 22.531125],
             "control_wall_median_ms_repeats": [17.107709, 17.089417],

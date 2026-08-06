@@ -1715,3 +1715,23 @@ services. Raw evidence hashes to
 `6f7d816b4f39c00b967642bdf300e7baea8563a5fca593ab5d0943b5df047d68`;
 clean analysis hashes to
 `5281fd36c06e2a2e5767918bbb63f0fe33cbec4a1478b4281806d6fdf56ac43d`.
+
+PW-0109 rejects the exact symmetry available without changing the checkpoint's
+128-by-128 source-FP8 scale topology. Deterministic bijective alignment of the
+16 groups of 128 SwiGLU neurons per expert is exactly reversible across all 48
+selected tensors, but aligned XOR residuals compress to 95.087% at fast zstd:
+only 0.0433% smaller than identity-delta and 8.167% larger than the unmodified
+87.908% control. The aligned fast stream misses the 25% byte-reduction gate and
+its optimistic acquisition-plus-decode bound is 245.804 ms rather than 47.7
+ms. Thus block permutation does not expose meaningful exact cross-expert
+structure on this route.
+
+Do not expand this mechanism to all experts or build a decoder. Arbitrary
+single-neuron canonicalization changes the representation premise because it
+mixes current scale blocks; a learned/common basis is also a separate branch.
+Gate 8 passed with 78% minimum free memory, 508,133,376-byte peak RSS,
+82,200,640-byte final footprint, zero swap growth or throttling, and stable
+services. Raw evidence hashes to
+`9e0f15f65269d1b5c53536f18cda62df039d13ed19f48242f3eef91966b43bab`;
+clean analysis hashes to
+`a298ae0b3022fa5f22e06a573af9d1bfdc9471eb33c8fafcd7e664cf26d0b12d`.
