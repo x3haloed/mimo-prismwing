@@ -1349,12 +1349,9 @@ fn bf16_last_row_linear(
             .ok_or("logical byte ledger overflow")?;
         ledger.bf16_matrices_expanded += 1;
         let decoded = decode_bf16_tensor(view, output_columns * columns)?;
-        let mut output = Vec::with_capacity(output_columns);
-        for weight_row in decoded.chunks_exact(columns) {
-            output.push(round_bf16(pytorch_bf16_specialized_vector_dot_f32(
-                input, weight_row,
-            )));
-        }
+        let mut output =
+            accelerate_sgemm_right_transposed(input, &decoded, 1, output_columns, columns)?;
+        round_bf16_values(&mut output);
         output
     };
     release_matrix_transients(checkpoint)?;
