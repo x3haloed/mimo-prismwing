@@ -1311,3 +1311,12 @@ expert sets/order, and holds route-weight error to `1.93e-8`. It safely peaked
 at 746 MB RSS, returned to 144 MB, retained at least 83% free memory, and
 caused no swap growth, throttling, or service loss. The exact accumulated
 frontier is now through layer 29; run one frozen full-prefix replay next.
+
+PW-0086 advances the accumulated bit-exact frontier through layer 33. Layer 34
+is the first actual divergence—only 6 of 110,592 BF16 values, `4.43e-7`
+relative L2, and `0.0078125` maximum error—while layer 36 is merely the first
+formal final-state failure after propagation. Route weights first fail at
+layer 34; expert sets remain exact through layer 43. The 781.393-second safe
+walk peaked at 3.942 GB RSS in the LM head, ended at 2.674 GB, retained 83%
+free memory, and caused no swap growth, throttling, or protected-service loss.
+Localize layer 34 from exact layer 33 rather than skipping to layer 36.
