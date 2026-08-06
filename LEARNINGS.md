@@ -1204,3 +1204,13 @@ GB RSS in the LM head, ended at 2.710 GB, retained at least 77% free memory,
 and caused no swap growth, throttling, or protected-service loss. Localize
 layer 13 from the frozen exact layer-12 input rather than changing downstream
 routing or repeating another full walk.
+
+PW-0075 localizes layer 13 to attention-value reduction after every centered
+score and probability matches. Exactly one of 221,184 attention values differs:
+the forward F32 sum lands on a BF16 tie, while PyTorch's specialized vector-tail
+topology lands two F32 ULPs lower and rounds to the oracle value. That one
+quantum causes the layer's downstream router-weight and final-state errors;
+expert sets remain exact. The 213.801-second production trace peaked at 750 MB
+RSS, returned to 132 MB, retained at least 79% free memory, and caused no swap
+growth, throttling, or service loss. Gate the real 25-element pair before
+reusing the specialized dot helper for attention values.
