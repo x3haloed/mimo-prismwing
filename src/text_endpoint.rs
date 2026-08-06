@@ -1009,8 +1009,8 @@ pub(crate) struct ProcessActivity {
 pub struct ProcessActivityDelta {
     pub disk_bytes_read: u64,
     pub pageins: u64,
-    pub minor_faults: u64,
-    pub major_faults: u64,
+    pub minor_faults: i64,
+    pub major_faults: i64,
     pub user_cpu_us: u64,
     pub system_cpu_us: u64,
 }
@@ -1024,11 +1024,19 @@ impl ProcessActivity {
                 )
             })
         };
+        let signed_delta = |later: u64, before: u64, name: &str| {
+            let difference = i128::from(later) - i128::from(before);
+            i64::try_from(difference)
+                .map_err(|_| format!("process activity signed delta does not fit i64: {name}"))
+        };
         Ok(ProcessActivityDelta {
             disk_bytes_read: delta(self.disk_bytes_read, earlier.disk_bytes_read, "disk read")?,
             pageins: delta(self.pageins, earlier.pageins, "pageins")?,
-            minor_faults: delta(self.minor_faults, earlier.minor_faults, "minor faults")?,
-            major_faults: delta(self.major_faults, earlier.major_faults, "major faults")?,
+            // Darwin's getrusage fault counts can fall across multithreaded
+            // Accelerate/Metal boundaries. Preserve the signed observation;
+            // do not underflow or silently clamp it.
+            minor_faults: signed_delta(self.minor_faults, earlier.minor_faults, "minor faults")?,
+            major_faults: signed_delta(self.major_faults, earlier.major_faults, "major faults")?,
             user_cpu_us: delta(self.user_cpu_us, earlier.user_cpu_us, "user CPU")?,
             system_cpu_us: delta(self.system_cpu_us, earlier.system_cpu_us, "system CPU")?,
         })
@@ -6781,7 +6789,7 @@ mod tests {
     }
 
     #[test]
-    fn process_activity_deltas_fail_closed_on_counter_regression() {
+    fn process_activity_deltas_preserve_fault_regressions_and_fail_on_cumulative_regression() {
         let before = ProcessActivity {
             disk_bytes_read: 10,
             pageins: 20,
@@ -6805,6 +6813,15 @@ mod tests {
         assert_eq!(delta.major_faults, 4);
         assert_eq!(delta.user_cpu_us, 5);
         assert_eq!(delta.system_cpu_us, 6);
+        let fault_regression = ProcessActivity {
+            minor_faults: 23,
+            major_faults: 39,
+            ..after
+        }
+        .checked_delta(before)
+        .expect("fault counters are signed observations");
+        assert_eq!(fault_regression.minor_faults, -7);
+        assert_eq!(fault_regression.major_faults, -1);
         assert!(before.checked_delta(after).is_err());
     }
 }
