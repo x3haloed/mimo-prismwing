@@ -1034,3 +1034,13 @@ provisionally cleared; the belief that a layer-0 projection/layout error is the
 primary hosted mismatch is superseded. The next localization target is routed
 layer 1 with learned SWA sink and dynamic expert selection, not another blind
 whole-model walk.
+
+PW-0058 clears that next structural boundary. The production Rust path
+causally recomputes dense layer 0, then matches the independent oracle
+bit-for-bit through routed layer-1 SWA QKV, theta-10,000 RoPE, learned sinks,
+attention, projection, residual, post-normalization, and F32 router logits.
+All 27 eight-expert sets are exact, with maximum per-expert route-weight error
+`2.54e-8` against the `5e-7` gate. The belief that SWA attention or noaux-tc
+routing is the first hosted-divergence mechanism is superseded. The next rung
+is execution of only the causally selected real experts; the 4.245-second,
+686 MB Rust trace is diagnostic and changes no throughput-model constant.

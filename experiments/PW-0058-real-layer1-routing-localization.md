@@ -1,10 +1,10 @@
 # PW-0058 — Real layer-1 attention-to-routing localization
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: diagnostic contract precedes implementation
+- Commit and dirty state: clean `9d2f70cd34415612055d8e9c65073e750c3cdb5a`
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0056 cleared comparison
   `a741cc0a3686926ff2d4c880b08c3ab4ee046b4912f58a3b9738d2952ebbcb78`;
@@ -55,8 +55,42 @@ change hosted thresholds or make a throughput claim.
 
 ## Result
 
-Unexecuted.
+Rust run 001 causally executed the production dense layer 0 and routed layer-1
+attention/routing path, stopping with zero routed expert executions. The
+independent oracle consumed only PW-0056 oracle run 004's hash-verified final
+state. Comparison 001 clears every contracted boundary:
+
+- incoming state through post-attention normalization is BF16 bit-exact;
+- router logits are F32 bit-exact;
+- router scores have relative L2 `1.4122187251662206e-8` and maximum absolute
+  error `1.1920928955078125e-7`;
+- all eight selected-expert sets match at all 27 positions; and
+- route weights compared by expert identity have maximum absolute error
+  `2.5432357775301284e-8`, below the `5e-7` limit.
+
+Evidence hashes:
+
+- independent oracle manifest:
+  `a348b9f521fc6b46fd13ad95f3165c8f1cbfff5f53c3d342915dfa275206668e`;
+- Rust manifest:
+  `b946ed6a268be454247a7aa04888f2a00e52f36c9dab7b898e53287326c12f39`;
+- comparison 001:
+  `1cea804681d175b0fe4c359aafe120a6659f3dc45d5c125a3f5aad5ca36880d2`.
+
+Rust completed in 4.245 seconds with 456,463,488 logical source bytes,
+458,186,752 measured process disk-read bytes, zero expert executions, and
+686,292,992 bytes peak resident memory. The oracle completed in 1.918 seconds
+and peaked at 938,049,536 bytes. Both retained 76% system-free memory, grew no
+swap, observed no throttled pages, and preserved every protected service.
+All 29 Rust tests, 39 Python tests, strict Clippy, Python compilation, and the
+release build pass. These are diagnostic timings, not throughput claims, so no
+throughput-model constant changes.
 
 ## Decision
 
-Unexecuted.
+Promote the layer-1 attention/routing trace as a correctness diagnostic and
+provisionally clear the first routed layer through exact expert selection.
+The belief that SWA attention, learned sinks, or noaux-tc routing is the first
+structural cause of hosted divergence is superseded. Open the bounded selected
+expert execution rung for these exact routes; do not repeat another whole-model
+walk or infer hosted parity until that expert path clears.
