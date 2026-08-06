@@ -1617,3 +1617,31 @@ hardware-resident cache changes the premise. This short text trace does not
 replace E2's eventual multimodal million-position corpus or establish a
 universal cache rate. The immutable manifest hashes to
 `7e88f6613f5a3f84970763f90ce357cbdff77e499f2f3673c4482829b918ab17`.
+
+PW-0105 supersedes the assumption that PW-0100's 75.7-second token primarily
+measures Metal projection arithmetic or buffer copying. A causal, profiled
+repeat differs in wall by only 0.4638% and partitions 76.077 seconds into
+40.561 seconds routed MoE, 28.673 seconds other layer work, and 6.843 seconds
+outside layers. Within routed MoE, repeated tensor/scale validation and page
+acquisition consume 16.790 seconds, while the safety-oriented
+`release_matrix_transients` invalidates all checkpoint mappings after every
+expert and consumes 21.012 seconds. All 1,128 source-buffer copies total only
+0.773 seconds; synchronous waits total 0.816 seconds and contain 0.404 seconds
+of GPU-active time. Thus the M1 GPU is active for only 0.995% of routed wall,
+and 97.115% lies in the named layer-transaction target categories. Promote a
+prevalidated, page-stable, layer-scoped runtime artifact/no-copy/async branch;
+do not expect `bytesNoCopy` alone to clear 2x. The old global invalidation was
+a correct bounded-memory vehicle, not a viable expert-scale lifecycle.
+
+The profiled experts move 9,526,915,072 physical read bytes for
+9,464,659,968 installed source bytes, proving that the per-expert release policy
+defeats page reuse. Gate 8 still passes with 77% minimum free memory, 4.345 GB
+peak RSS, 3.091 GB post-release footprint, and no swap growth, throttling, or
+service loss. The result does not promote the rejected L3 arithmetic: it
+reproduces token 13 and the layer-4/final-logit failures. Nor is routed
+transaction fusion sufficient by itself: 35.516 seconds remains in the current
+non-MoE layer/outside-layer path even under an impossible zero-cost routed MoE.
+The raw report hashes to
+`49c1f85b24e8864d43a3a901de9c7c40e8745a4427599248bd937abba4ce3e11`;
+canonical analysis hashes to
+`26d649f8babbf00a21bace7c522fab178992d092972ffc55ffb076ac033b1150`.

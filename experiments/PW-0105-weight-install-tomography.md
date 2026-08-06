@@ -1,10 +1,12 @@
 # PW-0105 — Cold weight-install tomography
 
-- Status: planned
-- Disposition: unexecuted
+- Status: complete
+- Disposition: scope-decision
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Commit and dirty state: to be recorded by the evidence manifest
+- Commit and dirty state: profiled runtime
+  `e67fe4b3927bf027b5fa91f176435989576715e8`; analysis
+  `18285374cfdc3131a8ae18fe1be5b58f87f85f82`; clean trees
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; checkpoint verification
   `9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`;
@@ -115,10 +117,67 @@ minimum 2x cold routed-layer improvement against copied-buffer control.
 
 ## Result
 
-Unexecuted.
+The real layer-4 seam first proved that observation does not alter the causal
+path. The profiled run exactly reproduces PW-0101's route IDs, route weights,
+all expert-stage parity metrics, routed residual, and final residual. All 24
+command buffers expose valid Apple M1 GPU timestamps, and Gate 8 passes. Its
+report is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0105/layer4-002/report.json`,
+SHA-256
+`2de060cbd7afd22e2d21615883127649a8f564b513a9aa8d1abfca52ca4d18bf`.
+
+The sole authorized full walk then captures 376 real routed experts, 1,128
+gate/up/down projections, and all 47 routed layers. It reproduces generated
+tokens `[264, 13]`, the known first failure at layer 4, and the rejected final
+norm/logit behavior rather than manufacturing a pass. Incremental wall is
+76,077.168 ms, only 0.4638% above PW-0100's 75,725.919 ms despite the added
+counters. The raw 7.5 MiB report hashes to
+`49c1f85b24e8864d43a3a901de9c7c40e8745a4427599248bd937abba4ce3e11`.
+
+The token partitions exactly into 40,560.763 ms of routed MoE, 28,673.258 ms
+of non-MoE work inside the 48 layer intervals, and 6,843.147 ms outside those
+intervals. Within routed MoE:
+
+- tensor lookup, FP8-scale validation, and page acquisition consume
+  16,790.296 ms;
+- `release_matrix_transients`, which invalidates and `MADV_DONTNEED`s every
+  mapped checkpoint shard after every expert, consumes 21,012.196 ms;
+- all 1,128 copied source-buffer installations consume 772.576 ms;
+- all synchronous waits consume 815.605 ms, including only 403.657 ms of
+  measured GPU-active interval;
+- the GPU intervals are 0.9952% of routed-MoE wall; and
+- the four named transaction categories cover 97.1152% of routed-MoE wall.
+
+The expert intervals record 9,526,915,072 physical read bytes and 578,450
+page-ins against 9,464,659,968 installed source bytes. Complete-process reads,
+including the long CPU prefill and other weights, are 85,342,269,440 bytes.
+Projection copies themselves show zero contemporaneous disk-read deltas because
+Darwin accounts the asynchronous page I/O later in each enclosing expert
+interval; the closed expert ledger is the physical-read authority.
+
+Gate 8 passes throughout: minimum free memory is 77%, maximum peak RSS is
+4,344,627,200 bytes, post-release physical footprint is 3,090,965,312 bytes,
+swap growth and new throttled pages are zero, and every protected service
+survives. The canonical analysis is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0105/token-001/analysis-002.json`,
+SHA-256
+`26d649f8babbf00a21bace7c522fab178992d092972ffc55ffb076ac033b1150`.
 
 ## Decision
 
-Instrument the current production-shaped failure before implementing a
-Metal-ready artifact, no-copy mapping, Metal I/O, fused routed layer, or
-asynchronous buffer arenas.
+Promote a cold routed-layer transaction experiment, not any current runtime
+default. The primary first removal is the expert-scoped global checkpoint page
+invalidation plus repeated tensor/scale validation and reacquisition. A
+`bytesNoCopy` substitution alone addresses only 1.9% of measured routed wall
+and cannot satisfy the 2x continuation gate. The next candidate must combine a
+prevalidated page-aligned L1 runtime artifact or equivalent stable tensor
+authority with bounded layer-scoped page residency/release; copied-buffer and
+no-copy views then become controlled subvariants. After that causal boundary
+passes, batch gate/up/down work and async arenas can target the remaining waits
+and CPU staging.
+
+Do not infer endpoint viability from the routed opportunity. Even deleting all
+routed-MoE time from this diagnostic leaves 35.516 seconds in the current
+unoptimized non-MoE path. That work requires its own complete-layer
+transaction/computation experiments, and no timing here changes the rejected
+L3 correctness status.
