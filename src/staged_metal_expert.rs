@@ -123,7 +123,16 @@ struct RoutedRowOracleManifest {
     input_sha256: String,
     selected_experts: Vec<u32>,
     route_weights: Vec<f32>,
+    expert_outputs: BTreeMap<String, RoutedRowOracleCapture>,
     output_sha256: String,
+}
+
+#[derive(Deserialize)]
+struct RoutedRowOracleCapture {
+    file: String,
+    sha256: String,
+    shape: Vec<usize>,
+    dtype: String,
 }
 
 struct RoutedRowExecution {
@@ -131,6 +140,7 @@ struct RoutedRowExecution {
     selected: Vec<u32>,
     weights: Vec<f32>,
     minimum_boundary_margin: f32,
+    expert_outputs: Vec<(u32, Vec<f32>)>,
     wall_ms: f64,
 }
 
@@ -591,6 +601,7 @@ pub fn run_bounded_metal_routed_row(
         || reference_manifest.input_sha256 != INPUT_SHA256
         || reference_manifest.selected_experts != frozen_selected
         || reference_manifest.route_weights.len() != 8
+        || reference_manifest.expert_outputs.len() != 8
         || reference_manifest
             .route_weights
             .iter()
@@ -599,7 +610,7 @@ pub fn run_bounded_metal_routed_row(
     {
         return Err("routed-row oracle manifest identity mismatch".to_owned());
     }
-    let oracle_weights = reference_manifest.route_weights;
+    let oracle_weights = reference_manifest.route_weights.clone();
 
     let mut router_file =
         File::open(router_path).map_err(|error| format!("{}: {error}", router_path.display()))?;
@@ -724,15 +735,17 @@ pub fn run_bounded_metal_routed_row(
         let (selected, weights, minimum_boundary_margin) =
             component_pytorch_noaux_route(&logits, &correction)?;
         let mut output = vec![0.0_f32; 4096];
+        let mut expert_outputs = Vec::with_capacity(8);
         for (&expert_id, &route_weight) in selected.iter().zip(&weights) {
             let (gate, up, down) = projections
                 .get(&expert_id)
                 .ok_or_else(|| format!("runtime selected unauthoritative expert {expert_id}"))?;
             let expert_output =
                 execute_staged_expert(&device, &queue, &pipeline, &lut, [gate, up, down], &input)?;
-            for (destination, value) in output.iter_mut().zip(expert_output) {
-                *destination += value * route_weight;
+            for (destination, value) in output.iter_mut().zip(&expert_output) {
+                *destination += *value * route_weight;
             }
+            expert_outputs.push((expert_id, expert_output));
         }
         round_bf16_values(&mut output);
         Ok(RoutedRowExecution {
@@ -740,6 +753,7 @@ pub fn run_bounded_metal_routed_row(
             selected,
             weights,
             minimum_boundary_margin,
+            expert_outputs,
             wall_ms: start.elapsed().as_secs_f64() * 1000.0,
         })
     };
@@ -761,6 +775,7 @@ pub fn run_bounded_metal_routed_row(
     let selected = final_execution.selected;
     let weights = final_execution.weights;
     let minimum_topk_boundary_margin = final_execution.minimum_boundary_margin;
+    let expert_outputs = final_execution.expert_outputs;
     if selected != frozen_selected {
         return Err(format!("native route order mismatch: {selected:?}"));
     }
@@ -773,6 +788,38 @@ pub fn run_bounded_metal_routed_row(
         return Err(format!(
             "native route-weight error {maximum_route_weight_absolute_error}"
         ));
+    }
+    let mut expert_diagnostics = Vec::new();
+    for (expert, actual) in &expert_outputs {
+        let capture = reference_manifest
+            .expert_outputs
+            .get(&expert.to_string())
+            .ok_or("missing expert oracle capture")?;
+        if capture.shape != [4096]
+            || capture.dtype != "BF16_widened_F32"
+            || Path::new(&capture.file)
+                .file_name()
+                .and_then(|name| name.to_str())
+                != Some(capture.file.as_str())
+        {
+            return Err("expert oracle capture metadata mismatch".to_owned());
+        }
+        let (bytes, expected) =
+            read_f32_file(&reference_path.with_file_name(&capture.file), Some(4096))?;
+        if sha256_hex(&bytes) != capture.sha256 {
+            return Err("expert oracle capture SHA-256 mismatch".to_owned());
+        }
+        let equal = actual
+            .iter()
+            .zip(&expected)
+            .filter(|(left, right)| left.to_bits() == right.to_bits())
+            .count();
+        let maximum = actual
+            .iter()
+            .zip(&expected)
+            .map(|(left, right)| (left - right).abs())
+            .fold(0.0_f32, f32::max);
+        expert_diagnostics.push((*expert, equal, maximum));
     }
     let mut squared_error = 0.0_f64;
     let mut squared_reference = 0.0_f64;
@@ -792,7 +839,7 @@ pub fn run_bounded_metal_routed_row(
     let bf16_equality_fraction = equal as f64 / output.len() as f64;
     if relative_l2 > 5.0e-4 || maximum_absolute_error > 2.0e-2 || bf16_equality_fraction < 0.99 {
         return Err(format!(
-            "routed-row parity failed: rel L2 {relative_l2}, max abs {maximum_absolute_error}, BF16 equality {bf16_equality_fraction}"
+            "routed-row parity failed: rel L2 {relative_l2}, max abs {maximum_absolute_error}, BF16 equality {bf16_equality_fraction}, route error {maximum_route_weight_absolute_error}, experts {expert_diagnostics:?}"
         ));
     }
     let output_bytes = output

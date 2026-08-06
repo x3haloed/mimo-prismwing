@@ -60,7 +60,7 @@ def generate(checkpoint_root: Path, verification: Path, manifest_path: Path,
     safety.check("routing_complete")
 
     routed = torch.zeros((1, 4096), dtype=torch.float32)
-    expert_hashes = {}
+    expert_outputs = {}
     for slot, expert in enumerate(selected_list):
         prefix = f"model.layers.43.mlp.experts.{expert}"
         gate = expert_linear(checkpoint, prefix + ".gate_proj.weight", values)
@@ -68,9 +68,15 @@ def generate(checkpoint_root: Path, verification: Path, manifest_path: Path,
         hidden = (torch.nn.functional.silu(gate) * up).to(torch.bfloat16)
         down = expert_linear(checkpoint, prefix + ".down_proj.weight", hidden)
         routed += down.float() * float(weights_list[slot])
-        expert_hashes[str(expert)] = hashlib.sha256(
-            down.float().numpy().astype("<f4", copy=False).tobytes()
-        ).hexdigest()
+        expert_bytes = down.float().numpy().astype("<f4", copy=False).tobytes()
+        expert_path = output / f"expert_{expert}.f32"
+        atomic_write_new(expert_path, expert_bytes)
+        expert_outputs[str(expert)] = {
+            "file": expert_path.name,
+            "sha256": sha256(expert_path),
+            "shape": [4096],
+            "dtype": "BF16_widened_F32",
+        }
         safety.check(f"expert_{expert}_complete")
     result = routed.to(torch.bfloat16)
     result_bytes = result.float().numpy().astype("<f4", copy=False).tobytes()
@@ -86,7 +92,7 @@ def generate(checkpoint_root: Path, verification: Path, manifest_path: Path,
         "input_sha256": INPUT_SHA256,
         "selected_experts": selected_list,
         "route_weights": weights_list,
-        "expert_output_sha256": expert_hashes,
+        "expert_outputs": expert_outputs,
         "output_file": result_path.name,
         "output_sha256": sha256(result_path),
         "output_shape": [4096],
