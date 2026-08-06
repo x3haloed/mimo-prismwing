@@ -1,7 +1,7 @@
 # PW-0090 — Specialized BF16 LM-head reduction
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected partial repair; gate-clearing diagnostic
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
 - Commit and dirty state: contract precedes implementation
@@ -41,8 +41,36 @@ TPS or alter any threshold.
 
 ## Result
 
-Unexecuted.
+The 4,096-value fixture is deterministic with hash
+`33e0a1deacb9b5dba1c7fad504598fbad3fad377836d9b646d5fdf5aacb124b5`.
+It proves the specialized BF16 dot rounds token 15,745 to the oracle value,
+and the implementation passes all 38 Rust tests, 42 Python tests, strict
+Clippy, and fixture regeneration.
+
+The full replay falsifies the broader operator hypothesis. The frozen oracle's
+`bf16_linear` explicitly widens BF16 activations and weights to F32, performs
+the complete matrix multiply, then rounds the result to BF16. A standalone
+BF16 contiguous dot is not that operator. It removes 25 of PW-0089's 45 logit
+differences, but leaves 20: equality is 99.9869%, relative L2 is
+`6.744156149382939e-6`, and maximum error is `0.00390625`.
+
+All existing formal gates nevertheless pass: `first_failure` is null,
+`full_prefix_provisionally_cleared` is true, both hosted-chosen logits are
+exact, every transformer capture is exact, and routing is exact. The run
+completed in 799.776 seconds—no material full-path speedup over PW-0089—peaked
+at 3,924,803,584 bytes RSS, ended with a 2,662,243,264-byte footprint, retained
+at least 81% free memory, grew no swap, observed no throttling, and kept every
+protected service healthy. Evidence hashes:
+
+- Rust manifest:
+  `038107d4a368560ce034073aa9302c1d90d6bb214716614787dd9b8f5e2a205c`
+- Comparison:
+  `efd792d768264db4a2c73d365c2a003fa352664abaab3545ab48d620a8840d7f`
 
 ## Decision
 
-Unexecuted.
+Do not promote the specialized BF16 dot as LM-head authority despite formal
+gate clearance. Preserve the result as evidence that removing 26 unnecessary
+prompt-row projections is semantically safe but not yet a measured full-path
+gain. Supersede the arithmetic with the oracle-faithful F32 matrix path applied
+only to the required last row, then repeat the full trace. No gate changes.

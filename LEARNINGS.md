@@ -1351,3 +1351,14 @@ fails its unchanged gate. The 799.549-second safe walk peaked at 3.938 GB RSS,
 ended at 2.680 GB, retained at least 81% free memory, and caused no swap
 growth, throttling, or protected-service loss. Freeze the exact final-norm
 input and localize LM-head arithmetic; no transformer change is justified.
+
+PW-0090 clears every formal full-prefix gate but falsifies its own exact
+LM-head operation premise. A specialized BF16 dot removes 25 of 45 logit
+differences, leaving 20 values within tolerance; the oracle actually widens
+BF16 inputs and weights to F32, performs the full matrix multiply, then rounds
+to BF16. Complete wall time remains 799.776 seconds, so projecting only the
+last prompt row is not yet a full-path performance result. The safe run peaked
+at 3.925 GB RSS, ended at 2.662 GB, retained at least 81% free memory, and
+caused no swap growth, throttling, or service loss. Reject the specialized-dot
+LM-head authority and test the source-faithful one-row F32 matrix path without
+relaxing the now-cleared formal gates.
