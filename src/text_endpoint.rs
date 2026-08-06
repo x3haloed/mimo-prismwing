@@ -1423,7 +1423,7 @@ fn pytorch_arm_softmax_f32(centered: &[f32]) -> Result<Vec<f32>, String> {
         for (lane, value) in exponentials[full..].iter().enumerate() {
             lanes[lane] += value;
         }
-        (lanes[0] + lanes[1]) + (lanes[2] + lanes[3])
+        (lanes[0] + lanes[2]) + (lanes[1] + lanes[3])
     };
     if !denominator.is_finite() || denominator <= 0.0 {
         return Err("PyTorch ARM softmax denominator is invalid".to_owned());
@@ -3957,6 +3957,60 @@ mod tests {
                 );
             }
         }
+        let row: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0085-pytorch-arm-horizontal-softmax.json"
+        ))
+        .expect("valid discriminating ARM horizontal softmax fixture");
+        assert_eq!(
+            row["semantic"],
+            "pytorch_aarch64_f32_softmax_horizontal_order"
+        );
+        let scores = row["score_bf16_u16"]
+            .as_array()
+            .expect("score bits")
+            .iter()
+            .map(|value| {
+                f32::from_bits(u32::from(value.as_u64().expect("BF16 score") as u16) << 16)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            scores
+                .iter()
+                .map(|value| sleef_expf_u10(*value).to_bits())
+                .collect::<Vec<_>>(),
+            row["exponential_f32_u32"]
+                .as_array()
+                .expect("exponential bits")
+                .iter()
+                .map(|value| value.as_u64().expect("F32 exponential") as u32)
+                .collect::<Vec<_>>()
+        );
+        let probabilities = pytorch_arm_softmax_f32(&scores).expect("valid F32 softmax");
+        assert_eq!(
+            probabilities
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>(),
+            row["probability_f32_u32"]
+                .as_array()
+                .expect("probability bits")
+                .iter()
+                .map(|value| value.as_u64().expect("F32 probability") as u32)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            attention_softmax(&scores, true)
+                .expect("valid BF16 softmax")
+                .iter()
+                .map(|value| (value.to_bits() >> 16) as u16)
+                .collect::<Vec<_>>(),
+            row["probability_bf16_u16"]
+                .as_array()
+                .expect("BF16 probability bits")
+                .iter()
+                .map(|value| value.as_u64().expect("BF16 probability") as u16)
+                .collect::<Vec<_>>()
+        );
         assert!(attention_softmax(&[], true).is_err());
         assert!(attention_softmax(&[f32::NAN], true).is_err());
     }
