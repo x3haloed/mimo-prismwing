@@ -1142,3 +1142,13 @@ for layers 1–6. Layer 7 is the first failure: 12 BF16 state values differ by a
 most `0.0625`, and eight route weights differ by at most `1.70e-6`; expert sets
 remain exact. The next diagnostic is a layer-7 substage trace from exact layer
 6, not another full walk.
+
+PW-0069 localizes layer 7 to one BF16 attention score, not routing or expert
+execution. From an exact layer-6 input, PyTorch and Rust remain bit-exact
+through QKV, RoPE, values, and sinks; position 22/head 12/source 17 differs by
+one BF16 quantum after the query/key dot and scale. It changes two probabilities
+and survives the post-attention residual in 12 of 110,592 values, reproducing
+PW-0068's final error and route-weight envelope. The Rust trace safely peaked
+at 723 MB RSS, returned to 125 MB, retained 81% free memory, and caused no swap
+growth, throttling, or service loss. Isolate PyTorch's aarch64 BF16 dot-product
+accumulation order on that exact pair before any repair or full walk.

@@ -227,6 +227,26 @@ A passing release candidate requires:
 - Independent reproduction by a second environment or operator before a final
   “done” claim.
 
+Every full model walk and acceptance run on the shared 16 GiB host must also
+enforce, at phase boundaries, a fail-closed host-safety policy. The run stops
+and remains preserved as failed evidence if any of these conditions occurs:
+
+- System free memory falls below 20%.
+- Current process physical footprint or peak resident memory exceeds 8 GiB.
+- Process physical footprint remains above 4 GiB after a phase that declares
+  its model buffers released.
+- Swap use grows by more than 512 MiB from the run's baseline, or any new
+  throttled page is observed.
+- A protected service that was resident at run start disappears. At minimum,
+  protect the user-facing application, WindowServer, the active inference
+  service, and the checkpoint synchronization service when present.
+
+Each phase records current footprint, peak RSS, system-free percentage, swap
+growth, throttled pages, buffer-release/allocator-relief state, and protected
+service identities. A successful run must demonstrate that phase-scoped model
+buffers are released and that the resident inference service remains healthy;
+recording unsafe pressure without stopping does not satisfy this gate.
+
 ## 9. Milestones that are valuable but not done
 
 - **P0 — Correct skeleton:** official tiny/reference fixtures pass.

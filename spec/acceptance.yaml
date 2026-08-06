@@ -117,3 +117,28 @@ reproducibility:
   content_addressed_evidence_manifest: true
   offline_metric_recomputation_command: true
   second_operator_or_environment_required: true
+  shared_host_safety:
+    applies_to_full_model_walks_and_acceptance_runs: true
+    fail_closed_at_phase_boundaries: true
+    minimum_system_memory_free_percent: 20
+    maximum_process_physical_footprint_gib: 8
+    maximum_process_peak_resident_gib: 8
+    maximum_post_release_physical_footprint_gib: 4
+    maximum_swap_growth_mib: 512
+    maximum_new_throttled_pages: 0
+    preserve_failed_run_evidence: true
+    require_phase_buffer_release: true
+    require_resident_inference_service_health: true
+    protect_start_resident_services:
+      - user_facing_application
+      - WindowServer
+      - inference_service
+      - checkpoint_synchronization_service_when_present
+    record_each_phase:
+      - process_physical_footprint
+      - process_peak_resident_memory
+      - system_memory_free_percent
+      - swap_growth
+      - throttled_pages
+      - buffer_release_and_allocator_relief
+      - protected_service_identities
