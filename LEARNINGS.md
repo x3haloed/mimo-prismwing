@@ -1331,3 +1331,13 @@ differences; routing is downstream. The 543.499-second safe trace peaked at
 720 MB RSS, returned to 154 MB, retained 83% free memory, and caused no swap
 growth, throttling, or service loss. Gate the discriminating pair before
 changing attention value-by-matrix reduction.
+
+PW-0088 promotes generic four-part BF16 GEMM reduction for attention
+value-by-matrix accumulation while retaining specialized contiguous dots for
+scores. The discriminating layer-34 fixture selects generic reduction; the
+preserved PW-0076 fixture proves its earlier pair could not distinguish the
+two. The repaired layer replay makes all 21 captures bit-exact, preserves
+exact expert sets/order, and holds route-weight error to `2.88e-8`. It safely
+peaked at 738 MB RSS, returned to 155 MB, retained 83% free memory, reduced
+swap use, and caused no throttling or service loss. The exact accumulated
+frontier is now through layer 34; run one frozen full-prefix replay next.

@@ -1,7 +1,7 @@
 # PW-0088 — Generic BF16 attention value GEMM reduction
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
 - Commit and dirty state: contract precedes implementation
@@ -37,8 +37,34 @@ correctness experiment and cannot count as TPS or alter any threshold.
 
 ## Result
 
-Unexecuted.
+The hash-bound layer-34 fixture distinguishes the real operator paths. Generic
+four-part GEMM produces raw F32 `0x3dc37fff` and the PyTorch matrix result
+BF16 `0x3dc3`; the specialized contiguous dot produces `0x3dc38000` and BF16
+`0x3dc4`. Its evidence hash is
+`ae1a917b498362cf54d9bb6ab44746a722cac235d03393320716ca92e31e06a9`.
+
+PW-0076 is preserved and now explicitly proves both generic and specialized
+topologies produce its raw F32 `0xbcaa8002`, so it could not select between
+them. Using generic four-part reduction only for attention value-by-matrix
+accumulation passes all 37 Rust tests, 42 Python tests, strict Clippy, and
+deterministic fixture regeneration.
+
+The repaired production layer-34 replay makes all 21 captures bit-exact,
+preserves exact expert selection/order, and holds route-weight serialization
+error to `2.8776550253795108e-8`. It completed in 542.954 seconds, peaked at
+737,640,448 bytes RSS, returned to a 154,783,936-byte footprint, retained 83%
+free memory, reduced swap use, observed no throttling, and kept every protected
+service healthy. Evidence hashes:
+
+- Rust manifest:
+  `e965ccf091b60a0c794ccc524a7e4bfb63097ba4d3d4208374677c08bfac0bf1`
+- Comparison:
+  `967a7f9d0ee0c0b004c8b1b365b68cd1ff2c4cca2c280d93318de4950d1274aa`
 
 ## Decision
 
-Unexecuted.
+Promote generic four-part BF16 GEMM reduction for attention value-by-matrix
+accumulation. It removes PW-0087's first actual difference and restores exact
+layer-34 state without weakening any gate. Preserve specialized contiguous
+dots for attention scores. The accumulated frontier is ready for one frozen
+full-prefix replay; no throughput or hosted threshold changes.
