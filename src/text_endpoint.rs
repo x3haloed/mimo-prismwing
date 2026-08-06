@@ -1351,10 +1351,19 @@ fn causal_attention_head_with_dtype(
     if let Some(sink) = sink {
         scores.push(sink);
     }
-    let scaled_scores = scores.clone();
     let probabilities = attention_softmax(&scores, bf16_boundaries)?;
     if let Some(trace) = trace {
-        trace.scores = scaled_scores;
+        let maximum = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        trace.scores = scores
+            .iter()
+            .map(|score| {
+                if bf16_boundaries {
+                    round_bf16(*score - maximum)
+                } else {
+                    *score - maximum
+                }
+            })
+            .collect();
         trace.probabilities = probabilities.clone();
     }
     let mut output = vec![0.0_f32; values[0].len()];
