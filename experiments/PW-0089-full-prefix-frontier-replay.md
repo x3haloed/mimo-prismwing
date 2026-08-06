@@ -1,7 +1,7 @@
 # PW-0089 — Full-prefix frontier replay after layer 34
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: promoted localization
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
 - Commit and dirty state: contract precedes execution
@@ -36,8 +36,35 @@ power, safety, or performance threshold.
 
 ## Result
 
-Unexecuted.
+The walk completed in 799.549 seconds. Embedding, all 48 transformer layers,
+final RMSNorm, every route weight, and every expert set/order are bit-exact.
+This closes the entire accumulated transformer prefix rather than merely
+advancing to another layer boundary.
+
+The sole remaining local correctness mismatch is the LM-head projection: 45
+of 152,576 F32 last-token logits differ, equality is 99.9705%, relative L2 is
+`5.247888621759728e-5`, and maximum error is `0.03125`. Both hosted-chosen
+token logits captured by the comparator are exact (`3.609375` for token 0 and
+`1.0` for token 9707), but the complete logit vector fails its existing gate.
+No layer, route, or expert change is justified.
+
+Every Gate 8 stop passed. Streamed-layer RSS peaked at 740,425,728 bytes and
+phase footprints repeatedly returned near 100–163 MB. The bounded LM-head phase
+peaked at 3,938,123,776 bytes RSS and ended with a 2,679,627,008-byte footprint,
+below the 4 GiB post-release stop. System-free memory stayed at or above 81%;
+swap growth and new throttled pages were zero; ChatGPT, WindowServer, nxnode,
+and syncthing remained healthy. Evidence hashes:
+
+- Rust manifest:
+  `0e8b14621a5e3e3715c8136bbef53ae94da674df9a0e9435e3ae881fb5d11f80`
+- Comparison:
+  `6f00f95147aebf4f7c941893fe4aa1224f9874e74934cd8be6d42fc634cc82b8`
 
 ## Decision
 
-Unexecuted.
+Promote the localization result. The complete transformer and final norm are
+bit-exact; the LM head is the next and only observed local semantic boundary.
+Freeze exact final-norm input and discriminate LM-head FP8/GEMV operation
+ordering before changing arithmetic. Do not alter any transformer layer,
+routing, expert, threshold, or hosted acceptance contract, and do not claim
+throughput from this correctness walk.

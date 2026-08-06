@@ -1341,3 +1341,13 @@ exact expert sets/order, and holds route-weight error to `2.88e-8`. It safely
 peaked at 738 MB RSS, returned to 155 MB, retained 83% free memory, reduced
 swap use, and caused no throttling or service loss. The exact accumulated
 frontier is now through layer 34; run one frozen full-prefix replay next.
+
+PW-0089 closes the complete accumulated transformer prefix: embedding, all 48
+layers, final RMSNorm, route weights, and expert sets/order are bit-exact. The
+only remaining local mismatch is the LM-head projection—45 of 152,576 F32
+logits, 99.9705% exact, `5.25e-5` relative L2, and `0.03125` maximum error.
+Both captured hosted-chosen token logits are exact, but the full vector still
+fails its unchanged gate. The 799.549-second safe walk peaked at 3.938 GB RSS,
+ended at 2.680 GB, retained at least 81% free memory, and caused no swap
+growth, throttling, or protected-service loss. Freeze the exact final-norm
+input and localize LM-head arithmetic; no transformer change is justified.
