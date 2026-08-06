@@ -102,6 +102,12 @@ The construction order follows the least-proven boundaries:
   authority must make acquisition and compute independently observable and
   overlapping through bounded reusable arenas; ordinary no-copy aggregation
   alone is insufficient.
+- PW-0108 implements a real exact Metal-I/O loader and retains it as a
+  conditional storage control. Three concurrent command buffers improve cold
+  acquisition but miss the frozen physical continuation bound on the internal
+  SSD, so no shared-event arena scheduler is an active authority. A named
+  faster device or lossless executable-byte reduction must change the premise
+  before that topology is reopened.
 - The PW-0049 correctness baseline owns one complete real base layer from
   source-FP8 QKV through SWA, residual/norm, dynamic routing, 56 selected
   experts, weighted scatter, and the final residual. Rust uses Accelerate

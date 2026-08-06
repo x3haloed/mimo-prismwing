@@ -258,18 +258,23 @@ and lifecycle into the next experiment, not into the runtime default.
 subsequently rejects ordinary two-barrier command aggregation as the cold
 solution: it reaches 1.694x warm but only 1.166x cold, with 96.001 ms still
 inside two waits around 8.320 ms of GPU activity.
+[PW-0108](../experiments/PW-0108-metal-io-layer-acquisition-bound.md) then
+tests the promoted acquisition mechanism directly. Three concurrent real
+Metal-I/O command buffers reach 58.034 ms cold for the exact 201.376 MB selected
+payload, missing the 47.7 ms physical continuation bound. The internal-SSD
+shared-event arena pipeline is therefore rejected before construction.
 
-For one authenticated real layer, use one independent acquisition path and one
-compute queue with two or three bounded reusable arenas. Overlap Metal-I/O
-loading of expert or tile `n+1` with execution of `n`; retain GPU intermediates
-through the routed residual and expose queue-overlap, arena-residency, and
-release evidence. Preserve PW-0106 C2 and PW-0107 C3 as distinct controls. A
-candidate that merely aggregates ordinary no-copy commands has already been
-falsified for the cold claim.
+Do not build an internal-SSD Metal-I/O/compute arena over the unchanged
+payload. Reopen this mechanism only for a named faster storage configuration
+or after an exact executable representation reduces selected bytes enough to
+change PW-0108's bound. Preserve PW-0106 C2, PW-0107 C3, and PW-0108's
+three-buffer loader as distinct controls.
 
-**Go:** exact reproduction of PW-0106's unchanged candidate output, Gate 8,
-and at least 2x cold complete-layer gain over PW-0106 C2. Attribute physical
-reads, page-ins, GPU intervals, queue overlap, waits, and arena residency.
+**Go:** for a changed physical premise, rederive the acquisition bound before
+implementation, reproduce exact bytes and PW-0106's unchanged candidate
+output, pass Gate 8, and achieve at least 2x cold complete-layer gain over
+PW-0106 C2. Attribute physical reads, page-ins, GPU intervals, queue overlap,
+waits, and arena residency.
 
 **Kill:** a fused scheduler that merely moves the 95.9 ms wait or exceeds the
 shared-host memory contract does not justify a full-bank artifact. Do not build

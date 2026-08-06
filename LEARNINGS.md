@@ -1693,3 +1693,25 @@ stable services. Raw evidence hashes to
 `39d2a678212a7d98aee33396119928c0e9c2baa7aa4e9f5a19c63ce0fd005bd2`;
 clean analysis hashes to
 `bc2299248006b349eb2a6a9cee4c5b1a715968fbc9bf118a3d6c9aec702165e2`.
+
+PW-0108 rejects internal-SSD Metal-I/O overlap before building a speculative
+arena scheduler. The real M1 API loads all 48 authenticated layer records
+directly into a bounded shared Metal buffer with exact bytes and complete
+statuses. Three concurrent command buffers improve cold acquisition from a
+72.875 ms median to 58.034 ms (1.256x) and warm acquisition from 30.263 ms to
+14.782 ms (2.047x). However, the cold result misses the predeclared 47.7 ms
+continuation bound by 10.334 ms. Since about 10 ms of unchanged CPU work
+survives and only 8.320 ms of GPU work can overlap, Phase B cannot reach the
+57.723 ms complete-layer 2x gate on the internal SSD even under ideal overlap.
+
+The earlier broad premise that Metal I/O might eliminate the surviving cold
+floor is superseded for this storage and unchanged 201.376 MB selected-byte
+representation. Preserve the loader as a conditional hardware/control path,
+but do not build its shared-event scheduler. A faster named device or a
+lossless executable-byte reduction changes the premise and requires a new
+contract. Gate 8 passed with 78% minimum free memory, 419,610,624-byte peak
+RSS, 10,503,936-byte final footprint, zero swap growth or throttling, and stable
+services. Raw evidence hashes to
+`6f7d816b4f39c00b967642bdf300e7baea8563a5fca593ab5d0943b5df047d68`;
+clean analysis hashes to
+`5281fd36c06e2a2e5767918bbb63f0fe33cbec4a1478b4281806d6fdf56ac43d`.
