@@ -273,8 +273,14 @@ shared-event arena pipeline is therefore rejected before construction.
 [PW-0109](../experiments/PW-0109-exact-expert-block-canonicalization.md) tests
 whether exact 128-neuron symmetry can reduce that payload without changing
 source scale topology. Aligned residuals compress to 95.087%, only 0.0433%
-better than identity-delta and worse than the unmodified control, so this
-representation is rejected before full-layer expansion or decoder work.
+better than identity residuals and materially worse than compressing the
+unmodified records, so that exact codec branch is rejected.
+[PW-0111](../experiments/PW-0111-one-barrier-metal-native-routed-layer.md)
+therefore tests the remaining deferred architecture directly: keep all eight
+experts' activation staging, projections, SwiGLU, route weighting, reduction,
+and scatter inside one named L3 Metal transaction, then wait and read back once.
+Its source-derived oracle, existing L3 control, and external target thresholds
+remain unchanged.
 
 Do not build an internal-SSD Metal-I/O/compute arena over the unchanged
 payload. Reopen this mechanism only for a named faster storage configuration
