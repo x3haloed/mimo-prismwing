@@ -1125,3 +1125,11 @@ delta and five projection values remain below `0.000977` and disappear at the
 BF16 residual boundary; preserve them as a separate accumulation diagnostic,
 but they do not fail the layer or justify holding the accumulated frontier at
 layer 3. The next cheap discriminator is another frozen full-prefix replay.
+
+PW-0067 exposes a fail-fast gap in the scalar SLEEF port before producing a
+new frontier result. The polynomial was correct on normal outputs, but its
+single exponent-bit construction cannot represent negative `q + 127` and
+panics where SLEEF's two-stage `vldexp2` deliberately creates subnormals. The
+12-minute run remained memory-safe and produced no manifest. Gate subnormal
+exponential and saturated sigmoid values before repeating; this failure says
+nothing about attainable throughput or the next divergent layer.

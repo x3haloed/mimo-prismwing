@@ -1,10 +1,11 @@
 # PW-0067 — Full-prefix frontier replay after layer 4
 
-- Status: running
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: contract precedes execution
+- Commit and dirty state: clean
+  `d96c5bc324a45913413d4b6b0b9f574d89539770`
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0060 oracle run 002
   `081550060338070eaa00730877065d2752824c589c22f74eaa7e921448c61573`;
@@ -37,8 +38,25 @@ hosted thresholds.
 
 ## Result
 
-Unexecuted.
+Run 001 stopped before final-layer capture with exit code 134. A later router
+sigmoid called the scalar SLEEF exponential with a negative argument whose
+rounded base-2 exponent is below the normal F32 exponent range. The port used
+one direct exponent-bit construction and panicked when `q + 127` was negative.
+Pinned SLEEF instead uses `vldexp2`: it splits `q` into two representable
+powers of two and multiplies twice, preserving subnormal results. This is an
+implementation defect in the recently introduced SLEEF port, not a model
+capacity or memory stop.
+
+No trace manifest was written and no comparison was attempted. The preserved
+failure artifact hashes to
+`60a39dbd4437502ba930bc88bcdb51554c657fc89439111c9a8fadc672bf9470`.
+The last external observation at 12:23 showed about 428 MB resident, 81%
+system-free memory, and zero swap growth; the LM head had not begun. No host
+safety threshold was approached.
 
 ## Decision
 
-Unexecuted.
+Reject this run as correctness evidence while preserving its failure. Add a
+source-exact `vldexp2` subnormal fixture and repair in a separate experiment,
+then repeat the full-prefix replay without changing any acceptance or memory
+threshold.
