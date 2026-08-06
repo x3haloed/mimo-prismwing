@@ -1392,3 +1392,16 @@ safely peak near 4.37 GB RSS, finish near 3.1 GB, retain at least 78%
 memory-pressure headroom, and cause no swap growth, throttling, or
 protected-service loss. Verify incremental state independently, then profile
 and compress physical weight work before claiming TPS.
+
+PW-0093 rejects byte identity between a 28-row PyTorch whole-sequence pass and
+PW-0092's one-row retained-cache Rust step. The exact token prefix is proven,
+but route-weight drift at the appended position starts at layer 1, unsorted
+expert order first changes at layer 3, the first expert-set change occurs at
+layer 11, and final logits have only 8.3309% equality, `0.0246957` relative L2,
+and `0.5` maximum error while preserving greedy token 13. This does not yet
+prove bad K/V: matrix backends can use row-count-dependent reduction
+topologies, and earlier exactness covered matching 27-row shapes. The safe
+702.630-second oracle peaked at 3.879 GB RSS, ended at 219 MB, retained at
+least 63% memory-pressure headroom, and caused no swap growth, throttling, or
+service loss. Compare PyTorch-28 with Rust-28, then Rust-28's last row with
+Rust 27+1; preserve the rejected direct equivalence and do not weaken it.
