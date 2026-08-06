@@ -44,6 +44,7 @@ struct EndpointFixture {
     prompt_utf8: String,
     add_special_tokens: bool,
     expected_prompt_token_ids: Vec<u32>,
+    full_prefix_trace_append_token_ids: Option<Vec<u32>>,
     hosted_reference: Option<HostedReferenceFixture>,
     full_attention_qkv_scale_layout: FullQkvScaleFixture,
     decode: DecodeFixture,
@@ -885,25 +886,34 @@ impl SafetyMonitor {
 }
 
 fn validate_fixture(fixture: &EndpointFixture) -> Result<(), String> {
+    let hosted_identity = fixture.hosted_reference.as_ref().is_some_and(|hosted| {
+        hosted.provider == "Parasail"
+            && hosted.manifest_sha256
+                == "f9c5dd42a76e0eb87581fa427fe03c69ad32903c5711e5078a002ab7514732ea"
+            && hosted.response_sha256
+                == "e5a8956f3a7985e1ac3d5396c7bc9fe73bc77c6451eb2225c8df7c8973e3212d"
+            && hosted.generated_token_ids == [9707, 0]
+            && hosted.generated_text == "Hello!"
+    });
     let raw_identity = fixture.schema_version == 1
         && fixture.semantic == "mimo_v2_5_target_faithful_raw_text_incremental_decode"
         && fixture.prompt_utf8 == "Hello"
         && fixture.expected_prompt_token_ids == [9707]
+        && fixture.full_prefix_trace_append_token_ids.is_none()
         && fixture.hosted_reference.is_none();
     let chat_identity = fixture.schema_version == 2
         && fixture.semantic == "mimo_v2_5_target_faithful_chat_prefill_incremental_decode"
         && fixture.prompt_utf8 == CHAT_PROMPT
         && fixture.expected_prompt_token_ids == CHAT_PROMPT_IDS
-        && fixture.hosted_reference.as_ref().is_some_and(|hosted| {
-            hosted.provider == "Parasail"
-                && hosted.manifest_sha256
-                    == "f9c5dd42a76e0eb87581fa427fe03c69ad32903c5711e5078a002ab7514732ea"
-                && hosted.response_sha256
-                    == "e5a8956f3a7985e1ac3d5396c7bc9fe73bc77c6451eb2225c8df7c8973e3212d"
-                && hosted.generated_token_ids == [9707, 0]
-                && hosted.generated_text == "Hello!"
-        });
-    if (!raw_identity && !chat_identity)
+        && fixture.full_prefix_trace_append_token_ids.is_none()
+        && hosted_identity;
+    let trace_identity = fixture.schema_version == 3
+        && fixture.semantic == "mimo_v2_5_target_faithful_whole_sequence_trace"
+        && fixture.prompt_utf8 == CHAT_PROMPT
+        && fixture.expected_prompt_token_ids == CHAT_PROMPT_IDS
+        && fixture.full_prefix_trace_append_token_ids.as_deref() == Some(&[264])
+        && hosted_identity;
+    if (!raw_identity && !chat_identity && !trace_identity)
         || fixture.revision != REVISION
         || fixture.add_special_tokens
         || fixture.full_attention_qkv_scale_layout.weight_shape != [13_568, 4096]
@@ -940,6 +950,27 @@ fn validate_fixture(fixture: &EndpointFixture) -> Result<(), String> {
         return Err("unknown slow text endpoint fixture identity".to_owned());
     }
     Ok(())
+}
+
+fn validate_slow_endpoint_fixture(fixture: &EndpointFixture) -> Result<(), String> {
+    if fixture.full_prefix_trace_append_token_ids.is_some() {
+        return Err("slow endpoint rejects full-prefix trace-only fixture".to_owned());
+    }
+    Ok(())
+}
+
+fn full_prefix_trace_tokens(
+    fixture: &EndpointFixture,
+    prompt_token_ids: &[u32],
+) -> Result<Vec<u32>, String> {
+    if !matches!(fixture.schema_version, 2 | 3) || prompt_token_ids != CHAT_PROMPT_IDS {
+        return Err("full-prefix trace requires the frozen chat fixture".to_owned());
+    }
+    let mut tokens = prompt_token_ids.to_vec();
+    if let Some(appended) = fixture.full_prefix_trace_append_token_ids.as_ref() {
+        tokens.extend(appended);
+    }
+    Ok(tokens)
 }
 
 fn validate_config(config: &ModelConfig) -> Result<(), String> {
@@ -2386,6 +2417,7 @@ pub fn run_slow_text_endpoint(
         verification_path,
         fixture_path,
     )?;
+    validate_slow_endpoint_fixture(&fixture)?;
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
     let mut ledger = EndpointLedger::default();
     let mut input_token_ids = prompt_token_ids.clone();
@@ -3549,9 +3581,7 @@ pub fn run_full_prefix_trace(
         verification_path,
         fixture_path,
     )?;
-    if fixture.schema_version != 2 || prompt_token_ids != CHAT_PROMPT_IDS {
-        return Err("full-prefix trace requires the frozen chat fixture".to_owned());
-    }
+    let prompt_token_ids = full_prefix_trace_tokens(&fixture, &prompt_token_ids)?;
     fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
     let rows = prompt_token_ids.len();
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
@@ -3712,6 +3742,25 @@ mod tests {
         assert!(validate_fixture(&fixture).is_ok());
         assert_eq!(fixture.prompt_utf8, CHAT_PROMPT);
         assert_eq!(fixture.expected_prompt_token_ids, CHAT_PROMPT_IDS);
+    }
+
+    #[test]
+    fn whole_sequence_trace_fixture_appends_one_frozen_token() {
+        let fixture: EndpointFixture = serde_json::from_str(include_str!(
+            "../evals/fixtures/real/pw0094-rust-whole-sequence.json"
+        ))
+        .expect("valid whole-sequence fixture");
+        assert!(validate_fixture(&fixture).is_ok());
+        assert_eq!(fixture.expected_prompt_token_ids, CHAT_PROMPT_IDS);
+        assert_eq!(
+            fixture.full_prefix_trace_append_token_ids.as_deref(),
+            Some(&[264][..])
+        );
+        assert_eq!(
+            full_prefix_trace_tokens(&fixture, &CHAT_PROMPT_IDS).expect("trace tokens"),
+            [CHAT_PROMPT_IDS.as_slice(), &[264]].concat()
+        );
+        assert!(validate_slow_endpoint_fixture(&fixture).is_err());
     }
 
     #[test]

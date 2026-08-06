@@ -4,6 +4,22 @@ import unittest
 
 
 class TextEndpointFixtureTests(unittest.TestCase):
+    def test_pw0094_trace_fixture_is_one_token_extension(self):
+        base = json.loads(
+            Path("evals/fixtures/real/pw0052-chat-endpoint.json").read_text()
+        )
+        trace = json.loads(
+            Path("evals/fixtures/real/pw0094-rust-whole-sequence.json").read_text()
+        )
+        self.assertEqual(trace["schema_version"], 3)
+        self.assertEqual(
+            trace["semantic"],
+            "mimo_v2_5_target_faithful_whole_sequence_trace",
+        )
+        self.assertEqual(trace["expected_prompt_token_ids"], base["expected_prompt_token_ids"])
+        self.assertEqual(trace["full_prefix_trace_append_token_ids"], [264])
+        self.assertEqual(trace["safety"], base["safety"])
+
     def test_pw0050_walking_fixture_is_exact_and_bounded(self):
         fixture = json.loads(
             Path("evals/fixtures/real/pw0050-text-endpoint.json").read_text()

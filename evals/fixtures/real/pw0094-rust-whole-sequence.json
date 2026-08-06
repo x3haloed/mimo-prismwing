@@ -1,0 +1,50 @@
+{
+  "schema_version": 3,
+  "semantic": "mimo_v2_5_target_faithful_whole_sequence_trace",
+  "revision": "63651580ca774f8504f676040460aed3e1244ac1",
+  "config_sha256": "292a60e74ae9a6d53422b31b21468ce2111c0ab3f7f7a4f4e9c7cd5133b96587",
+  "index_sha256": "f2e1774c9acf9a62338b68c144e6fc7a66495e59f2e64b3078c1b7ef5a196816",
+  "tokenizer_sha256": "633518aad78f9f61bae2ae420d621215754a4424c918b052cd8c22a3b59e99d2",
+  "tokenizer_config_sha256": "fd34b805f75a890a5c123d79a2982bbe240b3b6efb156d22401bd619484d9bd2",
+  "checkpoint_verification_sha256": "9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03",
+  "prompt_utf8": "<|im_start|>system\nYou are MiMo, a helpful AI assistant engineered by Xiaomi.<|im_end|><|im_start|>user\nHello<|im_end|><|im_start|>assistant\n<think></think>",
+  "add_special_tokens": false,
+  "expected_prompt_token_ids": [151644, 8948, 198, 2610, 525, 20740, 25612, 11, 264, 10950, 15235, 17847, 44936, 553, 71449, 13, 151645, 151644, 872, 198, 9707, 151645, 151644, 77091, 198, 151667, 151668],
+  "full_prefix_trace_append_token_ids": [264],
+  "hosted_reference": {
+    "provider": "Parasail",
+    "manifest_sha256": "f9c5dd42a76e0eb87581fa427fe03c69ad32903c5711e5078a002ab7514732ea",
+    "response_sha256": "e5a8956f3a7985e1ac3d5396c7bc9fe73bc77c6451eb2225c8df7c8973e3212d",
+    "generated_token_ids": [9707, 0],
+    "generated_text": "Hello!"
+  },
+  "full_attention_qkv_scale_layout": {
+    "weight_shape": [13568, 4096],
+    "scale_shape": [108, 32],
+    "query_rows": 12288,
+    "query_scale_rows": 96,
+    "key_heads": 4,
+    "key_rows_per_head": 192,
+    "key_scale_rows_per_head": 2,
+    "key_scale_row_start": 96,
+    "value_heads": 4,
+    "value_rows_per_head": 128,
+    "value_scale_row_start": 104
+  },
+  "decode": {
+    "sampling": "greedy",
+    "new_tokens": 2,
+    "batch_size": 1,
+    "concurrency": 1,
+    "use_kv_cache": true
+  },
+  "safety": {
+    "minimum_system_memory_free_percent": 20,
+    "maximum_process_physical_footprint_bytes": 8589934592,
+    "maximum_post_phase_physical_footprint_bytes": 4294967296,
+    "maximum_swap_growth_bytes": 536870912,
+    "maximum_new_throttled_pages": 0,
+    "require_malloc_pressure_relief": true,
+    "protect_resident_services": ["ChatGPT", "WindowServer", "nxnode", "syncthing"]
+  }
+}
