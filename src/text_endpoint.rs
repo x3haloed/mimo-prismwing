@@ -1018,9 +1018,11 @@ pub struct ProcessActivityDelta {
 impl ProcessActivity {
     pub(crate) fn checked_delta(self, earlier: Self) -> Result<ProcessActivityDelta, String> {
         let delta = |later: u64, before: u64, name: &str| {
-            later
-                .checked_sub(before)
-                .ok_or_else(|| format!("process activity counter moved backwards: {name}"))
+            later.checked_sub(before).ok_or_else(|| {
+                format!(
+                    "process activity counter moved backwards: {name} later={later} before={before}"
+                )
+            })
         };
         Ok(ProcessActivityDelta {
             disk_bytes_read: delta(self.disk_bytes_read, earlier.disk_bytes_read, "disk read")?,
