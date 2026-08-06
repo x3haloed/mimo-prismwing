@@ -244,6 +244,36 @@ the 16 GiB host. A layer prefix, frozen-route replay, fixture-supplied hidden
 state, or logits-only probe is not a text endpoint. Its first passing timing is
 an end-to-end baseline, not an accepted performance default.
 
+## E12 — Page-stable routed-layer transaction
+
+[PW-0105](../experiments/PW-0105-weight-install-tomography.md) establishes that
+expert-scoped validation and global checkpoint invalidation, not Metal
+arithmetic, dominate the current cold routed path.
+[PW-0106](../experiments/PW-0106-page-stable-metal-ready-routed-layer.md) then
+passes its causal gate: a prevalidated page-aligned artifact is 2.601x faster
+than copied/global-release control while still copying Metal buffers, and a
+real no-copy binding reaches 6.381x. This promotes the physical representation
+and lifecycle into the next experiment, not into the runtime default.
+
+For one authenticated real layer, encode all eight selected experts into one
+layer-scoped command transaction. Keep gate/up results, dynamic-FP8 staging,
+SwiGLU, down projection, weighted reduction, and scatter on GPU. Compare one,
+two, and three bounded weight arenas; overlap artifact page acquisition for the
+next expert with execution of the current expert; return only the routed
+residual and wait once. Preserve C0, PW-0106 C2, and any reopened PW-0040/PW-0042
+mechanisms as distinct controls because the new claim targets cold I/O and
+barriers rather than warm union arithmetic.
+
+**Go:** exact reproduction of PW-0106's unchanged candidate output, Gate 8,
+and at least 2x cold complete-layer gain over PW-0106 C2. Attribute physical
+reads, page-ins, GPU intervals, queue overlap, waits, and arena residency.
+
+**Kill:** a fused scheduler that merely moves the 95.9 ms wait or exceeds the
+shared-host memory contract does not justify a full-bank artifact. Do not build
+the approximately 303 GB bank or rerun a full token until this component gate
+passes and a separate numerical branch resolves or deliberately renames the
+PW-0101 L3 arithmetic behavior.
+
 ## Black-swan budget
 
 No more than 10% of research time before Prismwing 10 goes to black swans:

@@ -88,6 +88,14 @@ The construction order follows the least-proven boundaries:
   and executes the heterogeneous source-FP8 expert union. Frozen routes are
   parity oracle only. This closes the layer-43 routed-MLP causal path for one
   exact input fixture, not a complete decoder layer or representative decode.
+- PW-0106 adds a conditional L1 execution authority for a selected routed
+  layer: every gate/up/down weight and scale record is losslessly page aligned,
+  hash-bound back to the verified checkpoint, mapped once for the layer, and
+  exposed to Metal without a shadow allocation. It is not a full-bank format or
+  runtime default. Its next causal boundary is the routed layer itself: weight
+  acquisition, dynamic staging, SwiGLU, reduction, and scatter must remain
+  inside a bounded asynchronous Metal transaction rather than returning to CPU
+  at every projection or expert.
 - The PW-0049 correctness baseline owns one complete real base layer from
   source-FP8 QKV through SWA, residual/norm, dynamic routing, 56 selected
   experts, weighted scatter, and the final residual. Rust uses Accelerate

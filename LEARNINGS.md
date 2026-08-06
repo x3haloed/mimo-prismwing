@@ -1645,3 +1645,30 @@ The raw report hashes to
 `49c1f85b24e8864d43a3a901de9c7c40e8745a4427599248bd937abba4ce3e11`;
 canonical analysis hashes to
 `26d649f8babbf00a21bace7c522fab178992d092972ffc55ffb076ac033b1150`.
+
+PW-0106 confirms that PW-0105 found an architectural defect, not mere
+instrumentation overhead. On one authenticated real routed layer, a lossless
+201.720 MB page-aligned artifact with one layer-scoped mapping reduces cold
+wall from a 785.196 ms copied/global-release median to 301.831 ms while still
+copying every Metal source buffer, a 2.601x gain. Binding the identical mapping
+through Metal's real no-copy API reduces cold wall again to 123.053 ms, 6.381x
+versus control and 2.453x versus artifact/copy. Its exact byte-read device probe
+passes, and all 18 trials preserve identical expert diagnostics, routed bytes,
+final-residual bytes, routes, weights, and repair counts. Thus two beliefs are
+now superseded: the safetensors execution layout is not an innocuous substrate,
+and `bytesNoCopy` is not merely the 1.9% copied-buffer interval once page
+acquisition is moved out of CPU tensor scanning and into the GPU-visible
+transaction.
+
+The remaining cold no-copy shape is equally important. Source-buffer creation
+is only 0.425 ms and GPU execution 8.291 ms, but synchronous waits total 95.784
+ms while 201.720 MB is read. A 47x component extrapolation is still about 5.78
+seconds/token before non-MoE work. Promote a bounded asynchronous whole-layer
+transaction with retained GPU intermediates and overlap, not a full-bank
+artifact or endpoint default. The full 47-layer, 256-expert source-FP8 bank is
+about 303 GB (282.6 GiB), so build it only after the next gate. PW-0101's L3
+arithmetic failure remains unchanged and separate. Canonical raw evidence
+hashes to
+`fb0a1cf0e9dba0d3941a5d9786e4867fe04ea21dcd81469d986928fdaada9232`;
+analysis hashes to
+`635e26fb8060c216e917423c6052a3cb42865bc81a27cf2bc7b4322ce2b7edfc`.
