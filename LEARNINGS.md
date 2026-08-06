@@ -1735,3 +1735,20 @@ services. Raw evidence hashes to
 `9e0f15f65269d1b5c53536f18cda62df039d13ed19f48242f3eef91966b43bab`;
 clean analysis hashes to
 `a298ae0b3022fa5f22e06a573af9d1bfdc9471eb33c8fafcd7e664cf26d0b12d`.
+
+PW-0110 supersedes the warm-kernel speculation-width prior with the measured
+cold-storage bound. The best exact eight-expert Metal-I/O acquisition takes
+58.034 ms per routed layer, or 2.727590 seconds across 47 layers at impossible
+minimum `U=1`. With all dense weights, compute, drafting, KV work, correction,
+and overhead free, `q=32` can reach only 11.732 accepted TPS. The valuable
+34.3-TPS horizon requires `A/U >= 93.556` and therefore at least `q=94`; formal
+50 TPS requires `A/U >= 136.380` and at least `q=137`. Any real union or
+rejection raises those widths.
+
+Reject `q=16` and `q=32` before proposer training or verifier construction on
+the unchanged source-FP8 internal-SSD premise. PW-0044 now requires a
+base-aligned candidate pool at least 137 positions wide for the formal branch,
+not the rejected supplied DFlash or native MTP. This is necessary evidence, not
+proof that `q=137` is memory-fit, accurate, or fast. The immutable analysis
+hashes to
+`844047de4d009d0d7bd6f803e56e097ee6efce66e6a0c2c7d96315962a5cd8b6`.

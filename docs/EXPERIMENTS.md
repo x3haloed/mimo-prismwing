@@ -149,6 +149,13 @@ target directly; do not import bundle acceptance claims or substitute its
 target. Restrict the shipped verifier to greedy mode until a distribution-
 preserving positive-temperature correction path passes statistical tests.
 
+PW-0110 adds the measured cold-storage prerequisite for the unchanged
+source-FP8 internal-SSD branch. `q=16` and `q=32` are rejected even with
+perfect acceptance and minimum union. A base-aligned route-coherent pool must
+support at least `q=137` for the formal 50-TPS branch or `q=94` for the
+separately valuable 34.3-TPS horizon, and real `A/U` must meet 136.380 or
+93.556 respectively. Do not begin proposer training below that physical bar.
+
 **Go:** use speculation as expert-byte leverage only when `A/U > 1`; otherwise
 retain it for dense-weight reuse or discard it if total wall time loses.
 

@@ -1,6 +1,6 @@
 # PW-0044 — Route-coherent phrase-lattice verification
 
-- Status: proposed
+- Status: proposed; width prerequisite revised by PW-0110
 - Disposition: unexecuted
 - Date: 2026-08-05
 - Owner: unassigned
@@ -31,6 +31,14 @@ accepted tokens must follow the pinned target distribution. Begin in greedy
 mode. Positive-temperature execution remains disabled until the correction
 procedure has a written derivation, exhaustive tiny-distribution tests, and
 statistical sampling tests.
+
+PW-0110 supersedes the original implicit native-MTP/phrase-scale width prior
+for an unchanged source-FP8 internal-SSD verifier. Before the first trace phase,
+the candidate pool must support at least `q=137` target positions for the formal
+50-TPS branch or `q=94` for the separately reported 34.3-TPS horizon. Those are
+necessary impossible-perfect bounds at `A=q`, `U=1`; measured acceptance below
+one or union above one raises the required width. A base-aligned proposer—not
+the rejected supplied DFlash or native-MTP first proposal—is now prerequisite.
 
 The first trace-only phase passes only if:
 
@@ -86,6 +94,8 @@ target-distribution preservation requires separate proof and tests.
 
 ## Decision
 
-Unexecuted. This is the highest-priority algorithmic jump after a slow complete
-text path exposes real routes. Do not approximate it with PW-0017's correlated
-synthetic inputs or PW-0039's single low-union fixture.
+Unexecuted. PW-0110 makes this a much wider and more demanding branch than the
+original proposal: `q=16` and `q=32` are now rejected before training or
+verifier construction on the source-FP8 internal-SSD premise. Do not
+approximate it with PW-0017's correlated synthetic inputs or PW-0039's single
+low-union fixture.

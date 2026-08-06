@@ -113,6 +113,12 @@ The construction order follows the least-proven boundaries:
   functions, but exposes effectively no incremental residual compression. It
   is not an artifact format or decoder authority; finer neuron permutations or
   learned bases necessarily enter a separately named representation branch.
+- PW-0110 makes speculative width a physical storage authority rather than a
+  draft-model convention. On the unchanged source-FP8 internal-SSD path, a
+  verifier pool below 137 positions cannot reach 50 accepted TPS even with
+  perfect acceptance, minimum expert union, and every nonexpert cost removed.
+  Width 32 is also below the 34.3-TPS horizon. Any active proposer/verifier must
+  bind its measured `A/U` to this cold acquisition floor.
 - The PW-0049 correctness baseline owns one complete real base layer from
   source-FP8 QKV through SWA, residual/norm, dynamic routing, 56 selected
   experts, weighted scatter, and the final residual. Rust uses Accelerate

@@ -827,6 +827,26 @@
             "status": "rejected_exact_128_neuron_block_canonicalization; generic_codec_control_insufficient; not_endpoint_tps_or_default",
             "provenance": "PW-0109; contract e3d47f1cdbc866cf70a056ba0dfe87b643ee4e82; implementation f91121f0a3491ab41733a1e3dddc6f82e18538ee; raw manifest 9e0f15f65269d1b5c53536f18cda62df039d13ed19f48242f3eef91966b43bab; clean analyzer 4dd03eae8c01715b3e2f373354d7b6ac82b214f7; analysis a298ae0b3022fa5f22e06a573af9d1bfdc9471eb33c8fafcd7e664cf26d0b12d; Gate 8 passed"
         },
+        "pw0110_cold_storage_speculation_width_bound": {
+            "batch_size": 1,
+            "concurrency": 1,
+            "routed_layers": 47,
+            "best_metal_io_command_buffers": 3,
+            "cold_layer_acquisition_median_ms": 58.033833,
+            "routed_acquisition_floor_ms_per_verifier_block": 2727.590151,
+            "ideal_q8_accepted_tps_ceiling": 2.932991966211276,
+            "ideal_q16_accepted_tps_ceiling": 5.865983932422552,
+            "ideal_q32_accepted_tps_ceiling": 11.731967864845103,
+            "ideal_q64_accepted_tps_ceiling": 23.463935729690206,
+            "ideal_q128_accepted_tps_ceiling": 46.92787145938041,
+            "ideal_q137_accepted_tps_ceiling": 50.227487421368096,
+            "required_A_over_U_for_34_3_tps": 93.55634217929999,
+            "minimum_q_for_34_3_at_perfect_A_U": 94,
+            "required_A_over_U_for_50_tps": 136.37950755,
+            "minimum_q_for_50_at_perfect_A_U": 137,
+            "status": "necessary_optimistic_source_fp8_internal_ssd_bound; q16_q32_rejected_for_34_3_and_50; not_endpoint_tps",
+            "provenance": "PW-0110; contract 61cfc899455f938bc4f9628b1b27bd143a0a7fd9; clean analyzer 41f1dd3deeea997da577cb0bb116ef3d757c2eea; source PW-0108 raw report 6f7d816b4f39c00b967642bdf300e7baea8563a5fca593ab5d0943b5df047d68; analysis 844047de4d009d0d7bd6f803e56e097ee6efce66e6a0c2c7d96315962a5cd8b6"
+        },
         "native_simdgroup_matrix_source_fp8_moe_schedule": {
             "candidate_wall_median_ms_repeats": [22.450083, 22.531125],
             "control_wall_median_ms_repeats": [17.107709, 17.089417],
