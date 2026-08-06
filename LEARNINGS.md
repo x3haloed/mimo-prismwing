@@ -935,3 +935,20 @@ cleanup then reduced current footprint to 365,902,912 bytes. Darwin documents
 `msync(MS_INVALIDATE)` explicitly invalidates cached mapped data. The next
 candidate must test that stronger primitive under the same limits; frequency
 alone is not the mechanism.
+
+PW-0050 runs 005 and 006 establish the first complete, bounded native text
+walk. `msync(MS_INVALIDATE)` before `MADV_DONTNEED` changes mapped-file release
+from a reclaim hint into an effective phase boundary on this Darwin host. Two
+clean processes executed all 48 layers twice with retained K/V, produced the
+same `[122046,13]` (`瀛.`) output, and had an identical normalized semantic
+trace hash. Complete wall times were 288.914 and 287.776 seconds; the resulting
+~0.00694 accepted TPS is a slow correctness diagnostic, not a performance
+default. Peak residency remained about 4.02 GiB, phase footprint below 3 GiB,
+and host safety signals stayed clean.
+
+The causal and embodiment boundaries are now real, but whole-model semantic
+parity is not yet established. The surprising `瀛.` continuation means
+determinism and component fixtures cannot substitute for accumulated hosted
+logit comparison. `5345aa6` is promoted only as the M2 walking foundation;
+target-faithful labeling remains conditional on an identical-prefix hosted
+reference gate.

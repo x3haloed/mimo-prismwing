@@ -192,20 +192,56 @@ changing allocation order, arithmetic, or safety thresholds.
 
 ## Isolated attribution
 
-Unexecuted. Initial diagnostics will separate tokenizer, embedding, attention,
-dense/routed MLP, final norm/head, and storage time without treating any of
-them as endpoint TPS.
+Runs 005 and 006 used committed implementation `5345aa6`. Each process executed
+2,358 source-FP8 matrix expansions, 98 BF16 matrix expansions, and 752 routed
+expert executions. Logical source traffic was 34,415,810,304 bytes in each
+run; process disk reads were 34,754,334,720 and 34,803,265,536 bytes. Per-layer
+timings and routes are retained in the raw reports. These counters diagnose
+the deliberately slow source-streaming implementation; none is a promoted
+kernel or storage throughput result.
 
 ## End-to-end result
 
-Unexecuted. No endpoint or TPS claim exists.
+Two clean release processes completed in 288.914 and 287.776 seconds for two
+accepted generated tokens each. The diagnostic complete-path rates are
+0.006922 and 0.006950 accepted TPS at batch one, concurrency one, `A=1`, with
+`U=8` on every routed single-position layer. They are correctness-walk
+measurements, not a performance default or evidence toward Prismwing 50.
+
+Both runs tokenized raw UTF-8 `Hello` to `[9707]`, executed all 48 layers twice,
+used full attention at exactly layers 0/5/11/17/23/29/35/41/47, retained cache
+length one then two, and greedily produced token IDs `[122046,13]`, decoded as
+`瀛.`. Report content hashes are:
+
+- run 005: `6d57128da71a8389b64a5f715d3b32120195279446cf4a7005ddd2a2b04c6b9f`
+- run 006: `823224d725588947acca35cf8cefa08222663ab6161ebae08ce35e5bfeac51fc`
 
 ## Correctness result
 
-Unexecuted.
+The two runs' normalized semantic traces—prompt/output token IDs and bytes,
+top-20 local logits, all route IDs and weights, attention modes, and cache
+lengths, excluding timing/resource fields—have the identical SHA-256
+`c695deef67ff4036a717472debc681125eefcc8d6485df068dc817658cc1b2a6`.
+
+Run 005/006 peak residency was 4,314,775,552/4,313,907,200 bytes. Maximum
+phase footprint was 3,147,156,608/3,142,454,336 bytes, minimum system memory
+free was 86%, swap growth and new throttled pages were zero, and every protected
+resident service remained present. Thus the shared-host safety and deterministic
+causal-path gates pass.
+
+The unexpected visible output `瀛.` is not waived. A raw one-token prefix is not
+directly comparable to the hosted chat fixture, and the unavailable
+official-framework whole-model capture remains an explicit evidence gap.
+Source-derived component parity plus deterministic execution is insufficient
+to promote the reordered-FP32 whole-model result without hosted accumulated
+logit evidence.
 
 ## Decision
 
-Unexecuted. Passing promotes only the slow target-faithful raw-text forward and
-incremental decode endpoint. Chat-template, hosted accumulated parity, native
-modalities, MTP speculation, and Prismwing throughput remain subsequent gates.
+Promote `5345aa6` as the physically safe, deterministic M2 walking foundation,
+not yet as a target-faithful answer oracle. The next correctness step is a
+frozen hosted chat capture followed by local execution over the identical
+serialized token prefix and hosted-token logprob projection. Until that passes,
+PW-0050 remains in progress and no quality, target-faithful, or performance
+default is claimed. Native modalities, MTP speculation, and Prismwing
+throughput remain subsequent gates.
