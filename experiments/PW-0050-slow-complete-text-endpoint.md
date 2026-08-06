@@ -124,6 +124,23 @@ throttled pages, and the four declared resident service classes. Swap is
 therefore governed by growth from the run baseline rather than an absolute-zero
 rule. No full walk was started before adding this gate.
 
+## Attempt history
+
+Run 001 used committed implementation `4f92aac` and failed closed before the
+first projection with `FP8 GEMV scale grid mismatch`. The exact boundary is
+layer 0 full-attention fused QKV: source weight `[13568,4096]` has a
+`[108,32]` scale grid rather than the generic `[106,32]` grid. A complete index
+audit found the same layout on all nine full-attention QKV tensors and no other
+language FP8 tensor.
+
+The extra two scale rows are structural authority, not ignorable trailing
+padding: Q owns 96 ordinary block rows; four 192-wide K heads each own two
+scale rows (8); and four 128-wide V heads own one each (4). The repair names and
+tests that 108-row fused layout while leaving the generic FP8 validator strict.
+The failed-attempt manifest hashes to
+`07bbce444da6e3f1beda3ae9e9040884ad1dd7f10dca62791db0331da6b90a10`.
+No passing endpoint report exists from run 001.
+
 ## Isolated attribution
 
 Unexecuted. Initial diagnostics will separate tokenizer, embedding, attention,

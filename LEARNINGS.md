@@ -894,3 +894,13 @@ about 7.06 GB resident state; QKV is another 272--274 ms. This is decisive
 evidence against treating expanded F32 as a performance default. PW-0049 is
 the oracle and trace source for the predeclared topology/embodiment jumps, not
 an endpoint TPS result.
+
+PW-0050 run 001 exposed a checkpoint-layout exception before executing its
+first full-model projection. Every full-attention fused QKV weight is
+`[13568,4096]`, but its scale grid is `[108,32]`, not the generic `[106,32]`.
+The mismatch occurs on exactly the nine full-attention layers. The 108 scale
+rows preserve fused semantic segments: 96 Q block rows, two rows for each of
+four 192-wide K heads, and one row for each of four 128-wide V heads. Generic
+row-block validation must remain strict; full QKV requires a separately named,
+head-aware scale mapping. The first endpoint attempt failed closed before
+substantial memory growth and is preserved rather than omitted.

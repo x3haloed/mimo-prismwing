@@ -18,6 +18,22 @@ class TextEndpointFixtureTests(unittest.TestCase):
         )
         self.assertEqual(fixture["prompt_utf8"], "Hello")
         self.assertEqual(fixture["expected_prompt_token_ids"], [9707])
+        self.assertEqual(
+            fixture["full_attention_qkv_scale_layout"],
+            {
+                "weight_shape": [13568, 4096],
+                "scale_shape": [108, 32],
+                "query_rows": 12288,
+                "query_scale_rows": 96,
+                "key_heads": 4,
+                "key_rows_per_head": 192,
+                "key_scale_rows_per_head": 2,
+                "key_scale_row_start": 96,
+                "value_heads": 4,
+                "value_rows_per_head": 128,
+                "value_scale_row_start": 104,
+            },
+        )
         self.assertEqual(fixture["decode"]["new_tokens"], 2)
         self.assertTrue(fixture["decode"]["use_kv_cache"])
         self.assertEqual(fixture["decode"]["batch_size"], 1)

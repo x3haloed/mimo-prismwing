@@ -39,8 +39,24 @@ struct EndpointFixture {
     prompt_utf8: String,
     add_special_tokens: bool,
     expected_prompt_token_ids: Vec<u32>,
+    full_attention_qkv_scale_layout: FullQkvScaleFixture,
     decode: DecodeFixture,
     safety: SafetyFixture,
+}
+
+#[derive(Debug, Deserialize)]
+struct FullQkvScaleFixture {
+    weight_shape: [usize; 2],
+    scale_shape: [usize; 2],
+    query_rows: usize,
+    query_scale_rows: usize,
+    key_heads: usize,
+    key_rows_per_head: usize,
+    key_scale_rows_per_head: usize,
+    key_scale_row_start: usize,
+    value_heads: usize,
+    value_rows_per_head: usize,
+    value_scale_row_start: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -629,6 +645,23 @@ fn validate_fixture(fixture: &EndpointFixture) -> Result<(), String> {
         || fixture.prompt_utf8 != "Hello"
         || fixture.add_special_tokens
         || fixture.expected_prompt_token_ids != [9707]
+        || fixture.full_attention_qkv_scale_layout.weight_shape != [13_568, 4096]
+        || fixture.full_attention_qkv_scale_layout.scale_shape != [108, 32]
+        || fixture.full_attention_qkv_scale_layout.query_rows != 12_288
+        || fixture.full_attention_qkv_scale_layout.query_scale_rows != 96
+        || fixture.full_attention_qkv_scale_layout.key_heads != 4
+        || fixture.full_attention_qkv_scale_layout.key_rows_per_head != 192
+        || fixture
+            .full_attention_qkv_scale_layout
+            .key_scale_rows_per_head
+            != 2
+        || fixture.full_attention_qkv_scale_layout.key_scale_row_start != 96
+        || fixture.full_attention_qkv_scale_layout.value_heads != 4
+        || fixture.full_attention_qkv_scale_layout.value_rows_per_head != 128
+        || fixture
+            .full_attention_qkv_scale_layout
+            .value_scale_row_start
+            != 104
         || fixture.decode.sampling != "greedy"
         || fixture.decode.new_tokens != 2
         || fixture.decode.batch_size != 1
@@ -789,6 +822,82 @@ fn fp8_linear(
     accelerate_sgemm_right_transposed(input, &decoded, rows, output_columns, columns)
 }
 
+fn full_qkv_scale_row(weight_row: usize) -> Result<usize, String> {
+    const Q_ROWS: usize = HEADS * QK_HEAD_DIM;
+    const K_ROWS: usize = 4 * QK_HEAD_DIM;
+    const V_ROWS: usize = 4 * V_HEAD_DIM;
+    if weight_row < Q_ROWS {
+        return Ok(weight_row / 128);
+    }
+    if weight_row < Q_ROWS + K_ROWS {
+        let local = weight_row - Q_ROWS;
+        let head = local / QK_HEAD_DIM;
+        let dimension = local % QK_HEAD_DIM;
+        return Ok(96 + head * 2 + dimension / 128);
+    }
+    if weight_row < Q_ROWS + K_ROWS + V_ROWS {
+        return Ok(104 + (weight_row - Q_ROWS - K_ROWS) / V_HEAD_DIM);
+    }
+    Err("full-QKV weight row is out of range".to_owned())
+}
+
+fn full_qkv_linear(
+    checkpoint: &Checkpoint,
+    weight_name: &str,
+    input: &[f32],
+    rows: usize,
+    ledger: &mut EndpointLedger,
+) -> Result<Vec<f32>, String> {
+    const OUTPUT_ROWS: usize = HEADS * QK_HEAD_DIM + 4 * QK_HEAD_DIM + 4 * V_HEAD_DIM;
+    if rows == 0 || input.len() != rows * HIDDEN {
+        return Err(format!("{weight_name}: full-QKV input shape mismatch"));
+    }
+    let weight = checkpoint.tensor(weight_name)?;
+    let scale_name = format!("{weight_name}_scale_inv");
+    let scale = checkpoint.tensor(&scale_name)?;
+    if weight.metadata.dtype != "F8_E4M3"
+        || weight.metadata.shape != [OUTPUT_ROWS as u64, HIDDEN as u64]
+        || scale.metadata.dtype != "F32"
+        || scale.metadata.shape != [108, 32]
+        || scale.bytes.len() != 108 * 32 * 4
+    {
+        return Err(format!("{weight_name}: unknown full-QKV FP8 scale layout"));
+    }
+    if let Some(offset) = weight
+        .bytes
+        .iter()
+        .position(|bits| matches!(bits, 0x7f | 0xff))
+    {
+        return Err(format!(
+            "{weight_name}: non-finite FP8 weight at byte offset {offset}"
+        ));
+    }
+    let scales = scale
+        .bytes
+        .chunks_exact(4)
+        .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four-byte F32 scale")))
+        .collect::<Vec<_>>();
+    if scales.iter().any(|value| !value.is_finite()) {
+        return Err(format!("{weight_name}: full-QKV scale is non-finite"));
+    }
+    let mut decoded = Vec::with_capacity(weight.bytes.len());
+    for weight_row in 0..OUTPUT_ROWS {
+        let scale_row = full_qkv_scale_row(weight_row)?;
+        for column in 0..HIDDEN {
+            decoded.push(
+                super::decode_f8_e4m3fn(weight.bytes[weight_row * HIDDEN + column])
+                    * scales[scale_row * 32 + column / 128],
+            );
+        }
+    }
+    ledger.logical_source_bytes = ledger
+        .logical_source_bytes
+        .checked_add(weight.metadata.data_bytes + scale.metadata.data_bytes)
+        .ok_or("logical byte ledger overflow")?;
+    ledger.fp8_matrices_expanded += 1;
+    accelerate_sgemm_right_transposed(input, &decoded, rows, OUTPUT_ROWS, HIDDEN)
+}
+
 fn bf16_linear(
     checkpoint: &Checkpoint,
     weight_name: &str,
@@ -872,15 +981,14 @@ fn attention(
     let v_size = kv_heads * V_HEAD_DIM;
     let qkv_rows = q_size + k_size + v_size;
     let prefix = format!("model.layers.{layer}.self_attn");
-    let qkv = fp8_linear(
-        checkpoint,
-        &format!("{prefix}.qkv_proj.weight"),
-        normalized,
-        rows,
-        HIDDEN,
-        qkv_rows,
-        ledger,
-    )?;
+    let qkv_name = format!("{prefix}.qkv_proj.weight");
+    let qkv = if is_swa {
+        fp8_linear(
+            checkpoint, &qkv_name, normalized, rows, HIDDEN, qkv_rows, ledger,
+        )
+    } else {
+        full_qkv_linear(checkpoint, &qkv_name, normalized, rows, ledger)
+    }?;
     let prior = cache.positions;
     let theta = if is_swa {
         config.swa_rope_theta
@@ -1440,5 +1548,24 @@ mod tests {
         assert!(throttled_pages().is_ok());
         assert!(process_usage().is_ok());
         assert!(peak_resident_bytes().is_ok_and(|value| value > 0));
+    }
+
+    #[test]
+    fn full_qkv_scale_layout_preserves_head_boundaries() {
+        assert_eq!(full_qkv_scale_row(0), Ok(0));
+        assert_eq!(full_qkv_scale_row(12_287), Ok(95));
+        assert_eq!(full_qkv_scale_row(12_288), Ok(96));
+        assert_eq!(full_qkv_scale_row(12_415), Ok(96));
+        assert_eq!(full_qkv_scale_row(12_416), Ok(97));
+        assert_eq!(full_qkv_scale_row(12_479), Ok(97));
+        assert_eq!(full_qkv_scale_row(12_480), Ok(98));
+        assert_eq!(full_qkv_scale_row(13_055), Ok(103));
+        assert_eq!(full_qkv_scale_row(13_056), Ok(104));
+        assert_eq!(full_qkv_scale_row(13_567), Ok(107));
+        assert!(full_qkv_scale_row(13_568).is_err());
+        let used = (0..13_568)
+            .map(|row| full_qkv_scale_row(row).expect("valid full-QKV row"))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(used, (0..108).collect());
     }
 }

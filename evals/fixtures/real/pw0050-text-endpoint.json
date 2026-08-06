@@ -10,6 +10,19 @@
   "prompt_utf8": "Hello",
   "add_special_tokens": false,
   "expected_prompt_token_ids": [9707],
+  "full_attention_qkv_scale_layout": {
+    "weight_shape": [13568, 4096],
+    "scale_shape": [108, 32],
+    "query_rows": 12288,
+    "query_scale_rows": 96,
+    "key_heads": 4,
+    "key_rows_per_head": 192,
+    "key_scale_rows_per_head": 2,
+    "key_scale_row_start": 96,
+    "value_heads": 4,
+    "value_rows_per_head": 128,
+    "value_scale_row_start": 104
+  },
   "decode": {
     "sampling": "greedy",
     "new_tokens": 2,
