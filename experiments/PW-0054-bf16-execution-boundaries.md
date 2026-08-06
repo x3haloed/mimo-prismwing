@@ -36,6 +36,9 @@ bit patterns. Rust must reproduce every BF16 payload bit and widened F32 bit
 for finite values, and preserve IEEE class/sign for non-finite values. Runtime
 model tensors must fail closed on non-finite values.
 
+The resulting conversion and two-case causal-attention fixture hashes to
+`43e40b3d129394a49a254abdfe264f91afd3ad1eb8dd94695f353d7719e3f6fc`.
+
 Apply BF16 boundaries only at source-authorized locations:
 
 - RMSNorm results;

@@ -867,10 +867,30 @@ fn rms_norm(
         let source = &values[row * HIDDEN..(row + 1) * HIDDEN];
         let inverse = stable_rms_inverse(source, epsilon)?;
         for column in 0..HIDDEN {
-            output[row * HIDDEN + column] = source[column] * inverse * weights[column];
+            let normalized = round_bf16(source[column] * inverse);
+            output[row * HIDDEN + column] = round_bf16(normalized * weights[column]);
         }
     }
     Ok(output)
+}
+
+fn round_bf16(value: f32) -> f32 {
+    let bits = value.to_bits();
+    if bits & 0x7f80_0000 == 0x7f80_0000 {
+        if bits & 0x007f_ffff == 0 {
+            return value;
+        }
+        let payload = ((bits >> 16) as u16) | 0x0040;
+        return f32::from_bits(u32::from(payload) << 16);
+    }
+    let rounding_bias = 0x7fff + ((bits >> 16) & 1);
+    f32::from_bits(bits.wrapping_add(rounding_bias) & 0xffff_0000)
+}
+
+fn round_bf16_values(values: &mut [f32]) {
+    for value in values {
+        *value = round_bf16(*value);
+    }
 }
 
 struct DynamicFp8Activations {
@@ -976,13 +996,15 @@ fn fp8_linear(
         ledger.dynamic_activation_groups += quantized.scales.len() as u64;
         ledger.dynamic_activation_values += quantized.encoded.len() as u64;
         let decoded = decode_fp8_matrix_f32(&validated);
-        accelerate_sgemm_right_transposed(
+        let mut output = accelerate_sgemm_right_transposed(
             &quantized.dequantized,
             &decoded,
             rows,
             output_columns,
             columns,
-        )?
+        )?;
+        round_bf16_values(&mut output);
+        output
     };
     release_matrix_transients(checkpoint)?;
     Ok(output)
@@ -1065,13 +1087,15 @@ fn full_qkv_linear(
         let quantized = dynamic_fp8_activations(input, rows, HIDDEN)?;
         ledger.dynamic_activation_groups += quantized.scales.len() as u64;
         ledger.dynamic_activation_values += quantized.encoded.len() as u64;
-        accelerate_sgemm_right_transposed(
+        let mut output = accelerate_sgemm_right_transposed(
             &quantized.dequantized,
             &decoded,
             rows,
             OUTPUT_ROWS,
             HIDDEN,
-        )?
+        )?;
+        round_bf16_values(&mut output);
+        output
     };
     release_matrix_transients(checkpoint)?;
     Ok(output)
@@ -1102,7 +1126,10 @@ fn bf16_linear(
             .ok_or("logical byte ledger overflow")?;
         ledger.bf16_matrices_expanded += 1;
         let decoded = decode_bf16_tensor(view, output_columns * columns)?;
-        accelerate_sgemm_right_transposed(input, &decoded, rows, output_columns, columns)?
+        let mut output =
+            accelerate_sgemm_right_transposed(input, &decoded, rows, output_columns, columns)?;
+        round_bf16_values(&mut output);
+        output
     };
     release_matrix_transients(checkpoint)?;
     Ok(output)
@@ -1134,22 +1161,44 @@ fn apply_rope(values: &mut [f32], heads: usize, position: usize, theta: f64) {
         let offset = head * QK_HEAD_DIM;
         for pair in 0..ROPE_DIM / 2 {
             let angle = position as f64 / theta.powf(2.0 * pair as f64 / ROPE_DIM as f64);
-            let cosine = angle.cos() as f32;
-            let sine = angle.sin() as f32;
+            let cosine = round_bf16(angle.cos() as f32);
+            let sine = round_bf16(angle.sin() as f32);
             let first = values[offset + pair];
             let second = values[offset + pair + ROPE_DIM / 2];
-            values[offset + pair] = first * cosine - second * sine;
-            values[offset + pair + ROPE_DIM / 2] = second * cosine + first * sine;
+            values[offset + pair] = round_bf16(first * cosine - second * sine);
+            values[offset + pair + ROPE_DIM / 2] = round_bf16(second * cosine + first * sine);
         }
     }
 }
 
+#[cfg(test)]
 fn causal_attention_head(
     query: &[f32],
     keys: &[&[f32]],
     values: &[&[f32]],
     scale: f32,
     sink: Option<f32>,
+) -> Result<Vec<f32>, String> {
+    causal_attention_head_with_dtype(query, keys, values, scale, sink, false)
+}
+
+fn causal_attention_head_bf16(
+    query: &[f32],
+    keys: &[&[f32]],
+    values: &[&[f32]],
+    scale: f32,
+    sink: Option<f32>,
+) -> Result<Vec<f32>, String> {
+    causal_attention_head_with_dtype(query, keys, values, scale, sink, true)
+}
+
+fn causal_attention_head_with_dtype(
+    query: &[f32],
+    keys: &[&[f32]],
+    values: &[&[f32]],
+    scale: f32,
+    sink: Option<f32>,
+    bf16_boundaries: bool,
 ) -> Result<Vec<f32>, String> {
     if query.is_empty()
         || keys.is_empty()
@@ -1163,31 +1212,46 @@ fn causal_attention_head(
     let mut scores = keys
         .iter()
         .map(|key| {
-            query
+            let dot = query
                 .iter()
                 .zip(*key)
                 .map(|(left, right)| left * right)
-                .sum::<f32>()
-                * scale
+                .sum::<f32>();
+            if bf16_boundaries {
+                round_bf16(round_bf16(dot) * scale)
+            } else {
+                dot * scale
+            }
         })
         .collect::<Vec<_>>();
     if let Some(sink) = sink {
         scores.push(sink);
     }
     let maximum = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let mut probabilities = scores
-        .iter()
-        .map(|score| (score - maximum).exp())
-        .collect::<Vec<_>>();
+    for score in &mut scores {
+        *score = if bf16_boundaries {
+            round_bf16(*score - maximum)
+        } else {
+            *score - maximum
+        };
+    }
+    let mut probabilities = scores.iter().map(|score| score.exp()).collect::<Vec<_>>();
     let denominator = probabilities.iter().sum::<f32>();
     for probability in &mut probabilities {
-        *probability /= denominator;
+        *probability = if bf16_boundaries {
+            round_bf16(*probability / denominator)
+        } else {
+            *probability / denominator
+        };
     }
     let mut output = vec![0.0_f32; values[0].len()];
     for (position, value) in values.iter().enumerate() {
         for (destination, source) in output.iter_mut().zip(*value) {
             *destination += probabilities[position] * source;
         }
+    }
+    if bf16_boundaries {
+        round_bf16_values(&mut output);
     }
     Ok(output)
 }
@@ -1238,7 +1302,7 @@ fn attention(
         cache.values.extend(
             source[q_size + k_size..]
                 .iter()
-                .map(|value| value * config.attention_value_scale),
+                .map(|value| round_bf16(value * config.attention_value_scale)),
         );
     }
     cache.positions += rows;
@@ -1276,7 +1340,7 @@ fn attention(
                 let value_offset = (position * kv_heads + kv_head) * V_HEAD_DIM;
                 values.push(&cache.values[value_offset..value_offset + V_HEAD_DIM]);
             }
-            let head_output = causal_attention_head(
+            let head_output = causal_attention_head_bf16(
                 query,
                 &keys,
                 &values,
@@ -1327,7 +1391,10 @@ fn dense_mlp(
     let activated = gate
         .iter()
         .zip(up)
-        .map(|(&gate, up)| gate / (1.0 + (-gate).exp()) * up)
+        .map(|(&gate, up)| {
+            let silu = round_bf16(gate / (1.0 + (-gate).exp()));
+            round_bf16(silu * up)
+        })
         .collect::<Vec<_>>();
     fp8_linear(
         checkpoint,
@@ -1402,7 +1469,10 @@ fn routed_mlp(
         let activated = gate
             .iter()
             .zip(up)
-            .map(|(&gate, up)| gate / (1.0 + (-gate).exp()) * up)
+            .map(|(&gate, up)| {
+                let silu = round_bf16(gate / (1.0 + (-gate).exp()));
+                round_bf16(silu * up)
+            })
             .collect::<Vec<_>>();
         let projected = fp8_linear(
             checkpoint,
@@ -1420,6 +1490,7 @@ fn routed_mlp(
         }
         ledger.routed_expert_executions += 1;
     }
+    round_bf16_values(&mut output);
     Ok(RoutedMlpOutput {
         output,
         selected: routes.selected,
@@ -1519,7 +1590,7 @@ fn decode_step(
         let post_attention = hidden
             .iter()
             .zip(attention_output)
-            .map(|(&residual, projected)| residual + projected)
+            .map(|(&residual, projected)| round_bf16(residual + projected))
             .collect::<Vec<_>>();
         let post_norm = bf16_vector(
             checkpoint,
@@ -1541,7 +1612,7 @@ fn decode_step(
         hidden = post_attention
             .iter()
             .zip(mlp)
-            .map(|(&residual, projected)| residual + projected)
+            .map(|(&residual, projected)| round_bf16(residual + projected))
             .collect();
         let unique = selected
             .iter()
@@ -1754,9 +1825,9 @@ pub fn run_slow_text_endpoint(
         accepted_tokens: 2,
         accepted_per_verification: 1,
         cache_state: "cold process; verified source mmap; one matrix expanded at a time; retained per-layer K/V",
-        exactness: "L0 source weights and routes; dynamic per-token-group E4M3FN activations; reordered FP32 accumulation under component gates",
+        exactness: "L0 source weights and routes; dynamic per-token-group E4M3FN activations; source-authorized BF16 tensor boundaries with readable FP32 accumulation",
         performance_claim: None,
-        implementation: "single_rust_authority_tokenizers_mmap_accelerate_dynamic_activation_source_fp8_bf16",
+        implementation: "single_rust_authority_tokenizers_mmap_accelerate_dynamic_activation_source_fp8_bf16_boundaries",
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;
@@ -1936,5 +2007,75 @@ mod tests {
         let mut nonfinite = [0.0_f32; 128];
         nonfinite[3] = f32::NAN;
         assert!(dynamic_fp8_activations(&nonfinite, 1, 128).is_err());
+    }
+
+    #[test]
+    fn bf16_rounding_matches_pytorch_payloads() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0054-bf16-boundary.json"
+        ))
+        .expect("valid BF16 boundary fixture");
+        assert_eq!(fixture["semantic"], "f32_to_bf16_rne");
+        let input = fixture["input_f32_bits"].as_array().expect("input bits");
+        let expected_bf16 = fixture["bf16_u16"].as_array().expect("BF16 bits");
+        let expected_widened = fixture["widened_f32_bits"]
+            .as_array()
+            .expect("widened bits");
+        assert_eq!(input.len(), expected_bf16.len());
+        assert_eq!(input.len(), expected_widened.len());
+        for ((input, expected_bf16), expected_widened) in
+            input.iter().zip(expected_bf16).zip(expected_widened)
+        {
+            let input_bits = (input.as_i64().expect("signed F32 bits") as i32) as u32;
+            let actual = round_bf16(f32::from_bits(input_bits));
+            let expected_bf16 = expected_bf16.as_u64().expect("BF16 payload") as u16;
+            let expected_widened =
+                (expected_widened.as_i64().expect("signed widened bits") as i32) as u32;
+            if f32::from_bits(input_bits).is_finite() {
+                assert_eq!((actual.to_bits() >> 16) as u16, expected_bf16);
+                assert_eq!(actual.to_bits(), expected_widened);
+            } else if f32::from_bits(input_bits).is_nan() {
+                assert!(actual.is_nan());
+                assert_eq!(
+                    actual.is_sign_negative(),
+                    f32::from_bits(input_bits).is_sign_negative()
+                );
+            } else {
+                assert_eq!(actual.to_bits(), input_bits);
+            }
+        }
+
+        for case in fixture["attention_cases"]
+            .as_array()
+            .expect("attention cases")
+        {
+            let query =
+                serde_json::from_value::<Vec<f32>>(case["query"].clone()).expect("BF16 query");
+            let keys =
+                serde_json::from_value::<Vec<Vec<f32>>>(case["keys"].clone()).expect("BF16 keys");
+            let values = serde_json::from_value::<Vec<Vec<f32>>>(case["values"].clone())
+                .expect("BF16 values");
+            let key_views = keys.iter().map(Vec::as_slice).collect::<Vec<_>>();
+            let value_views = values.iter().map(Vec::as_slice).collect::<Vec<_>>();
+            let sink = case["sink"].as_f64().map(|value| value as f32);
+            let actual = causal_attention_head_bf16(
+                &query,
+                &key_views,
+                &value_views,
+                case["scale"].as_f64().expect("scale") as f32,
+                sink,
+            )
+            .expect("valid BF16 attention");
+            let expected = case["expected_bf16_u16"]
+                .as_array()
+                .expect("expected BF16 output");
+            assert_eq!(actual.len(), expected.len());
+            for (actual, expected) in actual.iter().zip(expected) {
+                assert_eq!(
+                    (actual.to_bits() >> 16) as u16,
+                    expected.as_u64().expect("BF16 payload") as u16
+                );
+            }
+        }
     }
 }
