@@ -26,6 +26,7 @@ and binds all 39 files to this revision.
 - Installed version: 2.13.0
 - Build commit: `cf30153c4c131c8164ee7798e5022d810682e2cb`
 - Authoritative files: `aten/src/ATen/native/cpu/SoftMaxKernel.cpp`,
+  `aten/src/ATen/native/cpu/SumKernel.cpp`,
   `aten/src/ATen/cpu/vec/functional_base.h`, ARM
   `aten/src/ATen/cpu/vec/vec128/vec128_float_neon.h`, and
   `aten/src/ATen/native/TopKImpl.h` at that commit. PW-0070 additionally uses

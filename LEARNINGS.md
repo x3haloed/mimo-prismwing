@@ -1234,3 +1234,12 @@ layer 14; expert sets remain exact through layer 18. The 797.596-second safe
 walk peaked at 3.946 GB RSS in the LM head, ended at 2.681 GB, retained at
 least 82% free memory, and caused no swap growth, throttling, or service loss.
 Localize layer 14 from exact layer 13 rather than changing downstream behavior.
+
+PW-0078 localizes layer 14 to post-attention RMSNorm after the complete
+attention residual matches bit-for-bit. PyTorch's contiguous-inner cascade sum
+produces an F32 variance one ULP below the prior high-precision reduction on
+position 1; its inverse differs by two ULPs and tips 41 weighted outputs across
+BF16 boundaries. Router and expert differences are downstream. The 230.205-
+second Rust trace peaked at 747 MB RSS, ended at 376 MB, retained at least 82%
+free memory, and caused no swap growth, throttling, or service loss. Gate the
+real row and pinned cascade topology before changing RMSNorm production code.
