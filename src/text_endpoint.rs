@@ -1456,6 +1456,25 @@ fn causal_attention_head_bf16(
     causal_attention_head_with_dtype(query, keys, values, scale, sink, true, None)
 }
 
+fn pytorch_bf16_dot_f32(left: &[f32], right: &[f32]) -> f32 {
+    debug_assert_eq!(left.len(), right.len());
+    let mut partials = [0.0_f32; 4];
+    let complete = left.len() / 4 * 4;
+    for index in (0..complete).step_by(4) {
+        partials[0] += left[index] * right[index];
+        partials[1] += left[index + 1] * right[index + 1];
+        partials[2] += left[index + 2] * right[index + 2];
+        partials[3] += left[index + 3] * right[index + 3];
+    }
+    for index in complete..left.len() {
+        partials[0] += left[index] * right[index];
+    }
+    partials[0] += partials[1];
+    partials[0] += partials[2];
+    partials[0] += partials[3];
+    partials[0]
+}
+
 fn causal_attention_head_with_dtype(
     query: &[f32],
     keys: &[&[f32]],
@@ -1477,11 +1496,15 @@ fn causal_attention_head_with_dtype(
     let mut scores = keys
         .iter()
         .map(|key| {
-            let dot = query
-                .iter()
-                .zip(*key)
-                .map(|(left, right)| left * right)
-                .sum::<f32>();
+            let dot = if bf16_boundaries {
+                pytorch_bf16_dot_f32(query, key)
+            } else {
+                query
+                    .iter()
+                    .zip(*key)
+                    .map(|(left, right)| left * right)
+                    .sum::<f32>()
+            };
             if bf16_boundaries {
                 round_bf16(round_bf16(dot) * scale)
             } else {
@@ -3865,6 +3888,82 @@ mod tests {
         }
         assert!(attention_softmax(&[], true).is_err());
         assert!(attention_softmax(&[f32::NAN], true).is_err());
+    }
+
+    #[test]
+    fn pytorch_bf16_dot_matches_four_lane_source_order() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0070-pytorch-bf16-dot.json"
+        ))
+        .expect("valid PyTorch BF16 dot fixture");
+        assert_eq!(
+            fixture["semantic"],
+            "pytorch_aarch64_bf16_dot_four_lane_order"
+        );
+        let query = fixture["query_bf16_u16"]
+            .as_array()
+            .expect("query bits")
+            .iter()
+            .map(|value| {
+                f32::from_bits(u32::from(value.as_u64().expect("BF16 query") as u16) << 16)
+            })
+            .collect::<Vec<_>>();
+        let key = fixture["key_bf16_u16"]
+            .as_array()
+            .expect("key bits")
+            .iter()
+            .map(|value| f32::from_bits(u32::from(value.as_u64().expect("BF16 key") as u16) << 16))
+            .collect::<Vec<_>>();
+        assert_eq!(query.len(), QK_HEAD_DIM);
+        assert_eq!(key.len(), QK_HEAD_DIM);
+
+        let source_order = pytorch_bf16_dot_f32(&query, &key);
+        assert_eq!(
+            source_order.to_bits(),
+            fixture["source_four_lane_dot_f32_u32"]
+                .as_u64()
+                .expect("source-order dot bits") as u32
+        );
+        let forward = query
+            .iter()
+            .zip(&key)
+            .map(|(left, right)| left * right)
+            .sum::<f32>();
+        assert_eq!(
+            forward.to_bits(),
+            fixture["forward_dot_f32_u32"]
+                .as_u64()
+                .expect("forward dot bits") as u32
+        );
+        assert_ne!(
+            round_bf16(source_order).to_bits(),
+            round_bf16(forward).to_bits()
+        );
+        assert_eq!(
+            (round_bf16(source_order).to_bits() >> 16) as u16,
+            fixture["dot_bf16_u16"].as_u64().expect("BF16 dot bits") as u16
+        );
+        let scale = f32::from_bits(fixture["scale_f32_u32"].as_u64().expect("scale bits") as u32);
+        let score = round_bf16(round_bf16(source_order) * scale);
+        assert_eq!(
+            (score.to_bits() >> 16) as u16,
+            fixture["scaled_score_bf16_u16"]
+                .as_u64()
+                .expect("scaled BF16 score bits") as u16
+        );
+        let maximum = f32::from_bits(
+            u32::from(
+                fixture["row_maximum_bf16_u16"]
+                    .as_u64()
+                    .expect("row maximum bits") as u16,
+            ) << 16,
+        );
+        assert_eq!(
+            (round_bf16(score - maximum).to_bits() >> 16) as u16,
+            fixture["centered_score_bf16_u16"]
+                .as_u64()
+                .expect("centered score bits") as u16
+        );
     }
 
     #[test]

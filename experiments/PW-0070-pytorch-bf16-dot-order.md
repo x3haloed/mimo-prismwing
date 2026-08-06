@@ -22,9 +22,10 @@ straddle a BF16 rounding boundary before attention scaling.
 
 Create a small deterministic fixture from the hash-bound PW-0069 oracle query,
 key, and sink captures. It must contain the exact 192 BF16 input bit patterns,
-the PyTorch raw F32 dot bits, the post-dot BF16 bits, the scaled BF16 score bits,
-the row maximum, and the centered-score bits. Record source manifest and capture
-hashes; do not commit full real-model captures.
+the pinned-source four-lane and old forward F32 replay bits, the PyTorch
+post-dot BF16 bits, the scaled BF16 score bits, the row maximum, and the
+centered-score bits. Record source manifest and capture hashes; do not commit
+full real-model captures.
 
 First prove that a source-derived four-lane replay matches the installed
 PyTorch bits and the failing centered score while forward accumulation does
