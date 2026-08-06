@@ -1383,7 +1383,11 @@ fn attention_softmax(scores: &[f32], bf16_output: bool) -> Result<Vec<f32>, Stri
             *probability = score.exp();
         }
     }
-    let denominator = probabilities.iter().sum::<f32>();
+    let denominator = if bf16_output {
+        probabilities.iter().rev().sum::<f32>()
+    } else {
+        probabilities.iter().sum::<f32>()
+    };
     if !denominator.is_finite() || denominator <= 0.0 {
         return Err("attention softmax denominator is invalid".to_owned());
     }
