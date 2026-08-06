@@ -1271,3 +1271,13 @@ probabilities and ultimately 190 final values; routing differences are
 downstream. The 303.484-second safe trace peaked at 709 MB RSS, returned to
 139 MB, retained at least 82% free memory, and caused no swap growth,
 throttling, or service loss. Gate the real pair before unifying score dots.
+
+PW-0082 promotes the pinned specialized eight-vector topology for every BF16
+attention score dot. A new layer-19 SWA fixture genuinely discriminates it
+from four-lane reduction, while the preserved PW-0070 pair confirms both
+topologies happen to round to its oracle BF16 value. The repaired layer-19
+replay makes all 21 captures bit-exact, preserves exact expert sets/order, and
+holds route-weight serialization error to `2.21e-8`. It safely peaked at 747
+MB RSS, returned to 138 MB, retained at least 82% free memory, and caused no
+swap growth, throttling, or service loss. The accumulated frontier is ready
+for replay beyond layer 19; no throughput constant changes.

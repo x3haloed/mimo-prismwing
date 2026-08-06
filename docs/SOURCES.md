@@ -38,7 +38,8 @@ and binds all 39 files to this revision.
 - Build identity: CPU capability `DEFAULT`,
   `AT_BUILD_ARM_VEC256_WITH_SLEEF`, Apple aarch64.
 - Decision: operation-order reference for PW-0061 through PW-0066, PW-0070,
-  PW-0072, PW-0073, PW-0075, PW-0076, PW-0078, and PW-0079.
+  PW-0072, PW-0073, PW-0075, PW-0076, PW-0078, PW-0079, PW-0081, and
+  PW-0082.
   It is not a runtime dependency or an authority for MiMo model topology.
 
 ## OpenRouter MiMo-V2.5
