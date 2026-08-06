@@ -1471,3 +1471,17 @@ topology sensitivity at BF16 boundaries, not routing, scatter, storage, or
 memory pressure. The rejected run peaks at 253 MB, returns to 30 MB, retains
 79% free memory, and causes no swap growth or throttling. Localize and repair
 only uncertain expert-182 rows; do not promote the fast path or weaken gates.
+
+PW-0099 repairs the PW-0098 numerical failure without expert- or row-specific
+policy. Expert 182's decisive up value lies one F32 ULP from a BF16 midpoint;
+the wrong neighbor changes a dynamic-FP8 SwiGLU group maximum and amplifies one
+boundary error into 1,104 down differences. A fixed value-derived four-ULP
+predicate source-reduces only uncertain rows: three gate, three up, and nine
+down rows across the routed slice, decoding 172,032 bytes. Interleaved frozen
+controls remain incorrect at 55.09/55.60 ms; repaired candidates run at
+55.18/55.60 ms, produce identical bytes, and reach 99.9756% BF16 identity,
+`5.26e-5` relative L2, and `2.98e-8` maximum error. Independent expert 32 also
+passes with two down repairs. Gate 8 retains 79% free memory, peaks below 258
+MB, returns below 31 MB, and records no swap growth, throttling, or protected-
+service loss. Promote sparse boundary repair only as a complete-token candidate;
+component success is not endpoint TPS or a default.

@@ -588,6 +588,28 @@
             "status": "rejected_correctness_gates_failed; timing_and_memory_gates_passed; not_endpoint_tps_or_default",
             "provenance": "PW-0098; final safety commit e8a12e69a46b08bcc5780b78c2fd88cfbf892448; verified-checkpoint BF16 oracle; native unsorted routes; bounded serial tensor installation; failure localized to expert 182"
         },
+        "pw0099_sparse_bf16_boundary_repaired_routed_layer": {
+            "layer": 43,
+            "batch_size": 1,
+            "top_k": 8,
+            "unique_experts_U": 8,
+            "interleaved_control_wall_median_ms": [55.085916, 55.6005],
+            "interleaved_candidate_wall_median_ms": [55.180958, 55.595792],
+            "candidate_wall_median_ms_repeat_mean": 55.388375,
+            "pw0096_attributed_cpu_routed_layer_ms": 3180.0,
+            "component_speedup_vs_pw0096_attribution": 57.412852,
+            "sparse_repair_counts_gate_up_down": [3, 3, 9],
+            "sparse_decoded_weight_bytes": 172032,
+            "logical_source_and_io_bytes_per_execution": 205603840,
+            "maximum_resident_tensor_buffer_bytes": 8390656,
+            "route_weight_maximum_absolute_error": 0.0,
+            "relative_l2_vs_independent_torch": 0.0000525654482443082,
+            "maximum_absolute_error_vs_independent_torch": 2.9802322e-8,
+            "bf16_equality_fraction": 0.999755859375,
+            "output_sha256": "77436d4ffc8a112d96f18275fbcc47097a67f2ca18a937c06726b736edc0d2a1",
+            "status": "conditional_complete_token_candidate; component_correctness_timing_and_memory_gates_passed; not_endpoint_tps_or_default",
+            "provenance": "PW-0099; candidate ea7f042fd45e740ab4005aafb2337c3ca7eb5366; frozen control e8a12e6b68bed2e47adffc0674e02dfa921110a7; verified-checkpoint staged oracle; interleaved control/candidate processes; independent expert-32 holdout; Gate 8 passed"
+        },
         "native_simdgroup_matrix_source_fp8_moe_schedule": {
             "candidate_wall_median_ms_repeats": [22.450083, 22.531125],
             "control_wall_median_ms_repeats": [17.107709, 17.089417],
