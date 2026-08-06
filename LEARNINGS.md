@@ -1194,3 +1194,13 @@ case before any real replay, and the repair was withheld until that path also
 matched. The final 180.887-second trace peaked at 749 MB RSS, retained 81% free
 memory, and caused no swap growth, throttling, or service loss. The exact
 accumulated frontier is now through layer 11.
+
+PW-0074 advances the bit-exact accumulated frontier through layer 12. Layer 13
+is the first actual divergence—21 of 110,592 BF16 values, `1.63e-6` relative
+L2, and `0.015625` maximum error—while layer 14 remains merely the first formal
+layer-final failure. Route weights first exceed their strict gate at layer 13;
+expert sets remain exact through layer 18. The safe full walk peaked at 3.838
+GB RSS in the LM head, ended at 2.710 GB, retained at least 77% free memory,
+and caused no swap growth, throttling, or protected-service loss. Localize
+layer 13 from the frozen exact layer-12 input rather than changing downstream
+routing or repeating another full walk.
