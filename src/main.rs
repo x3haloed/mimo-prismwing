@@ -112,7 +112,7 @@ fn usage() -> ! {
     );
     #[cfg(target_os = "macos")]
     eprintln!(
-        "  prismwing build-layer4-metal-ready-artifact <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <oracle-manifest.json> <artifact.bin> <artifact-manifest.json> <commit>"
+        "  prismwing build-layer4-metal-ready-artifact <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <oracle-manifest.json> <artifact.bin> <artifact-manifest.json> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -271,7 +271,7 @@ fn main() {
                 })
             }
             #[cfg(target_os = "macos")]
-            Some("build-layer4-metal-ready-artifact") if arguments.len() == 10 => {
+            Some("build-layer4-metal-ready-artifact") if arguments.len() == 11 => {
                 let checkpoint = PathBuf::from(&arguments[2]);
                 let model_lock = PathBuf::from(&arguments[3]);
                 let verification = PathBuf::from(&arguments[4]);
@@ -279,6 +279,7 @@ fn main() {
                 let oracle = PathBuf::from(&arguments[6]);
                 let artifact = PathBuf::from(&arguments[7]);
                 let manifest = PathBuf::from(&arguments[8]);
+                let output = PathBuf::from(&arguments[9]);
                 build_layer4_metal_ready_artifact(
                     &checkpoint,
                     &model_lock,
@@ -287,13 +288,14 @@ fn main() {
                     &oracle,
                     &artifact,
                     &manifest,
-                    &arguments[9],
+                    &output,
+                    &arguments[10],
                 )
                 .and_then(|report| {
                     serde_json::to_writer(std::io::stdout(), &report)
                         .map_err(|error| error.to_string())?;
                     println!();
-                    Ok(Some(manifest))
+                    Ok(Some(output))
                 })
             }
             #[cfg(target_os = "macos")]

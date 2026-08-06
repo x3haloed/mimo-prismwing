@@ -3722,8 +3722,12 @@ pub fn build_layer4_metal_ready_artifact(
     oracle_manifest_path: &Path,
     artifact_path: &Path,
     artifact_manifest_path: &Path,
+    output_path: &Path,
     commit: &str,
 ) -> Result<RoutedLayerArtifactBuildReport, String> {
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
     if commit.len() != 40
         || !commit
             .bytes()
@@ -3810,7 +3814,7 @@ pub fn build_layer4_metal_ready_artifact(
     let artifact_manifest_sha256 = verified.manifest_sha256.clone();
     drop(verified);
     safety.checkpoint("artifact_fresh_mapping_released", true)?;
-    Ok(RoutedLayerArtifactBuildReport {
+    let report = RoutedLayerArtifactBuildReport {
         schema_version: 1,
         semantic: "mimo_v2_5_l1_page_stable_layer4_artifact_build",
         revision: REVISION,
@@ -3829,7 +3833,12 @@ pub fn build_layer4_metal_ready_artifact(
         safety_snapshots: safety.snapshots,
         exactness: "L1 function-preserving lossless page-aligned runtime layout",
         performance_claim: None,
-    })
+    };
+    write_create_new(
+        output_path,
+        &serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?,
+    )?;
+    Ok(report)
 }
 
 struct ArtifactExpertBindings<'a> {
