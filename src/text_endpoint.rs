@@ -1572,9 +1572,22 @@ fn causal_attention_head_with_dtype(
         trace.probabilities = probabilities.clone();
     }
     let mut output = vec![0.0_f32; values[0].len()];
-    for (position, value) in values.iter().enumerate() {
-        for (destination, source) in output.iter_mut().zip(*value) {
-            *destination += probabilities[position] * source;
+    if bf16_boundaries {
+        let mut value_column = vec![0.0_f32; values.len()];
+        for dimension in 0..output.len() {
+            for (destination, value) in value_column.iter_mut().zip(values) {
+                *destination = value[dimension];
+            }
+            output[dimension] = pytorch_bf16_specialized_vector_dot_f32(
+                &probabilities[..values.len()],
+                &value_column,
+            );
+        }
+    } else {
+        for (position, value) in values.iter().enumerate() {
+            for (destination, source) in output.iter_mut().zip(*value) {
+                *destination += probabilities[position] * source;
+            }
         }
     }
     if bf16_boundaries {
@@ -4092,6 +4105,59 @@ mod tests {
             fixture["centered_score_bf16_u16"]
                 .as_u64()
                 .expect("centered score bits") as u16
+        );
+    }
+
+    #[test]
+    fn pytorch_bf16_attention_value_dot_matches_source_order() {
+        fn bits(value: &Value, name: &str) -> Vec<f32> {
+            value
+                .as_array()
+                .unwrap_or_else(|| panic!("{name} bits"))
+                .iter()
+                .map(|value| {
+                    f32::from_bits(u32::from(value.as_u64().expect("BF16 payload") as u16) << 16)
+                })
+                .collect()
+        }
+
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0076-pytorch-bf16-attention-value-dot.json"
+        ))
+        .expect("valid BF16 attention-value dot fixture");
+        assert_eq!(
+            fixture["semantic"],
+            "pytorch_aarch64_bf16_attention_value_dot_order"
+        );
+        let probability = bits(&fixture["probability_bf16_u16"], "probability");
+        let value = bits(&fixture["value_bf16_u16"], "value");
+        assert_eq!(probability.len(), 25);
+        assert_eq!(value.len(), 25);
+        let specialized = pytorch_bf16_specialized_vector_dot_f32(&probability, &value);
+        let forward = probability
+            .iter()
+            .zip(&value)
+            .map(|(left, right)| left * right)
+            .sum::<f32>();
+        assert_eq!(
+            specialized.to_bits(),
+            fixture["source_specialized_vector_dot_f32_u32"]
+                .as_u64()
+                .expect("specialized dot bits") as u32
+        );
+        assert_eq!(
+            forward.to_bits(),
+            fixture["forward_dot_f32_u32"]
+                .as_u64()
+                .expect("forward dot bits") as u32
+        );
+        assert_ne!(
+            round_bf16(specialized).to_bits(),
+            round_bf16(forward).to_bits()
+        );
+        assert_eq!(
+            (round_bf16(specialized).to_bits() >> 16) as u16,
+            fixture["dot_bf16_u16"].as_u64().expect("BF16 dot bits") as u16
         );
     }
 
