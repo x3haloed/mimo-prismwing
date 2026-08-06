@@ -1672,3 +1672,24 @@ hashes to
 `fb0a1cf0e9dba0d3941a5d9786e4867fe04ea21dcd81469d986928fdaada9232`;
 analysis hashes to
 `635e26fb8060c216e917423c6052a3cb42865bc81a27cf2bc7b4322ce2b7edfc`.
+
+PW-0107 supersedes the narrower belief that collapsing projection barriers is
+enough to realize the page-stable layer's cold gain. On the same authenticated
+layer-4 row and artifact, reducing 24 command buffers, commits, and waits to
+two preserves every expert diagnostic, repair count, routed byte, and final
+residual byte. It improves the genuine warm median from 40.358 ms to 23.821 ms
+(1.694x), proving that command topology is material once pages are resident.
+The cold median improves only from 134.570 ms to 115.447 ms (1.166x), one
+paired cold candidate regresses, and 96.001 ms remains inside the two waits
+while GPU execution totals 8.320 ms. Thus ordinary no-copy aggregation moves
+physical acquisition into fewer waits but does not overlap it with compute.
+
+Reject command aggregation as the promoted cold mechanism and advance a
+bounded Metal-I/O/compute-overlap branch with reusable arenas and measured
+queue overlap. Do not build the approximately 303 GB expert bank or repeat a
+full token yet. Gate 8 passed with 77% minimum free memory, 568,229,888-byte
+peak RSS, 122,327,104-byte final footprint, zero swap growth or throttling, and
+stable services. Raw evidence hashes to
+`39d2a678212a7d98aee33396119928c0e9c2baa7aa4e9f5a19c63ce0fd005bd2`;
+clean analysis hashes to
+`bc2299248006b349eb2a6a9cee4c5b1a715968fbc9bf118a3d6c9aec702165e2`.

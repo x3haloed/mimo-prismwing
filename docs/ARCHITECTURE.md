@@ -96,6 +96,12 @@ The construction order follows the least-proven boundaries:
   acquisition, dynamic staging, SwiGLU, reduction, and scatter must remain
   inside a bounded asynchronous Metal transaction rather than returning to CPU
   at every projection or expert.
+- PW-0107 retains a two-barrier transaction as a diagnostic control, not the
+  promoted cold architecture. It proves a warm command-topology gain while
+  leaving cold page acquisition inside two long synchronous waits. The next L1
+  authority must make acquisition and compute independently observable and
+  overlapping through bounded reusable arenas; ordinary no-copy aggregation
+  alone is insufficient.
 - The PW-0049 correctness baseline owns one complete real base layer from
   source-FP8 QKV through SWA, residual/norm, dynamic routing, 56 selected
   experts, weighted scatter, and the final residual. Rust uses Accelerate

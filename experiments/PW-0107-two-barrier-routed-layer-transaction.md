@@ -1,10 +1,10 @@
 # PW-0107 — Two-barrier routed-layer transaction
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Contract commit: pending
+- Contract commit: `9c375dac723977a869905a3fb3c7865e804b1a9b`
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; checkpoint verification
   `9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`;
@@ -130,4 +130,69 @@ its own gate.
 
 ## Result
 
-Not yet executed.
+The release runtime at
+`09d6efd64418c9eebdea1b6dbcb053adba03feab` executed the frozen protocol on
+Apple M1. C3 issued exactly 16 gate/up and eight down dispatches through two
+command buffers, two commits, and two waits in every candidate trial. The
+candidate retained its source mappings, Metal resources, shared input, LUT,
+shape, and output slots through command completion; every binding passed the
+page-alignment and region-length checks. The 52-test Rust suite, including the
+new fail-closed transaction primitives, and strict Clippy both pass.
+
+All 12 interleaved trials reproduce one identical set of eight expert
+diagnostics, repair counts `[6, 4, 3]`, routed bytes, and final-residual bytes.
+The routed hash is
+`6577967c5c847228ca900a03e39279c63359fbaf3102dc1472612b5301c84ace`;
+the final-residual hash is
+`112757cb90f05804fd887e7fc4c10563321ba49ed2e9eda792d32f4abfbdd8c3`.
+This is exact identity with PW-0106's C2 output and does not promote its known
+L3 arithmetic divergence.
+
+Complete routed-layer measurements are:
+
+| State and variant | Trial walls (ms) | Median (ms) | Candidate speedup |
+| --- | --- | ---: | ---: |
+| Cold C2, 24 barriers | 142.315, 106.669, 134.570 | 134.570 | control |
+| Cold C3, 2 barriers | 115.447, 117.193, 114.812 | 115.447 | 1.166x |
+| Warm C2, 24 barriers | 41.484, 40.358, 40.003 | 40.358 | control |
+| Warm C3, 2 barriers | 23.711, 23.821, 24.060 | 23.821 | 1.694x |
+
+The warm result proves that command aggregation removes material CPU/queue
+overhead when source pages are resident. It does not clear the contracted cold
+gate. One paired cold trial regresses (repetition 1), and the median cold gain
+is only 1.166x rather than 2x. C3's cold median two-phase wait remains 96.001
+ms while its GPU intervals total only 8.320 ms. Gate/up accounts for roughly
+66.4--67.0 ms of wait and 133.5--134.1 MB of reads; down accounts for
+29.3--33.0 ms and 58.4--67.0 MB. Collapsing 24 barriers to two therefore moves
+but does not hide the physical page-acquisition floor.
+
+All six warm rows record zero physical reads and page-ins. Cold invalidation
+produces 193,314,816--201,719,808 candidate read bytes; the control's
+134,479,872-byte low trial demonstrates that Darwin invalidation is not a
+perfectly uniform physical-I/O generator, so the paired regression and
+distribution are preserved rather than discarded. Gate 8 passes with 77%
+minimum free memory, 568,229,888-byte peak RSS, 122,327,104-byte final physical
+footprint, zero swap growth, zero new throttled pages, and stable protected
+services.
+
+The immutable raw report is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0107/trials-001/report.json`,
+hash
+`39d2a678212a7d98aee33396119928c0e9c2baa7aa4e9f5a19c63ce0fd005bd2`.
+The clean analyzer at
+`c3310a84f1e4f06a29cf708597c5e75e39554f92` emitted
+`analysis-001.json`, hash
+`bc2299248006b349eb2a6a9cee4c5b1a715968fbc9bf118a3d6c9aec702165e2`.
+The updated throughput model hashes to
+`4d04093ee3e0fa0f61d69da2d2ad787fddee98ca5ccb95e177c3bc33f888b29c`.
+
+## Decision
+
+Reject two-barrier command aggregation as the promoted cold architecture. It
+is a useful warm diagnostic and remains available as a control, but it cannot
+authorize a full-bank artifact or another token walk. The next causal boundary
+is a bounded Metal-I/O/compute-overlap experiment: acquire the next expert or
+tile into reusable arenas on an independent path while the GPU consumes the
+current one, with explicit queue-overlap and arena-residency evidence. This
+does not yet authorize a one-barrier Metal-native L3 arithmetic branch, a
+route-cache default, or the approximately 303 GB full expert bank.

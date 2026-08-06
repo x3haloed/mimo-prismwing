@@ -254,15 +254,18 @@ passes its causal gate: a prevalidated page-aligned artifact is 2.601x faster
 than copied/global-release control while still copying Metal buffers, and a
 real no-copy binding reaches 6.381x. This promotes the physical representation
 and lifecycle into the next experiment, not into the runtime default.
+[PW-0107](../experiments/PW-0107-two-barrier-routed-layer-transaction.md)
+subsequently rejects ordinary two-barrier command aggregation as the cold
+solution: it reaches 1.694x warm but only 1.166x cold, with 96.001 ms still
+inside two waits around 8.320 ms of GPU activity.
 
-For one authenticated real layer, encode all eight selected experts into one
-layer-scoped command transaction. Keep gate/up results, dynamic-FP8 staging,
-SwiGLU, down projection, weighted reduction, and scatter on GPU. Compare one,
-two, and three bounded weight arenas; overlap artifact page acquisition for the
-next expert with execution of the current expert; return only the routed
-residual and wait once. Preserve C0, PW-0106 C2, and any reopened PW-0040/PW-0042
-mechanisms as distinct controls because the new claim targets cold I/O and
-barriers rather than warm union arithmetic.
+For one authenticated real layer, use one independent acquisition path and one
+compute queue with two or three bounded reusable arenas. Overlap Metal-I/O
+loading of expert or tile `n+1` with execution of `n`; retain GPU intermediates
+through the routed residual and expose queue-overlap, arena-residency, and
+release evidence. Preserve PW-0106 C2 and PW-0107 C3 as distinct controls. A
+candidate that merely aggregates ordinary no-copy commands has already been
+falsified for the cold claim.
 
 **Go:** exact reproduction of PW-0106's unchanged candidate output, Gate 8,
 and at least 2x cold complete-layer gain over PW-0106 C2. Attribute physical
