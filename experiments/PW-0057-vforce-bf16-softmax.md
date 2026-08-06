@@ -28,6 +28,9 @@ must match every expected BF16 probability payload. Preserve the existing F32
 scalar attention oracle as a distinct passing path. Reject empty, non-finite,
 or zero-denominator inputs.
 
+The source-ordered fixture hashes to
+`e4826e16debf06430741d67ac235f2f2c5ef7517caf49f31b80a9f1e99e3e0c8`.
+
 Change only BF16 attention exponential evaluation on Apple to `vvexpf`.
 Retain stable max subtraction, F32 normalization, BF16 cast, sink semantics,
 all other numerics, and every hosted threshold.

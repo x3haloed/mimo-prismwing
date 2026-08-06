@@ -595,6 +595,7 @@ fn peak_resident_bytes() -> Result<u64, String> {
 
 unsafe extern "C" {
     fn malloc_zone_pressure_relief(zone: *mut libc::c_void, goal: usize) -> usize;
+    fn vvexpf(output: *mut f32, input: *const f32, count: *const i32);
 }
 
 fn pressure_relief() -> u64 {
@@ -1254,6 +1255,45 @@ fn apply_rope(values: &mut [f32], heads: usize, position: usize, theta: f64) {
     }
 }
 
+fn attention_softmax(scores: &[f32], bf16_output: bool) -> Result<Vec<f32>, String> {
+    if scores.is_empty() || scores.iter().any(|value| !value.is_finite()) {
+        return Err("attention softmax requires finite scores".to_owned());
+    }
+    let maximum = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let centered = scores
+        .iter()
+        .map(|score| {
+            if bf16_output {
+                round_bf16(*score - maximum)
+            } else {
+                *score - maximum
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut probabilities = vec![0.0_f32; centered.len()];
+    if bf16_output {
+        let count = i32::try_from(centered.len()).map_err(|_| "softmax length exceeds i32")?;
+        // SAFETY: input and output are disjoint initialized buffers of `count` F32 values.
+        unsafe { vvexpf(probabilities.as_mut_ptr(), centered.as_ptr(), &count) };
+    } else {
+        for (probability, score) in probabilities.iter_mut().zip(&centered) {
+            *probability = score.exp();
+        }
+    }
+    let denominator = probabilities.iter().sum::<f32>();
+    if !denominator.is_finite() || denominator <= 0.0 {
+        return Err("attention softmax denominator is invalid".to_owned());
+    }
+    for probability in &mut probabilities {
+        *probability = if bf16_output {
+            round_bf16(*probability / denominator)
+        } else {
+            *probability / denominator
+        };
+    }
+    Ok(probabilities)
+}
+
 #[cfg(test)]
 fn causal_attention_head(
     query: &[f32],
@@ -1312,23 +1352,7 @@ fn causal_attention_head_with_dtype(
         scores.push(sink);
     }
     let scaled_scores = scores.clone();
-    let maximum = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    for score in &mut scores {
-        *score = if bf16_boundaries {
-            round_bf16(*score - maximum)
-        } else {
-            *score - maximum
-        };
-    }
-    let mut probabilities = scores.iter().map(|score| score.exp()).collect::<Vec<_>>();
-    let denominator = probabilities.iter().sum::<f32>();
-    for probability in &mut probabilities {
-        *probability = if bf16_boundaries {
-            round_bf16(*probability / denominator)
-        } else {
-            *probability / denominator
-        };
-    }
+    let probabilities = attention_softmax(&scores, bf16_boundaries)?;
     if let Some(trace) = trace {
         trace.scores = scaled_scores;
         trace.probabilities = probabilities.clone();
@@ -2506,5 +2530,39 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn vforce_softmax_matches_pytorch_bf16_payloads() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0057-vforce-softmax.json"
+        ))
+        .expect("valid vForce softmax fixture");
+        assert_eq!(fixture["semantic"], "pytorch_f32_softmax_to_bf16");
+        for case in fixture["cases"].as_array().expect("softmax cases") {
+            let score_bits = case["score_bf16_u16"].as_array().expect("score bits");
+            let scores = score_bits
+                .iter()
+                .map(|value| {
+                    f32::from_bits(u32::from(value.as_u64().expect("BF16 score") as u16) << 16)
+                })
+                .collect::<Vec<_>>();
+            let actual = attention_softmax(&scores, true).expect("valid BF16 softmax");
+            let expected = case["probability_bf16_u16"]
+                .as_array()
+                .expect("probability bits")
+                .iter()
+                .map(|value| value.as_u64().expect("BF16 probability") as u16)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                actual
+                    .iter()
+                    .map(|value| (value.to_bits() >> 16) as u16)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+        assert!(attention_softmax(&[], true).is_err());
+        assert!(attention_softmax(&[f32::NAN], true).is_err());
     }
 }

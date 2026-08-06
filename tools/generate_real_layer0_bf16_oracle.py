@@ -245,6 +245,7 @@ def generate(checkpoint: Path, verification: Path, output: Path) -> dict:
         for head in range(64):
             kv_head = head // 16
             scores = (q[position, head] @ k[:position + 1, kv_head].T) * scale
+            scores = scores - scores.max()
             probabilities = torch.softmax(scores, dim=-1, dtype=torch.float32).to(torch.bfloat16)
             attention_scores.append(scores)
             attention_probabilities.append(probabilities)

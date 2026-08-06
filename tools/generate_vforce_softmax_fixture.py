@@ -24,7 +24,8 @@ def main() -> int:
         scores = (torch.randn(length, generator=generator) * 4.0).to(torch.bfloat16)
         if length == 27:
             scores[:5] = torch.tensor([20.0, 19.875, -20.0, 0.0, 0.0078125], dtype=torch.bfloat16)
-        probabilities = torch.softmax(scores, dim=-1, dtype=torch.float32).to(torch.bfloat16)
+        centered = scores - scores.max()
+        probabilities = torch.softmax(centered, dim=-1, dtype=torch.float32).to(torch.bfloat16)
         cases.append({"length": length, "score_bf16_u16": scores.view(torch.uint16).tolist(),
                       "probability_bf16_u16": probabilities.view(torch.uint16).tolist()})
     atomic_write_new(args.output, canonical_json({"schema_version": 1,
