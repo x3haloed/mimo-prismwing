@@ -1,7 +1,7 @@
 # PW-0052 — Hosted chat and native multi-token prefill
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
 - Commit and dirty state: contract precedes hosted capture and runtime change
@@ -68,16 +68,37 @@ token `Hello` had logprob -0.0611581; the second token `!` had logprob
 capture verifies offline; its manifest hashes to
 `f9c5dd42a76e0eb87581fa427fe03c69ad32903c5711e5078a002ab7514732ea`.
 
+Local run 001 used committed candidate `fe367df`. It processed the exact 27
+prompt IDs in one causal prefill, retained cache length 27 and then 28, and
+executed 8,070 FP8 matrix expansions and 2,656 routed experts. Complete wall
+was 874.985 seconds; logical source traffic was 82,343,450,368 bytes and
+process disk reads were 83,588,468,736 bytes. The raw local report hashes to
+`c312b859b4d6dba5b1daecf4e553e8e06040c09bffe7d431aee5bca67db649c7`.
+
 ## Correctness result
 
 Hosted acquisition passes. Request SHA-256 is
 `50459a8b9d142947c34fbf819fb0e3fb4796cbbfc08a04cf253ad4cc08c70e48`;
 response SHA-256 is
 `e5a8956f3a7985e1ac3d5396c7bc9fe73bc77c6451eb2225c8df7c8973e3212d`.
-Local identical-prefix parity remains unexecuted.
+Local identical-prefix parity fails decisively. Local greedy output was `.3`
+with token IDs `[13,18]`, versus hosted `Hello!` `[9707,0]`. At position zero,
+local logprob for hosted `Hello` was -13.5981 versus hosted -0.06116, absolute
+error 13.5370 nats. At position one, local logprob for hosted `!` was -8.0170
+versus hosted -0.01685, absolute error 8.0002 nats. Both exceed the target by
+orders of magnitude and top-1 agreement is zero of two.
+
+The safety gate passes: peak residency was 4,355,833,856 bytes, maximum phase
+footprint 3,212,692,032 bytes, minimum system-free memory 84%, and swap growth
+and new throttled pages were zero. Thus memory or batching failure does not
+explain away the semantic result.
 
 ## Decision
 
-Proceed with native frozen-template tokenization and one batched 27-token
-prefill. No local semantic decision is made from the readable hosted output
-alone.
+Reject the PW-0050/PW-0052 direct-F32 FP8 execution mode as a whole-model
+answer authority. The pinned checkpoint declares block-FP8 weights with
+dynamic activation quantization, while the current endpoint dequantizes weights
+and multiplies unquantized F32 activations. Open-source FP8 authorities specify
+per-token-per-128-channel online activation quantization for this exact config.
+Open a correctness repair for that omitted semantic before considering BF16
+boundary rounding or performance work.

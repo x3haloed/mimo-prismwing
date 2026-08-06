@@ -969,3 +969,19 @@ tokens, so a single causal batched prefill is the appropriate local mechanism;
 27 serial whole-model walks would add no semantic authority and would be an
 unnecessary storage pass. Hosted capture success establishes the answer key,
 not local parity.
+
+PW-0052 local run 001 decisively rejects the direct-F32 whole-model numerical
+mode. At the identical frozen 27-token chat prefix, local greedy output `.3`
+disagreed with hosted `Hello!` at both positions. The hosted chosen-token
+logprob errors were 13.5370 and 8.0002 nats, so this is not a near-tie or a
+readability judgment. Causal cache lengths, full layer execution, and shared
+host safety all passed.
+
+The next semantic repair is now source-directed rather than speculative. The
+checkpoint's FP8 config declares `activation_scheme: dynamic` with 128x128
+weight blocks. The DeepSeek weight-format authority and compressed-tensors
+scheme define that combination as dynamic per-token-per-128-channel activation
+quantization. PW-0050/PW-0052 instead dequantized weights and multiplied raw
+F32 activations. Component F32 fixtures validated that diagnostic arithmetic,
+but they could not establish the omitted production activation semantics across
+48 layers.
