@@ -1295,12 +1295,86 @@ fn stable_rms_inverse(values: &[f32], epsilon: f32) -> Result<f32, String> {
     {
         return Err("invalid RMSNorm input".to_owned());
     }
-    let squared_sum = values
-        .iter()
-        .map(|value| f64::from(*value) * f64::from(*value))
-        .sum::<f64>();
-    let variance = (squared_sum / values.len() as f64) as f32;
+    let squared_sum = pytorch_contiguous_inner_square_sum_f32(values);
+    let variance = squared_sum / values.len() as f32;
     Ok((variance + epsilon).sqrt().recip())
+}
+
+#[cfg(target_os = "macos")]
+#[allow(clippy::needless_range_loop)] // Indices preserve PyTorch's level/register/lane order.
+fn pytorch_contiguous_inner_square_sum_f32(values: &[f32]) -> f32 {
+    const LANES: usize = 4;
+    const INTERLEAVE: usize = 4;
+    const LEVELS: usize = 4;
+    let vector_count = values.len() / LANES;
+    let cascade_size = vector_count / INTERLEAVE;
+    let ceil_log2 = if cascade_size <= 1 {
+        0
+    } else {
+        usize::BITS as usize - (cascade_size - 1).leading_zeros() as usize
+    };
+    let level_power = 4_usize.max(ceil_log2 / LEVELS);
+    let level_step = 1_usize << level_power;
+    let level_mask = level_step - 1;
+    let mut accumulators = [[[0.0_f32; LANES]; INTERLEAVE]; LEVELS];
+    let mut index = 0;
+    while index + level_step <= cascade_size {
+        for _ in 0..level_step {
+            for register in 0..INTERLEAVE {
+                let base = (index * INTERLEAVE + register) * LANES;
+                for lane in 0..LANES {
+                    accumulators[0][register][lane] += values[base + lane] * values[base + lane];
+                }
+            }
+            index += 1;
+        }
+        for level in 1..LEVELS {
+            for register in 0..INTERLEAVE {
+                for lane in 0..LANES {
+                    accumulators[level][register][lane] += accumulators[level - 1][register][lane];
+                    accumulators[level - 1][register][lane] = 0.0;
+                }
+            }
+            if index & (level_mask << (level * level_power)) != 0 {
+                break;
+            }
+        }
+    }
+    while index < cascade_size {
+        for register in 0..INTERLEAVE {
+            let base = (index * INTERLEAVE + register) * LANES;
+            for lane in 0..LANES {
+                accumulators[0][register][lane] += values[base + lane] * values[base + lane];
+            }
+        }
+        index += 1;
+    }
+    for level in 1..LEVELS {
+        for register in 0..INTERLEAVE {
+            for lane in 0..LANES {
+                accumulators[0][register][lane] += accumulators[level][register][lane];
+            }
+        }
+    }
+    for vector in cascade_size * INTERLEAVE..vector_count {
+        for lane in 0..LANES {
+            let value = values[vector * LANES + lane];
+            accumulators[0][0][lane] += value * value;
+        }
+    }
+    for register in 1..INTERLEAVE {
+        for lane in 0..LANES {
+            accumulators[0][0][lane] += accumulators[0][register][lane];
+        }
+    }
+    let mut result = 0.0_f32;
+    for value in &values[vector_count * LANES..] {
+        result += value * value;
+    }
+    for lane in 0..LANES {
+        result += accumulators[0][0][lane];
+    }
+    result
 }
 
 #[cfg(target_os = "macos")]
@@ -6044,6 +6118,45 @@ mod tests {
         assert_eq!(actual.to_bits(), expected.to_bits());
         assert!(super::stable_rms_inverse(&[], 1.0e-5).is_err());
         assert!(super::stable_rms_inverse(&values, 0.0).is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn pytorch_rms_cascade_matches_real_row() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0079-pytorch-rms-cascade.json"
+        ))
+        .expect("valid PyTorch RMS cascade fixture");
+        assert_eq!(fixture["semantic"], "pytorch_aarch64_f32_rms_cascade_order");
+        let values = fixture["input_bf16_u16"]
+            .as_array()
+            .expect("RMS input bits")
+            .iter()
+            .map(|value| {
+                f32::from_bits(u32::from(value.as_u64().expect("BF16 input") as u16) << 16)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(values.len(), 4096);
+        let variance =
+            super::pytorch_contiguous_inner_square_sum_f32(&values) / values.len() as f32;
+        assert_eq!(
+            variance.to_bits(),
+            fixture["variance_f32_u32"].as_u64().expect("variance bits") as u32
+        );
+        assert_ne!(
+            variance.to_bits(),
+            fixture["high_precision_variance_f32_u32"]
+                .as_u64()
+                .expect("high-precision variance bits") as u32
+        );
+        let epsilon =
+            f32::from_bits(fixture["epsilon_f32_u32"].as_u64().expect("epsilon bits") as u32);
+        assert_eq!(
+            super::stable_rms_inverse(&values, epsilon)
+                .expect("valid RMS inverse")
+                .to_bits(),
+            fixture["inverse_f32_u32"].as_u64().expect("inverse bits") as u32
+        );
     }
 
     #[cfg(target_os = "macos")]
