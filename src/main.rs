@@ -15,7 +15,7 @@ use prismwing::{
 use prismwing::{
     run_full_prefix_trace, run_real_layer0_trace, run_real_layer1_expert_trace,
     run_real_layer1_routing_trace, run_real_layer2_trace, run_real_layer4_trace,
-    run_slow_text_endpoint,
+    run_real_layer7_trace, run_slow_text_endpoint,
 };
 use std::path::PathBuf;
 use tokenizers::Tokenizer;
@@ -109,6 +109,10 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing real-layer4-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <output-dir> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing real-layer7-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <output-dir> <commit>"
     );
     std::process::exit(2);
 }
@@ -270,6 +274,28 @@ fn main() {
                 let fixture = PathBuf::from(&arguments[5]);
                 let output = PathBuf::from(&arguments[6]);
                 run_real_layer4_trace(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &fixture,
+                    &output,
+                    &arguments[7],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output.join("manifest.json")))
+                })
+            }
+            #[cfg(target_os = "macos")]
+            Some("real-layer7-trace") if arguments.len() == 8 => {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let fixture = PathBuf::from(&arguments[5]);
+                let output = PathBuf::from(&arguments[6]);
+                run_real_layer7_trace(
                     &checkpoint,
                     &model_lock,
                     &verification,

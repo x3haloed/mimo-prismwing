@@ -3090,6 +3090,27 @@ pub fn run_real_layer4_trace(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn run_real_layer7_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    output_dir: &Path,
+    commit: &str,
+) -> Result<Layer1ExpertTraceReport, String> {
+    run_real_routed_layer_trace(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+        output_dir,
+        commit,
+        7,
+        "mimo_real_layer7_complete_rust_trace",
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run_real_routed_layer_trace(
     checkpoint_root: &Path,
     model_lock_path: &Path,
@@ -3100,7 +3121,7 @@ fn run_real_routed_layer_trace(
     target_layer: usize,
     semantic: &'static str,
 ) -> Result<Layer1ExpertTraceReport, String> {
-    if !matches!(target_layer, 2 | 4) {
+    if !matches!(target_layer, 2 | 4 | 7) {
         return Err(format!("unsupported routed trace layer {target_layer}"));
     }
     if output_dir.exists() {
