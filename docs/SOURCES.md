@@ -8,16 +8,31 @@ branch is convenient navigation, not identity evidence.
 - Repository: `XiaomiMiMo/MiMo-V2.5`
 - Hugging Face revision:
   `63651580ca774f8504f676040460aed3e1244ac1`
-- Local immutable source root:
-  `/Volumes/Elements/mimo-prismwing/checkpoints/MiMo-V2.5-63651580`
+- Verified SSD source root:
+  `/Users/chad/Models/mimo-prismwing/checkpoints/MiMo-V2.5-63651580`
 - Machine-readable file identity: `spec/model.lock.json`
 - Semantics: pinned `configuration_mimo_v2.py`, `modeling_mimo_v2.py`,
   tokenizer, processor configuration, and chat templates.
 - Decision: authoritative source checkpoint and component semantics.
 
 The upstream revision contains 39 files totaling 315,714,053,402 bytes. Its 18
-safetensors files use upstream LFS SHA-256 identities. Local verification is
-incomplete until the external-disk download and full hash pass finish.
+safetensors files use upstream LFS SHA-256 identities. The complete local
+verification manifest hashes to
+`9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`
+and binds all 39 files to this revision.
+
+## PyTorch CPU semantic reference
+
+- Installed version: 2.13.0
+- Build commit: `cf30153c4c131c8164ee7798e5022d810682e2cb`
+- Authoritative files: `aten/src/ATen/native/cpu/SoftMaxKernel.cpp`,
+  `aten/src/ATen/cpu/vec/functional_base.h`, ARM
+  `aten/src/ATen/cpu/vec/vec128/vec128_float_neon.h`, and
+  `aten/src/ATen/native/TopKImpl.h` at that commit.
+- Build identity: CPU capability `DEFAULT`,
+  `AT_BUILD_ARM_VEC256_WITH_SLEEF`, Apple aarch64.
+- Decision: operation-order reference for PW-0061 through PW-0065 only. It is
+  not a runtime dependency or an authority for MiMo model topology.
 
 ## OpenRouter MiMo-V2.5
 

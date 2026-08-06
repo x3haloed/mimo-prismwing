@@ -1,10 +1,11 @@
 # PW-0065 — Real layer-4 substage localization
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: contract precedes implementation
+- Commit and dirty state: clean implementation
+  `b86340d3e5959a83c84751a6795c42411cb0c45b`
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0064 comparison
   `cd057b3eb6ecb7c7075599d432595b3f3dbdd6d246c3816822437bede55d13b0`
@@ -48,8 +49,47 @@ constants.
 
 ## Result
 
-Unexecuted.
+The routed-layer trace was generalized without duplicating its authority. The
+default layer-2 comparison remains byte-identical to PW-0061 comparison 004,
+and a clean production regression is exact for every layer-2 capture. A first
+regression run is preserved but excluded because its supplied commit string
+was mistyped; run 002 binds the exact implementation commit.
+
+For layer 4, incoming state, input norm, QKV, Q/K/V, learned sinks, and every
+centered attention score are bit-exact. The first numerical difference is two
+of 25,920 BF16 attention probabilities: position 0/head 26 in a two-value row,
+and position 23/head 40 in a 25-value row. Probability equality is 99.9923%,
+maximum error `0.001953125`, and relative L2 `1.0445e-4`. Amplification first
+breaches a general BF16 gate at post-attention RMSNorm (`moe_input`), whose
+maximum error is `0.046875`. Expert sets and output order remain exact; route
+weights later differ by at most `5.9301374015809094e-5`. The final metrics
+exactly reproduce PW-0064's layer-4 boundary.
+
+Source replay explains the two probability values. PyTorch's CPU F32 softmax
+uses SLEEF vector exponentials, four-lane ARM accumulation, horizontal
+reduction, reciprocal, and multiplication. Rust still uses vForce
+exponentials, reverse scalar accumulation, and division. The old path happened
+to round exactly on the complete layer-0 through layer-3 corpora, but not these
+two rows. Replaying the PyTorch operation order produces zero mismatches on all
+four complete real probability corpora, including layer 4.
+
+The oracle completed in 15.482 seconds, peaked at 968,441,856 bytes, retained
+at least 79% system-free memory, and ended at 513,277,952 bytes. Rust completed
+in 58.645 seconds, peaked at 717,946,880 bytes, retained 81% free memory, and
+ended at 121,097,856 bytes. Both grew no swap, observed no throttling, and
+retained every protected service.
+
+Oracle manifest hash:
+`ebe394a2caae8ec72ef190ae0ba743c8c6d14b7d1fd57380f36f493470dac076`.
+Rust manifest hash:
+`b29b07314232c40412597eb2add3dc414a77d83fb177e78029ddfcca3dee532c`.
+Comparison hash:
+`4ee90dfffe0523382e5155bfe2eb27be359a8a544c3345a0ec4e46f5dc8ab54a`.
 
 ## Decision
 
-Unexecuted.
+Promote the generalized routed-layer trace as a correctness diagnostic and
+localize layer 4's first difference to CPU softmax operation order. Open a
+separate fixture-gated PyTorch softmax repair using both failing rows and all
+four real corpora. Do not change routing, experts, hosted gates, or throughput
+constants.

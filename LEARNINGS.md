@@ -1105,3 +1105,13 @@ contract: repeated phase cleanup returned residency near 152 MB, the LM head
 peaked at 3.945 GB and ended at 2.687 GB, free memory stayed at 81%, and swap,
 throttling, and protected-service health remained clean. The next diagnostic
 is a layer-4 substage trace from exact layer 3, not another full walk.
+
+PW-0065 localizes layer 4's first actual difference to two attention
+probabilities after bit-exact centered scores. The earlier vForce/reverse-sum
+path was exact on layers 0–3 by corpus coincidence, not because it reproduced
+the PyTorch CPU kernel. PyTorch uses SLEEF vector exponential, four-lane ARM
+accumulation, horizontal reduction, reciprocal, and multiplication; replaying
+that order makes all complete real layer-0 through layer-4 probability corpora
+exact. The first formal BF16 gate failure is downstream at post-attention
+RMSNorm. Gate the true softmax operation order on both failing rows before
+repeating layer 4; routing and expert changes remain unjustified.
