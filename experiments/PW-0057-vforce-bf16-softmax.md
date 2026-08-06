@@ -1,10 +1,10 @@
 # PW-0057 — vForce BF16 attention softmax
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: contract and fixture precede runtime change
+- Commit and dirty state: clean `8f4e8b611f50e6acf86a701636040628615d1e76`
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0056 comparison
   `c45a03b379673884e726fd65175a41f343ae69fac7b8c8c0265fe0debbf0662c`
@@ -41,8 +41,21 @@ PW-0056 limits. Only then may a frozen hosted-prefix walk be considered.
 
 ## Result
 
-Unexecuted.
+All length-2, length-7, and length-27 fixture probabilities match PyTorch BF16
+payloads exactly. The pre-existing F32 scalar attention fixture remains
+separate and passes. All 29 Rust tests, 37 Python tests, strict Clippy, and the
+release build pass.
+
+The investigation also corrected the independent oracle: the pinned model
+performs BF16 max-subtraction before F32 softmax. With that source ordering,
+vForce probabilities, attention output, output projection, residual/norm,
+dense SwiGLU, down projection, and final layer state all match the PW-0056
+oracle bit-for-bit. The only non-exact final capture is centered QK scores at
+`2.85e-6` relative L2, 99.9959% BF16 equality, and `7.63e-6` maximum error.
 
 ## Decision
 
-Unexecuted.
+Promote vForce exponential evaluation for the Apple BF16 attention path as a
+correctness repair. It realizes the selected executable PyTorch CPU oracle and
+clears the complete real layer-0 gate. This is not yet a hosted-parity result;
+the next diagnostic is routed layer 1 before any new whole-model walk.

@@ -1017,3 +1017,20 @@ the primary mismatch. Whole-model output sensitivity now makes further blind
 full walks low-value; the next gate must localize the first real layer-0
 intermediate divergence against independent PyTorch BF16/dynamic-FP8
 semantics.
+
+PW-0056 replaces output-only speculation with a real 27-position layer-local
+trace. Embedding, RMSNorm, dynamic-FP8 fused QKV, partial RoPE, scaled V,
+attention, BF16 projection, both residuals, and dense SwiGLU can now be
+compared at named, hash-bound boundaries under the shared-host contract. The
+gate caught both an attention shape-schema error and an incomplete oracle
+operation: the first Python trace omitted the pinned BF16 max-subtraction
+before F32 softmax. Those failures were preserved rather than normalized away.
+
+PW-0057 uses Accelerate vForce exponential evaluation and the corrected source
+operation order. Final layer-0 comparison 005 has maximum relative L2
+`2.85e-6`, maximum absolute error `7.63e-6`, minimum BF16 equality 99.9959%,
+and bit-exact probabilities through final residual. Dense layer 0 is
+provisionally cleared; the belief that a layer-0 projection/layout error is the
+primary hosted mismatch is superseded. The next localization target is routed
+layer 1 with learned SWA sink and dynamic expert selection, not another blind
+whole-model walk.
