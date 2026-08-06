@@ -478,6 +478,8 @@ pub struct RoutedLayerArtifactBenchmarkReport {
     pub metal_device: String,
     pub no_copy_probe_ms: f64,
     pub no_copy_probe_passed: bool,
+    pub warm_prefault_ms: f64,
+    pub warm_prefault_checksum: u64,
     pub selected_experts: Vec<u32>,
     pub route_weights: Vec<f32>,
     pub maximum_route_weight_absolute_error: f32,
@@ -4178,7 +4180,10 @@ fn run_layer4_artifact_trial(
     round_bf16_values(&mut routed);
     drop(bindings);
     let release_started = Instant::now();
-    artifact.invalidate_pages()?;
+    if cache_state == "cold" {
+        artifact.invalidate_pages()?;
+    }
+    drop(artifact);
     pressure_relief();
     let final_release_ms = release_started.elapsed().as_secs_f64() * 1000.0;
     finish_layer4_artifact_trial(
@@ -4320,7 +4325,18 @@ pub fn benchmark_layer4_metal_ready_artifact(
     let selected_sorted = weight_by_expert.keys().copied().collect::<Vec<_>>();
     let mut trials = Vec::with_capacity(18);
     let rotated_orders = [[0_u8, 1, 2], [1_u8, 2, 0], [2_u8, 0, 1]];
+    let mut warm_prefault_ms = 0.0;
+    let mut warm_prefault_checksum = 0_u64;
     for &cache_state in &["cold", "warm"] {
+        if cache_state == "warm" {
+            let warm_started = Instant::now();
+            let artifact =
+                open_routed_layer_artifact(artifact_path, artifact_manifest_path, false)?;
+            warm_prefault_checksum = artifact.prefault_pages();
+            drop(artifact);
+            warm_prefault_ms = warm_started.elapsed().as_secs_f64() * 1000.0;
+            safety.checkpoint("artifact_warm_prefault_complete", true)?;
+        }
         for (repetition, order) in rotated_orders.iter().enumerate() {
             for variant in order {
                 let trial = match variant {
@@ -4404,6 +4420,8 @@ pub fn benchmark_layer4_metal_ready_artifact(
         metal_device: runtime.device_name.clone(),
         no_copy_probe_ms,
         no_copy_probe_passed: true,
+        warm_prefault_ms,
+        warm_prefault_checksum,
         selected_experts: routing.selected[0].clone(),
         route_weights: routing.weights[0].clone(),
         maximum_route_weight_absolute_error,

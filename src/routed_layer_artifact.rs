@@ -453,6 +453,16 @@ impl RoutedLayerArtifact {
         Ok((&self.mapping[start..end], self.manifest.page_bytes))
     }
 
+    pub(crate) fn prefault_pages(&self) -> u64 {
+        self.mapping
+            .chunks(self.manifest.page_bytes)
+            .fold(0_u64, |checksum, page| {
+                // SAFETY: every chunk is nonempty and belongs to this live immutable
+                // mapping. Volatile reads ensure the warm-up faults every VM page.
+                checksum.wrapping_add(u64::from(unsafe { std::ptr::read_volatile(page.as_ptr()) }))
+            })
+    }
+
     pub(crate) fn invalidate_pages(&self) -> Result<(), String> {
         // SAFETY: this is a live immutable file mapping. Both calls only discard
         // clean cached pages; later reads fault authoritative artifact bytes back.
