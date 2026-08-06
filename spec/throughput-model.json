@@ -633,6 +633,28 @@
             "status": "rejected_layer_final_norm_logits_correctness_and_timing_gates_failed; output_token_and_gate8_passed; not_accepted_tps_or_default",
             "provenance": "PW-0100; implementation 36bb2928530281e69d46f93382728610542dd45a; first and only authorized full walk; CPU prefill plus bounded source-FP8 Metal experts; PW-0095 oracle; failure evidence 7e76c0bcabb445ded01f547ce56f096f2a6c9474a1fccee74761293cfd29df74"
         },
+        "pw0101_layer4_sparse_repair_localization": {
+            "layer": 4,
+            "batch_size": 1,
+            "unique_experts_U": 8,
+            "selected_source_bytes": 201375744,
+            "projection_dispatches": 24,
+            "sparse_repair_counts_gate_up_down": [6, 4, 3],
+            "routed_relative_l2": 0.0017256179133910575,
+            "routed_maximum_absolute_error": 1.0,
+            "routed_bf16_equality_fraction": 0.968994140625,
+            "final_relative_l2": 0.0016351039938576001,
+            "final_maximum_absolute_error": 1.0,
+            "final_bf16_equality_fraction": 0.978759765625,
+            "decisive_expert": 245,
+            "decisive_gate_row": 1798,
+            "midpoint_distance_f32_ulps": 0,
+            "wrong_neighbor_down_relative_l2": 0.0012780051911249757,
+            "wrong_neighbor_down_bf16_equality_fraction": 0.943115234375,
+            "restored_neighbor_down_bf16_equality_fraction": 1.0,
+            "status": "diagnostic_rejected_threshold_widening; sparse_row_correction_topology_not_source_authoritative; not_performance_or_tps",
+            "provenance": "PW-0101; exact-input Metal report b2021bb4d37383a62693565da7f39a0e313a721419a49fb3b64881bfd91893bf; source-exact counterfactual 1489517ceb9e704279a3c6f908bf4e38c0e1c8ef33515ccbaca4d3231b676781"
+        },
         "native_simdgroup_matrix_source_fp8_moe_schedule": {
             "candidate_wall_median_ms_repeats": [22.450083, 22.531125],
             "control_wall_median_ms_repeats": [17.107709, 17.089417],

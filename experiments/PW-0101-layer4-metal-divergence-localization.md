@@ -1,10 +1,11 @@
 # PW-0101 — Layer-4 Metal divergence localization
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Commit and dirty state: contract precedes implementation and execution
+- Commit and dirty state: oracle `347463c`; Metal diagnostic `1635e2c`;
+  counterfactual `429437f`; clean tree
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; checkpoint verification
   `9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`;
@@ -61,8 +62,58 @@ not a missed midpoint, kill that explanation and follow the measured boundary.
 
 ## Result
 
-Unexecuted.
+The bounded independent PyTorch oracle completed prefill and cached incremental
+execution through layer 4 in 51,582.555 ms, well inside the 180-second gate.
+It froze five layer caches plus every layer-4 expert boundary under
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0101/reference-001`; its manifest
+hashes to
+`9c96d85e45832abdccd3be2325db993749579a904469d1862c8f3437cafab86d`.
+Routes are `[232,31,64,96,9,88,245,130]`. The oracle retained 79% free memory,
+peaked at 1,316,192,256 bytes, and recorded no swap growth, throttling, or
+protected-service loss.
+
+The generic verified-checkpoint Metal diagnostic recomputed those routes and
+weights exactly from the frozen source MoE input. It reproduced PW-0100's
+failure without upstream candidate drift: routed output has `0.00172562`
+relative L2, `1.0` maximum error, and 96.8994% BF16 identity; adding the exact
+post-attention residual yields exactly PW-0100's layer-final `0.00163510`,
+`1.0`, and 97.8760%. The 1,892.291 ms diagnostic includes full protected-host
+checks after each expert and is not a performance result. It installed
+201,375,744 source bytes, dispatched and released 24 projection buffers,
+selected six gate, four up, and three down repairs, retained 79% free memory,
+peaked at 205,783,040 bytes, returned to 121,376,768 bytes, and caused no swap
+growth or throttling. Its report hashes to
+`b2021bb4d37383a62693565da7f39a0e313a721419a49fb3b64881bfd91893bf`.
+
+The decisive mismatch is expert 245 gate row 1798. Its Metal pre-round value is
+exactly BF16 midpoint `0x40808000`, so the four-ULP predicate correctly selects
+the row. Nevertheless the sparse repair returns `0x40800000` while the full
+source projection returns `0x40810000`. Sparse correction uses a one-row
+Accelerate SGEMM; the authoritative full 2,048-row projection uses a different
+reduction topology. The defect is therefore correction shape, not uncertainty
+selection or a threshold miss.
+
+The source-exact counterfactual changes only that gate value. The wrong neighbor
+creates one SwiGLU mismatch and then 233/4,096 down-output mismatches, 94.3115%
+BF16 identity, `4.0` maximum error, and `0.00127801` relative L2. Restoring the
+single source neighbor makes all 4,096 down values bit-exact. This closes the
+causal fan-out rather than merely correlating it. The counterfactual hashes to
+`1489517ceb9e704279a3c6f908bf4e38c0e1c8ef33515ccbaca4d3231b676781`
+and also passes its safety checks.
+The updated throughput model hashes to
+`702f4c0b39c399e86b06810a0629d5f307d4e87b7fe7a04edfa6435d0990fc35`.
 
 ## Decision
 
-Unexecuted.
+Reject the hypothesis that PW-0100 needs a wider midpoint threshold. The
+threshold found the decisive row; the sparse one-row reduction was not a
+source-authoritative correction. Do not widen the four-ULP predicate and do
+not rerun the complete token.
+
+Any subsequent repair must first reproduce the full-projection reduction
+topology for selected rows or replace it with another independently proven
+source-authoritative boundary decision. It must retain value-derived selection
+and repeat discovery/holdout gates before endpoint use. Executing all 2,048
+rows merely to repair one is a correctness control, not yet a physically fit
+solution. Independently, PW-0100's 75.7-second embodiment failure remains and
+cannot be repaired by numerical work alone.

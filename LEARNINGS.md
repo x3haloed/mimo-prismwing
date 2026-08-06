@@ -1500,3 +1500,17 @@ The failed walk safely retains 79% free memory, peaks at 4.311 GB RSS, releases
 to 3.062 GB, and causes no swap growth, throttling, or protected-service loss.
 Localize layer 4 and measure cold install/I/O separately before another full
 walk; do not widen correctness thresholds or promote the endpoint.
+
+PW-0101 falsifies the tempting explanation that PW-0100 merely needs a wider
+BF16-midpoint threshold. On the exact source layer-4 MoE input, the bounded
+Metal path reproduces PW-0100's layer-final failure exactly. Expert 245 gate
+row 1798 lands precisely at midpoint `0x40808000` and is selected by the fixed
+predicate, but the one-row Accelerate repair returns BF16 `0x40800000` while
+the authoritative full 2,048-row projection returns `0x40810000`. Changing
+only that gate value creates one SwiGLU mismatch and fans out to 233 down
+mismatches (`0.001278` relative L2, max error `4.0`); restoring it makes the
+entire 4,096-value down projection bit-exact. Thus sparse row selection is
+sound on this failure, while row-count-dependent correction topology is not.
+Do not widen the selector. A future repair must prove full-shape-equivalent
+boundary decisions without silently paying full-projection work; this numerical
+repair remains separate from PW-0100's 75.7-second physical bottleneck.
