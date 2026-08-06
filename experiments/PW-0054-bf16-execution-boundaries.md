@@ -1,10 +1,10 @@
 # PW-0054 — BF16 execution-boundary semantics
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: contract and fixture generator precede runtime change
+- Commit and dirty state: clean `6bd74ebccddb0b314338adceabccdbaf04a04282`
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0052 hosted manifest
   `f9c5dd42a76e0eb87581fa427fe03c69ad32903c5711e5078a002ab7514732ea`
@@ -72,8 +72,32 @@ logprob errors are 13.7936 and 7.4905 nats with 0/2 top-1 agreement.
 
 ## Result
 
-Unexecuted.
+The conversion fixture, two PyTorch BF16 causal-attention cases, all 27 Rust
+tests, all 35 Python tests, strict Clippy, and the release build pass. The
+pre-existing F32 causal-attention fixture remains a separate passing oracle;
+the implementation did not weaken it to accept BF16 output.
+
+Raw run 001 completed in 291.871 seconds and generated `[122046,13]` (`瀛.`).
+Its report hashes to
+`78ac1d3fcc94d28382df44c579dbba5b0c51d9216a6f623d2729f20f30c44b06`.
+
+Frozen chat run 001 completed in 918.302 seconds and generated `[13,18]`
+(`.3`) rather than hosted `[9707,0]` (`Hello!`). Relative to PW-0053, hosted
+token 9707 error improved from 13.7936 to 12.8016 nats, while hosted token 0
+error worsened from 7.4905 to 7.8176 nats. Top-1 agreement remained 0/2. The
+chat report is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0054/chat-001/endpoint.json`,
+SHA-256 `d6884788c0ae59125d7ddd3683040344b5106601b99357cc57da58bd69b62b96`.
+
+The chat walk moved 82,872,061,696 logical source bytes and measured
+84,124,729,344 process disk-read bytes. Minimum system free memory was 82%,
+peak process residency was 4,440,047,616 bytes, swap did not grow, no new
+throttled pages appeared, and every protected service remained alive.
 
 ## Decision
 
-Unexecuted.
+Keep the source-authorized BF16 boundaries as a correctness repair. Reject
+their omission as the primary PW-0052 mismatch: movement was mixed and the
+candidate remained orders of magnitude outside the hosted logprob limits.
+Return to a line-by-line pinned-source/runtime audit before another full walk;
+do not stack unproven rounding or tune against the hosted answer.

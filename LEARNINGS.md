@@ -996,3 +996,13 @@ not a successful parity repair. The next source-directed semantic gap is BF16
 execution-boundary rounding: existing component gates deliberately validated
 F32 diagnostic arithmetic and therefore cannot authorize 48-layer accumulated
 behavior for a BF16 model.
+
+PW-0054 realizes the pinned model's explicit BF16 tensor boundaries and keeps
+the F32 router/normalization/softmax internals distinct. Exact PyTorch
+conversion and causal-attention fixtures pass, but the hosted repair is mixed:
+the first chosen-token error improves from 13.7936 to 12.8016 nats while the
+second worsens from 7.4905 to 7.8176, with output `.3` and top-1 agreement 0/2.
+BF16 boundary omission is therefore superseded as the primary explanation,
+while the source-authorized casts remain a correctness repair. Further full
+walks now require a line-by-line source/runtime semantic discrepancy, not an
+untethered numerical tweak.
