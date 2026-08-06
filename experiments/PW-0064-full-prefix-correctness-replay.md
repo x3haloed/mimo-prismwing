@@ -1,10 +1,11 @@
 # PW-0064 — Full-prefix correctness replay
 
-- Status: running
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: contract precedes execution
+- Commit and dirty state: clean
+  `cd6883ebc60a05ee0d5f835fea3e1f59b1a06795`
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0060 oracle run 002
   `081550060338070eaa00730877065d2752824c589c22f74eaa7e921448c61573`;
@@ -54,8 +55,37 @@ performance default.
 
 ## Result
 
-Unexecuted.
+Rust run 001 completed all 48 layers and advanced the exact accumulated
+frontier. Embedding and layers 0–3 are bit-exact against the frozen oracle.
+Layers 1–3 also have identical selected-expert order and all 648 route-weight
+F32 bits; the comparison's approximately `7e-9` values are decimal JSON
+spelling only.
+
+Layer 4 is the first failing boundary. Its final state has relative L2
+`7.339645954888441e-6`, maximum absolute error `0.0625`, and equality
+99.1093%. Expert sets and their output order remain exact, while 16 of 216
+route-weight F32 values differ with maximum absolute error
+`5.9301374015809094e-5`, above the `5e-7` gate. Layer 5 then amplifies the
+difference to maximum absolute error `2.0`; later layers are downstream and do
+not identify the layer-4 substage.
+
+The warm/uncontrolled correctness walk completed in 776.790 seconds. Before
+the LM head, the recorded peak was 716,701,696 bytes and repeated cleanup
+returned phase footprint as low as roughly 152 MB. The full-vocabulary LM
+head peaked at 3,944,726,528 bytes and ended at 2,686,933,120 bytes, below the
+8 GiB peak and 4 GiB post-phase stops. System-free memory stayed at 81%, swap
+growth and new throttled pages were zero, and every protected service remained
+present.
+
+Rust manifest hash:
+`0f1ed1832f2343cc501ecb6293626ff3ed46e5a8a79808b095965f677a8d7643`.
+Comparison hash:
+`cd057b3eb6ecb7c7075599d432595b3f3dbdd6d246c3816822437bede55d13b0`.
 
 ## Decision
 
-Unexecuted.
+Promote layers 2 and 3 into the exact accumulated frontier and localize the
+next discrepancy to layer 4. Do not rerun the full prefix or alter late-layer
+arithmetic. Open a bounded layer-4 substage trace from the exact layer-3 final
+state under the same shared-host stops. No throughput constant or hosted
+threshold changes.

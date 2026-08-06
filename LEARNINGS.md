@@ -1095,3 +1095,13 @@ peaked at 729 MB with 81% system-free memory, no swap growth, no throttling,
 and all protected services healthy. This is a correctness repair, not a
 throughput result; the next cheapest falsification is a repeated full-prefix
 trace against the existing frozen oracle.
+
+PW-0064 advances the accumulated exact frontier through layer 3. Layer 4 is
+now the first failing boundary: expert selections remain exact, but 16 of 216
+route-weight F32 values differ by at most `5.93e-5`, and the layer-final BF16
+state has 99.1093% equality with `0.0625` maximum error. Later divergence is
+downstream. The full walk also validates the strengthened shared-host
+contract: repeated phase cleanup returned residency near 152 MB, the LM head
+peaked at 3.945 GB and ended at 2.687 GB, free memory stayed at 81%, and swap,
+throttling, and protected-service health remained clean. The next diagnostic
+is a layer-4 substage trace from exact layer 3, not another full walk.
