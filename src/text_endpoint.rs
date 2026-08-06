@@ -332,6 +332,69 @@ struct OracleLayerTrace {
     route_weights_by_position: Vec<Vec<f32>>,
 }
 
+#[derive(Deserialize)]
+struct Layer4CachedOracleManifest {
+    schema_version: u32,
+    semantic: String,
+    revision: String,
+    checkpoint_verification_sha256: String,
+    last_layer: usize,
+    layer4_captures: BTreeMap<String, OracleCapture>,
+    layer4_routes: Layer4OracleRoutes,
+    layer4_expert_captures: BTreeMap<String, BTreeMap<String, OracleCapture>>,
+}
+
+#[derive(Deserialize)]
+struct Layer4OracleRoutes {
+    selected_experts: Vec<u32>,
+    route_weights: Vec<f32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetalStageDiagnostic {
+    pub stage: &'static str,
+    pub parity: NumericalParity,
+    pub sparse_repairs: usize,
+    pub first_mismatches: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetalExpertDiagnostic {
+    pub expert: u32,
+    pub stages: Vec<MetalStageDiagnostic>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Layer4MetalDiagnosticReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub checkpoint_verification_sha256: String,
+    pub oracle_manifest_sha256: String,
+    pub kernel_sha256: String,
+    pub kernel_compile_ms: f64,
+    pub metal_device: String,
+    pub selected_experts: Vec<u32>,
+    pub route_weights: Vec<f32>,
+    pub maximum_route_weight_absolute_error: f32,
+    pub expert_diagnostics: Vec<MetalExpertDiagnostic>,
+    pub routed_parity: NumericalParity,
+    pub final_residual_parity: NumericalParity,
+    pub metal_ledger: MetalExpertLedger,
+    pub endpoint_ledger: EndpointLedger,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub wall_ms: f64,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: usize,
+    #[serde(rename = "U")]
+    pub unique_experts: usize,
+    pub performance_claim: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CaptureRecord {
     pub file: String,
@@ -2258,7 +2321,7 @@ fn routed_mlp_metal(
         }
         let execution = runtime.execute([&gate, &up, &down], input)?;
         let weight = placements[0].1;
-        for (destination, value) in output.iter_mut().zip(&execution.values) {
+        for (destination, value) in output.iter_mut().zip(&execution.down) {
             *destination += *value * weight;
         }
         ledger.logical_source_bytes = ledger
@@ -3222,6 +3285,281 @@ pub fn run_metal_incremental_text_endpoint(
         exactness: "L3 bounded arithmetic approximation: source weights/routes and value-derived sparse BF16 midpoint repair",
         performance_claim: None,
         implementation: "single_rust_authority_retained_kv_cpu_attention_bounded_source_fp8_metal_experts_sparse_bf16_repair",
+    };
+    let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(output_path, &report_bytes)?;
+    Ok(report)
+}
+
+fn metal_stage_diagnostic(
+    stage: &'static str,
+    actual: &[f32],
+    expected: &[f32],
+    pre_round: Option<&[f32]>,
+    sparse_repairs: usize,
+) -> Result<MetalStageDiagnostic, String> {
+    let parity = numerical_parity(actual, expected)?;
+    let first_mismatches = actual
+        .iter()
+        .zip(expected)
+        .enumerate()
+        .filter(|(_, (candidate, oracle))| candidate.to_bits() != oracle.to_bits())
+        .take(8)
+        .map(|(index, (candidate, oracle))| {
+            let pre = pre_round.map_or(*candidate, |values| values[index]);
+            let midpoint_distance = (pre.to_bits() & 0xffff).abs_diff(0x8000);
+            format!(
+                "index={index},actual={:#010x},expected={:#010x},pre={:#010x},midpoint_distance={midpoint_distance}",
+                candidate.to_bits(),
+                oracle.to_bits(),
+                pre.to_bits(),
+            )
+        })
+        .collect();
+    Ok(MetalStageDiagnostic {
+        stage,
+        parity,
+        sparse_repairs,
+        first_mismatches,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_layer4_metal_diagnostic(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    oracle_manifest_path: &Path,
+    kernel_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<Layer4MetalDiagnosticReport, String> {
+    const ORACLE_SHA256: &str = "9c96d85e45832abdccd3be2325db993749579a904469d1862c8f3437cafab86d";
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("implementation commit must be a lowercase 40-hex Git object".to_owned());
+    }
+    let started = Instant::now();
+    let EndpointAuthority {
+        fixture,
+        mut safety,
+        checkpoint,
+        verification_sha256,
+        ..
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    validate_slow_endpoint_fixture(&fixture)?;
+    let oracle_bytes = fs::read(oracle_manifest_path)
+        .map_err(|error| format!("{}: {error}", oracle_manifest_path.display()))?;
+    let oracle_manifest_sha256 = sha256_hex(&oracle_bytes);
+    if oracle_manifest_sha256 != ORACLE_SHA256 {
+        return Err("PW-0101 oracle manifest SHA-256 mismatch".to_owned());
+    }
+    let oracle: Layer4CachedOracleManifest = serde_json::from_slice(&oracle_bytes)
+        .map_err(|error| format!("layer-4 cached oracle: {error}"))?;
+    if oracle.schema_version != 1
+        || oracle.semantic != "mimo_pytorch_layer4_partial_cached_oracle"
+        || oracle.revision != REVISION
+        || oracle.checkpoint_verification_sha256 != verification_sha256
+        || oracle.last_layer != 4
+        || oracle.layer4_routes.selected_experts.len() != TOP_K
+        || oracle.layer4_routes.route_weights.len() != TOP_K
+    {
+        return Err("PW-0101 oracle authority mismatch".to_owned());
+    }
+    let moe_input = read_oracle_capture(
+        oracle_manifest_path,
+        oracle
+            .layer4_captures
+            .get("moe_input")
+            .ok_or("missing layer-4 MoE input capture")?,
+        HIDDEN,
+    )?;
+    let post_attention = read_oracle_capture(
+        oracle_manifest_path,
+        oracle
+            .layer4_captures
+            .get("post_attention")
+            .ok_or("missing layer-4 post-attention capture")?,
+        HIDDEN,
+    )?;
+    let expected_routed = read_oracle_capture(
+        oracle_manifest_path,
+        oracle
+            .layer4_captures
+            .get("routed")
+            .ok_or("missing layer-4 routed capture")?,
+        HIDDEN,
+    )?;
+    let expected_final = read_oracle_capture(
+        oracle_manifest_path,
+        oracle
+            .layer4_captures
+            .get("final")
+            .ok_or("missing layer-4 final capture")?,
+        HIDDEN,
+    )?;
+    let runtime = BoundedMetalExpertRuntime::compile(kernel_path)?;
+    safety.checkpoint("metal_compile_complete", true)?;
+    let mut endpoint_ledger = EndpointLedger::default();
+    let routing = route_mlp(&checkpoint, 4, &moe_input, 1, &mut endpoint_ledger)?;
+    if routing.selected.len() != 1
+        || routing.weights.len() != 1
+        || routing.selected[0] != oracle.layer4_routes.selected_experts
+    {
+        return Err("layer-4 Metal diagnostic route mismatch".to_owned());
+    }
+    let maximum_route_weight_absolute_error = routing.weights[0]
+        .iter()
+        .zip(&oracle.layer4_routes.route_weights)
+        .map(|(actual, expected)| (actual - expected).abs())
+        .fold(0.0_f32, f32::max);
+    if maximum_route_weight_absolute_error > 3.0e-8 {
+        return Err(format!(
+            "layer-4 Metal diagnostic route-weight error {maximum_route_weight_absolute_error}"
+        ));
+    }
+    let route_weights = routing.weights[0].clone();
+    let selected_experts = routing.selected[0].clone();
+    let weight_by_expert = selected_experts
+        .iter()
+        .copied()
+        .zip(route_weights.iter().copied())
+        .collect::<BTreeMap<_, _>>();
+    let mut metal_ledger = MetalExpertLedger::default();
+    let mut routed = vec![0.0_f32; HIDDEN];
+    let down_shape_authority = vec![0.0_f32; MOE_INTERMEDIATE];
+    let mut expert_diagnostics = Vec::with_capacity(TOP_K);
+    for expert in weight_by_expert.keys().copied() {
+        let prefix = format!("model.layers.4.mlp.experts.{expert}");
+        let tensor = |projection: &str| -> Result<_, String> {
+            let name = format!("{prefix}.{projection}_proj.weight");
+            validate_fp8_views(
+                checkpoint.tensor(&name)?,
+                checkpoint.tensor(&format!("{name}_scale_inv"))?,
+                if projection == "down" {
+                    &down_shape_authority
+                } else {
+                    &moe_input
+                },
+            )
+        };
+        let gate = tensor("gate")?;
+        let up = tensor("up")?;
+        let down = tensor("down")?;
+        let execution = runtime.execute([&gate, &up, &down], &moe_input)?;
+        for (destination, value) in routed.iter_mut().zip(&execution.down) {
+            *destination += *value * weight_by_expert[&expert];
+        }
+        let captures = oracle
+            .layer4_expert_captures
+            .get(&expert.to_string())
+            .ok_or_else(|| format!("missing layer-4 expert {expert} oracle captures"))?;
+        let mut stages = Vec::with_capacity(4);
+        for (stage, actual, pre_round, repairs) in [
+            (
+                "gate",
+                execution.gate.as_slice(),
+                Some(execution.gate_pre_round.as_slice()),
+                execution.sparse_repair_counts[0],
+            ),
+            (
+                "up",
+                execution.up.as_slice(),
+                Some(execution.up_pre_round.as_slice()),
+                execution.sparse_repair_counts[1],
+            ),
+            ("swiglu", execution.swiglu.as_slice(), None, 0),
+            (
+                "down",
+                execution.down.as_slice(),
+                Some(execution.down_pre_round.as_slice()),
+                execution.sparse_repair_counts[2],
+            ),
+        ] {
+            let expected = read_oracle_capture(
+                oracle_manifest_path,
+                captures
+                    .get(stage)
+                    .ok_or_else(|| format!("missing expert {expert} {stage} capture"))?,
+                actual.len(),
+            )?;
+            stages.push(metal_stage_diagnostic(
+                stage, actual, &expected, pre_round, repairs,
+            )?);
+        }
+        endpoint_ledger.logical_source_bytes = endpoint_ledger
+            .logical_source_bytes
+            .checked_add(execution.installed_source_bytes)
+            .ok_or("layer-4 logical byte ledger overflow")?;
+        endpoint_ledger.routed_expert_executions += 1;
+        endpoint_ledger.dynamic_activation_groups += 80;
+        endpoint_ledger.dynamic_activation_values += 10_240;
+        metal_ledger.expert_executions += 1;
+        metal_ledger.projection_dispatches += 3;
+        metal_ledger.installed_source_bytes += execution.installed_source_bytes;
+        metal_ledger.released_projection_buffers += 3;
+        metal_ledger.sparse_decoded_weight_bytes += execution.sparse_decoded_weight_bytes;
+        for (total, count) in metal_ledger
+            .sparse_repair_counts
+            .iter_mut()
+            .zip(execution.sparse_repair_counts)
+        {
+            *total += count as u64;
+        }
+        expert_diagnostics.push(MetalExpertDiagnostic { expert, stages });
+        checkpoint.release_file_pages()?;
+        safety.checkpoint(&format!("expert_{expert}_released"), true)?;
+    }
+    round_bf16_values(&mut routed);
+    let routed_parity = numerical_parity(&routed, &expected_routed)?;
+    let mut final_residual = post_attention
+        .iter()
+        .zip(&routed)
+        .map(|(&residual, &projected)| residual + projected)
+        .collect::<Vec<_>>();
+    round_bf16_values(&mut final_residual);
+    let final_residual_parity = numerical_parity(&final_residual, &expected_final)?;
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("final_release", true)?;
+    endpoint_ledger.peak_resident_bytes = peak_resident_bytes()?;
+    let report = Layer4MetalDiagnosticReport {
+        schema_version: 1,
+        semantic: "mimo_layer4_exact_input_bounded_metal_divergence_diagnostic",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        checkpoint_verification_sha256: verification_sha256,
+        oracle_manifest_sha256,
+        kernel_sha256: runtime.kernel_sha256.clone(),
+        kernel_compile_ms: runtime.compile_ms,
+        metal_device: runtime.device_name.clone(),
+        selected_experts,
+        route_weights,
+        maximum_route_weight_absolute_error,
+        expert_diagnostics,
+        routed_parity,
+        final_residual_parity,
+        metal_ledger,
+        endpoint_ledger,
+        safety_snapshots: safety.snapshots,
+        wall_ms: started.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        accepted_per_verification: 0,
+        unique_experts: TOP_K,
+        performance_claim: None,
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;

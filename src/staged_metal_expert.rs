@@ -30,7 +30,13 @@ pub(crate) struct BoundedMetalExpertRuntime {
 }
 
 pub(crate) struct BoundedMetalExpertOutput {
-    pub(crate) values: Vec<f32>,
+    pub(crate) gate: Vec<f32>,
+    pub(crate) up: Vec<f32>,
+    pub(crate) swiglu: Vec<f32>,
+    pub(crate) down: Vec<f32>,
+    pub(crate) gate_pre_round: Vec<f32>,
+    pub(crate) up_pre_round: Vec<f32>,
+    pub(crate) down_pre_round: Vec<f32>,
     pub(crate) sparse_repair_counts: [usize; 3],
     pub(crate) installed_source_bytes: u64,
     pub(crate) sparse_decoded_weight_bytes: u64,
@@ -103,7 +109,13 @@ impl BoundedMetalExpertRuntime {
             + execution.repairs[2] * projections[2].columns)
             as u64;
         Ok(BoundedMetalExpertOutput {
-            values: execution.down,
+            gate: execution.gate,
+            up: execution.up,
+            swiglu: execution.hidden,
+            down: execution.down,
+            gate_pre_round: execution.gate_pre_round,
+            up_pre_round: execution.up_pre_round,
+            down_pre_round: execution.down_pre_round,
             sparse_repair_counts: execution.repairs,
             installed_source_bytes,
             sparse_decoded_weight_bytes,
