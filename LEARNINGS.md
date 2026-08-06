@@ -1362,3 +1362,14 @@ at 3.925 GB RSS, ended at 2.662 GB, retained at least 81% free memory, and
 caused no swap growth, throttling, or service loss. Reject the specialized-dot
 LM-head authority and test the source-faithful one-row F32 matrix path without
 relaxing the now-cleared formal gates.
+
+PW-0091 establishes complete local full-prefix parity. Applying the existing
+F32 matrix backend to only the authoritative last normalized row reproduces
+the frozen oracle bit-for-bit for embedding, all 48 layers, final RMSNorm, all
+152,576 logits, route weights, and expert sets/order. Matrix shape—not a
+missing specialized arithmetic kernel—was the final boundary. The 798.639-
+second run offers no promotable speed gain, but safely peaks at 3.928 GB RSS,
+ends at 2.667 GB, retains at least 81% free memory, and causes no swap growth,
+throttling, or protected-service loss. The correctness frontier now covers the
+complete prefill and next-token logit path; move to generation semantics and
+end-to-end cold/warm throughput rather than further layer localization.

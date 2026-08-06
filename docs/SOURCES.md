@@ -44,6 +44,9 @@ and binds all 39 files to this revision.
   the final addition. PW-0088 distinguishes generic four-part BF16 GEMM for
   probability-vector-by-value-matrix accumulation from specialized contiguous
   BF16 dots, superseding PW-0076's non-discriminating operation inference.
+  PW-0091 confirms the LM-head oracle widens BF16 operands to F32 and uses the
+  one-row matrix path before BF16 output rounding; standalone BF16 dot behavior
+  is diagnostic only there.
   It is not a runtime dependency or an authority for MiMo model topology.
 
 ## OpenRouter MiMo-V2.5
