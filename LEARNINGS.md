@@ -1405,3 +1405,15 @@ topologies, and earlier exactness covered matching 27-row shapes. The safe
 least 63% memory-pressure headroom, and caused no swap growth, throttling, or
 service loss. Compare PyTorch-28 with Rust-28, then Rust-28's last row with
 Rust 27+1; preserve the rejected direct equivalence and do not weaken it.
+
+PW-0094 proves the 28-row source path itself is exact: PyTorch-28 and Rust-28
+match bit-for-bit for embedding, all 48 layer finals, final norm, every route,
+and all 152,576 logits. The Rust-28 versus Rust 27+1 mismatch is therefore
+real, beginning as route-weight drift at layer 1 and reaching expert-set drift
+at layer 11, but still confounds retained K/V with one-row matrix reduction
+topology. The 785.198-second Rust trace moved 67.099 GB logically, peaked at
+4.154 GB RSS, ended at 2.890 GB, retained at least 74% memory-pressure
+headroom, and caused no swap growth, throttling, or service loss. A trace-only
+schema now admits exactly the frozen prefix plus token 264 while the production
+endpoint rejects it. Build an independent PyTorch 27+1 cached oracle next; do
+not infer cache correctness from whole-sequence equivalence alone.
