@@ -87,15 +87,18 @@ lacks the correction needed for an L2 distribution-preservation claim.
 - Decision: executable semantic authority for the DFlash draft path named by
   Xiaomi's later DFlash deployment instructions; not a Mac runtime dependency.
 
-The pinned SGLang model implementation independently agrees with the published
-Hugging Face wrapper on the first-block draft topology: full-head Qwen3 RoPE,
-unscaled values, no attention sink in the draft attention softmax, target
-embedding/LM head reuse, a masked width-eight block, and greedy logits from
-positions one through seven. Its loader silently ignores checkpoint weights it
-does not register. PW-0102 therefore records the five nonzero
-`attention_sink_bias` tensors and the nested `attention_value_scale` and
-`partial_rotary_factor` fields as exported-but-unused by both executable paths,
-not as authority to invent a third draft variant.
+The pinned SGLang model defines full-head Qwen3 RoPE, unscaled values, no
+attention sink in the draft attention softmax, target embedding/LM head reuse,
+a masked width-eight block, and greedy logits from positions one through seven.
+Its loader silently ignores checkpoint weights it does not register. PW-0102
+found an important disagreement in the nominal Hugging Face path: Transformers
+4.57.6 consumes the exported `partial_rotary_factor=0.5`, creates 64-wide
+rotary factors, and the published wrapper then applies them to 128-wide heads,
+failing dimensionally in its first layer. SGLang explicitly sets
+`rotary_dim=head_dim` and is the named deployment runtime, so the bounded Mac
+reference adapter must normalize only that factor to full-head RoPE and record
+the modification. The five `attention_sink_bias` tensors and nested
+`attention_value_scale` remain exported-but-unused; partial RoPE does not.
 
 ## Atomic llama.cpp TurboQuant fork
 

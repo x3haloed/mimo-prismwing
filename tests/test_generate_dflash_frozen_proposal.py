@@ -1,14 +1,28 @@
-import json
 from pathlib import Path
 import tempfile
 import unittest
 
 import torch
+from transformers import Qwen3Config
 
-from tools.generate_dflash_frozen_proposal import tensor_capture, verified_file
+from tools.generate_dflash_frozen_proposal import (
+    configure_sglang_full_head_rope,
+    tensor_capture,
+    verified_file,
+)
 
 
 class FrozenProposalTests(unittest.TestCase):
+    def test_sglang_adapter_is_narrow_and_explicit(self):
+        config = Qwen3Config(head_dim=128)
+        config.partial_rotary_factor = 0.5
+        record = configure_sglang_full_head_rope(config)
+        self.assertEqual(config.partial_rotary_factor, 1.0)
+        self.assertEqual(record["rotary_dim"], 128)
+        config.partial_rotary_factor = 0.25
+        with self.assertRaisesRegex(ValueError, "exported partial-RoPE"):
+            configure_sglang_full_head_rope(config)
+
     def test_verified_file_requires_complete_stat_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "value"

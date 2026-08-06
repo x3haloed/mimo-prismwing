@@ -62,6 +62,23 @@ EXPECTED_UNEXPECTED_KEYS = {
 }
 
 
+def configure_sglang_full_head_rope(config: Qwen3Config) -> dict[str, Any]:
+    """Adapt the broken HF wrapper to the pinned SGLang full-head RoPE semantics."""
+    if getattr(config, "head_dim", None) != 128:
+        raise ValueError("DFlash adapter requires 128-wide attention heads")
+    if getattr(config, "partial_rotary_factor", None) != 0.5:
+        raise ValueError("DFlash adapter expected the exported partial-RoPE factor")
+    record = {
+        "mode": "pinned_sglang_semantics_via_hf_reference_adapter",
+        "reason": "pinned SGLang sets rotary_dim=head_dim; unadapted HF source/config is dimensionally invalid",
+        "exported_partial_rotary_factor": 0.5,
+        "effective_partial_rotary_factor": 1.0,
+        "rotary_dim": 128,
+    }
+    config.partial_rotary_factor = 1.0
+    return record
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -244,6 +261,7 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     DFlashDraftModel = load_published_class(arguments.dflash_root / "dflash/dflash.py")
     config = Qwen3Config.from_json_file(arguments.dflash_root / "dflash/config.json")
     config._attn_implementation = "eager"
+    semantic_adapter = configure_sglang_full_head_rope(config)
     load_started = time.monotonic()
     model, loading = DFlashDraftModel.from_pretrained(
         arguments.dflash_root / "dflash",
@@ -341,6 +359,7 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
         "base_revision": REVISION,
         "dflash_revision": DFLASH_REVISION,
         "sglang_semantics_revision": SGLANG_REVISION,
+        "semantic_adapter": semantic_adapter,
         "identities": identities,
         "context_length": CONTEXT_LENGTH,
         "target_layer_ids": list(TARGET_LAYER_IDS),

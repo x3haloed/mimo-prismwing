@@ -167,14 +167,25 @@ All 63 tensors are BF16 with the expected five-layer names and shapes.
 An official-framework compatibility probe with Transformers 4.57.6 and 5.14.1
 finds that the published class registers 58 tensors. It does not register the
 five nonzero `layers.*.self_attn.attention_sink_bias` tensors and does not
-consume the nested `attention_value_scale` or `partial_rotary_factor` fields.
-This initially created a semantic ambiguity. The DFlash implementation in
-pinned SGLang `2fc557254b3aaf539e80266e52a6d1e1f8da9980` resolves executable
-behavior independently: it uses full-head Qwen3 RoPE, unscaled values, no sink
-in the draft softmax, and silently ignores those five weights. This matches the
-published wrapper and is the runtime path named by Xiaomi's newer DFlash model
-card. The extra weights/config remain explicitly exported-but-unused; no
-inferred third implementation is authorized.
+consume the nested `attention_value_scale`. The first Phase B attempt then
+superseded the belief that `partial_rotary_factor` was also unused:
+Transformers 4.57.6 consumes its value `0.5`, emits 64-wide rotary factors, and
+the published wrapper fails while applying them to 128-wide heads in layer
+zero. The failed artifact is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0102/draft-001/failure.json`;
+its SHA-256 is
+`f43cba92b87b2d0c2d2b8603ac974df8d6ee6b898f209b0c001039b251e1b149`.
+No full target walk began. Its last safety boundary retained 78% free memory,
+used 286,560,832 bytes of physical footprint, caused no swap growth or
+throttling, and retained every protected service.
+
+Pinned SGLang `2fc557254b3aaf539e80266e52a6d1e1f8da9980` explicitly sets
+`rotary_dim=head_dim` and is the runtime path named by Xiaomi's newer DFlash
+model card. A separately identified `draft-002` attempt is therefore authorized
+to execute those pinned full-head semantics through a narrow HF reference
+adapter that changes only the effective partial-RoPE factor from `0.5` to
+`1.0`. Its manifest must name that adaptation. This does not rewrite or retry
+the unmodified-HF result and does not modify target inference semantics.
 
 The artifact audit completed in 46,710.842 ms with 13 safety boundaries. It
 retained at least 79% free memory, peaked at 222,068,736 bytes RSS and
@@ -185,6 +196,7 @@ has not yet executed.
 
 ## Decision
 
-Proceed to the frozen-hidden Phase B proposal using the pinned published/SGLang
-semantics. Phase C remains unauthorized until Phase B passes and releases its
-buffers below the normative post-release limit.
+Run the separately identified frozen-hidden `draft-002` proposal using the
+pinned SGLang full-head semantics through the recorded HF adapter. Phase C
+remains unauthorized until that Phase B attempt passes and releases its buffers
+below the normative post-release limit.

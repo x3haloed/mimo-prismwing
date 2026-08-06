@@ -1521,12 +1521,27 @@ identity `29e60c5d876e1c2e5f11b03244d52e2fe4a2f05c2c6f4c2d5aa15dd971ebc0d5`;
 all five auxiliary artifacts and all 63 BF16 tensor names, shapes, and dtypes
 also pass. The artifact contains five nonzero per-layer attention-sink tensors,
 while its published Hugging Face class registers only the other 58 tensors and
-ignores nested value-scale and partial-RoPE configuration. This is not license
-to guess: pinned SGLang `2fc5572`, the deployment runtime named by Xiaomi's
-newer DFlash release, independently implements the same full-head Qwen3 RoPE,
-unscaled-value, no-sink draft path and silently ignores those five weights.
-Treat the extra weights/config as exported-but-unused for this checkpoint and
-preserve that limitation in every draft result. The immutable artifact audit
+ignores nested value scale. The earlier belief that Hugging Face also ignored
+partial RoPE is superseded: Transformers 4.57.6 consumes the exported factor
+`0.5`, creates 64-wide rotary factors, and the wrapper fails when applying them
+to 128-wide Q/K heads in its first layer. Pinned SGLang `2fc5572`, the deployment
+runtime named by Xiaomi's newer DFlash release, explicitly uses
+`rotary_dim=head_dim`, as well as unscaled values and no sink. A Mac reference
+adapter may therefore normalize only the partial-RoPE factor to `1.0`, must name
+that SGLang-semantic adaptation in evidence, and must preserve the unmodified
+HF failure. Treat the sink weights and value-scale config as
+exported-but-unused; do not apply that label to partial RoPE. The immutable artifact audit
 hashes to `e67b0106aa2c26a091f1fef0661a4ccc408389f2bc5d1bab9ed42e46a6e898c6`;
 it retained at least 79% free memory, peaked at 222 MB RSS, returned below 151
 MB physical footprint, and caused no swap growth, throttling, or service loss.
+
+PW-0102 Phase B attempt `draft-001` preserves the unmodified published-HF
+failure at the first attention layer. Its error is the expected 128-versus-64
+rotary dimension mismatch; its failure manifest hashes to
+`f43cba92b87b2d0c2d2b8603ac974df8d6ee6b898f209b0c001039b251e1b149`,
+and it stopped before any full target walk. The last
+safety boundary retained 78% free memory, used 286,560,832 bytes of physical
+footprint, caused no swap growth or throttling, and retained every protected
+service. A separately identified `draft-002` retry is warranted solely to
+execute the already-pinned SGLang full-head semantics through the HF reference
+adapter; it is not evidence from the unmodified HF wrapper.
