@@ -1860,8 +1860,13 @@ fn sleef_expf_u10(d: f32) -> f32 {
     u = u.mul_add(s, 0.166_666_67_f32);
     u = u.mul_add(s, 0.5);
     u = (s * s).mul_add(u, s) + 1.0;
-    let exponent = u32::try_from(q + 127).expect("router sigmoid exponent is in range") << 23;
-    u * f32::from_bits(exponent)
+    let first_q = q >> 1;
+    let second_q = q - first_q;
+    let first_exponent =
+        u32::try_from(first_q + 127).expect("first SLEEF exponent factor is normal") << 23;
+    let second_exponent =
+        u32::try_from(second_q + 127).expect("second SLEEF exponent factor is normal") << 23;
+    (u * f32::from_bits(first_exponent)) * f32::from_bits(second_exponent)
 }
 
 fn pytorch_sigmoid_f32(value: f32) -> f32 {
@@ -3856,6 +3861,36 @@ mod tests {
                 pytorch_sigmoid_f32(f32::from_bits(logit.as_u64().expect("logit bits") as u32))
                     .to_bits(),
                 score.as_u64().expect("score bits") as u32
+            );
+        }
+    }
+
+    #[test]
+    fn sleef_exp_and_sigmoid_match_subnormal_boundaries() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0068-sleef-boundaries.json"
+        ))
+        .expect("valid SLEEF boundary fixture");
+        assert_eq!(
+            fixture["semantic"],
+            "pytorch_sleef_u10_exp_and_sigmoid_boundaries"
+        );
+        let inputs = fixture["input_f32_u32"].as_array().expect("inputs");
+        let exponentials = fixture["exp_f32_u32"].as_array().expect("exponentials");
+        let sigmoids = fixture["sigmoid_of_negated_input_f32_u32"]
+            .as_array()
+            .expect("sigmoids");
+        assert_eq!(inputs.len(), exponentials.len());
+        assert_eq!(inputs.len(), sigmoids.len());
+        for ((input, exponential), sigmoid) in inputs.iter().zip(exponentials).zip(sigmoids) {
+            let value = f32::from_bits(input.as_u64().expect("input bits") as u32);
+            assert_eq!(
+                sleef_expf_u10(value).to_bits(),
+                exponential.as_u64().expect("exponential bits") as u32
+            );
+            assert_eq!(
+                pytorch_sigmoid_f32(-value).to_bits(),
+                sigmoid.as_u64().expect("sigmoid bits") as u32
             );
         }
     }
