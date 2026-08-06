@@ -44,7 +44,7 @@ fn usage() -> ! {
     );
     #[cfg(target_os = "macos")]
     eprintln!(
-        "  prismwing staged-metal-fp8-expert <gate-up.safetensors> <down.safetensors> <kernel.metal> <input.f32> <reference.f32> <output.f32>"
+        "  prismwing staged-metal-fp8-expert <gate-up.safetensors> <down.safetensors> <kernel.metal> <input.f32> <reference.f32> <output.f32> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -424,20 +424,28 @@ fn main() {
                     })
             }
             #[cfg(target_os = "macos")]
-            Some("staged-metal-fp8-expert") if arguments.len() == 8 => {
+            Some("staged-metal-fp8-expert") if arguments.len() == 9 => {
                 let gate_up = PathBuf::from(&arguments[2]);
                 let down = PathBuf::from(&arguments[3]);
                 let kernel = PathBuf::from(&arguments[4]);
                 let input = PathBuf::from(&arguments[5]);
                 let reference = PathBuf::from(&arguments[6]);
                 let output = PathBuf::from(&arguments[7]);
-                run_staged_metal_fp8_expert(&gate_up, &down, &kernel, &input, &reference, &output)
-                    .and_then(|report| {
-                        serde_json::to_writer(std::io::stdout(), &report)
-                            .map_err(|error| error.to_string())?;
-                        println!();
-                        Ok(None)
-                    })
+                run_staged_metal_fp8_expert(
+                    &gate_up,
+                    &down,
+                    &kernel,
+                    &input,
+                    &reference,
+                    &output,
+                    &arguments[8],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(None)
+                })
             }
             #[cfg(target_os = "macos")]
             Some("metal-base-layer-attention") if arguments.len() == 7 => {

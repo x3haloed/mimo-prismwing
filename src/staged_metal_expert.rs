@@ -21,6 +21,7 @@ const MEASUREMENTS: usize = 30;
 pub struct StagedMetalExpertReport {
     pub schema_version: u32,
     pub semantic: &'static str,
+    pub commit: String,
     pub gate_up_source_file: String,
     pub gate_up_source_sha256: String,
     pub down_source_file: String,
@@ -140,7 +141,15 @@ pub fn run_staged_metal_fp8_expert(
     input_path: &Path,
     reference_path: &Path,
     output_path: &Path,
+    commit: &str,
 ) -> Result<StagedMetalExpertReport, String> {
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("implementation commit must be a lowercase 40-hex Git object".to_owned());
+    }
     if output_path.exists() {
         return Err(format!("refusing to overwrite {}", output_path.display()));
     }
@@ -359,6 +368,7 @@ pub fn run_staged_metal_fp8_expert(
     Ok(StagedMetalExpertReport {
         schema_version: 1,
         semantic: "mimo_layer43_expert32_dynamic_fp8_bf16_staged_source_fp8_metal",
+        commit: commit.to_owned(),
         gate_up_source_file: gate_up_source.display().to_string(),
         gate_up_source_sha256,
         down_source_file: down_source.display().to_string(),
@@ -396,7 +406,7 @@ pub fn run_staged_metal_fp8_expert(
         accepted_tokens: 0,
         accepted_per_verification: 0,
         unique_expert_sets: 1,
-        cache_state: "pipeline and LUT resident; every timed execution installs and releases real expert tensor buffers",
+        cache_state: "warm OS source cache after full-file identity hashing; pipeline and LUT resident; every timed execution installs and releases real expert tensor buffers",
         timed_scope: "dynamic FP8 activation staging, gate/up/down tensor installation and Metal dispatch, BF16 boundaries, CPU SwiGLU, waits, readback",
         safety_snapshots,
         performance_claim: None,
