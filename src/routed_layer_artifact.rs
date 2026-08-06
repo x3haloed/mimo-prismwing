@@ -387,6 +387,19 @@ fn validate_manifest_and_mapping(
 }
 
 impl RoutedLayerArtifact {
+    pub(crate) fn record_bytes(&self, record: &RoutedLayerArtifactTensor) -> Result<&[u8], String> {
+        let start = usize::try_from(record.artifact_metadata.data_offsets[0])
+            .map_err(|_| "artifact tensor start does not fit usize")?;
+        let end = usize::try_from(record.artifact_metadata.data_offsets[1])
+            .map_err(|_| "artifact tensor end does not fit usize")?;
+        self.mapping.get(start..end).ok_or_else(|| {
+            format!(
+                "{}: artifact tensor range is invalid",
+                record.artifact_metadata.name
+            )
+        })
+    }
+
     fn record(
         &self,
         expert: u32,

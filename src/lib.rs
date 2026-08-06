@@ -11,11 +11,15 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 #[cfg(target_os = "macos")]
+mod metal_io_acquisition;
+#[cfg(target_os = "macos")]
 mod routed_layer_artifact;
 #[cfg(target_os = "macos")]
 mod staged_metal_expert;
 #[cfg(target_os = "macos")]
 mod text_endpoint;
+#[cfg(target_os = "macos")]
+pub use metal_io_acquisition::{MetalIoAcquisitionReport, benchmark_metal_io_acquisition};
 #[cfg(target_os = "macos")]
 pub use staged_metal_expert::{
     BoundedRoutedRowReport, StagedMetalExpertReport, run_bounded_metal_routed_row,
