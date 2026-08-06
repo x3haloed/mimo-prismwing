@@ -7,10 +7,24 @@ import unittest
 import numpy as np
 
 from tools.compare_full_prefix_traces import NUMERICS, ORDER, compare
+from tools.generate_full_prefix_oracle import load_token_fixture
 from tools.generate_real_layer0_bf16_oracle import PROMPT_IDS, REVISION
 
 
 class FullPrefixTraceTests(unittest.TestCase):
+    def test_whole_sequence_fixture_extends_frozen_prompt_once(self):
+        fixture = Path("evals/fixtures/real/pw0093-whole-sequence.json")
+        tokens, digest = load_token_fixture(fixture)
+        self.assertEqual(tokens, [*PROMPT_IDS, 264])
+        self.assertEqual(len(digest), 64)
+        with tempfile.TemporaryDirectory() as temporary:
+            changed = json.loads(fixture.read_text())
+            changed["whole_sequence_token_ids"][-1] = 13
+            path = Path(temporary) / "changed.json"
+            path.write_text(json.dumps(changed))
+            with self.assertRaises(ValueError):
+                load_token_fixture(path)
+
     def write_trace(self, root: Path, semantic: str, delta_name: str | None = None) -> Path:
         captures = {}
         for name in ORDER:

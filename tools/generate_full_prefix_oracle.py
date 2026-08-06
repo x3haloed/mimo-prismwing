@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -32,6 +33,24 @@ except ModuleNotFoundError:
 PATTERN = [0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1,
            1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1,
            1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0]
+PW0092_RUN_001_SHA256 = "18c3ccde4a8645d9ea46d0091f877eebe256ca2c7d82c34e771f5f4114bb5f25"
+
+
+def load_token_fixture(path: Path) -> tuple[list[int], str]:
+    payload = path.read_bytes()
+    fixture = json.loads(payload)
+    base = fixture.get("base_prompt_token_ids")
+    appended = fixture.get("appended_token_id")
+    whole = fixture.get("whole_sequence_token_ids")
+    if (fixture.get("schema_version") != 1
+            or fixture.get("semantic") != "mimo_pw0093_whole_sequence_identity"
+            or base != PROMPT_IDS
+            or not isinstance(appended, int)
+            or appended < 0 or appended >= 152_576
+            or whole != [*PROMPT_IDS, appended]
+            or fixture.get("source_endpoint_report_sha256") != PW0092_RUN_001_SHA256):
+        raise ValueError("whole-sequence token fixture identity mismatch")
+    return whole, hashlib.sha256(payload).hexdigest()
 
 
 def checked_fp8(checkpoint: ShardedCheckpoint, name: str, values: torch.Tensor,
@@ -47,35 +66,36 @@ def checked_bf16(checkpoint: ShardedCheckpoint, name: str,
     return bf16_linear(checkpoint.shard(name), name, values)
 
 
-def embedding(checkpoint: ShardedCheckpoint) -> torch.Tensor:
+def embedding(checkpoint: ShardedCheckpoint, token_ids: list[int]) -> torch.Tensor:
     name = "model.embed_tokens.weight"
     path = checkpoint.shard(name)
     from safetensors import safe_open
     with safe_open(path, framework="pt", device="cpu") as source:
         view = source.get_slice(name)
-        hidden = torch.cat([view[token:token + 1] for token in PROMPT_IDS])
-    if hidden.dtype != torch.bfloat16 or tuple(hidden.shape) != (27, 4096):
+        hidden = torch.cat([view[token:token + 1] for token in token_ids])
+    if hidden.dtype != torch.bfloat16 or tuple(hidden.shape) != (len(token_ids), 4096):
         raise ValueError("embedding shape mismatch")
     return hidden
 
 
 def attention(checkpoint: ShardedCheckpoint, layer: int,
               normalized: torch.Tensor) -> torch.Tensor:
+    rows = normalized.shape[0]
     prefix = f"model.layers.{layer}.self_attn"
     swa = PATTERN[layer] == 1
     kv_heads = 8 if swa else 4
     qkv = checked_fp8(checkpoint, f"{prefix}.qkv_proj.weight", normalized,
                       full_qkv=not swa)
     q_size, k_size = 64 * 192, kv_heads * 192
-    q = apply_rope(qkv[:, :q_size].reshape(27, 64, 192), 10_000.0 if swa else 10_000_000.0)
-    k = apply_rope(qkv[:, q_size:q_size + k_size].reshape(27, kv_heads, 192),
+    q = apply_rope(qkv[:, :q_size].reshape(rows, 64, 192), 10_000.0 if swa else 10_000_000.0)
+    k = apply_rope(qkv[:, q_size:q_size + k_size].reshape(rows, kv_heads, 192),
                    10_000.0 if swa else 10_000_000.0)
-    v = (qkv[:, q_size + k_size:].reshape(27, kv_heads, 128) * 0.707).to(torch.bfloat16)
+    v = (qkv[:, q_size + k_size:].reshape(rows, kv_heads, 128) * 0.707).to(torch.bfloat16)
     sinks = checkpoint.tensor(f"{prefix}.attention_sink_bias") if swa else None
-    core = torch.empty((27, 64, 128), dtype=torch.bfloat16)
+    core = torch.empty((rows, 64, 128), dtype=torch.bfloat16)
     scale = 1.0 / math.sqrt(192)
     groups = 64 // kv_heads
-    for position in range(27):
+    for position in range(rows):
         for head in range(64):
             kv_head = head // groups
             scores = (q[position, head] @ k[:position + 1, kv_head].T) * scale
@@ -86,11 +106,12 @@ def attention(checkpoint: ShardedCheckpoint, layer: int,
             if sinks is not None:
                 probabilities = probabilities[:-1]
             core[position, head] = probabilities @ v[:position + 1, kv_head]
-    return checked_bf16(checkpoint, f"{prefix}.o_proj.weight", core.reshape(27, 8192))
+    return checked_bf16(checkpoint, f"{prefix}.o_proj.weight", core.reshape(rows, 8192))
 
 
 def routed_mlp(checkpoint: ShardedCheckpoint, layer: int,
                values: torch.Tensor) -> tuple[torch.Tensor, list[list[int]], list[list[float]], int]:
+    rows = values.shape[0]
     prefix = f"model.layers.{layer}.mlp"
     gate = checkpoint.tensor(f"{prefix}.gate.weight").float()
     if tuple(gate.shape) != (256, 4096):
@@ -102,11 +123,11 @@ def routed_mlp(checkpoint: ShardedCheckpoint, layer: int,
     chosen = scores.gather(1, selected)
     weights = chosen / (chosen.sum(dim=-1, keepdim=True) + 1e-20)
     schedule: dict[int, list[tuple[int, float]]] = {}
-    for position in range(27):
+    for position in range(rows):
         for slot in range(8):
             expert = int(selected[position, slot])
             schedule.setdefault(expert, []).append((position, float(weights[position, slot])))
-    output = torch.zeros((27, 4096), dtype=torch.float32)
+    output = torch.zeros((rows, 4096), dtype=torch.float32)
     for expert in sorted(schedule):
         placements = schedule[expert]
         gathered = values[[position for position, _ in placements]]
@@ -120,11 +141,17 @@ def routed_mlp(checkpoint: ShardedCheckpoint, layer: int,
     return (output.to(torch.bfloat16), selected.tolist(), weights.tolist(), len(schedule))
 
 
-def generate(checkpoint_root: Path, verification: Path, output: Path) -> None:
+def generate(checkpoint_root: Path, verification: Path, output: Path,
+             token_ids: list[int] | None = None,
+             token_fixture_sha256: str | None = None) -> None:
     started = time.monotonic(); torch.set_num_threads(1)
     checkpoint = ShardedCheckpoint(checkpoint_root, verification)
     output.mkdir(parents=True, exist_ok=False); safety = Safety(); captures = {}; traces = []
-    hidden = embedding(checkpoint)
+    tokens = PROMPT_IDS if token_ids is None else token_ids
+    if not tokens or any(not isinstance(token, int) or token < 0 or token >= 152_576
+                         for token in tokens):
+        raise ValueError("full-prefix token identity is invalid")
+    hidden = embedding(checkpoint, tokens)
     captures["embedding"] = write_capture(output, "embedding", hidden, safety)
     for layer in range(48):
         prefix = f"model.layers.{layer}"
@@ -154,10 +181,12 @@ def generate(checkpoint_root: Path, verification: Path, output: Path) -> None:
     captures["last_logits"] = write_capture(output, "last_logits", last_logits, safety, "F32")
     manifest = {"schema_version": 1, "semantic": "mimo_full_prefix_layer_final_oracle",
         "revision": REVISION, "checkpoint_verification_sha256": VERIFICATION_SHA256,
-        "prompt_token_ids": PROMPT_IDS, "numerics": NUMERICS, "captures": captures,
+        "prompt_token_ids": tokens, "numerics": NUMERICS, "captures": captures,
         "layer_traces": traces, "torch_version": torch.__version__,
         "safety_snapshots": safety.snapshots,
         "wall_ms": (time.monotonic() - started) * 1000.0, "performance_claim": None}
+    if token_fixture_sha256 is not None:
+        manifest["token_fixture_sha256"] = token_fixture_sha256
     atomic_write_new(output / "manifest.json", canonical_json(manifest))
 
 
@@ -166,7 +195,12 @@ def main() -> int:
     parser.add_argument("--checkpoint", required=True, type=Path)
     parser.add_argument("--verification", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    args = parser.parse_args(); generate(args.checkpoint, args.verification, args.output); return 0
+    parser.add_argument("--token-fixture", type=Path)
+    args = parser.parse_args()
+    tokens, fixture_hash = (load_token_fixture(args.token_fixture)
+                            if args.token_fixture else (PROMPT_IDS, None))
+    generate(args.checkpoint, args.verification, args.output, tokens, fixture_hash)
+    return 0
 
 
 if __name__ == "__main__":
