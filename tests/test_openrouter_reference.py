@@ -31,11 +31,28 @@ def valid_request():
     }
 
 
+def valid_raw_request():
+    request = valid_request()
+    request.pop("messages")
+    request.pop("top_logprobs")
+    request["prompt"] = "Hello"
+    request["logprobs"] = 20
+    return request
+
+
 class ReferenceCaptureTests(unittest.TestCase):
     def test_policy_fails_closed(self):
         request = valid_request()
         request["provider"]["allow_fallbacks"] = True
         with self.assertRaisesRegex(ValueError, "allow_fallbacks"):
+            validate_capture_request(request)
+
+    def test_raw_completion_policy_is_distinct_and_strict(self):
+        request = valid_raw_request()
+        self.assertEqual(validate_capture_request(request), request)
+        request["top_logprobs"] = 20
+        request["logprobs"] = True
+        with self.assertRaisesRegex(ValueError, "raw completion"):
             validate_capture_request(request)
 
     def test_atomic_write_refuses_overwrite(self):

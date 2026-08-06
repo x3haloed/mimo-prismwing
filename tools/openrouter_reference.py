@@ -22,7 +22,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-API_URL = "https://openrouter.ai/api/v1/chat/completions"
+CHAT_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+COMPLETIONS_API_URL = "https://openrouter.ai/api/v1/completions"
 DEFAULT_KEY_PATH = Path.home() / ".config/mimo-prismwing/openrouter.key"
 SCHEMA_VERSION = 1
 
@@ -113,21 +114,34 @@ def validate_capture_request(payload: Any) -> dict[str, Any]:
         raise ValueError("provider.allow_fallbacks must be false")
     if provider.get("require_parameters") is not True:
         raise ValueError("provider.require_parameters must be true")
-    if payload.get("logprobs") is not True or payload.get("top_logprobs") != 20:
-        raise ValueError("logprobs=true and top_logprobs=20 are required")
+    is_chat = isinstance(payload.get("messages"), list) and "prompt" not in payload
+    is_completion = isinstance(payload.get("prompt"), str) and "messages" not in payload
+    if not is_chat and not is_completion:
+        raise ValueError("request must contain exactly one chat messages or raw prompt surface")
+    if is_chat and (payload.get("logprobs") is not True or payload.get("top_logprobs") != 20):
+        raise ValueError("chat requires logprobs=true and top_logprobs=20")
+    if is_completion and payload.get("logprobs") != 20:
+        raise ValueError("raw completion requires OpenAI-compatible logprobs=20")
     if payload.get("stream") is not False:
         raise ValueError("stream must be false for immutable capture")
     return payload
+
+
+def request_surface(payload: dict[str, Any]) -> tuple[str, str]:
+    if "messages" in payload:
+        return "chat_completions", CHAT_API_URL
+    return "completions", COMPLETIONS_API_URL
 
 
 def capture(request_path: Path, output_dir: Path, key_path: Path) -> Path:
     assets: list[dict[str, Any]] = []
     payload = materialize_assets(read_json(request_path), request_path.parent, assets)
     payload = validate_capture_request(payload)
+    surface, api_url = request_surface(payload)
     request_bytes = canonical_json(payload)
     key = read_key(key_path)
     http_request = Request(
-        API_URL,
+        api_url,
         data=request_bytes,
         method="POST",
         headers={
@@ -158,6 +172,7 @@ def capture(request_path: Path, output_dir: Path, key_path: Path) -> Path:
     response_canonical = canonical_json(response_value)
     manifest = {
         "schema_version": SCHEMA_VERSION,
+        "api_surface": surface,
         "request_file": "request.json",
         "request_sha256": sha256_bytes(request_bytes),
         "response_file": "response.json",
@@ -202,11 +217,23 @@ def verify(output_dir: Path) -> None:
         raise ValueError("response provider does not match pinned provider")
     if not response["choices"]:
         raise ValueError("response contains no choices")
-    positions = (response["choices"][0].get("logprobs") or {}).get("content") or []
-    if not positions:
-        raise ValueError("response contains no token logprobs")
-    if any(len(position.get("top_logprobs", [])) != 20 for position in positions):
-        raise ValueError("response does not contain top-20 logprobs at every position")
+    surface, _ = request_surface(request)
+    if manifest.get("api_surface", surface) != surface:
+        raise ValueError("manifest API surface mismatch")
+    logprobs = response["choices"][0].get("logprobs") or {}
+    if surface == "chat_completions":
+        positions = logprobs.get("content") or []
+        if not positions:
+            raise ValueError("response contains no token logprobs")
+        if any(len(position.get("top_logprobs", [])) != 20 for position in positions):
+            raise ValueError("response does not contain top-20 logprobs at every position")
+    else:
+        tokens = logprobs.get("tokens") or []
+        positions = logprobs.get("top_logprobs") or []
+        if not tokens or len(tokens) != len(positions):
+            raise ValueError("raw response contains no aligned token logprobs")
+        if any(not isinstance(position, dict) or len(position) != 20 for position in positions):
+            raise ValueError("raw response does not contain top-20 logprobs at every position")
 
 
 def parser() -> argparse.ArgumentParser:
