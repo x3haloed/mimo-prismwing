@@ -1068,3 +1068,12 @@ passed the shared-host contract with no swap growth or throttling. The next
 diagnostic is layer-2 substage localization from the bit-exact layer-1 final,
 not another full walk. These cold correctness walls change no throughput-model
 constant.
+
+PW-0061 identifies the first layer-2 operation difference as softmax
+denominator reduction, not exponential evaluation or routing. Centered scores
+are exact; one of 25,920 BF16 probabilities differs when Rust accumulates the
+19-value row forward. Reverse F32 accumulation matches PyTorch exactly on that
+row and preserves exact probability payloads on the complete real layer-0,
+layer-1, and layer-2 corpora. The single probability quantum amplifies into
+router-weight and final-state failure, so sigmoid and scatter changes would be
+downstream repairs. Gate denominator order directly before repeating layer 2.
