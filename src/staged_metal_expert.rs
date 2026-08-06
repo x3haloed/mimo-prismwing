@@ -26,6 +26,15 @@ const LANES: u64 = 64;
 const WARMUPS: usize = 5;
 const MEASUREMENTS: usize = 30;
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ProjectionShape {
+    rows: u32,
+    columns: u32,
+    block_rows: u32,
+    block_columns: u32,
+}
+
 pub(crate) struct BoundedMetalExpertRuntime {
     device: metal::Device,
     queue: metal::CommandQueue,
@@ -47,6 +56,81 @@ pub(crate) struct NoCopyProjectionBacking {
 enum SourceBufferMode {
     Copied,
     NoCopy(NoCopyProjectionBacking),
+}
+
+pub(crate) struct RoutedNoCopyExpert<'a> {
+    pub(crate) expert: u32,
+    pub(crate) gate: &'a ValidatedMappedFp8<'a>,
+    pub(crate) up: &'a ValidatedMappedFp8<'a>,
+    pub(crate) down: &'a ValidatedMappedFp8<'a>,
+    pub(crate) backing: [NoCopyProjectionBacking; 3],
+}
+
+#[derive(Debug, Serialize)]
+pub struct TransactionPhaseTomography {
+    pub phase: &'static str,
+    pub projection_dispatches: usize,
+    pub source_buffer_bind_ms: f64,
+    pub small_buffer_install_ms: f64,
+    pub command_encode_ms: f64,
+    pub commit_call_ms: f64,
+    pub synchronous_wait_ms: f64,
+    pub gpu_interval_ms: f64,
+    pub readback_ms: f64,
+    pub explicit_release_ms: f64,
+    pub wall_ms: f64,
+    pub activity: ProcessActivityDelta,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RoutedTransactionTomography {
+    pub layer: usize,
+    pub dynamic_input_ms: f64,
+    pub gate_up_cpu_stage_ms: f64,
+    pub dynamic_hidden_ms: f64,
+    pub down_cpu_stage_ms: f64,
+    pub phases: Vec<TransactionPhaseTomography>,
+    pub command_buffers: usize,
+    pub commits: usize,
+    pub waits: usize,
+    pub projection_dispatches: usize,
+    pub wall_ms: f64,
+    pub activity: ProcessActivityDelta,
+}
+
+pub(crate) struct RoutedTransactionOutput {
+    pub(crate) experts: Vec<(u32, BoundedMetalExpertOutput)>,
+    pub(crate) tomography: RoutedTransactionTomography,
+}
+
+fn validate_no_copy_region(
+    address: usize,
+    data_bytes: usize,
+    region_bytes: usize,
+    page_bytes: usize,
+) -> bool {
+    page_bytes != 0
+        && page_bytes.is_power_of_two()
+        && address.is_multiple_of(page_bytes)
+        && region_bytes.is_multiple_of(page_bytes)
+        && region_bytes >= data_bytes
+}
+
+fn validate_phase_completion(
+    phase: &str,
+    status: MTLCommandBufferStatus,
+    gpu_interval_ms: Option<f64>,
+    synchronous_wait_ms: f64,
+) -> Result<f64, String> {
+    if status != MTLCommandBufferStatus::Completed {
+        return Err(format!("{phase}: Metal command failed: {status:?}"));
+    }
+    let gpu_interval_ms =
+        gpu_interval_ms.ok_or_else(|| format!("{phase}: GPU timestamps unavailable"))?;
+    if gpu_interval_ms > synchronous_wait_ms + 1.0 {
+        return Err(format!("{phase}: GPU interval exceeds wait"));
+    }
+    Ok(gpu_interval_ms)
 }
 
 pub(crate) struct BoundedMetalExpertOutput {
@@ -178,6 +262,339 @@ impl BoundedMetalExpertRuntime {
             Some((layer, expert)),
             backing.map(SourceBufferMode::NoCopy),
         )
+    }
+
+    pub(crate) fn execute_two_barrier_routed_transaction(
+        &self,
+        layer: usize,
+        experts: &[RoutedNoCopyExpert<'_>],
+        input: &[f32],
+    ) -> Result<RoutedTransactionOutput, String> {
+        if experts.len() != 8
+            || experts
+                .iter()
+                .map(|expert| expert.expert)
+                .collect::<BTreeSet<_>>()
+                .len()
+                != experts.len()
+        {
+            return Err("routed transaction requires eight distinct experts".to_owned());
+        }
+        let wall_started = Instant::now();
+        let activity_before = process_activity()?;
+        let dynamic_input_started = Instant::now();
+        let staged_input = dynamic_fp8_dequantized(input)?;
+        let dynamic_input_ms = dynamic_input_started.elapsed().as_secs_f64() * 1000.0;
+        let mut gate_up_tensors = Vec::with_capacity(16);
+        let mut gate_up_inputs = Vec::with_capacity(16);
+        for expert in experts {
+            gate_up_tensors.push((expert.gate, expert.backing[0]));
+            gate_up_inputs.push(staged_input.as_slice());
+            gate_up_tensors.push((expert.up, expert.backing[1]));
+            gate_up_inputs.push(staged_input.as_slice());
+        }
+        let (gate_up_pre_round, gate_up_phase) =
+            self.execute_no_copy_phase("gate_up", &gate_up_tensors, &gate_up_inputs, true)?;
+        let gate_up_cpu_started = Instant::now();
+        let mut staged = Vec::with_capacity(experts.len());
+        let mut dynamic_hidden_ms = 0.0;
+        for (index, expert) in experts.iter().enumerate() {
+            let gate_pre_round = gate_up_pre_round[index * 2].clone();
+            let up_pre_round = gate_up_pre_round[index * 2 + 1].clone();
+            let mut gate = gate_pre_round.clone();
+            let mut up = up_pre_round.clone();
+            round_bf16_values(&mut gate);
+            round_bf16_values(&mut up);
+            let gate_repairs =
+                repair_uncertain_rows(expert.gate, &staged_input, &gate_pre_round, &mut gate)?;
+            let up_repairs =
+                repair_uncertain_rows(expert.up, &staged_input, &up_pre_round, &mut up)?;
+            let hidden = gate
+                .iter()
+                .zip(&up)
+                .map(|(&gate, &up)| staged_swiglu(gate, up))
+                .collect::<Vec<_>>();
+            let dynamic_hidden_started = Instant::now();
+            let staged_hidden = dynamic_fp8_dequantized(&hidden)?;
+            dynamic_hidden_ms += dynamic_hidden_started.elapsed().as_secs_f64() * 1000.0;
+            staged.push((
+                gate,
+                up,
+                hidden,
+                staged_hidden,
+                gate_pre_round,
+                up_pre_round,
+                gate_repairs,
+                up_repairs,
+            ));
+        }
+        let gate_up_cpu_stage_ms = gate_up_cpu_started.elapsed().as_secs_f64() * 1000.0;
+        let down_tensors = experts
+            .iter()
+            .map(|expert| (expert.down, expert.backing[2]))
+            .collect::<Vec<_>>();
+        let down_inputs = staged
+            .iter()
+            .map(|values| values.3.as_slice())
+            .collect::<Vec<_>>();
+        let (down_pre_round, down_phase) =
+            self.execute_no_copy_phase("down", &down_tensors, &down_inputs, false)?;
+        let down_cpu_started = Instant::now();
+        let mut outputs = Vec::with_capacity(experts.len());
+        for ((expert, values), down_pre_round) in experts.iter().zip(staged).zip(down_pre_round) {
+            let (
+                gate,
+                up,
+                hidden,
+                staged_hidden,
+                gate_pre_round,
+                up_pre_round,
+                gate_repairs,
+                up_repairs,
+            ) = values;
+            let mut down = down_pre_round.clone();
+            round_bf16_values(&mut down);
+            let down_repairs =
+                repair_uncertain_rows(expert.down, &staged_hidden, &down_pre_round, &mut down)?;
+            if down.iter().any(|value| !value.is_finite()) {
+                return Err("routed transaction produced non-finite output".to_owned());
+            }
+            let projections = [expert.gate, expert.up, expert.down];
+            let installed_source_bytes = projections.iter().try_fold(0_u64, |total, tensor| {
+                total
+                    .checked_add(tensor.weight.metadata.data_bytes)
+                    .and_then(|value| value.checked_add(tensor.scale.metadata.data_bytes))
+                    .ok_or("transaction installed-byte ledger overflow")
+            })?;
+            let sparse_decoded_weight_bytes = (gate_repairs * expert.gate.columns
+                + up_repairs * expert.up.columns
+                + down_repairs * expert.down.columns)
+                as u64;
+            outputs.push((
+                expert.expert,
+                BoundedMetalExpertOutput {
+                    gate,
+                    up,
+                    swiglu: hidden,
+                    down,
+                    gate_pre_round,
+                    up_pre_round,
+                    down_pre_round,
+                    sparse_repair_counts: [gate_repairs, up_repairs, down_repairs],
+                    installed_source_bytes,
+                    sparse_decoded_weight_bytes,
+                    tomography: None,
+                },
+            ));
+        }
+        let down_cpu_stage_ms = down_cpu_started.elapsed().as_secs_f64() * 1000.0;
+        let wall_ms = wall_started.elapsed().as_secs_f64() * 1000.0;
+        Ok(RoutedTransactionOutput {
+            experts: outputs,
+            tomography: RoutedTransactionTomography {
+                layer,
+                dynamic_input_ms,
+                gate_up_cpu_stage_ms,
+                dynamic_hidden_ms,
+                down_cpu_stage_ms,
+                phases: vec![gate_up_phase, down_phase],
+                command_buffers: 2,
+                commits: 2,
+                waits: 2,
+                projection_dispatches: 24,
+                wall_ms,
+                activity: process_activity()?.checked_delta(activity_before)?,
+            },
+        })
+    }
+
+    fn execute_no_copy_phase(
+        &self,
+        phase: &'static str,
+        tensors: &[(&ValidatedMappedFp8<'_>, NoCopyProjectionBacking)],
+        activations: &[&[f32]],
+        shared_activation: bool,
+    ) -> Result<(Vec<Vec<f32>>, TransactionPhaseTomography), String> {
+        if tensors.is_empty() || tensors.len() != activations.len() {
+            return Err(format!("{phase}: projection/input count mismatch"));
+        }
+        let shape = ProjectionShape {
+            rows: tensors[0].0.rows as u32,
+            columns: tensors[0].0.columns as u32,
+            block_rows: 128,
+            block_columns: 128,
+        };
+        if tensors
+            .iter()
+            .zip(activations)
+            .any(|((tensor, backing), activation)| {
+                tensor.rows != shape.rows as usize
+                    || tensor.columns != shape.columns as usize
+                    || activation.len() != tensor.columns
+                    || activation.iter().any(|value| !value.is_finite())
+                    || !validate_no_copy_region(
+                        tensor.weight.bytes.as_ptr() as usize,
+                        tensor.weight.bytes.len(),
+                        backing.weight_region_bytes,
+                        backing.page_bytes,
+                    )
+                    || !validate_no_copy_region(
+                        tensor.scale.bytes.as_ptr() as usize,
+                        tensor.scale.bytes.len(),
+                        backing.scale_region_bytes,
+                        backing.page_bytes,
+                    )
+            })
+        {
+            return Err(format!(
+                "{phase}: invalid projection shape, input, or no-copy backing"
+            ));
+        }
+        if shared_activation
+            && activations.iter().any(|activation| {
+                activation.as_ptr() != activations[0].as_ptr()
+                    || activation.len() != activations[0].len()
+            })
+        {
+            return Err(format!("{phase}: shared activation identity mismatch"));
+        }
+        let wall_started = Instant::now();
+        let activity_before = process_activity()?;
+        let shared = MTLResourceOptions::StorageModeShared;
+        let source_started = Instant::now();
+        let sources = tensors
+            .iter()
+            .map(|(tensor, backing)| {
+                (
+                    self.device.new_buffer_with_bytes_no_copy(
+                        tensor.weight.bytes.as_ptr().cast(),
+                        backing.weight_region_bytes as u64,
+                        shared,
+                        None,
+                    ),
+                    self.device.new_buffer_with_bytes_no_copy(
+                        tensor.scale.bytes.as_ptr().cast(),
+                        backing.scale_region_bytes as u64,
+                        shared,
+                        None,
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        let source_buffer_bind_ms = source_started.elapsed().as_secs_f64() * 1000.0;
+        let small_started = Instant::now();
+        let input_buffers = if shared_activation {
+            vec![self.device.new_buffer_with_data(
+                activations[0].as_ptr().cast(),
+                std::mem::size_of_val(activations[0]) as u64,
+                shared,
+            )]
+        } else {
+            activations
+                .iter()
+                .map(|activation| {
+                    self.device.new_buffer_with_data(
+                        activation.as_ptr().cast(),
+                        std::mem::size_of_val(*activation) as u64,
+                        shared,
+                    )
+                })
+                .collect()
+        };
+        let outputs = tensors
+            .iter()
+            .map(|(tensor, _)| self.device.new_buffer((tensor.rows * 4) as u64, shared))
+            .collect::<Vec<_>>();
+        let shape_buffer = self.device.new_buffer_with_data(
+            (&shape as *const ProjectionShape).cast(),
+            std::mem::size_of::<ProjectionShape>() as u64,
+            shared,
+        );
+        let lut_buffer = self.device.new_buffer_with_data(
+            self.lut.as_ptr().cast(),
+            std::mem::size_of_val(self.lut.as_slice()) as u64,
+            shared,
+        );
+        let small_buffer_install_ms = small_started.elapsed().as_secs_f64() * 1000.0;
+        let encode_started = Instant::now();
+        let command = self.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&self.pipeline);
+        for index in 0..tensors.len() {
+            encoder.set_buffer(0, Some(&sources[index].0), 0);
+            encoder.set_buffer(1, Some(&sources[index].1), 0);
+            encoder.set_buffer(
+                2,
+                Some(&input_buffers[if shared_activation { 0 } else { index }]),
+                0,
+            );
+            encoder.set_buffer(3, Some(&outputs[index]), 0);
+            encoder.set_buffer(4, Some(&shape_buffer), 0);
+            encoder.set_buffer(5, Some(&lut_buffer), 0);
+            encoder.set_threadgroup_memory_length(0, LANES * 4);
+            encoder.dispatch_thread_groups(
+                MTLSize {
+                    width: tensors[index].0.rows as u64,
+                    height: 1,
+                    depth: 1,
+                },
+                MTLSize {
+                    width: LANES,
+                    height: 1,
+                    depth: 1,
+                },
+            );
+        }
+        encoder.end_encoding();
+        let command_encode_ms = encode_started.elapsed().as_secs_f64() * 1000.0;
+        let commit_started = Instant::now();
+        command.commit();
+        let commit_call_ms = commit_started.elapsed().as_secs_f64() * 1000.0;
+        let wait_started = Instant::now();
+        command.wait_until_completed();
+        let synchronous_wait_ms = wait_started.elapsed().as_secs_f64() * 1000.0;
+        let gpu_interval_ms = validate_phase_completion(
+            phase,
+            command.status(),
+            completed_gpu_interval_ms(command),
+            synchronous_wait_ms,
+        )?;
+        let readback_started = Instant::now();
+        let values = outputs
+            .iter()
+            .zip(tensors)
+            .map(|(buffer, (tensor, _))| {
+                // SAFETY: the command has completed and each shared output buffer
+                // contains exactly `rows` initialized F32 values.
+                unsafe {
+                    std::slice::from_raw_parts(buffer.contents().cast::<f32>(), tensor.rows)
+                        .to_vec()
+                }
+            })
+            .collect::<Vec<_>>();
+        let readback_ms = readback_started.elapsed().as_secs_f64() * 1000.0;
+        let release_started = Instant::now();
+        drop(sources);
+        drop(input_buffers);
+        drop(outputs);
+        drop(shape_buffer);
+        drop(lut_buffer);
+        let explicit_release_ms = release_started.elapsed().as_secs_f64() * 1000.0;
+        let tomography = TransactionPhaseTomography {
+            phase,
+            projection_dispatches: tensors.len(),
+            source_buffer_bind_ms,
+            small_buffer_install_ms,
+            command_encode_ms,
+            commit_call_ms,
+            synchronous_wait_ms,
+            gpu_interval_ms,
+            readback_ms,
+            explicit_release_ms,
+            wall_ms: wall_started.elapsed().as_secs_f64() * 1000.0,
+            activity: process_activity()?.checked_delta(activity_before)?,
+        };
+        Ok((values, tomography))
     }
 
     pub(crate) fn probe_no_copy_mapping(
@@ -576,17 +993,10 @@ fn metal_project(
     tomography_enabled: bool,
     source_mode: SourceBufferMode,
 ) -> Result<(Vec<f32>, Option<ProjectionTomography>), String> {
-    #[repr(C)]
-    struct Shape {
-        rows: u32,
-        columns: u32,
-        block_rows: u32,
-        block_columns: u32,
-    }
     if activation.len() != tensor.columns || activation.iter().any(|x| !x.is_finite()) {
         return Err("Metal projection input mismatch".to_owned());
     }
-    let shape = Shape {
+    let shape = ProjectionShape {
         rows: tensor.rows as u32,
         columns: tensor.columns as u32,
         block_rows: 128,
@@ -658,8 +1068,8 @@ fn metal_project(
     );
     let output_buffer = device.new_buffer((tensor.rows * 4) as u64, shared);
     let shape_buffer = device.new_buffer_with_data(
-        (&shape as *const Shape).cast(),
-        std::mem::size_of::<Shape>() as u64,
+        (&shape as *const ProjectionShape).cast(),
+        std::mem::size_of::<ProjectionShape>() as u64,
         shared,
     );
     let lut_buffer = device.new_buffer_with_data(
@@ -1654,5 +2064,40 @@ mod tests {
         assert_eq!(value["projection"], "gate");
         assert_eq!(value["rows"], 2048);
         assert!(value["gpu_interval_ms"].is_null());
+    }
+
+    #[test]
+    fn transaction_regions_fail_closed_on_every_alignment_and_length_boundary() {
+        assert!(validate_no_copy_region(0x4000, 16_000, 16_384, 16_384));
+        assert!(!validate_no_copy_region(0x4001, 16_000, 16_384, 16_384));
+        assert!(!validate_no_copy_region(0x4000, 16_000, 16_383, 16_384));
+        assert!(!validate_no_copy_region(0x4000, 16_385, 16_384, 16_384));
+        assert!(!validate_no_copy_region(0x4000, 1, 16_384, 0));
+        assert!(!validate_no_copy_region(0x4000, 1, 16_384, 12_288));
+    }
+
+    #[test]
+    fn transaction_phase_completion_fails_closed_and_bounds_gpu_time() {
+        assert_eq!(
+            validate_phase_completion("gate_up", MTLCommandBufferStatus::Completed, Some(4.0), 4.0,),
+            Ok(4.0)
+        );
+        assert!(
+            validate_phase_completion("gate_up", MTLCommandBufferStatus::Error, Some(1.0), 1.0)
+                .is_err()
+        );
+        assert!(
+            validate_phase_completion("gate_up", MTLCommandBufferStatus::Completed, None, 1.0)
+                .is_err()
+        );
+        assert!(
+            validate_phase_completion(
+                "gate_up",
+                MTLCommandBufferStatus::Completed,
+                Some(2.01),
+                1.0,
+            )
+            .is_err()
+        );
     }
 }
