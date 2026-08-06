@@ -545,6 +545,29 @@
             "status": "measured_endpoint_bottleneck_attribution_not_accepted_tps",
             "provenance": "PW-0096; offline fail-closed profile of immutable PW-0092 run-001/run-002 reports and PW-0092 source-byte constants"
         },
+        "pw0097_bf16_staged_metal_one_row_expert": {
+            "layer": 43,
+            "expert": 32,
+            "batch_size": 1,
+            "concurrency": 1,
+            "warmups": 5,
+            "measurements_per_process": 30,
+            "wall_median_ms_repeats": [
+                6.7615,
+                6.766084
+            ],
+            "wall_median_ms_repeat_mean": 6.763792,
+            "pw0096_attributed_cpu_ms_per_expert": 397.5,
+            "component_speedup_vs_pw0096_attribution": 58.76881572411361,
+            "logical_source_and_io_bytes_per_execution": 25204736,
+            "maximum_resident_tensor_buffer_bytes": 8390656,
+            "relative_l2_vs_independent_torch": 1.7833953172192966e-05,
+            "maximum_absolute_error_vs_independent_torch": 2.9802322e-08,
+            "bf16_equality_fraction": 0.99951171875,
+            "output_sha256": "144845edebafc3b9cd8c045fc29ce3f385d4200d61451454c7ec837b5f1bca06",
+            "status": "promoted_target_faithful_routed_layer_candidate; warm_cache_single_expert_component; not_endpoint_tps_or_default",
+            "provenance": "PW-0097; commit ad6e1fb404d9d832c3abceb6423df3cb529d7c07; two clean processes; dynamic FP8 and BF16 source boundaries; real tensor installation and release included; Gate 8 passed"
+        },
         "native_simdgroup_matrix_source_fp8_moe_schedule": {
             "candidate_wall_median_ms_repeats": [22.450083, 22.531125],
             "control_wall_median_ms_repeats": [17.107709, 17.089417],

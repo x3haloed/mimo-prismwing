@@ -1446,3 +1446,16 @@ expert FP8-to-F32 expansion/execution as the primary embodiment bottleneck.
 Integrate the validated source-FP8 Metal expert path as an explicit candidate
 before spending work on attention or K/V compression; no performance default
 or accepted TPS changes yet.
+
+PW-0097 validates the first source-faithful one-row Metal expert embodiment.
+After a fail-closed attempt exposed a missing BF16 round between SiLU and its
+`up` product, the repaired executor matches 4,094/4,096 widened-BF16 outputs,
+with `1.78e-5` relative L2 and `2.98e-8` maximum error, in two byte-identical
+processes. Median complete expert cost is 6.7615/6.7661 ms including dynamic
+FP8 activation staging, all real tensor-buffer installations, three dispatches
+and waits, BF16 boundaries, CPU SwiGLU, readback, and buffer destruction. This
+is a 58.75--58.79x component gain over PW-0096's 397.5 ms/expert attribution,
+while retaining at least 78% free memory, peaking below 68 MB RSS, causing no
+swap growth or throttling, and preserving all protected services. Promote the
+bounded source-FP8 Metal executor only as the next routed-layer candidate;
+one expert under warm OS cache is not endpoint TPS or a performance default.
