@@ -158,6 +158,22 @@ each phase-level safety check. Mapping addresses and tensor views remain valid;
 later access faults authoritative checkpoint bytes back from the SSD. This is
 a resource-lifetime repair to test, not evidence of a passing memory bound.
 
+Run 003 used committed layer-boundary release `e051974` and stopped after layer
+23. The authoritative post-cleanup snapshot was only 650,410,688 bytes, proving
+that whole-mapping `MADV_DONTNEED` plus malloc relief released retained phase
+residency. The same snapshot recorded an 8,655,618,048-byte historical peak,
+62.6 MiB above the unchanged 8 GiB limit. An independent 49-second sample saw
+8,403,520 KiB RSS, 86% system memory free, unchanged 1,821.44 MiB swap, and zero
+throttled pages. The failed-attempt manifest hashes to
+`4108ea39ab2b7ff9cd1efed914f48073c456050922abddcb67aabc0ae75e8968`.
+
+This reverses only the run-002 diagnosis that layer-boundary page release might
+be sufficient. It bounds post-phase residency but does not bound the transient
+overlap of decoded matrices, allocator slack, and newly faulted source pages
+within a layer. The next candidate drops and relieves those resources after
+each complete matrix operation. The safety gate and endpoint semantics remain
+unchanged.
+
 ## Isolated attribution
 
 Unexecuted. Initial diagnostics will separate tokenizer, embedding, attention,

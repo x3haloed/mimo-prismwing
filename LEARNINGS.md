@@ -915,3 +915,13 @@ insufficient because clean pages from the 17 persistent checkpoint mappings
 remained resident. The next test must explicitly release those file-backed
 pages between phases; it must not raise the 8 GiB/4 GiB footprint limits or
 reinterpret the stopped walk as endpoint evidence.
+
+PW-0050 run 003 proves that checkpoint-page release works but that a decoder
+layer is still too coarse a resource-lifetime boundary on this 16 GiB host.
+After layer 23, whole-mapping `MADV_DONTNEED` and malloc relief reduced physical
+footprint to 650,410,688 bytes, while the historical peak had already reached
+8,655,618,048 bytes—62.6 MiB over the fixed 8 GiB stop. Global memory remained
+healthy and swap did not grow. The belief that layer-boundary release alone is
+sufficient is therefore superseded: decoded matrix storage, allocator slack,
+and newly faulted source pages must be released after each matrix operation so
+their residency cannot accumulate within a layer.

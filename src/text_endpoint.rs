@@ -495,6 +495,12 @@ fn pressure_relief() -> u64 {
     unsafe { malloc_zone_pressure_relief(std::ptr::null_mut(), 0) as u64 }
 }
 
+fn release_matrix_transients(checkpoint: &Checkpoint) -> Result<(), String> {
+    checkpoint.release_file_pages()?;
+    pressure_relief();
+    Ok(())
+}
+
 fn command_output(program: &str, arguments: &[&str]) -> Result<String, String> {
     let output = Command::new(program)
         .args(arguments)
@@ -829,20 +835,24 @@ fn fp8_linear(
     if input.len() != rows * columns || rows == 0 {
         return Err(format!("{weight_name}: FP8 linear input shape mismatch"));
     }
-    let weight = checkpoint.tensor(weight_name)?;
-    let scale_name = format!("{weight_name}_scale_inv");
-    let scale = checkpoint.tensor(&scale_name)?;
-    let validated = validate_fp8_views(weight, scale, &input[..columns])?;
-    if validated.rows != output_columns || validated.columns != columns {
-        return Err(format!("{weight_name}: FP8 linear weight shape mismatch"));
-    }
-    ledger.logical_source_bytes = ledger
-        .logical_source_bytes
-        .checked_add(validated.weight.metadata.data_bytes + validated.scale.metadata.data_bytes)
-        .ok_or("logical byte ledger overflow")?;
-    ledger.fp8_matrices_expanded += 1;
-    let decoded = decode_fp8_matrix_f32(&validated);
-    accelerate_sgemm_right_transposed(input, &decoded, rows, output_columns, columns)
+    let output = {
+        let weight = checkpoint.tensor(weight_name)?;
+        let scale_name = format!("{weight_name}_scale_inv");
+        let scale = checkpoint.tensor(&scale_name)?;
+        let validated = validate_fp8_views(weight, scale, &input[..columns])?;
+        if validated.rows != output_columns || validated.columns != columns {
+            return Err(format!("{weight_name}: FP8 linear weight shape mismatch"));
+        }
+        ledger.logical_source_bytes = ledger
+            .logical_source_bytes
+            .checked_add(validated.weight.metadata.data_bytes + validated.scale.metadata.data_bytes)
+            .ok_or("logical byte ledger overflow")?;
+        ledger.fp8_matrices_expanded += 1;
+        let decoded = decode_fp8_matrix_f32(&validated);
+        accelerate_sgemm_right_transposed(input, &decoded, rows, output_columns, columns)?
+    };
+    release_matrix_transients(checkpoint)?;
+    Ok(output)
 }
 
 fn full_qkv_scale_row(weight_row: usize) -> Result<usize, String> {
@@ -875,50 +885,54 @@ fn full_qkv_linear(
     if rows == 0 || input.len() != rows * HIDDEN {
         return Err(format!("{weight_name}: full-QKV input shape mismatch"));
     }
-    let weight = checkpoint.tensor(weight_name)?;
-    let scale_name = format!("{weight_name}_scale_inv");
-    let scale = checkpoint.tensor(&scale_name)?;
-    if weight.metadata.dtype != "F8_E4M3"
-        || weight.metadata.shape != [OUTPUT_ROWS as u64, HIDDEN as u64]
-        || scale.metadata.dtype != "F32"
-        || scale.metadata.shape != [108, 32]
-        || scale.bytes.len() != 108 * 32 * 4
-    {
-        return Err(format!("{weight_name}: unknown full-QKV FP8 scale layout"));
-    }
-    if let Some(offset) = weight
-        .bytes
-        .iter()
-        .position(|bits| matches!(bits, 0x7f | 0xff))
-    {
-        return Err(format!(
-            "{weight_name}: non-finite FP8 weight at byte offset {offset}"
-        ));
-    }
-    let scales = scale
-        .bytes
-        .chunks_exact(4)
-        .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four-byte F32 scale")))
-        .collect::<Vec<_>>();
-    if scales.iter().any(|value| !value.is_finite()) {
-        return Err(format!("{weight_name}: full-QKV scale is non-finite"));
-    }
-    let mut decoded = Vec::with_capacity(weight.bytes.len());
-    for weight_row in 0..OUTPUT_ROWS {
-        let scale_row = full_qkv_scale_row(weight_row)?;
-        for column in 0..HIDDEN {
-            decoded.push(
-                super::decode_f8_e4m3fn(weight.bytes[weight_row * HIDDEN + column])
-                    * scales[scale_row * 32 + column / 128],
-            );
+    let output = {
+        let weight = checkpoint.tensor(weight_name)?;
+        let scale_name = format!("{weight_name}_scale_inv");
+        let scale = checkpoint.tensor(&scale_name)?;
+        if weight.metadata.dtype != "F8_E4M3"
+            || weight.metadata.shape != [OUTPUT_ROWS as u64, HIDDEN as u64]
+            || scale.metadata.dtype != "F32"
+            || scale.metadata.shape != [108, 32]
+            || scale.bytes.len() != 108 * 32 * 4
+        {
+            return Err(format!("{weight_name}: unknown full-QKV FP8 scale layout"));
         }
-    }
-    ledger.logical_source_bytes = ledger
-        .logical_source_bytes
-        .checked_add(weight.metadata.data_bytes + scale.metadata.data_bytes)
-        .ok_or("logical byte ledger overflow")?;
-    ledger.fp8_matrices_expanded += 1;
-    accelerate_sgemm_right_transposed(input, &decoded, rows, OUTPUT_ROWS, HIDDEN)
+        if let Some(offset) = weight
+            .bytes
+            .iter()
+            .position(|bits| matches!(bits, 0x7f | 0xff))
+        {
+            return Err(format!(
+                "{weight_name}: non-finite FP8 weight at byte offset {offset}"
+            ));
+        }
+        let scales = scale
+            .bytes
+            .chunks_exact(4)
+            .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four-byte F32 scale")))
+            .collect::<Vec<_>>();
+        if scales.iter().any(|value| !value.is_finite()) {
+            return Err(format!("{weight_name}: full-QKV scale is non-finite"));
+        }
+        let mut decoded = Vec::with_capacity(weight.bytes.len());
+        for weight_row in 0..OUTPUT_ROWS {
+            let scale_row = full_qkv_scale_row(weight_row)?;
+            for column in 0..HIDDEN {
+                decoded.push(
+                    super::decode_f8_e4m3fn(weight.bytes[weight_row * HIDDEN + column])
+                        * scales[scale_row * 32 + column / 128],
+                );
+            }
+        }
+        ledger.logical_source_bytes = ledger
+            .logical_source_bytes
+            .checked_add(weight.metadata.data_bytes + scale.metadata.data_bytes)
+            .ok_or("logical byte ledger overflow")?;
+        ledger.fp8_matrices_expanded += 1;
+        accelerate_sgemm_right_transposed(input, &decoded, rows, OUTPUT_ROWS, HIDDEN)?
+    };
+    release_matrix_transients(checkpoint)?;
+    Ok(output)
 }
 
 fn bf16_linear(
@@ -933,19 +947,23 @@ fn bf16_linear(
     if input.len() != rows * columns || rows == 0 {
         return Err(format!("{weight_name}: BF16 linear input shape mismatch"));
     }
-    let view = checkpoint.tensor(weight_name)?;
-    if view.metadata.dtype != "BF16"
-        || view.metadata.shape != [output_columns as u64, columns as u64]
-    {
-        return Err(format!("{weight_name}: BF16 linear weight shape mismatch"));
-    }
-    ledger.logical_source_bytes = ledger
-        .logical_source_bytes
-        .checked_add(view.metadata.data_bytes)
-        .ok_or("logical byte ledger overflow")?;
-    ledger.bf16_matrices_expanded += 1;
-    let decoded = decode_bf16_tensor(view, output_columns * columns)?;
-    accelerate_sgemm_right_transposed(input, &decoded, rows, output_columns, columns)
+    let output = {
+        let view = checkpoint.tensor(weight_name)?;
+        if view.metadata.dtype != "BF16"
+            || view.metadata.shape != [output_columns as u64, columns as u64]
+        {
+            return Err(format!("{weight_name}: BF16 linear weight shape mismatch"));
+        }
+        ledger.logical_source_bytes = ledger
+            .logical_source_bytes
+            .checked_add(view.metadata.data_bytes)
+            .ok_or("logical byte ledger overflow")?;
+        ledger.bf16_matrices_expanded += 1;
+        let decoded = decode_bf16_tensor(view, output_columns * columns)?;
+        accelerate_sgemm_right_transposed(input, &decoded, rows, output_columns, columns)?
+    };
+    release_matrix_transients(checkpoint)?;
+    Ok(output)
 }
 
 fn f32_linear(
