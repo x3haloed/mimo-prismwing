@@ -14,7 +14,8 @@ use std::time::Instant;
 mod text_endpoint;
 #[cfg(target_os = "macos")]
 pub use text_endpoint::{
-    Layer0TraceReport, TextEndpointReport, run_real_layer0_trace, run_slow_text_endpoint,
+    Layer0TraceReport, Layer1RoutingTraceReport, TextEndpointReport, run_real_layer0_trace,
+    run_real_layer1_routing_trace, run_slow_text_endpoint,
 };
 
 const MAX_HEADER_BYTES: u64 = 256 * 1024 * 1024;

@@ -263,6 +263,30 @@ pub struct Layer0TraceReport {
 }
 
 #[derive(Debug, Serialize)]
+pub struct Layer1RoutingTraceReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub fixture_sha256: String,
+    pub checkpoint_verification_sha256: String,
+    pub prompt_token_ids: Vec<u32>,
+    pub source_input_sha256: String,
+    pub numerics: &'static str,
+    pub captures: BTreeMap<String, CaptureRecord>,
+    pub selected_experts_by_position: Vec<Vec<u32>>,
+    pub route_weights_by_position: Vec<Vec<f32>>,
+    pub ledger: EndpointLedger,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub complete_wall_ms: f64,
+    pub batch_size: usize,
+    pub prompt_positions: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    pub performance_claim: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct SafetySnapshot {
     pub phase: String,
     pub system_memory_free_percent: u64,
@@ -286,6 +310,13 @@ struct SafetyMonitor {
 
 struct RoutedMlpOutput {
     output: Vec<f32>,
+    selected: Vec<Vec<u32>>,
+    weights: Vec<Vec<f32>>,
+}
+
+struct RoutingTrace {
+    logits: Vec<f32>,
+    scores: Vec<f32>,
     selected: Vec<Vec<u32>>,
     weights: Vec<Vec<f32>>,
 }
@@ -315,6 +346,7 @@ struct Layer0Captures {
     query: Vec<f32>,
     key: Vec<f32>,
     value: Vec<f32>,
+    sinks: Vec<f32>,
     attention_scores: Vec<f32>,
     attention_probabilities: Vec<f32>,
     attention: Vec<f32>,
@@ -1450,6 +1482,9 @@ fn attention(
     } else {
         None
     };
+    if let (Some(captures), Some(sinks)) = (captures.as_deref_mut(), sinks.as_ref()) {
+        captures.sinks = sinks.clone();
+    }
     let mut result = vec![0.0_f32; rows * HEADS * V_HEAD_DIM];
     let scale = 1.0_f32 / (QK_HEAD_DIM as f32).sqrt();
     let kv_groups = HEADS / kv_heads;
@@ -1573,13 +1608,13 @@ fn dense_mlp(
     Ok(down)
 }
 
-fn routed_mlp(
+fn route_mlp(
     checkpoint: &Checkpoint,
     layer: usize,
     input: &[f32],
     rows: usize,
     ledger: &mut EndpointLedger,
-) -> Result<RoutedMlpOutput, String> {
+) -> Result<RoutingTrace, String> {
     let prefix = format!("model.layers.{layer}.mlp");
     let logits = f32_linear(
         checkpoint,
@@ -1597,13 +1632,34 @@ fn routed_mlp(
         ledger,
     )?;
     let routes = select_noaux_tc_routes(&logits, &correction, rows, ROUTED_EXPERTS, TOP_K)?;
+    let scores = logits
+        .iter()
+        .map(|logit| 1.0_f32 / (1.0 + (-logit).exp()))
+        .collect();
+    Ok(RoutingTrace {
+        logits,
+        scores,
+        selected: routes.selected,
+        weights: routes.weights,
+    })
+}
+
+fn routed_mlp(
+    checkpoint: &Checkpoint,
+    layer: usize,
+    input: &[f32],
+    rows: usize,
+    ledger: &mut EndpointLedger,
+) -> Result<RoutedMlpOutput, String> {
+    let prefix = format!("model.layers.{layer}.mlp");
+    let routing = route_mlp(checkpoint, layer, input, rows, ledger)?;
     let mut schedule: BTreeMap<u32, Vec<(usize, f32)>> = BTreeMap::new();
     for position in 0..rows {
         for slot in 0..TOP_K {
             schedule
-                .entry(routes.selected[position][slot])
+                .entry(routing.selected[position][slot])
                 .or_default()
-                .push((position, routes.weights[position][slot]));
+                .push((position, routing.weights[position][slot]));
         }
     }
     let mut output = vec![0.0_f32; rows * HIDDEN];
@@ -1659,8 +1715,8 @@ fn routed_mlp(
     round_bf16_values(&mut output);
     Ok(RoutedMlpOutput {
         output,
-        selected: routes.selected,
-        weights: routes.weights,
+        selected: routing.selected,
+        weights: routing.weights,
     })
 }
 
@@ -2046,6 +2102,16 @@ fn write_capture(
     shape: &[usize],
     values: &[f32],
 ) -> Result<CaptureRecord, String> {
+    write_capture_typed(output_dir, name, shape, values, "BF16_widened_F32")
+}
+
+fn write_capture_typed(
+    output_dir: &Path,
+    name: &str,
+    shape: &[usize],
+    values: &[f32],
+    dtype: &'static str,
+) -> Result<CaptureRecord, String> {
     let expected = shape
         .iter()
         .try_fold(1_usize, |product, value| product.checked_mul(*value))
@@ -2062,9 +2128,68 @@ fn write_capture(
     Ok(CaptureRecord {
         file,
         shape: shape.to_vec(),
-        dtype: "BF16_widened_F32",
+        dtype,
         sha256: sha256_hex(&bytes),
     })
+}
+
+fn execute_dense_layer0(
+    checkpoint: &Checkpoint,
+    config: &ModelConfig,
+    prompt_token_ids: &[u32],
+    ledger: &mut EndpointLedger,
+    captures: &mut Layer0Captures,
+) -> Result<Vec<f32>, String> {
+    let rows = prompt_token_ids.len();
+    let hidden = embedding(checkpoint, prompt_token_ids, ledger)?;
+    let input_norm_weight = bf16_vector(
+        checkpoint,
+        "model.layers.0.input_layernorm.weight",
+        HIDDEN,
+        ledger,
+    )?;
+    let normalized = rms_norm(&hidden, rows, &input_norm_weight, config.layernorm_epsilon)?;
+    let mut cache = LayerKvCache::default();
+    let attention_output = attention(
+        checkpoint,
+        config,
+        0,
+        &normalized,
+        rows,
+        &mut cache,
+        ledger,
+        Some(captures),
+    )?;
+    let post_attention = hidden
+        .iter()
+        .zip(&attention_output)
+        .map(|(&residual, &projected)| round_bf16(residual + projected))
+        .collect::<Vec<_>>();
+    let post_norm_weight = bf16_vector(
+        checkpoint,
+        "model.layers.0.post_attention_layernorm.weight",
+        HIDDEN,
+        ledger,
+    )?;
+    let post_attention_norm = rms_norm(
+        &post_attention,
+        rows,
+        &post_norm_weight,
+        config.layernorm_epsilon,
+    )?;
+    let down = dense_mlp(
+        checkpoint,
+        &post_attention_norm,
+        rows,
+        ledger,
+        Some(captures),
+    )?;
+    let final_hidden = post_attention
+        .iter()
+        .zip(&down)
+        .map(|(&residual, &projected)| round_bf16(residual + projected))
+        .collect();
+    Ok(final_hidden)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2230,6 +2355,211 @@ pub fn run_real_layer0_trace(
         prompt_token_ids,
         numerics: "dynamic_fp8_e4m3fn_per_token_group_128_bf16_boundaries",
         captures,
+        ledger,
+        safety_snapshots: safety.snapshots,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 1,
+        prompt_positions: rows,
+        concurrency: 1,
+        accepted_tokens: 0,
+        performance_claim: None,
+    };
+    let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(&output_dir.join("manifest.json"), &bytes)?;
+    Ok(report)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_real_layer1_routing_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    output_dir: &Path,
+    commit: &str,
+) -> Result<Layer1RoutingTraceReport, String> {
+    if output_dir.exists() {
+        return Err(format!("refusing to overwrite {}", output_dir.display()));
+    }
+    let complete_started = Instant::now();
+    let disk_bytes_read_before = process_disk_bytes_read()?;
+    let EndpointAuthority {
+        fixture_bytes,
+        fixture,
+        mut safety,
+        config,
+        tokenizer: _,
+        prompt_token_ids,
+        checkpoint,
+        verification_sha256,
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    if fixture.schema_version != 2 || prompt_token_ids != CHAT_PROMPT_IDS {
+        return Err("layer-1 routing trace requires the frozen chat fixture".to_owned());
+    }
+    fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
+    let rows = prompt_token_ids.len();
+    let mut ledger = EndpointLedger::default();
+    let mut layer0_captures = Layer0Captures::default();
+    let incoming = execute_dense_layer0(
+        &checkpoint,
+        &config,
+        &prompt_token_ids,
+        &mut ledger,
+        &mut layer0_captures,
+    )?;
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("layer_0_complete", true)?;
+    let incoming_bytes = incoming
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    let input_norm_weight = bf16_vector(
+        &checkpoint,
+        "model.layers.1.input_layernorm.weight",
+        HIDDEN,
+        &mut ledger,
+    )?;
+    let normalized = rms_norm(
+        &incoming,
+        rows,
+        &input_norm_weight,
+        config.layernorm_epsilon,
+    )?;
+    let mut captures_internal = Layer0Captures::default();
+    let mut cache = LayerKvCache::default();
+    let attention_output = attention(
+        &checkpoint,
+        &config,
+        1,
+        &normalized,
+        rows,
+        &mut cache,
+        &mut ledger,
+        Some(&mut captures_internal),
+    )?;
+    safety.checkpoint("layer_1_attention_complete", true)?;
+    let post_attention = incoming
+        .iter()
+        .zip(&attention_output)
+        .map(|(&residual, &projected)| round_bf16(residual + projected))
+        .collect::<Vec<_>>();
+    let post_norm_weight = bf16_vector(
+        &checkpoint,
+        "model.layers.1.post_attention_layernorm.weight",
+        HIDDEN,
+        &mut ledger,
+    )?;
+    let post_attention_norm = rms_norm(
+        &post_attention,
+        rows,
+        &post_norm_weight,
+        config.layernorm_epsilon,
+    )?;
+    let routing = route_mlp(&checkpoint, 1, &post_attention_norm, rows, &mut ledger)?;
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("layer_1_routing_complete", true)?;
+
+    let attention_states = HEADS * rows * (rows + 3) / 2;
+    let mut captures = BTreeMap::new();
+    for (name, shape, values) in [
+        ("incoming", vec![rows, HIDDEN], incoming.as_slice()),
+        ("input_norm", vec![rows, HIDDEN], normalized.as_slice()),
+        ("qkv", vec![rows, 14_848], captures_internal.qkv.as_slice()),
+        (
+            "query",
+            vec![rows, HEADS, QK_HEAD_DIM],
+            captures_internal.query.as_slice(),
+        ),
+        (
+            "key",
+            vec![rows, 8, QK_HEAD_DIM],
+            captures_internal.key.as_slice(),
+        ),
+        (
+            "value",
+            vec![rows, 8, V_HEAD_DIM],
+            captures_internal.value.as_slice(),
+        ),
+        ("sinks", vec![HEADS], captures_internal.sinks.as_slice()),
+        (
+            "attention_scores",
+            vec![attention_states],
+            captures_internal.attention_scores.as_slice(),
+        ),
+        (
+            "attention_probabilities",
+            vec![attention_states],
+            captures_internal.attention_probabilities.as_slice(),
+        ),
+        (
+            "attention",
+            vec![rows, HEADS, V_HEAD_DIM],
+            captures_internal.attention.as_slice(),
+        ),
+        (
+            "attention_projection",
+            vec![rows, HIDDEN],
+            captures_internal.attention_projection.as_slice(),
+        ),
+        (
+            "post_attention",
+            vec![rows, HIDDEN],
+            post_attention.as_slice(),
+        ),
+        (
+            "post_attention_norm",
+            vec![rows, HIDDEN],
+            post_attention_norm.as_slice(),
+        ),
+    ] {
+        captures.insert(
+            name.to_owned(),
+            write_capture(output_dir, name, &shape, values)?,
+        );
+    }
+    captures.insert(
+        "router_logits".to_owned(),
+        write_capture_typed(
+            output_dir,
+            "router_logits",
+            &[rows, ROUTED_EXPERTS],
+            &routing.logits,
+            "F32",
+        )?,
+    );
+    captures.insert(
+        "router_scores".to_owned(),
+        write_capture_typed(
+            output_dir,
+            "router_scores",
+            &[rows, ROUTED_EXPERTS],
+            &routing.scores,
+            "F32",
+        )?,
+    );
+    safety.checkpoint("captures_written", true)?;
+    ledger.actual_process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_bytes_read_before)
+        .ok_or("process disk byte counter moved backwards")?;
+    ledger.peak_resident_bytes = peak_resident_bytes()?;
+    let report = Layer1RoutingTraceReport {
+        schema_version: 1,
+        semantic: "mimo_real_layer1_attention_to_routing_rust_trace",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        fixture_sha256: sha256_hex(&fixture_bytes),
+        checkpoint_verification_sha256: verification_sha256,
+        prompt_token_ids,
+        source_input_sha256: sha256_hex(&incoming_bytes),
+        numerics: "dynamic_fp8_e4m3fn_per_token_group_128_bf16_boundaries",
+        captures,
+        selected_experts_by_position: routing.selected,
+        route_weights_by_position: routing.weights,
         ledger,
         safety_snapshots: safety.snapshots,
         complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,

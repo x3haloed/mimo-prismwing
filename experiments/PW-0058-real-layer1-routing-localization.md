@@ -43,9 +43,15 @@ exact at every position; route-weight maximum absolute error must be at most
 selected-expert execution rung; if it fails, localize the first attention or
 router substage before any full walk.
 
-All phases retain PW-0050 host stops. Generated arrays remain external and
-content-addressed. This experiment cannot change hosted thresholds or make a
-throughput claim.
+All phases retain PW-0050 host stops. The Rust walk checkpoints after causal
+layer 0, layer-1 attention, layer-1 routing, and capture writes, releasing
+mapped file pages and malloc transients before measuring each completed phase.
+It fails closed below 20% system-free memory, above 8 GiB current or peak
+process footprint, above 4 GiB post-phase footprint, above 512 MiB swap growth,
+on any new throttled page, or if a protected service that was resident at start
+disappears. The independent oracle applies the same limits after every capture.
+Generated arrays remain external and content-addressed. This experiment cannot
+change hosted thresholds or make a throughput claim.
 
 ## Result
 

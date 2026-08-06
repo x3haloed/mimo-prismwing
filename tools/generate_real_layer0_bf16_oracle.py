@@ -204,7 +204,8 @@ def apply_rope(values: torch.Tensor, theta: float) -> torch.Tensor:
     return result
 
 
-def write_capture(root: Path, name: str, values: torch.Tensor, safety: Safety) -> dict:
+def write_capture(root: Path, name: str, values: torch.Tensor, safety: Safety,
+                  dtype: str = "BF16_widened_F32") -> dict:
     widened = values.float().contiguous()
     payload = widened.numpy().astype("<f4", copy=False).tobytes()
     path = root / f"{name}.f32"
@@ -214,7 +215,8 @@ def write_capture(root: Path, name: str, values: torch.Tensor, safety: Safety) -
         output.flush()
         os.fsync(output.fileno())
     safety.check(f"{name}_captured")
-    return {"file": path.name, "shape": list(values.shape), "dtype": "BF16_widened_F32", "sha256": hashlib.sha256(payload).hexdigest()}
+    return {"file": path.name, "shape": list(values.shape), "dtype": dtype,
+            "sha256": hashlib.sha256(payload).hexdigest()}
 
 
 def generate(checkpoint: Path, verification: Path, output: Path) -> dict:
