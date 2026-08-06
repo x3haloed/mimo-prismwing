@@ -1173,3 +1173,14 @@ arithmetic defect, so localize layer 11 from exact layer 10. The first full walk
 under normative Gate 8 peaked at 4.168 GB RSS in the LM head, ended at 2.904 GB,
 retained at least 80% free memory, and caused no swap growth, throttling, or
 protected-service loss.
+
+PW-0072 localizes layer 11 to one global-attention score. The first oracle
+attempt usefully failed closed on an SWA-layout assumption; layer 11 instead
+has 4 KV heads, a 13,568-row full-QKV layout, no sinks, and the 10M RoPE base.
+With that topology corrected, all captures through query/key/value are exact.
+Position 22/head 3/source 16 differs by one BF16 quantum because PyTorch's
+specialized reduced-precision GEMV dot uses eight vector accumulators and a
+pairwise reduction tree, whereas the PW-0070 repair models the simpler
+four-lane fallback. The one score reproduces all five layer-final differences.
+Gate the specialized vector reduction on this pair before another arithmetic
+change or full walk.
