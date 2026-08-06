@@ -1,6 +1,4 @@
 #[cfg(target_os = "macos")]
-use prismwing::run_slow_text_endpoint;
-#[cfg(target_os = "macos")]
 use prismwing::{
     RealAttentionMoeRequest, RealBaseLayerRequest, run_metal_base_layer_attention,
     run_metal_dynamic_fp8_moe_block, run_metal_dynamic_real_attention_fp8_moe_block,
@@ -13,6 +11,8 @@ use prismwing::{
     build_census, inspect_mapped_tensor, repack_expert_container, run_mapped_fp8_gemv,
     verify_expert_container, write_census,
 };
+#[cfg(target_os = "macos")]
+use prismwing::{run_real_layer0_trace, run_slow_text_endpoint};
 use std::path::PathBuf;
 use tokenizers::Tokenizer;
 
@@ -82,6 +82,10 @@ fn usage() -> ! {
     eprintln!(
         "  prismwing slow-text-endpoint <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <output.json> <commit>"
     );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing real-layer0-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <output-dir> <commit>"
+    );
     std::process::exit(2);
 }
 
@@ -122,6 +126,28 @@ fn main() {
                         .map_err(|error| error.to_string())?;
                     println!();
                     Ok(Some(output))
+                })
+            }
+            #[cfg(target_os = "macos")]
+            Some("real-layer0-trace") if arguments.len() == 8 => {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let fixture = PathBuf::from(&arguments[5]);
+                let output = PathBuf::from(&arguments[6]);
+                run_real_layer0_trace(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &fixture,
+                    &output,
+                    &arguments[7],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output.join("manifest.json")))
                 })
             }
             Some("census") if arguments.len() == 5 => {

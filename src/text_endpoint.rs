@@ -97,6 +97,7 @@ struct SafetyFixture {
 #[derive(Debug, Deserialize)]
 struct ModelConfig {
     model_type: String,
+    dtype: String,
     hidden_size: usize,
     num_hidden_layers: usize,
     num_attention_heads: usize,
@@ -130,6 +131,16 @@ struct ModelConfig {
     hybrid_layer_pattern: Vec<u8>,
     moe_layer_freq: Vec<u8>,
     tie_word_embeddings: bool,
+    quantization_config: QuantizationConfig,
+}
+
+#[derive(Debug, Deserialize)]
+struct QuantizationConfig {
+    activation_scheme: String,
+    fmt: String,
+    quant_method: String,
+    store_dtype: String,
+    weight_block_size: [usize; 2],
 }
 
 #[derive(Debug, Deserialize)]
@@ -223,6 +234,35 @@ pub struct TextEndpointReport {
 }
 
 #[derive(Debug, Serialize)]
+pub struct CaptureRecord {
+    pub file: String,
+    pub shape: Vec<usize>,
+    pub dtype: &'static str,
+    pub sha256: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Layer0TraceReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub fixture_sha256: String,
+    pub checkpoint_verification_sha256: String,
+    pub prompt_token_ids: Vec<u32>,
+    pub numerics: &'static str,
+    pub captures: BTreeMap<String, CaptureRecord>,
+    pub ledger: EndpointLedger,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub complete_wall_ms: f64,
+    pub batch_size: usize,
+    pub prompt_positions: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    pub performance_claim: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct SafetySnapshot {
     pub phase: String,
     pub system_memory_free_percent: u64,
@@ -256,6 +296,31 @@ struct NativeDecodeStep {
     full_logits: Vec<f32>,
     traces: Vec<LayerRouteTrace>,
     wall_ms: f64,
+}
+
+struct EndpointAuthority {
+    fixture_bytes: Vec<u8>,
+    fixture: EndpointFixture,
+    safety: SafetyMonitor,
+    config: ModelConfig,
+    tokenizer: Tokenizer,
+    prompt_token_ids: Vec<u32>,
+    checkpoint: Checkpoint,
+    verification_sha256: String,
+}
+
+#[derive(Default)]
+struct Layer0Captures {
+    qkv: Vec<f32>,
+    query: Vec<f32>,
+    key: Vec<f32>,
+    value: Vec<f32>,
+    attention: Vec<f32>,
+    attention_projection: Vec<f32>,
+    gate: Vec<f32>,
+    up: Vec<f32>,
+    swiglu: Vec<f32>,
+    down: Vec<f32>,
 }
 
 struct Checkpoint {
@@ -768,6 +833,7 @@ fn validate_config(config: &ModelConfig) -> Result<(), String> {
         .filter_map(|(layer, &kind)| (kind == 0).then_some(layer))
         .collect::<Vec<_>>();
     if config.model_type != "mimo_v2"
+        || config.dtype != "bfloat16"
         || config.hidden_size != HIDDEN
         || config.num_hidden_layers != 48
         || config.num_attention_heads != HEADS
@@ -803,6 +869,11 @@ fn validate_config(config: &ModelConfig) -> Result<(), String> {
         || config.moe_layer_freq[0] != 0
         || config.moe_layer_freq[1..].iter().any(|&value| value != 1)
         || config.tie_word_embeddings
+        || config.quantization_config.activation_scheme != "dynamic"
+        || config.quantization_config.fmt != "e4m3"
+        || config.quantization_config.quant_method != "fp8"
+        || config.quantization_config.store_dtype != "fp8"
+        || config.quantization_config.weight_block_size != [128, 128]
         || full_layers != [0, 5, 11, 17, 23, 29, 35, 41, 47]
     {
         return Err("pinned MiMo text config identity mismatch".to_owned());
@@ -1260,6 +1331,7 @@ fn causal_attention_head_with_dtype(
     Ok(output)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn attention(
     checkpoint: &Checkpoint,
     config: &ModelConfig,
@@ -1268,6 +1340,7 @@ fn attention(
     rows: usize,
     cache: &mut LayerKvCache,
     ledger: &mut EndpointLedger,
+    mut captures: Option<&mut Layer0Captures>,
 ) -> Result<Vec<f32>, String> {
     cache.validate()?;
     let is_swa = config.hybrid_layer_pattern[layer] == 1;
@@ -1288,6 +1361,9 @@ fn attention(
     } else {
         full_qkv_linear(checkpoint, &qkv_name, normalized, rows, ledger)
     }?;
+    if let Some(captures) = captures.as_deref_mut() {
+        captures.qkv = qkv.clone();
+    }
     let prior = cache.positions;
     let theta = if is_swa {
         config.swa_rope_theta
@@ -1312,6 +1388,11 @@ fn attention(
     cache.positions += rows;
     cache.kv_heads = kv_heads;
     cache.validate()?;
+    if let Some(captures) = captures.as_deref_mut() {
+        captures.query = queries.clone();
+        captures.key = cache.keys.clone();
+        captures.value = cache.values.clone();
+    }
     let sinks = if is_swa {
         Some(bf16_vector(
             checkpoint,
@@ -1356,7 +1437,10 @@ fn attention(
             destination.copy_from_slice(&head_output);
         }
     }
-    bf16_linear(
+    if let Some(captures) = captures.as_deref_mut() {
+        captures.attention = result.clone();
+    }
+    let projected = bf16_linear(
         checkpoint,
         &format!("{prefix}.o_proj.weight"),
         &result,
@@ -1364,7 +1448,11 @@ fn attention(
         HEADS * V_HEAD_DIM,
         HIDDEN,
         ledger,
-    )
+    )?;
+    if let Some(captures) = captures {
+        captures.attention_projection = projected.clone();
+    }
+    Ok(projected)
 }
 
 fn dense_mlp(
@@ -1372,6 +1460,7 @@ fn dense_mlp(
     input: &[f32],
     rows: usize,
     ledger: &mut EndpointLedger,
+    captures: Option<&mut Layer0Captures>,
 ) -> Result<Vec<f32>, String> {
     let prefix = "model.layers.0.mlp";
     let gate = fp8_linear(
@@ -1394,13 +1483,13 @@ fn dense_mlp(
     )?;
     let activated = gate
         .iter()
-        .zip(up)
-        .map(|(&gate, up)| {
+        .zip(&up)
+        .map(|(&gate, &up)| {
             let silu = round_bf16(gate / (1.0 + (-gate).exp()));
             round_bf16(silu * up)
         })
         .collect::<Vec<_>>();
-    fp8_linear(
+    let down = fp8_linear(
         checkpoint,
         &format!("{prefix}.down_proj.weight"),
         &activated,
@@ -1408,7 +1497,14 @@ fn dense_mlp(
         16_384,
         HIDDEN,
         ledger,
-    )
+    )?;
+    if let Some(captures) = captures {
+        captures.gate = gate;
+        captures.up = up;
+        captures.swiglu = activated;
+        captures.down = down.clone();
+    }
+    Ok(down)
 }
 
 fn routed_mlp(
@@ -1589,8 +1685,16 @@ fn decode_step(
             ledger,
         )?;
         let normalized = rms_norm(&hidden, rows, &input_norm, config.layernorm_epsilon)?;
-        let attention_output =
-            attention(checkpoint, config, layer, &normalized, rows, cache, ledger)?;
+        let attention_output = attention(
+            checkpoint,
+            config,
+            layer,
+            &normalized,
+            rows,
+            cache,
+            ledger,
+            None,
+        )?;
         let post_attention = hidden
             .iter()
             .zip(attention_output)
@@ -1605,7 +1709,7 @@ fn decode_step(
         let moe_input = rms_norm(&post_attention, rows, &post_norm, config.layernorm_epsilon)?;
         let (mlp, selected, weights) = if layer == 0 {
             (
-                dense_mlp(checkpoint, &moe_input, rows, ledger)?,
+                dense_mlp(checkpoint, &moe_input, rows, ledger, None)?,
                 Vec::new(),
                 Vec::new(),
             )
@@ -1669,20 +1773,12 @@ fn decode_step(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn run_slow_text_endpoint(
+fn open_endpoint_authority(
     checkpoint_root: &Path,
     model_lock_path: &Path,
     verification_path: &Path,
     fixture_path: &Path,
-    output_path: &Path,
-    commit: &str,
-) -> Result<TextEndpointReport, String> {
-    if output_path.exists() {
-        return Err(format!("refusing to overwrite {}", output_path.display()));
-    }
-    let complete_started = Instant::now();
-    let disk_bytes_read_before = process_disk_bytes_read()?;
+) -> Result<EndpointAuthority, String> {
     if hash_file(model_lock_path)? != MODEL_LOCK_SHA256 {
         return Err("model lock SHA-256 mismatch".to_owned());
     }
@@ -1692,7 +1788,7 @@ pub fn run_slow_text_endpoint(
         .map_err(|error| format!("endpoint fixture: {error}"))?;
     validate_fixture(&fixture)?;
     let mut safety = SafetyMonitor::start(fixture.safety.clone())?;
-    let paths = [
+    for (name, expected) in [
         ("config.json", fixture.config_sha256.as_str()),
         (
             "model.safetensors.index.json",
@@ -1703,8 +1799,7 @@ pub fn run_slow_text_endpoint(
             "tokenizer_config.json",
             fixture.tokenizer_config_sha256.as_str(),
         ),
-    ];
-    for (name, expected) in paths {
+    ] {
         if hash_file(&checkpoint_root.join(name))? != expected {
             return Err(format!("{name} SHA-256 mismatch"));
         }
@@ -1751,6 +1846,47 @@ pub fn run_slow_text_endpoint(
         &verification,
     )?;
     safety.checkpoint("checkpoint_open", true)?;
+    Ok(EndpointAuthority {
+        fixture_bytes,
+        fixture,
+        safety,
+        config,
+        tokenizer,
+        prompt_token_ids,
+        checkpoint,
+        verification_sha256,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_slow_text_endpoint(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<TextEndpointReport, String> {
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    let complete_started = Instant::now();
+    let disk_bytes_read_before = process_disk_bytes_read()?;
+    let EndpointAuthority {
+        fixture_bytes,
+        fixture,
+        mut safety,
+        config,
+        tokenizer,
+        prompt_token_ids,
+        checkpoint,
+        verification_sha256,
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
     let mut ledger = EndpointLedger::default();
     let mut input_token_ids = prompt_token_ids.clone();
@@ -1835,6 +1971,200 @@ pub fn run_slow_text_endpoint(
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;
+    Ok(report)
+}
+
+fn write_capture(
+    output_dir: &Path,
+    name: &str,
+    shape: &[usize],
+    values: &[f32],
+) -> Result<CaptureRecord, String> {
+    let expected = shape
+        .iter()
+        .try_fold(1_usize, |product, value| product.checked_mul(*value))
+        .ok_or("capture shape overflow")?;
+    if expected != values.len() || values.iter().any(|value| !value.is_finite()) {
+        return Err(format!("{name}: capture shape or value mismatch"));
+    }
+    let bytes = values
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    let file = format!("{name}.f32");
+    write_create_new(&output_dir.join(&file), &bytes)?;
+    Ok(CaptureRecord {
+        file,
+        shape: shape.to_vec(),
+        dtype: "BF16_widened_F32",
+        sha256: sha256_hex(&bytes),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_real_layer0_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    output_dir: &Path,
+    commit: &str,
+) -> Result<Layer0TraceReport, String> {
+    if output_dir.exists() {
+        return Err(format!("refusing to overwrite {}", output_dir.display()));
+    }
+    let complete_started = Instant::now();
+    let disk_bytes_read_before = process_disk_bytes_read()?;
+    let EndpointAuthority {
+        fixture_bytes,
+        fixture,
+        mut safety,
+        config,
+        tokenizer: _,
+        prompt_token_ids,
+        checkpoint,
+        verification_sha256,
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    if fixture.schema_version != 2 || prompt_token_ids != CHAT_PROMPT_IDS {
+        return Err("layer-0 trace requires the frozen chat fixture".to_owned());
+    }
+    fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
+    let rows = prompt_token_ids.len();
+    let mut ledger = EndpointLedger::default();
+    let hidden = embedding(&checkpoint, &prompt_token_ids, &mut ledger)?;
+    safety.checkpoint("embedding_complete", true)?;
+    let input_norm_weight = bf16_vector(
+        &checkpoint,
+        "model.layers.0.input_layernorm.weight",
+        HIDDEN,
+        &mut ledger,
+    )?;
+    let normalized = rms_norm(&hidden, rows, &input_norm_weight, config.layernorm_epsilon)?;
+    safety.checkpoint("input_norm_complete", true)?;
+    let mut internal = Layer0Captures::default();
+    let mut cache = LayerKvCache::default();
+    let attention_output = attention(
+        &checkpoint,
+        &config,
+        0,
+        &normalized,
+        rows,
+        &mut cache,
+        &mut ledger,
+        Some(&mut internal),
+    )?;
+    safety.checkpoint("attention_complete", true)?;
+    let post_attention = hidden
+        .iter()
+        .zip(&attention_output)
+        .map(|(&residual, &projected)| round_bf16(residual + projected))
+        .collect::<Vec<_>>();
+    let post_norm_weight = bf16_vector(
+        &checkpoint,
+        "model.layers.0.post_attention_layernorm.weight",
+        HIDDEN,
+        &mut ledger,
+    )?;
+    let post_attention_norm = rms_norm(
+        &post_attention,
+        rows,
+        &post_norm_weight,
+        config.layernorm_epsilon,
+    )?;
+    safety.checkpoint("post_attention_norm_complete", true)?;
+    let down = dense_mlp(
+        &checkpoint,
+        &post_attention_norm,
+        rows,
+        &mut ledger,
+        Some(&mut internal),
+    )?;
+    let final_hidden = post_attention
+        .iter()
+        .zip(&down)
+        .map(|(&residual, &projected)| round_bf16(residual + projected))
+        .collect::<Vec<_>>();
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("layer_0_complete", true)?;
+
+    let mut captures = BTreeMap::new();
+    for (name, shape, values) in [
+        ("embedding", vec![rows, HIDDEN], hidden.as_slice()),
+        ("input_norm", vec![rows, HIDDEN], normalized.as_slice()),
+        ("qkv", vec![rows, 13_568], internal.qkv.as_slice()),
+        (
+            "query",
+            vec![rows, HEADS, QK_HEAD_DIM],
+            internal.query.as_slice(),
+        ),
+        ("key", vec![rows, 4, QK_HEAD_DIM], internal.key.as_slice()),
+        (
+            "value",
+            vec![rows, 4, V_HEAD_DIM],
+            internal.value.as_slice(),
+        ),
+        (
+            "attention",
+            vec![rows, HEADS, V_HEAD_DIM],
+            internal.attention.as_slice(),
+        ),
+        (
+            "attention_projection",
+            vec![rows, HIDDEN],
+            internal.attention_projection.as_slice(),
+        ),
+        (
+            "post_attention",
+            vec![rows, HIDDEN],
+            post_attention.as_slice(),
+        ),
+        (
+            "post_attention_norm",
+            vec![rows, HIDDEN],
+            post_attention_norm.as_slice(),
+        ),
+        ("gate", vec![rows, 16_384], internal.gate.as_slice()),
+        ("up", vec![rows, 16_384], internal.up.as_slice()),
+        ("swiglu", vec![rows, 16_384], internal.swiglu.as_slice()),
+        ("down", vec![rows, HIDDEN], internal.down.as_slice()),
+        ("final", vec![rows, HIDDEN], final_hidden.as_slice()),
+    ] {
+        captures.insert(
+            name.to_owned(),
+            write_capture(output_dir, name, &shape, values)?,
+        );
+    }
+    safety.checkpoint("captures_written", true)?;
+    ledger.actual_process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_bytes_read_before)
+        .ok_or("process disk byte counter moved backwards")?;
+    ledger.peak_resident_bytes = peak_resident_bytes()?;
+    let report = Layer0TraceReport {
+        schema_version: 1,
+        semantic: "mimo_real_layer0_bf16_dynamic_fp8_rust_trace",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        fixture_sha256: sha256_hex(&fixture_bytes),
+        checkpoint_verification_sha256: verification_sha256,
+        prompt_token_ids,
+        numerics: "dynamic_fp8_e4m3fn_per_token_group_128_bf16_boundaries",
+        captures,
+        ledger,
+        safety_snapshots: safety.snapshots,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 1,
+        prompt_positions: rows,
+        concurrency: 1,
+        accepted_tokens: 0,
+        performance_claim: None,
+    };
+    let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(&output_dir.join("manifest.json"), &bytes)?;
     Ok(report)
 }
 

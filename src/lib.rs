@@ -13,7 +13,9 @@ use std::time::Instant;
 #[cfg(target_os = "macos")]
 mod text_endpoint;
 #[cfg(target_os = "macos")]
-pub use text_endpoint::{TextEndpointReport, run_slow_text_endpoint};
+pub use text_endpoint::{
+    Layer0TraceReport, TextEndpointReport, run_real_layer0_trace, run_slow_text_endpoint,
+};
 
 const MAX_HEADER_BYTES: u64 = 256 * 1024 * 1024;
 const EXPERT_MAGIC: &[u8; 8] = b"PWEXPRT1";
