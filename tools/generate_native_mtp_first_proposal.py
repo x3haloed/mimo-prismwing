@@ -18,24 +18,26 @@ from safetensors import safe_open
 import torch
 
 try:
-    from tools.generate_full_prefix_oracle import checked_bf16, checked_fp8
+    from tools.generate_full_prefix_oracle import checked_bf16
     from tools.generate_real_layer0_bf16_oracle import (
         PROMPT_IDS,
         REVISION,
         VERIFICATION_SHA256,
         apply_rope,
+        fp8_linear,
         rms_norm,
     )
     from tools.generate_real_layer1_expert_oracle import ShardedCheckpoint, validate_file
     from tools.host_safety import HostSafetyMonitor
     from tools.openrouter_reference import atomic_write_new, canonical_json
 except ModuleNotFoundError:
-    from generate_full_prefix_oracle import checked_bf16, checked_fp8
+    from generate_full_prefix_oracle import checked_bf16
     from generate_real_layer0_bf16_oracle import (
         PROMPT_IDS,
         REVISION,
         VERIFICATION_SHA256,
         apply_rope,
+        fp8_linear,
         rms_norm,
     )
     from generate_real_layer1_expert_oracle import ShardedCheckpoint, validate_file
@@ -213,7 +215,6 @@ def bf16_linear_path(path: Path, name: str, values: torch.Tensor) -> torch.Tenso
 
 
 def checked_fp8_path(path: Path, name: str, values: torch.Tensor) -> torch.Tensor:
-    from tools.generate_real_layer0_bf16_oracle import fp8_linear
     return fp8_linear(path, name, values)
 
 
@@ -379,7 +380,7 @@ def main() -> int:
                           "proposal": result["mtp_proposal_token_id"],
                           "target_rank": result["target_token_rank_in_mtp_logits"]}))
         return 0
-    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
+    except Exception as error:
         safety = getattr(arguments, "_safety", None)
         failure_path = arguments.output / "failure.json"
         if safety is not None and arguments.output.is_dir() and not failure_path.exists():
