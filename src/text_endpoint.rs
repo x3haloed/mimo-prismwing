@@ -1456,7 +1456,7 @@ fn causal_attention_head_bf16(
     causal_attention_head_with_dtype(query, keys, values, scale, sink, true, None)
 }
 
-fn pytorch_bf16_dot_f32(left: &[f32], right: &[f32]) -> f32 {
+fn pytorch_bf16_four_lane_dot_f32(left: &[f32], right: &[f32]) -> f32 {
     debug_assert_eq!(left.len(), right.len());
     let mut partials = [0.0_f32; 4];
     let complete = left.len() / 4 * 4;
@@ -1473,6 +1473,43 @@ fn pytorch_bf16_dot_f32(left: &[f32], right: &[f32]) -> f32 {
     partials[0] += partials[2];
     partials[0] += partials[3];
     partials[0]
+}
+
+fn pytorch_bf16_specialized_vector_dot_f32(left: &[f32], right: &[f32]) -> f32 {
+    debug_assert_eq!(left.len(), right.len());
+    let mut accumulators = [[0.0_f32; 4]; 8];
+    let complete_blocks = left.len() / 32 * 32;
+    for block in (0..complete_blocks).step_by(32) {
+        for (register, accumulator) in accumulators.iter_mut().enumerate() {
+            for (lane, value) in accumulator.iter_mut().enumerate() {
+                let index = block + register * 4 + lane;
+                *value += left[index] * right[index];
+            }
+        }
+    }
+    for offset in [4, 2, 1] {
+        for register in 0..offset {
+            let source = accumulators[offset + register];
+            for (target, source) in accumulators[register].iter_mut().zip(source) {
+                *target += source;
+            }
+        }
+    }
+    let mut reduced =
+        (accumulators[0][0] + accumulators[0][1]) + (accumulators[0][2] + accumulators[0][3]);
+    let complete_vectors = left.len() / 8 * 8;
+    let mut tail = [0.0_f32; 4];
+    for block in (complete_blocks..complete_vectors).step_by(8) {
+        for lane in 0..4 {
+            tail[lane] += left[block + lane] * right[block + lane];
+            tail[lane] += left[block + 4 + lane] * right[block + 4 + lane];
+        }
+    }
+    reduced += (tail[0] + tail[1]) + (tail[2] + tail[3]);
+    for index in complete_vectors..left.len() {
+        reduced += left[index] * right[index];
+    }
+    reduced
 }
 
 fn causal_attention_head_with_dtype(
@@ -1497,7 +1534,11 @@ fn causal_attention_head_with_dtype(
         .iter()
         .map(|key| {
             let dot = if bf16_boundaries {
-                pytorch_bf16_dot_f32(query, key)
+                if sink.is_some() {
+                    pytorch_bf16_four_lane_dot_f32(query, key)
+                } else {
+                    pytorch_bf16_specialized_vector_dot_f32(query, key)
+                }
             } else {
                 query
                     .iter()
@@ -3933,7 +3974,7 @@ mod tests {
         assert_eq!(query.len(), QK_HEAD_DIM);
         assert_eq!(key.len(), QK_HEAD_DIM);
 
-        let source_order = pytorch_bf16_dot_f32(&query, &key);
+        let source_order = pytorch_bf16_four_lane_dot_f32(&query, &key);
         assert_eq!(
             source_order.to_bits(),
             fixture["source_four_lane_dot_f32_u32"]
@@ -3966,6 +4007,77 @@ mod tests {
             fixture["scaled_score_bf16_u16"]
                 .as_u64()
                 .expect("scaled BF16 score bits") as u16
+        );
+        let maximum = f32::from_bits(
+            u32::from(
+                fixture["row_maximum_bf16_u16"]
+                    .as_u64()
+                    .expect("row maximum bits") as u16,
+            ) << 16,
+        );
+        assert_eq!(
+            (round_bf16(score - maximum).to_bits() >> 16) as u16,
+            fixture["centered_score_bf16_u16"]
+                .as_u64()
+                .expect("centered score bits") as u16
+        );
+    }
+
+    #[test]
+    fn pytorch_bf16_specialized_vector_dot_matches_source_order() {
+        fn bits(value: &Value, name: &str) -> Vec<f32> {
+            value
+                .as_array()
+                .unwrap_or_else(|| panic!("{name} bits"))
+                .iter()
+                .map(|value| {
+                    f32::from_bits(u32::from(value.as_u64().expect("BF16 payload") as u16) << 16)
+                })
+                .collect()
+        }
+
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0073-pytorch-bf16-vector-dot.json"
+        ))
+        .expect("valid specialized BF16 vector-dot fixture");
+        assert_eq!(
+            fixture["semantic"],
+            "pytorch_aarch64_bf16_specialized_vector_dot_order"
+        );
+        let query = bits(&fixture["query_bf16_u16"], "query");
+        let key = bits(&fixture["key_bf16_u16"], "key");
+        assert_eq!(query.len(), QK_HEAD_DIM);
+        assert_eq!(key.len(), QK_HEAD_DIM);
+
+        let specialized = pytorch_bf16_specialized_vector_dot_f32(&query, &key);
+        let four_lane = pytorch_bf16_four_lane_dot_f32(&query, &key);
+        assert_eq!(
+            specialized.to_bits(),
+            fixture["source_specialized_vector_dot_f32_u32"]
+                .as_u64()
+                .expect("specialized dot bits") as u32
+        );
+        assert_eq!(
+            four_lane.to_bits(),
+            fixture["four_lane_dot_f32_u32"]
+                .as_u64()
+                .expect("four-lane dot bits") as u32
+        );
+        assert_ne!(
+            round_bf16(specialized).to_bits(),
+            round_bf16(four_lane).to_bits()
+        );
+        assert_eq!(
+            (round_bf16(specialized).to_bits() >> 16) as u16,
+            fixture["dot_bf16_u16"].as_u64().expect("BF16 dot bits") as u16
+        );
+        let scale = f32::from_bits(fixture["scale_f32_u32"].as_u64().expect("scale bits") as u32);
+        let score = round_bf16(round_bf16(specialized) * scale);
+        assert_eq!(
+            (score.to_bits() >> 16) as u16,
+            fixture["scaled_score_bf16_u16"]
+                .as_u64()
+                .expect("scaled score bits") as u16
         );
         let maximum = f32::from_bits(
             u32::from(
