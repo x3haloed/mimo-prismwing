@@ -50,7 +50,7 @@ def generate(checkpoint_root: Path, verification: Path, manifest_path: Path,
     correction = checkpoint.tensor(router_prefix + ".e_score_correction_bias").float()
     logits = values.float() @ router_weight.T
     scores = torch.sigmoid(logits)
-    _, selected = torch.topk(scores + correction, k=8, dim=-1, sorted=True)
+    _, selected = torch.topk(scores + correction, k=8, dim=-1, sorted=False)
     route_weights = scores.gather(1, selected)
     route_weights = route_weights / (route_weights.sum(-1, keepdim=True) + 1e-20)
     selected_list = selected[0].tolist()

@@ -2010,6 +2010,42 @@ fn pytorch_noaux_routes(
     Ok((selected_rows, weight_rows))
 }
 
+pub(crate) fn component_pytorch_noaux_route(
+    logits: &[f32],
+    correction: &[f32],
+) -> Result<(Vec<u32>, Vec<f32>, f32), String> {
+    if logits.len() != ROUTED_EXPERTS {
+        return Err("component router logit shape mismatch".to_owned());
+    }
+    let scores = logits
+        .iter()
+        .map(|value| pytorch_sigmoid_f32(*value))
+        .collect::<Vec<_>>();
+    let (selected_rows, weight_rows) = pytorch_noaux_routes(&scores, correction, 1)?;
+    let selected = selected_rows.into_iter().next().ok_or("missing route")?;
+    let weights = weight_rows
+        .into_iter()
+        .next()
+        .ok_or("missing route weights")?;
+    let selected_set = selected.iter().copied().collect::<BTreeSet<_>>();
+    let corrected = scores
+        .iter()
+        .zip(correction)
+        .map(|(score, bias)| score + bias)
+        .collect::<Vec<_>>();
+    let boundary = selected
+        .iter()
+        .map(|expert| corrected[*expert as usize])
+        .fold(f32::INFINITY, f32::min);
+    let rejected = corrected
+        .iter()
+        .enumerate()
+        .filter(|(expert, _)| !selected_set.contains(&(*expert as u32)))
+        .map(|(_, value)| *value)
+        .fold(f32::NEG_INFINITY, f32::max);
+    Ok((selected, weights, boundary - rejected))
+}
+
 fn sleef_expf_u10(d: f32) -> f32 {
     if d < -104.0 {
         return 0.0;

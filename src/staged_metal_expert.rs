@@ -1,9 +1,9 @@
 use super::{
     MappedSafetensors, MappedTensorMetadata, MetalMoeManifest, UniqueJson, ValidatedMappedFp8,
-    accelerate_sgemm_right_transposed, decode_f8_e4m3fn, read_f32_file, select_noaux_tc_routes,
-    sha256_hex, sha256_reader, validate_mapped_fp8, write_create_new,
+    accelerate_sgemm_right_transposed, decode_f8_e4m3fn, read_f32_file, sha256_hex, sha256_reader,
+    validate_mapped_fp8, write_create_new,
 };
-use crate::text_endpoint::{ComponentSafetyMonitor, SafetySnapshot};
+use crate::text_endpoint::{ComponentSafetyMonitor, SafetySnapshot, component_pytorch_noaux_route};
 use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -676,9 +676,8 @@ pub fn run_bounded_metal_routed_row(
     let execute = || -> Result<RoutedRowExecution, String> {
         let start = Instant::now();
         let logits = accelerate_sgemm_right_transposed(&input, &router_weights, 1, 256, 4096)?;
-        let routes = select_noaux_tc_routes(&logits, &correction, 1, 256, 8)?;
-        let selected = routes.selected[0].clone();
-        let weights = routes.weights[0].clone();
+        let (selected, weights, minimum_boundary_margin) =
+            component_pytorch_noaux_route(&logits, &correction)?;
         let mut output = vec![0.0_f32; 4096];
         for (&expert_id, &route_weight) in selected.iter().zip(&weights) {
             let (gate, up, down) = projections
@@ -695,7 +694,7 @@ pub fn run_bounded_metal_routed_row(
             output,
             selected,
             weights,
-            minimum_boundary_margin: routes.minimum_boundary_margin,
+            minimum_boundary_margin,
             wall_ms: start.elapsed().as_secs_f64() * 1000.0,
         })
     };
