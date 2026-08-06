@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare PW-0061 independent and Rust complete layer-2 traces."""
+"""Compare independent and Rust complete routed-layer traces."""
 
 from __future__ import annotations
 
@@ -50,10 +50,11 @@ def validate_schedule(manifest: dict) -> list[dict]:
         raise ValueError("expert schedule disagreement")
     return wanted
 
-def compare(oracle_path: Path, rust_path: Path) -> dict:
+def compare(oracle_path: Path, rust_path: Path, target_layer: int = 2) -> dict:
+    if target_layer not in (2, 4): raise ValueError(f"unsupported routed trace layer {target_layer}")
     oracle = json.loads(oracle_path.read_text()); rust = json.loads(rust_path.read_text())
-    if (oracle.get("semantic") != "mimo_real_layer2_complete_oracle"
-            or rust.get("semantic") != "mimo_real_layer2_complete_rust_trace"
+    if (oracle.get("semantic") != f"mimo_real_layer{target_layer}_complete_oracle"
+            or rust.get("semantic") != f"mimo_real_layer{target_layer}_complete_rust_trace"
             or oracle.get("revision") != rust.get("revision")
             or oracle.get("prompt_token_ids") != rust.get("prompt_token_ids")
             or oracle.get("checkpoint_verification_sha256") != rust.get("checkpoint_verification_sha256")
@@ -84,16 +85,17 @@ def compare(oracle_path: Path, rust_path: Path) -> dict:
         prior_l2 = relative_l2
     if first_failure is None and (mismatches or weight_error > 5e-7):
         first_failure = {"capture": "selected_experts_and_route_weights", "amplification_over_prior": False}
-    return {"schema_version": 1, "semantic": "mimo_real_layer2_trace_comparison",
+    return {"schema_version": 1, "semantic": f"mimo_real_layer{target_layer}_trace_comparison",
             "oracle_manifest_sha256": sha256(oracle_path), "rust_manifest_sha256": sha256(rust_path),
             "captures": rows, "routing": {"expert_set_mismatch_positions": mismatches,
             "maximum_weight_error_by_expert": weight_error}, "first_failure": first_failure,
-            "layer2_provisionally_cleared": first_failure is None,
+            f"layer{target_layer}_provisionally_cleared": first_failure is None,
             "acceptance_effect": "diagnostic_only_no_hosted_threshold_change"}
 
 def main() -> int:
     p = argparse.ArgumentParser(); p.add_argument("--oracle", required=True, type=Path)
     p.add_argument("--rust", required=True, type=Path); p.add_argument("--output", required=True, type=Path)
-    a = p.parse_args(); atomic_write_new(a.output, canonical_json(compare(a.oracle, a.rust))); return 0
+    p.add_argument("--layer", choices=(2, 4), default=2, type=int); a = p.parse_args()
+    atomic_write_new(a.output, canonical_json(compare(a.oracle, a.rust, a.layer))); return 0
 
 if __name__ == "__main__": raise SystemExit(main())
