@@ -56,6 +56,7 @@ pub struct StagedMetalExpertReport {
     pub speedup_gate_passed: bool,
     pub logical_source_bytes_per_execution: u64,
     pub maximum_resident_tensor_buffer_bytes: u64,
+    pub sparse_repair_counts: [usize; 3],
     pub batch_size: u32,
     pub concurrency: u32,
     pub accepted_tokens: u32,
@@ -101,6 +102,8 @@ pub struct BoundedRoutedRowReport {
     pub timing_gates_passed: bool,
     pub logical_source_bytes_per_execution: u64,
     pub maximum_resident_tensor_buffer_bytes: u64,
+    pub sparse_repair_counts: [usize; 3],
+    pub sparse_decoded_weight_bytes: u64,
     pub batch_size: u32,
     pub concurrency: u32,
     pub accepted_tokens: u32,
@@ -460,30 +463,35 @@ pub fn run_staged_metal_fp8_expert(
         .collect::<Vec<_>>();
     safety.checkpoint("after_compile")?;
 
-    let execute = || -> Result<(Vec<f32>, f64), String> {
+    let execute = || -> Result<(Vec<f32>, [usize; 3], f64), String> {
         let start = Instant::now();
-        let output = execute_staged_expert(
+        let execution = execute_staged_expert(
             &device,
             &queue,
             &pipeline,
             &lut,
             [&gate, &up, &down],
             &input,
-        )?
-        .down;
-        Ok((output, start.elapsed().as_secs_f64() * 1000.0))
+        )?;
+        Ok((
+            execution.down,
+            execution.repairs,
+            start.elapsed().as_secs_f64() * 1000.0,
+        ))
     };
 
-    let (_, cold_wall_ms) = execute()?;
+    let (_, _, cold_wall_ms) = execute()?;
     for _ in 0..WARMUPS {
         execute()?;
     }
     safety.checkpoint("after_warmups")?;
     let mut wall_ms = Vec::with_capacity(MEASUREMENTS);
     let mut output = Vec::new();
+    let mut sparse_repair_counts = [0_usize; 3];
     for _ in 0..MEASUREMENTS {
-        let (candidate, elapsed) = execute()?;
+        let (candidate, repairs, elapsed) = execute()?;
         output = candidate;
+        sparse_repair_counts = repairs;
         wall_ms.push(elapsed);
     }
     safety.checkpoint("after_timed_series")?;
@@ -570,6 +578,7 @@ pub fn run_staged_metal_fp8_expert(
         speedup_gate_passed: speedup >= 10.0,
         logical_source_bytes_per_execution,
         maximum_resident_tensor_buffer_bytes,
+        sparse_repair_counts,
         batch_size: 1,
         concurrency: 1,
         accepted_tokens: 0,
@@ -844,6 +853,15 @@ pub fn run_bounded_metal_routed_row(
     let weights = final_execution.weights;
     let minimum_topk_boundary_margin = final_execution.minimum_boundary_margin;
     let expert_outputs = final_execution.expert_outputs;
+    let sparse_repair_counts =
+        expert_outputs
+            .iter()
+            .fold([0_usize; 3], |mut total, (_, expert)| {
+                for (destination, count) in total.iter_mut().zip(expert.repairs) {
+                    *destination += count;
+                }
+                total
+            });
     if selected != frozen_selected {
         return Err(format!("native route order mismatch: {selected:?}"));
     }
@@ -1041,6 +1059,11 @@ pub fn run_bounded_metal_routed_row(
         timing_gates_passed: wall_median_ms <= 100.0 && 3180.0 / wall_median_ms >= 10.0,
         logical_source_bytes_per_execution,
         maximum_resident_tensor_buffer_bytes: 8_390_656,
+        sparse_repair_counts,
+        sparse_decoded_weight_bytes: (sparse_repair_counts[0] * 4096
+            + sparse_repair_counts[1] * 4096
+            + sparse_repair_counts[2] * 2048) as u64
+            * 4,
         batch_size: 1,
         concurrency: 1,
         accepted_tokens: 0,
