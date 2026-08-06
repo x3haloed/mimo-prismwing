@@ -37,10 +37,11 @@ the block and measure acceptance and route union.
 
 This is target-faithful greedy L2 speculation. Draft arithmetic may differ from
 the target because no draft token is committed without exact base-target
-verification. At temperature zero, commit token 264 and then only the longest
-prefix for which each draft proposal equals the base target's greedy token at
-the same position; on the first mismatch commit the target token and discard
-the remaining draft suffix. Do not substitute the DFlash-bundled target,
+verification. At temperature zero, advance over token 264 and then only the
+longest prefix for which each draft proposal equals the base target's greedy
+token at the same position; preserve the target's first mismatch token as the
+next-block anchor and discard the remaining draft suffix. Do not substitute the
+DFlash-bundled target,
 change target weights, routing, expert count, chat template, prompt, or
 acceptance thresholds. Positive-temperature sampling is out of scope because
 the published verifier has no proven speculative-sampling correction.
@@ -82,8 +83,10 @@ hashed captures, K/V changes, and all 47 routed-layer expert selections.
 Compute:
 
 - `q = 8` proposed/verified target positions;
-- committed greedy tokens and accepted length `A`, including the initial target
-  token and the target correction at the first draft mismatch;
+- accepted length `A = acceptance_length + 1`, matching the published loop's
+  start-position advance: the initial target anchor plus the matching draft
+  prefix. Record the first target correction separately; it is the next-block
+  anchor and is not counted in this block's `A`;
 - each routed layer's absolute unique-expert count across `q` positions;
 - each layer's normalized union, unique experts divided by eight;
 - `U`, the mean normalized union across the 47 routed layers, and `A/U`;
