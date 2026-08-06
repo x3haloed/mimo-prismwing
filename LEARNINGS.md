@@ -1084,3 +1084,14 @@ tensor. The remaining nine final BF16 differences originate in one-ULP router
 sigmoid differences; route weights differ only `2.22e-8`, but the strict final
 gate correctly preserves the discrepancy. Denominator order is promoted as a
 correctness repair; vectorized PyTorch sigmoid is the next isolated boundary.
+
+PW-0063 clears layer 2 completely and supersedes the narrower belief that
+matching sigmoid values alone would do so. SLEEF U10 makes all 6,912 router
+scores exact, but PyTorch's unsorted top-k output order also controls the
+eight-value vector reduction used to normalize route weights. Reproducing its
+libc++ `std::nth_element` order and four-lane sum makes every route-weight F32
+bit and all 21 captured tensors through final residual exact. The bounded run
+peaked at 729 MB with 81% system-free memory, no swap growth, no throttling,
+and all protected services healthy. This is a correctness repair, not a
+throughput result; the next cheapest falsification is a repeated full-prefix
+trace against the existing frozen oracle.
