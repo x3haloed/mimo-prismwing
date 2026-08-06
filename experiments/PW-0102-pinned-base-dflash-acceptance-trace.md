@@ -191,12 +191,31 @@ The artifact audit completed in 46,710.842 ms with 13 safety boundaries. It
 retained at least 79% free memory, peaked at 222,068,736 bytes RSS and
 167,020,800 bytes physical footprint, released to 150,636,736 bytes, recorded
 zero swap growth and throttled pages, and retained every protected service.
-Fourteen focused artifact, draft-semantic, and host-safety tests pass. Phase B
-has not yet executed.
+Seventeen focused artifact, draft-semantic, frozen-input, and host-safety tests
+pass.
+
+The SGLang-semantic Phase B proposal passed twice. The cold `draft-002`
+manifest hashes to
+`cfae209566f433933097e1b4ca97f25e4019dab33851f5f46b294c5ab7709959`;
+the warm determinism repeat `draft-003` hashes to
+`0094235cbee8a19138b812a1edc40420925a198180f5cf81e9c644d14b31d5c6`.
+Both produce the exact block
+`[264, 1773, 102092, 102092, 102092, 1773, 1773, 1773]`, layer-state hashes,
+final-hidden hash `98f0e4d5...9585`, and full-logits hash
+`bc3d4f22...dc9c`. The cold run read 3,901,050,880 physical bytes and took
+65,139.506 ms in the five draft layers plus 2,551.508 ms in the base LM head;
+the warm repeat read 26,480,640 bytes and took 1,391.800 ms plus 567.401 ms.
+Draft latency remains diagnostic only.
+
+Both runs retained at least 77% system-free memory and had zero swap growth,
+zero throttled pages, and no protected-service loss. Cold peak RSS was
+4,114,612,224 bytes, while maximum physical footprint was 288,249,088 bytes;
+explicit draft and LM-head releases returned footprint below 282 MiB. The warm
+run observed equivalent safety results. Phase B therefore authorizes the one
+contracted Phase C target walk.
 
 ## Decision
 
-Run the separately identified frozen-hidden `draft-002` proposal using the
-pinned SGLang full-head semantics through the recorded HF adapter. Phase C
-remains unauthorized until that Phase B attempt passes and releases its buffers
-below the normative post-release limit.
+Proceed to the one authorized Phase C source-target verification walk using the
+byte-identical Phase B proposal. No second target walk is authorized without a
+separately documented reason arising from this result.

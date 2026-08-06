@@ -1545,3 +1545,17 @@ footprint, caused no swap growth or throttling, and retained every protected
 service. A separately identified `draft-002` retry is warranted solely to
 execute the already-pinned SGLang full-head semantics through the HF reference
 adapter; it is not evidence from the unmodified HF wrapper.
+
+PW-0102 Phase B then passes twice under that explicitly named adapter. The cold
+manifest hashes to
+`cfae209566f433933097e1b4ca97f25e4019dab33851f5f46b294c5ab7709959`
+and the warm repeat to
+`0094235cbee8a19138b812a1edc40420925a198180f5cf81e9c644d14b31d5c6`.
+Both runs are byte-identical at all five draft layers, the final hidden capture,
+the complete seven-row logits capture, and proposal IDs
+`[264, 1773, 102092, 102092, 102092, 1773, 1773, 1773]`. Cold versus warm
+physical reads (3,901,050,880 versus 26,480,640 bytes) explain the 65.14-second
+versus 1.39-second draft-forward difference and reinforce that cached draft
+latency is not an endpoint claim. Both runs pass every shared-host safety stop
+and release below 282 MiB physical footprint. The one contracted target
+verification walk is now authorized.
