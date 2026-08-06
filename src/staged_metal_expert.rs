@@ -140,7 +140,7 @@ struct RoutedRowExecution {
     selected: Vec<u32>,
     weights: Vec<f32>,
     minimum_boundary_margin: f32,
-    expert_outputs: Vec<(u32, Vec<f32>)>,
+    expert_outputs: Vec<(u32, StagedExpertExecution)>,
     wall_ms: f64,
 }
 
@@ -323,7 +323,6 @@ fn execute_staged_expert(
     })
 }
 
-#[allow(dead_code)]
 struct StagedExpertExecution {
     gate: Vec<f32>,
     up: Vec<f32>,
@@ -756,11 +755,10 @@ pub fn run_bounded_metal_routed_row(
                 .ok_or_else(|| format!("runtime selected unauthoritative expert {expert_id}"))?;
             let expert_execution =
                 execute_staged_expert(&device, &queue, &pipeline, &lut, [gate, up, down], &input)?;
-            let expert_output = expert_execution.down;
-            for (destination, value) in output.iter_mut().zip(&expert_output) {
+            for (destination, value) in output.iter_mut().zip(&expert_execution.down) {
                 *destination += *value * route_weight;
             }
-            expert_outputs.push((expert_id, expert_output));
+            expert_outputs.push((expert_id, expert_execution));
         }
         round_bf16_values(&mut output);
         Ok(RoutedRowExecution {
@@ -806,36 +804,45 @@ pub fn run_bounded_metal_routed_row(
     }
     let mut expert_diagnostics = Vec::new();
     for (expert, actual) in &expert_outputs {
-        let capture = reference_manifest
+        let captures = reference_manifest
             .expert_outputs
             .get(&expert.to_string())
-            .and_then(|captures| captures.get("down"))
-            .ok_or("missing expert oracle capture")?;
-        if capture.shape != [4096]
-            || capture.dtype != "BF16_widened_F32"
-            || Path::new(&capture.file)
-                .file_name()
-                .and_then(|name| name.to_str())
-                != Some(capture.file.as_str())
-        {
-            return Err("expert oracle capture metadata mismatch".to_owned());
+            .ok_or("missing expert oracle captures")?;
+        for (stage, values) in [
+            ("gate", actual.gate.as_slice()),
+            ("up", actual.up.as_slice()),
+            ("swiglu", actual.hidden.as_slice()),
+            ("down", actual.down.as_slice()),
+        ] {
+            let capture = captures.get(stage).ok_or("missing expert oracle stage")?;
+            if capture.shape != [values.len()]
+                || capture.dtype != "BF16_widened_F32"
+                || Path::new(&capture.file)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    != Some(capture.file.as_str())
+            {
+                return Err("expert oracle capture metadata mismatch".to_owned());
+            }
+            let (bytes, expected) = read_f32_file(
+                &reference_path.with_file_name(&capture.file),
+                Some(values.len()),
+            )?;
+            if sha256_hex(&bytes) != capture.sha256 {
+                return Err("expert oracle capture SHA-256 mismatch".to_owned());
+            }
+            let equal = values
+                .iter()
+                .zip(&expected)
+                .filter(|(left, right)| left.to_bits() == right.to_bits())
+                .count();
+            let maximum = values
+                .iter()
+                .zip(&expected)
+                .map(|(left, right)| (left - right).abs())
+                .fold(0.0_f32, f32::max);
+            expert_diagnostics.push((*expert, stage, equal, values.len(), maximum));
         }
-        let (bytes, expected) =
-            read_f32_file(&reference_path.with_file_name(&capture.file), Some(4096))?;
-        if sha256_hex(&bytes) != capture.sha256 {
-            return Err("expert oracle capture SHA-256 mismatch".to_owned());
-        }
-        let equal = actual
-            .iter()
-            .zip(&expected)
-            .filter(|(left, right)| left.to_bits() == right.to_bits())
-            .count();
-        let maximum = actual
-            .iter()
-            .zip(&expected)
-            .map(|(left, right)| (left - right).abs())
-            .fold(0.0_f32, f32::max);
-        expert_diagnostics.push((*expert, equal, maximum));
     }
     let mut squared_error = 0.0_f64;
     let mut squared_reference = 0.0_f64;
