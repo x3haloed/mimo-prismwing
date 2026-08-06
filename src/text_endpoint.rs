@@ -3667,7 +3667,10 @@ pub fn run_layer4_metal_diagnostic(
     let down_shape_authority = vec![0.0_f32; MOE_INTERMEDIATE];
     let mut expert_diagnostics = Vec::with_capacity(TOP_K);
     for expert in weight_by_expert.keys().copied() {
+        let expert_wall_started = Instant::now();
+        let expert_activity_started = process_activity()?;
         let prefix = format!("model.layers.4.mlp.experts.{expert}");
+        let validation_started = Instant::now();
         let tensor = |projection: &str| -> Result<_, String> {
             let name = format!("{prefix}.{projection}_proj.weight");
             validate_fp8_views(
@@ -3683,10 +3686,34 @@ pub fn run_layer4_metal_diagnostic(
         let gate = tensor("gate")?;
         let up = tensor("up")?;
         let down = tensor("down")?;
-        let execution = runtime.execute([&gate, &up, &down], &moe_input)?;
+        let tensor_lookup_validation_ms = validation_started.elapsed().as_secs_f64() * 1000.0;
+        let mut execution = runtime.execute_profiled(4, expert, [&gate, &up, &down], &moe_input)?;
+        let scatter_started = Instant::now();
         for (destination, value) in routed.iter_mut().zip(&execution.down) {
             *destination += *value * weight_by_expert[&expert];
         }
+        let weighted_scatter_ms = scatter_started.elapsed().as_secs_f64() * 1000.0;
+        let release_started = Instant::now();
+        checkpoint.release_file_pages()?;
+        let matrix_transient_release_ms = release_started.elapsed().as_secs_f64() * 1000.0;
+        let mut tomography = execution
+            .tomography
+            .take()
+            .ok_or("layer-4 diagnostic lacks expert tomography")?;
+        tomography.source_shards = ["gate", "up", "down"]
+            .iter()
+            .map(|projection| {
+                checkpoint
+                    .shard_for_tensor(&format!("{prefix}.{projection}_proj.weight"))
+                    .map(str::to_owned)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        tomography.tensor_lookup_validation_ms = tensor_lookup_validation_ms;
+        tomography.weighted_scatter_ms = weighted_scatter_ms;
+        tomography.matrix_transient_release_ms = matrix_transient_release_ms;
+        tomography.wall_ms = expert_wall_started.elapsed().as_secs_f64() * 1000.0;
+        tomography.activity = process_activity()?.checked_delta(expert_activity_started)?;
+        metal_ledger.expert_tomography.push(tomography);
         let captures = oracle
             .layer4_expert_captures
             .get(&expert.to_string())
@@ -3744,7 +3771,6 @@ pub fn run_layer4_metal_diagnostic(
             *total += count as u64;
         }
         expert_diagnostics.push(MetalExpertDiagnostic { expert, stages });
-        checkpoint.release_file_pages()?;
         safety.checkpoint(&format!("expert_{expert}_released"), true)?;
     }
     round_bf16_values(&mut routed);
