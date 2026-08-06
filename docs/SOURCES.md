@@ -32,10 +32,12 @@ and binds all 39 files to this revision.
   the four-part reduced-precision dot reduction in
   `aten/src/ATen/native/cpu/BlasKernel.cpp` at the same commit. PW-0072 also
   uses the specialized vector-dot topology in
-  `aten/src/ATen/native/cpu/ReducedPrecisionFloatGemvFastPathKernel.cpp`.
+  `aten/src/ATen/native/cpu/ReducedPrecisionFloatGemvFastPathKernel.cpp`;
+  PW-0075 and PW-0076 apply its vector-tail topology to attention-value dots.
 - Build identity: CPU capability `DEFAULT`,
   `AT_BUILD_ARM_VEC256_WITH_SLEEF`, Apple aarch64.
-- Decision: operation-order reference for PW-0061 through PW-0066 and PW-0070.
+- Decision: operation-order reference for PW-0061 through PW-0066, PW-0070,
+  PW-0072, PW-0073, PW-0075, and PW-0076.
   It is not a runtime dependency or an authority for MiMo model topology.
 
 ## OpenRouter MiMo-V2.5

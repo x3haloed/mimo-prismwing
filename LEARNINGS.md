@@ -1214,3 +1214,14 @@ expert sets remain exact. The 213.801-second production trace peaked at 750 MB
 RSS, returned to 132 MB, retained at least 79% free memory, and caused no swap
 growth, throttling, or service loss. Gate the real 25-element pair before
 reusing the specialized dot helper for attention values.
+
+PW-0076 promotes the source-pinned specialized vector-tail topology for BF16
+attention-value dots. A hash-bound 25-element fixture discriminates its result
+from forward accumulation; the full suite additionally caught and protected
+the SWA sink/value-row boundary. The corrected real layer-13 replay makes all
+21 captures bit-exact, preserves exact expert sets/order, and holds route-weight
+serialization error to `2.60e-8`. It safely peaked at 754 MB RSS, returned to
+133 MB, retained at least 82% free memory, and caused no swap growth,
+throttling, or service loss. The accumulated exact frontier is ready for a
+full-prefix replay beyond layer 13; this correctness result changes no
+throughput constant.
