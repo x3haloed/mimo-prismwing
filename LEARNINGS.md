@@ -1261,3 +1261,13 @@ Route weights first fail at layer 19; expert sets remain exact through layer 24.
 The 799.595-second safe walk peaked at 4.169 GB RSS in the LM head, ended at
 2.904 GB, retained at least 82% free memory, and caused no swap growth,
 throttling, or service loss. Localize layer 19 from exact layer 18.
+
+PW-0081 localizes layer 19 to one SWA attention score. The discriminating
+width-192 pair requires PyTorch's specialized eight-vector BF16 dot topology;
+forward and four-lane sums round to the adjacent BF16 value. The earlier
+layer-7 pair did not distinguish four-lane from specialized at BF16, so its
+narrower topology inference is superseded, not erased. One score changes two
+probabilities and ultimately 190 final values; routing differences are
+downstream. The 303.484-second safe trace peaked at 709 MB RSS, returned to
+139 MB, retained at least 82% free memory, and caused no swap growth,
+throttling, or service loss. Gate the real pair before unifying score dots.

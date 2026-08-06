@@ -1,7 +1,7 @@
 # PW-0081 — Real layer-19 substage localization
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: promoted diagnostic; repair not yet selected
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
 - Commit and dirty state: contract precedes implementation
@@ -32,8 +32,40 @@ diagnostic cannot count as TPS or alter any threshold.
 
 ## Result
 
-Unexecuted.
+The independent oracle completed in 19.458 seconds and production Rust in
+303.484 seconds. Incoming state, input norm, QKV, query, key, value, and sinks
+are bit-exact. The first actual difference is exactly one of 25,920 centered
+attention scores: position 12, head 25, source token 2 is `-0.30078125` in
+PyTorch and `-0.3046875` in Rust.
+
+For that real width-192 pair, PyTorch's BF16 dot is `11.4375`. Forward and the
+PW-0070 four-lane topology both produce raw F32 `0x41368000` and round to
+`11.375`; the already pinned specialized eight-vector topology produces raw
+`0x41368001` and rounds to the PyTorch value. The PW-0070 layer-7 pair does not
+discriminate these two topologies at BF16—both round to its oracle value—so the
+earlier belief that sink-bearing SWA scores require the four-lane fallback is
+superseded by this discriminating pair.
+
+The one score changes two probabilities and propagates through 33 attention
+values. Post-attention is the first formal substage failure, with `0.125`
+maximum error; route weights differ by at most `0.00008033359680170715`,
+expert sets/order remain exact, and final state reproduces PW-0080.
+
+Both captures passed Gate 8. Rust peaked at 709,148,672 bytes RSS and
+598,204,672 bytes physical footprint, returned to 138,948,352 bytes, retained
+at least 82% free memory, grew no swap, observed no throttling, and kept every
+protected service healthy. Evidence hashes:
+
+- Oracle manifest:
+  `5bf6ed69aa01293e8020e3d4b2dc3a34dd087672901f59e321258f8ab1c0313b`
+- Rust manifest:
+  `e436e33ac408c2a816a60e75812ba90c0968d87e6b5b86aa422dc86ed6ad0436`
+- Comparison:
+  `aac02bb6a371534fc7be72ca6c6e2dda123ecde9d710c65cac7406668009a898`
 
 ## Decision
 
-Unexecuted.
+Promote the localization, not the repair. Add the real layer-19 pair as a
+deterministic specialized-vector fixture, prove it also preserves every prior
+dot fixture and tiny semantic, then use the specialized topology for all BF16
+attention score dots. Replay layer 19 before another full walk.
