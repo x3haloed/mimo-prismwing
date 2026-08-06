@@ -842,8 +842,33 @@ pub fn run_bounded_metal_routed_row(
         diagnostic_ordered.sort_by(f64::total_cmp);
         let diagnostic_median =
             diagnostic_ordered[((diagnostic_ordered.len() - 1) as f64 * 0.5).round() as usize];
+        let failure_safety = safety.released()?;
+        let minimum_free = failure_safety
+            .iter()
+            .map(|snapshot| snapshot.system_memory_free_percent)
+            .min()
+            .ok_or("missing failure safety snapshot")?;
+        let maximum_peak = failure_safety
+            .iter()
+            .map(|snapshot| snapshot.process_peak_resident_bytes)
+            .max()
+            .ok_or("missing failure safety snapshot")?;
+        let maximum_swap_growth = failure_safety
+            .iter()
+            .map(|snapshot| snapshot.swap_growth_bytes)
+            .max()
+            .ok_or("missing failure safety snapshot")?;
+        let maximum_new_throttled = failure_safety
+            .iter()
+            .map(|snapshot| snapshot.new_throttled_pages)
+            .max()
+            .ok_or("missing failure safety snapshot")?;
+        let post_release = failure_safety
+            .last()
+            .ok_or("missing post-release safety snapshot")?
+            .process_physical_footprint_bytes;
         return Err(format!(
-            "routed-row parity failed: rel L2 {relative_l2}, max abs {maximum_absolute_error}, BF16 equality {bf16_equality_fraction}, route error {maximum_route_weight_absolute_error}, median ms {diagnostic_median}, experts {expert_diagnostics:?}"
+            "routed-row parity failed: rel L2 {relative_l2}, max abs {maximum_absolute_error}, BF16 equality {bf16_equality_fraction}, route error {maximum_route_weight_absolute_error}, median ms {diagnostic_median}, safety min-free {minimum_free}%, peak {maximum_peak}, post-release {post_release}, swap-growth {maximum_swap_growth}, new-throttled {maximum_new_throttled}, experts {expert_diagnostics:?}"
         ));
     }
     let output_bytes = output
