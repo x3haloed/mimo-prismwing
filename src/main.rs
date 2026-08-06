@@ -14,6 +14,7 @@ use prismwing::{
     verify_expert_container, write_census,
 };
 use std::path::PathBuf;
+use tokenizers::Tokenizer;
 
 fn usage() -> ! {
     eprintln!("usage:");
@@ -21,6 +22,7 @@ fn usage() -> ! {
     eprintln!("  prismwing repack <source.safetensors> <output.pwexpert> <tensor> [tensor ...]");
     eprintln!("  prismwing verify-container <container.pwexpert>");
     eprintln!("  prismwing inspect-tensor <source.safetensors> <tensor>");
+    eprintln!("  prismwing tokenize <tokenizer.json> <utf8-text>");
     eprintln!(
         "  prismwing fp8-gemv <source.safetensors> <weight> <scale> <input.f32> <output.f32>"
     );
@@ -87,6 +89,19 @@ fn main() {
     let arguments: Vec<String> = std::env::args().collect();
     let result: Result<Option<PathBuf>, String> =
         match arguments.get(1).map(String::as_str) {
+            Some("tokenize") if arguments.len() == 4 => {
+                let tokenizer = Tokenizer::from_file(&arguments[2])
+                    .map_err(|error| format!("tokenizer load: {error}"));
+                tokenizer.and_then(|tokenizer| {
+                    let encoded = tokenizer
+                        .encode(arguments[3].clone(), false)
+                        .map_err(|error| format!("tokenizer encode: {error}"))?;
+                    serde_json::to_writer(std::io::stdout(), encoded.get_ids())
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(None)
+                })
+            }
             #[cfg(target_os = "macos")]
             Some("slow-text-endpoint") if arguments.len() == 8 => {
                 let checkpoint = PathBuf::from(&arguments[2]);

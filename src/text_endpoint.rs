@@ -25,6 +25,11 @@ const ROPE_DIM: usize = 64;
 const ROUTED_EXPERTS: usize = 256;
 const TOP_K: usize = 8;
 const MOE_INTERMEDIATE: usize = 2048;
+const CHAT_PROMPT: &str = "<|im_start|>system\nYou are MiMo, a helpful AI assistant engineered by Xiaomi.<|im_end|><|im_start|>user\nHello<|im_end|><|im_start|>assistant\n<think></think>";
+const CHAT_PROMPT_IDS: [u32; 27] = [
+    151_644, 8948, 198, 2610, 525, 20_740, 25_612, 11, 264, 10_950, 15_235, 17_847, 44_936, 553,
+    71_449, 13, 151_645, 151_644, 872, 198, 9707, 151_645, 151_644, 77_091, 198, 151_667, 151_668,
+];
 
 #[derive(Debug, Deserialize)]
 struct EndpointFixture {
@@ -39,9 +44,19 @@ struct EndpointFixture {
     prompt_utf8: String,
     add_special_tokens: bool,
     expected_prompt_token_ids: Vec<u32>,
+    hosted_reference: Option<HostedReferenceFixture>,
     full_attention_qkv_scale_layout: FullQkvScaleFixture,
     decode: DecodeFixture,
     safety: SafetyFixture,
+}
+
+#[derive(Debug, Deserialize)]
+struct HostedReferenceFixture {
+    provider: String,
+    manifest_sha256: String,
+    response_sha256: String,
+    generated_token_ids: Vec<u32>,
+    generated_text: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -163,9 +178,12 @@ pub struct LayerRouteTrace {
 #[derive(Debug, Serialize)]
 pub struct DecodeStepReport {
     pub input_token_id: u32,
+    pub input_token_ids: Vec<u32>,
     pub output_token_id: u32,
     pub output_token_text: String,
     pub top_logits: Vec<(u32, f32)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_logits: Option<Vec<f32>>,
     pub layer_traces: Vec<LayerRouteTrace>,
     pub wall_ms: f64,
 }
@@ -233,6 +251,7 @@ struct RoutedMlpOutput {
 struct NativeDecodeStep {
     output_token: u32,
     top_logits: Vec<(u32, f32)>,
+    full_logits: Vec<f32>,
     traces: Vec<LayerRouteTrace>,
     wall_ms: f64,
 }
@@ -682,12 +701,27 @@ impl SafetyMonitor {
 }
 
 fn validate_fixture(fixture: &EndpointFixture) -> Result<(), String> {
-    if fixture.schema_version != 1
-        || fixture.semantic != "mimo_v2_5_target_faithful_raw_text_incremental_decode"
+    let raw_identity = fixture.schema_version == 1
+        && fixture.semantic == "mimo_v2_5_target_faithful_raw_text_incremental_decode"
+        && fixture.prompt_utf8 == "Hello"
+        && fixture.expected_prompt_token_ids == [9707]
+        && fixture.hosted_reference.is_none();
+    let chat_identity = fixture.schema_version == 2
+        && fixture.semantic == "mimo_v2_5_target_faithful_chat_prefill_incremental_decode"
+        && fixture.prompt_utf8 == CHAT_PROMPT
+        && fixture.expected_prompt_token_ids == CHAT_PROMPT_IDS
+        && fixture.hosted_reference.as_ref().is_some_and(|hosted| {
+            hosted.provider == "Parasail"
+                && hosted.manifest_sha256
+                    == "f9c5dd42a76e0eb87581fa427fe03c69ad32903c5711e5078a002ab7514732ea"
+                && hosted.response_sha256
+                    == "e5a8956f3a7985e1ac3d5396c7bc9fe73bc77c6451eb2225c8df7c8973e3212d"
+                && hosted.generated_token_ids == [9707, 0]
+                && hosted.generated_text == "Hello!"
+        });
+    if (!raw_identity && !chat_identity)
         || fixture.revision != REVISION
-        || fixture.prompt_utf8 != "Hello"
         || fixture.add_special_tokens
-        || fixture.expected_prompt_token_ids != [9707]
         || fixture.full_attention_qkv_scale_layout.weight_shape != [13_568, 4096]
         || fixture.full_attention_qkv_scale_layout.scale_shape != [108, 32]
         || fixture.full_attention_qkv_scale_layout.query_rows != 12_288
@@ -719,7 +753,7 @@ fn validate_fixture(fixture: &EndpointFixture) -> Result<(), String> {
         || fixture.safety.protect_resident_services
             != ["ChatGPT", "WindowServer", "nxnode", "syncthing"]
     {
-        return Err("unknown PW-0050 endpoint fixture identity".to_owned());
+        return Err("unknown slow text endpoint fixture identity".to_owned());
     }
     Ok(())
 }
@@ -1016,6 +1050,54 @@ fn apply_rope(values: &mut [f32], heads: usize, position: usize, theta: f64) {
     }
 }
 
+fn causal_attention_head(
+    query: &[f32],
+    keys: &[&[f32]],
+    values: &[&[f32]],
+    scale: f32,
+    sink: Option<f32>,
+) -> Result<Vec<f32>, String> {
+    if query.is_empty()
+        || keys.is_empty()
+        || keys.len() != values.len()
+        || keys.iter().any(|key| key.len() != query.len())
+        || values.iter().any(|value| value.is_empty())
+        || values.iter().any(|value| value.len() != values[0].len())
+    {
+        return Err("causal attention head shape mismatch".to_owned());
+    }
+    let mut scores = keys
+        .iter()
+        .map(|key| {
+            query
+                .iter()
+                .zip(*key)
+                .map(|(left, right)| left * right)
+                .sum::<f32>()
+                * scale
+        })
+        .collect::<Vec<_>>();
+    if let Some(sink) = sink {
+        scores.push(sink);
+    }
+    let maximum = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let mut probabilities = scores
+        .iter()
+        .map(|score| (score - maximum).exp())
+        .collect::<Vec<_>>();
+    let denominator = probabilities.iter().sum::<f32>();
+    for probability in &mut probabilities {
+        *probability /= denominator;
+    }
+    let mut output = vec![0.0_f32; values[0].len()];
+    for (position, value) in values.iter().enumerate() {
+        for (destination, source) in output.iter_mut().zip(*value) {
+            *destination += probabilities[position] * source;
+        }
+    }
+    Ok(output)
+}
+
 fn attention(
     checkpoint: &Checkpoint,
     config: &ModelConfig,
@@ -1092,39 +1174,24 @@ fn attention(
             let kv_head = head / kv_groups;
             let query = &queries
                 [row * q_size + head * QK_HEAD_DIM..row * q_size + (head + 1) * QK_HEAD_DIM];
-            let mut scores = Vec::with_capacity(end - start + usize::from(is_swa));
+            let mut keys = Vec::with_capacity(end - start);
+            let mut values = Vec::with_capacity(end - start);
             for position in start..end {
                 let key_offset = (position * kv_heads + kv_head) * QK_HEAD_DIM;
-                let key = &cache.keys[key_offset..key_offset + QK_HEAD_DIM];
-                scores.push(
-                    query
-                        .iter()
-                        .zip(key)
-                        .map(|(left, right)| left * right)
-                        .sum::<f32>()
-                        * scale,
-                );
+                keys.push(&cache.keys[key_offset..key_offset + QK_HEAD_DIM]);
+                let value_offset = (position * kv_heads + kv_head) * V_HEAD_DIM;
+                values.push(&cache.values[value_offset..value_offset + V_HEAD_DIM]);
             }
-            if let Some(sinks) = &sinks {
-                scores.push(sinks[head]);
-            }
-            let maximum = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            let mut probabilities = scores
-                .iter()
-                .map(|score| (score - maximum).exp())
-                .collect::<Vec<_>>();
-            let denominator = probabilities.iter().sum::<f32>();
-            for probability in &mut probabilities {
-                *probability /= denominator;
-            }
+            let head_output = causal_attention_head(
+                query,
+                &keys,
+                &values,
+                scale,
+                sinks.as_ref().map(|values| values[head]),
+            )?;
             let destination = &mut result[row * HEADS * V_HEAD_DIM + head * V_HEAD_DIM
                 ..row * HEADS * V_HEAD_DIM + (head + 1) * V_HEAD_DIM];
-            for (slot, position) in (start..end).enumerate() {
-                let value_offset = (position * kv_heads + kv_head) * V_HEAD_DIM;
-                for (column, destination) in destination.iter_mut().enumerate() {
-                    *destination += probabilities[slot] * cache.values[value_offset + column];
-                }
-            }
+            destination.copy_from_slice(&head_output);
         }
     }
     bf16_linear(
@@ -1266,6 +1333,13 @@ fn routed_mlp(
     })
 }
 
+fn expert_union_factor(unique_experts: usize, positions: usize) -> Result<f64, String> {
+    if positions == 0 {
+        return Err("expert union factor requires at least one position".to_owned());
+    }
+    Ok(unique_experts as f64 / positions as f64)
+}
+
 fn embedding(
     checkpoint: &Checkpoint,
     token_ids: &[u32],
@@ -1322,13 +1396,17 @@ fn top_logits(logits: &[f32], count: usize) -> Result<Vec<(u32, f32)>, String> {
 fn decode_step(
     checkpoint: &Checkpoint,
     config: &ModelConfig,
-    token_id: u32,
+    token_ids: &[u32],
     caches: &mut [LayerKvCache],
     ledger: &mut EndpointLedger,
     safety: &mut SafetyMonitor,
 ) -> Result<NativeDecodeStep, String> {
     let started = Instant::now();
-    let mut hidden = embedding(checkpoint, &[token_id], ledger)?;
+    if token_ids.is_empty() {
+        return Err("decode step requires at least one token".to_owned());
+    }
+    let rows = token_ids.len();
+    let mut hidden = embedding(checkpoint, token_ids, ledger)?;
     let mut traces = Vec::with_capacity(48);
     if caches.len() != 48 {
         return Err("text endpoint requires exactly 48 K/V caches".to_owned());
@@ -1341,8 +1419,9 @@ fn decode_step(
             HIDDEN,
             ledger,
         )?;
-        let normalized = rms_norm(&hidden, 1, &input_norm, config.layernorm_epsilon)?;
-        let attention_output = attention(checkpoint, config, layer, &normalized, 1, cache, ledger)?;
+        let normalized = rms_norm(&hidden, rows, &input_norm, config.layernorm_epsilon)?;
+        let attention_output =
+            attention(checkpoint, config, layer, &normalized, rows, cache, ledger)?;
         let post_attention = hidden
             .iter()
             .zip(attention_output)
@@ -1354,15 +1433,15 @@ fn decode_step(
             HIDDEN,
             ledger,
         )?;
-        let moe_input = rms_norm(&post_attention, 1, &post_norm, config.layernorm_epsilon)?;
+        let moe_input = rms_norm(&post_attention, rows, &post_norm, config.layernorm_epsilon)?;
         let (mlp, selected, weights) = if layer == 0 {
             (
-                dense_mlp(checkpoint, &moe_input, 1, ledger)?,
+                dense_mlp(checkpoint, &moe_input, rows, ledger)?,
                 Vec::new(),
                 Vec::new(),
             )
         } else {
-            let routed = routed_mlp(checkpoint, layer, &moe_input, 1, ledger)?;
+            let routed = routed_mlp(checkpoint, layer, &moe_input, rows, ledger)?;
             (routed.output, routed.selected, routed.weights)
         };
         hidden = post_attention
@@ -1386,30 +1465,36 @@ fn decode_step(
             cache_length: cache.positions,
             selected_experts_by_position: selected,
             route_weights_by_position: weights,
-            expert_union_factor: if layer == 0 { 0.0 } else { unique as f64 },
+            expert_union_factor: if layer == 0 {
+                0.0
+            } else {
+                expert_union_factor(unique, rows)?
+            },
             wall_ms: layer_started.elapsed().as_secs_f64() * 1000.0,
         });
         checkpoint.release_file_pages()?;
         safety.checkpoint(&format!("layer_{layer}_complete"), true)?;
     }
     let final_norm = bf16_vector(checkpoint, "model.norm.weight", HIDDEN, ledger)?;
-    let normalized = rms_norm(&hidden, 1, &final_norm, config.layernorm_epsilon)?;
+    let normalized = rms_norm(&hidden, rows, &final_norm, config.layernorm_epsilon)?;
     let logits = bf16_linear(
         checkpoint,
         "lm_head.weight",
         &normalized,
-        1,
+        rows,
         HIDDEN,
         config.vocab_size,
         ledger,
     )?;
-    let top = top_logits(&logits, 20)?;
+    let last_logits = logits[(rows - 1) * config.vocab_size..rows * config.vocab_size].to_vec();
+    let top = top_logits(&last_logits, 20)?;
     checkpoint.release_file_pages()?;
     safety.checkpoint("lm_head_complete", true)?;
     let token = top[0].0;
     Ok(NativeDecodeStep {
         output_token: token,
         top_logits: top,
+        full_logits: last_logits,
         traces,
         wall_ms: started.elapsed().as_secs_f64() * 1000.0,
     })
@@ -1499,14 +1584,14 @@ pub fn run_slow_text_endpoint(
     safety.checkpoint("checkpoint_open", true)?;
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
     let mut ledger = EndpointLedger::default();
-    let mut input_token = prompt_token_ids[0];
+    let mut input_token_ids = prompt_token_ids.clone();
     let mut generated = Vec::with_capacity(fixture.decode.new_tokens);
     let mut steps = Vec::with_capacity(fixture.decode.new_tokens);
     for _ in 0..fixture.decode.new_tokens {
         let step = decode_step(
             &checkpoint,
             &config,
-            input_token,
+            &input_token_ids,
             &mut caches,
             &mut ledger,
             &mut safety,
@@ -1515,22 +1600,29 @@ pub fn run_slow_text_endpoint(
             .decode(&[step.output_token], false)
             .map_err(|error| format!("tokenizer output decode: {error}"))?;
         steps.push(DecodeStepReport {
-            input_token_id: input_token,
+            input_token_id: *input_token_ids
+                .last()
+                .ok_or("endpoint input token sequence is empty")?,
+            input_token_ids: input_token_ids.clone(),
             output_token_id: step.output_token,
             output_token_text,
             top_logits: step.top_logits,
+            full_logits: (fixture.schema_version == 2).then_some(step.full_logits),
             layer_traces: step.traces,
             wall_ms: step.wall_ms,
         });
         generated.push(step.output_token);
-        input_token = step.output_token;
+        input_token_ids = vec![step.output_token];
         safety.checkpoint(&format!("token_{}_accepted", generated.len()), true)?;
     }
+    let expected_cache_positions = prompt_token_ids.len() + fixture.decode.new_tokens - 1;
     if caches
         .iter()
-        .any(|cache| cache.positions != 2 || cache.validate().is_err())
+        .any(|cache| cache.positions != expected_cache_positions || cache.validate().is_err())
     {
-        return Err("incremental K/V cache did not retain two positions".to_owned());
+        return Err(format!(
+            "incremental K/V cache did not retain {expected_cache_positions} positions"
+        ));
     }
     let generated_text = tokenizer
         .decode(&generated, false)
@@ -1540,8 +1632,12 @@ pub fn run_slow_text_endpoint(
         .ok_or("process disk byte counter moved backwards")?;
     ledger.peak_resident_bytes = peak_resident_bytes()?;
     let report = TextEndpointReport {
-        schema_version: 1,
-        semantic: "mimo_v2_5_target_faithful_slow_text_endpoint",
+        schema_version: fixture.schema_version,
+        semantic: if fixture.schema_version == 1 {
+            "mimo_v2_5_target_faithful_slow_text_endpoint"
+        } else {
+            "mimo_v2_5_target_faithful_slow_chat_endpoint"
+        },
         revision: REVISION,
         commit: commit.to_owned(),
         fixture_sha256: sha256_hex(&fixture_bytes),
@@ -1624,5 +1720,56 @@ mod tests {
             .map(|row| full_qkv_scale_row(row).expect("valid full-QKV row"))
             .collect::<BTreeSet<_>>();
         assert_eq!(used, (0..108).collect());
+    }
+
+    #[test]
+    fn expert_union_factor_normalizes_by_positions() {
+        assert_eq!(expert_union_factor(56, 8), Ok(7.0));
+        assert_eq!(expert_union_factor(8, 1), Ok(8.0));
+        assert!(expert_union_factor(0, 0).is_err());
+    }
+
+    #[test]
+    fn frozen_chat_prefill_fixture_is_exact() {
+        let fixture: EndpointFixture = serde_json::from_str(include_str!(
+            "../evals/fixtures/real/pw0052-chat-endpoint.json"
+        ))
+        .expect("valid frozen chat fixture");
+        assert!(validate_fixture(&fixture).is_ok());
+        assert_eq!(fixture.prompt_utf8, CHAT_PROMPT);
+        assert_eq!(fixture.expected_prompt_token_ids, CHAT_PROMPT_IDS);
+    }
+
+    #[test]
+    fn causal_prefill_rows_match_tiny_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0052-causal-prefill.json"
+        ))
+        .expect("valid causal prefill fixture");
+        assert_eq!(fixture["schema_version"], 1);
+        assert_eq!(fixture["semantic"], "causal_prefill_attention_rows");
+        for case in fixture["cases"].as_array().expect("cases") {
+            let query = serde_json::from_value::<Vec<f32>>(case["query"].clone()).expect("query");
+            let keys = serde_json::from_value::<Vec<Vec<f32>>>(case["keys"].clone()).expect("keys");
+            let values =
+                serde_json::from_value::<Vec<Vec<f32>>>(case["values"].clone()).expect("values");
+            let key_views = keys.iter().map(Vec::as_slice).collect::<Vec<_>>();
+            let value_views = values.iter().map(Vec::as_slice).collect::<Vec<_>>();
+            let sink = case["sink"].as_f64().map(|value| value as f32);
+            let expected =
+                serde_json::from_value::<Vec<f32>>(case["expected"].clone()).expect("expected");
+            let actual = causal_attention_head(
+                &query,
+                &key_views,
+                &value_views,
+                case["scale"].as_f64().expect("scale") as f32,
+                sink,
+            )
+            .expect("valid causal attention");
+            assert_eq!(actual.len(), expected.len());
+            for (actual, expected) in actual.iter().zip(expected) {
+                assert!((actual - expected).abs() <= 1.0e-6);
+            }
+        }
     }
 }
