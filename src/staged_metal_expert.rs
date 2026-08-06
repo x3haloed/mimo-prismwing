@@ -1,7 +1,7 @@
 use super::{
     MappedSafetensors, MappedTensorMetadata, MetalMoeManifest, UniqueJson, ValidatedMappedFp8,
     accelerate_sgemm_right_transposed, decode_f8_e4m3fn, read_f32_file, sha256_hex, sha256_reader,
-    validate_mapped_fp8, write_create_new,
+    validate_fp8_views, validate_mapped_fp8, write_create_new,
 };
 use crate::text_endpoint::{ComponentSafetyMonitor, SafetySnapshot, component_pytorch_noaux_route};
 use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize};
@@ -668,12 +668,18 @@ pub fn run_bounded_metal_routed_row(
                     .tensor_files
                     .get(&scale_key)
                     .ok_or("missing scale artifact")?;
-                if weight_file != scale_file {
-                    return Err("weight and scale split across artifacts".to_owned());
-                }
-                let mapping = mappings.get(weight_file).ok_or("unknown expert artifact")?;
+                let weight_mapping = mappings
+                    .get(weight_file)
+                    .ok_or("unknown expert weight artifact")?;
+                let scale_mapping = mappings
+                    .get(scale_file)
+                    .ok_or("unknown expert scale artifact")?;
                 let name = format!("{prefix}.{projection}_proj.weight");
-                validate_mapped_fp8(mapping, &name, &format!("{name}_scale_inv"), shape_input)
+                validate_fp8_views(
+                    weight_mapping.tensor(&name)?,
+                    scale_mapping.tensor(&format!("{name}_scale_inv"))?,
+                    shape_input,
+                )
             };
         let gate = matrix("gate", &input)?;
         let up = matrix("up", &input)?;
