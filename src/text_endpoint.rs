@@ -328,16 +328,30 @@ impl Checkpoint {
     fn release_file_pages(&self) -> Result<(), String> {
         for (shard, mapped) in &self.shards {
             // SAFETY: the pointer and length describe this live, immutable file mapping.
-            // MADV_DONTNEED only permits Darwin to discard clean resident pages; later
-            // tensor reads remain valid and fault the checkpoint bytes back in.
-            let result = unsafe {
+            // MS_INVALIDATE discards clean cached data and MADV_DONTNEED marks the same
+            // address range as cold. Later tensor reads remain valid and fault the
+            // authoritative checkpoint bytes back in.
+            let invalidate_result = unsafe {
+                libc::msync(
+                    mapped.mapping.as_ptr().cast_mut().cast(),
+                    mapped.mapping.len(),
+                    libc::MS_INVALIDATE,
+                )
+            };
+            if invalidate_result != 0 {
+                return Err(format!(
+                    "{shard}: checkpoint cache invalidation failed: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+            let advise_result = unsafe {
                 libc::madvise(
                     mapped.mapping.as_ptr().cast_mut().cast(),
                     mapped.mapping.len(),
                     libc::MADV_DONTNEED,
                 )
             };
-            if result != 0 {
+            if advise_result != 0 {
                 return Err(format!(
                     "{shard}: checkpoint page release failed: {}",
                     std::io::Error::last_os_error()

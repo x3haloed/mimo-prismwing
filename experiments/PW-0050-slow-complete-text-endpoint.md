@@ -174,6 +174,22 @@ within a layer. The next candidate drops and relieves those resources after
 each complete matrix operation. The safety gate and endpoint semantics remain
 unchanged.
 
+Run 004 used committed matrix-boundary cleanup `bfa1d14` and again stopped
+after layer 24. Post-cleanup footprint was 365,902,912 bytes, but peak residency
+had reached 8,723,333,120 bytes, 127.2 MiB above the fixed limit. An independent
+sample immediately before the stop saw 8,371,216 KiB RSS at 463 seconds, 86%
+system memory free, unchanged 1,805.44 MiB swap, and zero throttled pages. The
+failed-attempt manifest hashes to
+`a094ae55a223ecee6bfed20a9eae3b406247c0e56205a019e51a4ee2af5048ed`.
+
+Matrix-boundary cleanup delayed the crossing but did not change the underlying
+mapped-file accumulation. Darwin's local `madvise(2)` documentation defines
+`MADV_DONTNEED` as a statement that the range is not expected to be accessed
+soon; it does not promise immediate invalidation. The local `msync(2)` contract
+defines `MS_INVALIDATE` as invalidating all cached data. The next candidate
+combines that explicit invalidation with the existing cold-page hint, without
+changing allocation order, arithmetic, or safety thresholds.
+
 ## Isolated attribution
 
 Unexecuted. Initial diagnostics will separate tokenizer, embedding, attention,

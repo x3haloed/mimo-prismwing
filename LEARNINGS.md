@@ -925,3 +925,13 @@ healthy and swap did not grow. The belief that layer-boundary release alone is
 sufficient is therefore superseded: decoded matrix storage, allocator slack,
 and newly faulted source pages must be released after each matrix operation so
 their residency cannot accumulate within a layer.
+
+PW-0050 run 004 supersedes the narrower belief that issuing the same
+`MADV_DONTNEED` hint more frequently would force bounded mapped-file residency.
+Matrix-boundary hints delayed the stop to 463 seconds but clean mapped pages
+still accumulated until peak residency reached 8,723,333,120 bytes. The phase
+cleanup then reduced current footprint to 365,902,912 bytes. Darwin documents
+`MADV_DONTNEED` only as a near-term access expectation, whereas
+`msync(MS_INVALIDATE)` explicitly invalidates cached mapped data. The next
+candidate must test that stronger primitive under the same limits; frequency
+alone is not the mechanism.
