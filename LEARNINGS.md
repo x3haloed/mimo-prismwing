@@ -1152,3 +1152,13 @@ PW-0068's final error and route-weight envelope. The Rust trace safely peaked
 at 723 MB RSS, returned to 125 MB, retained 81% free memory, and caused no swap
 growth, throttling, or service loss. Isolate PyTorch's aarch64 BF16 dot-product
 accumulation order on that exact pair before any repair or full walk.
+
+PW-0070 proves the layer-7 score mismatch came from reduction topology. The
+old forward and PyTorch-source four-lane F32 sums differ by only two ULPs but
+round to adjacent BF16 values. A hash-bound real fixture gates that boundary,
+and the promoted four-lane reduction makes all 21 layer-7 captures bit-exact;
+expert selection/order is exact and route-weight serialization differs by only
+`7.43e-9`. The 118.330-second replay peaked at 720 MB RSS, returned to 124 MB,
+retained 81% free memory, and caused no swap growth, throttling, or service
+loss. The exact accumulated frontier is now through layer 7; use one frozen
+full-prefix replay to find the next boundary.
