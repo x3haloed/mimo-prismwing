@@ -28,8 +28,9 @@ pub use staged_metal_expert::{
 #[cfg(target_os = "macos")]
 pub use text_endpoint::{
     FullPrefixTraceReport, Layer0TraceReport, Layer1ExpertTraceReport, Layer1RoutingTraceReport,
-    Layer4MetalDiagnosticReport, MetalIncrementalTextReport, RoutedLayerArtifactBenchmarkReport,
-    RoutedLayerArtifactBuildReport, TextEndpointReport, TwoBarrierRoutedLayerBenchmarkReport,
+    Layer4MetalDiagnosticReport, MetalIncrementalTextReport, MetalNativeRoutedLayerBenchmarkReport,
+    RoutedLayerArtifactBenchmarkReport, RoutedLayerArtifactBuildReport, TextEndpointReport,
+    TwoBarrierRoutedLayerBenchmarkReport, benchmark_layer4_metal_native_transaction,
     benchmark_layer4_metal_ready_artifact, benchmark_layer4_two_barrier_transaction,
     build_layer4_metal_ready_artifact, run_full_prefix_trace, run_layer4_metal_diagnostic,
     run_metal_incremental_text_endpoint, run_real_layer0_trace, run_real_layer1_expert_trace,

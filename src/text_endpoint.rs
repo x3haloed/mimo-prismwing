@@ -10,8 +10,9 @@ use crate::routed_layer_artifact::{
     open_routed_layer_artifact,
 };
 use crate::staged_metal_expert::{
-    BoundedMetalExpertOutput, BoundedMetalExpertRuntime, ExpertTomography, NoCopyProjectionBacking,
-    RoutedNoCopyExpert, RoutedTransactionTomography,
+    BoundedMetalExpertOutput, BoundedMetalExpertRuntime, ExpertTomography,
+    MetalNativeRoutedLayerTomography, NoCopyProjectionBacking, RoutedNoCopyExpert,
+    RoutedTransactionTomography,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -554,6 +555,61 @@ pub struct TwoBarrierRoutedLayerBenchmarkReport {
 }
 
 #[derive(Debug, Serialize)]
+pub struct MetalNativeRoutedLayerTrial {
+    pub repetition: usize,
+    pub cache_state: &'static str,
+    pub variant: &'static str,
+    pub mapping_open_ms: f64,
+    pub trusted_tensor_bind_ms: f64,
+    pub initial_invalidation_ms: f64,
+    pub layer_wall_ms: f64,
+    pub final_release_ms: f64,
+    pub activity: ProcessActivityDelta,
+    pub installed_source_bytes: u64,
+    pub sparse_repair_counts: [u64; 3],
+    pub transaction: MetalNativeRoutedLayerTomography,
+    pub expert_diagnostics: Vec<MetalExpertDiagnostic>,
+    pub routed_sha256: String,
+    pub final_residual_sha256: String,
+    pub routed_parity: NumericalParity,
+    pub final_residual_parity: NumericalParity,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetalNativeRoutedLayerBenchmarkReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub checkpoint_verification_sha256: String,
+    pub oracle_manifest_sha256: String,
+    pub artifact_manifest_sha256: String,
+    pub artifact_sha256: String,
+    pub kernel_sha256: String,
+    pub kernel_compile_ms: f64,
+    pub metal_device: String,
+    pub primitive_probe_passed: bool,
+    pub selected_experts: Vec<u32>,
+    pub route_weights: Vec<f32>,
+    pub maximum_route_weight_absolute_error: f32,
+    pub warm_prefault_ms: f64,
+    pub warm_prefault_checksum: u64,
+    pub control_trials: Vec<RoutedLayerArtifactTrial>,
+    pub candidate_trials: Vec<MetalNativeRoutedLayerTrial>,
+    pub trial_order: Vec<String>,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: usize,
+    #[serde(rename = "U")]
+    pub unique_experts: usize,
+    pub exactness: &'static str,
+    pub performance_claim: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct CaptureRecord {
     pub file: String,
     pub shape: Vec<usize>,
@@ -673,7 +729,7 @@ pub struct SafetySnapshot {
     pub protected_service_pids: BTreeMap<String, Vec<u32>>,
 }
 
-struct SafetyMonitor {
+pub(crate) struct SafetyMonitor {
     policy: SafetyFixture,
     baseline_swap_bytes: u64,
     baseline_throttled_pages: u64,
@@ -1297,7 +1353,7 @@ impl SafetyMonitor {
         Ok(monitor)
     }
 
-    fn checkpoint(&mut self, phase: &str, relieve: bool) -> Result<(), String> {
+    pub(crate) fn checkpoint(&mut self, phase: &str, relieve: bool) -> Result<(), String> {
         let relief = if relieve { pressure_relief() } else { 0 };
         let memory_free = system_memory_free_percent()?;
         let swap = swap_used_bytes()?;
@@ -4654,6 +4710,132 @@ fn run_layer4_two_barrier_trial(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn run_layer4_metal_native_trial(
+    repetition: usize,
+    cache_state: &'static str,
+    artifact_path: &Path,
+    artifact_manifest_path: &Path,
+    runtime: &BoundedMetalExpertRuntime,
+    oracle_manifest_path: &Path,
+    oracle: &Layer4CachedOracleManifest,
+    selected_sorted: &[u32],
+    weight_by_expert: &BTreeMap<u32, f32>,
+    moe_input: &[f32],
+    post_attention: &[f32],
+    expected_routed: &[f32],
+    expected_final: &[f32],
+    safety: &mut SafetyMonitor,
+) -> Result<MetalNativeRoutedLayerTrial, String> {
+    safety.checkpoint("pw0111_pre_mapping", true)?;
+    let open_started = Instant::now();
+    let artifact = open_routed_layer_artifact(artifact_path, artifact_manifest_path, false)?;
+    let mapping_open_ms = open_started.elapsed().as_secs_f64() * 1000.0;
+    let invalidation_started = Instant::now();
+    if cache_state == "cold" {
+        artifact.invalidate_pages()?;
+        pressure_relief();
+    }
+    let initial_invalidation_ms = invalidation_started.elapsed().as_secs_f64() * 1000.0;
+    let layer_started = Instant::now();
+    let activity_before = process_activity()?;
+    let bind_started = Instant::now();
+    let down_shape_authority = vec![0.0_f32; MOE_INTERMEDIATE];
+    let mut bindings = Vec::with_capacity(TOP_K);
+    for &expert in selected_sorted {
+        let (gate, gate_backing) = artifact.validated_fp8(expert, "gate", moe_input)?;
+        let (up, up_backing) = artifact.validated_fp8(expert, "up", moe_input)?;
+        let (down, down_backing) = artifact.validated_fp8(expert, "down", &down_shape_authority)?;
+        bindings.push(ArtifactExpertBindings {
+            expert,
+            gate,
+            up,
+            down,
+            backing: [gate_backing, up_backing, down_backing],
+        });
+    }
+    let trusted_tensor_bind_ms = bind_started.elapsed().as_secs_f64() * 1000.0;
+    safety.checkpoint("pw0111_artifact_bound", true)?;
+    let transaction_inputs = bindings
+        .iter()
+        .map(|binding| RoutedNoCopyExpert {
+            expert: binding.expert,
+            gate: &binding.gate,
+            up: &binding.up,
+            down: &binding.down,
+            backing: binding.backing.map(|lengths| NoCopyProjectionBacking {
+                weight_region_bytes: lengths[0],
+                scale_region_bytes: lengths[1],
+                page_bytes: artifact.manifest.page_bytes,
+            }),
+        })
+        .collect::<Vec<_>>();
+    let route_weights = selected_sorted
+        .iter()
+        .map(|expert| weight_by_expert[expert])
+        .collect::<Vec<_>>();
+    let transaction = runtime.execute_metal_native_routed_layer(
+        4,
+        &transaction_inputs,
+        moe_input,
+        &route_weights,
+        safety,
+    )?;
+    drop(transaction_inputs);
+    let installed_source_bytes =
+        transaction
+            .experts
+            .iter()
+            .try_fold(0_u64, |total, (_, execution)| {
+                total
+                    .checked_add(execution.installed_source_bytes)
+                    .ok_or("Metal-native trial installed-byte ledger overflow")
+            })?;
+    let expert_diagnostics = transaction
+        .experts
+        .iter()
+        .map(|(expert, execution)| {
+            diagnose_layer4_expert(oracle_manifest_path, oracle, *expert, execution)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let routed = transaction.routed;
+    let transaction_tomography = transaction.tomography;
+    drop(bindings);
+    let release_started = Instant::now();
+    if cache_state == "cold" {
+        artifact.invalidate_pages()?;
+    }
+    drop(artifact);
+    pressure_relief();
+    let final_release_ms = release_started.elapsed().as_secs_f64() * 1000.0;
+    safety.checkpoint("pw0111_artifact_released", true)?;
+    let mut final_residual = post_attention
+        .iter()
+        .zip(&routed)
+        .map(|(&residual, &projected)| residual + projected)
+        .collect::<Vec<_>>();
+    round_bf16_values(&mut final_residual);
+    Ok(MetalNativeRoutedLayerTrial {
+        repetition,
+        cache_state,
+        variant: "C4_one_barrier_metal_native",
+        mapping_open_ms,
+        trusted_tensor_bind_ms,
+        initial_invalidation_ms,
+        layer_wall_ms: layer_started.elapsed().as_secs_f64() * 1000.0,
+        final_release_ms,
+        activity: process_activity()?.checked_delta(activity_before)?,
+        installed_source_bytes,
+        sparse_repair_counts: [0, 0, 0],
+        transaction: transaction_tomography,
+        expert_diagnostics,
+        routed_sha256: f32_values_sha256(&routed),
+        final_residual_sha256: f32_values_sha256(&final_residual),
+        routed_parity: numerical_parity(&routed, expected_routed)?,
+        final_residual_parity: numerical_parity(&final_residual, expected_final)?,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn benchmark_layer4_two_barrier_transaction(
     checkpoint_root: &Path,
     model_lock_path: &Path,
@@ -4884,6 +5066,265 @@ pub fn benchmark_layer4_two_barrier_transaction(
         accepted_per_verification: 0,
         unique_experts: TOP_K,
         exactness: "L1 scheduling over unchanged rejected L3 Metal arithmetic candidate",
+        performance_claim: None,
+    };
+    write_create_new(
+        output_path,
+        &serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?,
+    )?;
+    Ok(report)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn benchmark_layer4_metal_native_transaction(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    oracle_manifest_path: &Path,
+    artifact_path: &Path,
+    artifact_manifest_path: &Path,
+    kernel_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<MetalNativeRoutedLayerBenchmarkReport, String> {
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("implementation commit must be a lowercase 40-hex Git object".to_owned());
+    }
+    let EndpointAuthority {
+        fixture,
+        mut safety,
+        checkpoint,
+        verification_sha256,
+        ..
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    validate_slow_endpoint_fixture(&fixture)?;
+    let (_, oracle_manifest_sha256, oracle) =
+        read_layer4_oracle(oracle_manifest_path, &verification_sha256)?;
+    let verified = open_routed_layer_artifact(artifact_path, artifact_manifest_path, true)?;
+    if verified.manifest.revision != REVISION
+        || verified.manifest.checkpoint_verification_sha256 != verification_sha256
+        || verified.manifest.oracle_manifest_sha256 != oracle_manifest_sha256
+        || verified.manifest.layer != 4
+        || verified.manifest.page_bytes != host_page_bytes()?
+        || verified.manifest.selected_experts != oracle.layer4_routes.selected_experts
+        || verified.manifest.tensors.len() != TOP_K * 6
+    {
+        return Err("PW-0111 artifact authority mismatch".to_owned());
+    }
+    verify_artifact_source_authority(&verified.manifest, &checkpoint)?;
+    let artifact_manifest_sha256 = verified.manifest_sha256.clone();
+    let artifact_sha256 = verified.manifest.artifact_sha256.clone();
+    drop(verified);
+    safety.checkpoint("pw0111_authorities_verified", true)?;
+    let runtime = BoundedMetalExpertRuntime::compile(kernel_path)?;
+    runtime.probe_metal_native_primitives()?;
+    safety.checkpoint("pw0111_primitive_probe_complete", true)?;
+
+    let moe_input = read_oracle_capture(
+        oracle_manifest_path,
+        oracle
+            .layer4_captures
+            .get("moe_input")
+            .ok_or("missing layer-4 MoE input capture")?,
+        HIDDEN,
+    )?;
+    let post_attention = read_oracle_capture(
+        oracle_manifest_path,
+        oracle
+            .layer4_captures
+            .get("post_attention")
+            .ok_or("missing layer-4 post-attention capture")?,
+        HIDDEN,
+    )?;
+    let expected_routed = read_oracle_capture(
+        oracle_manifest_path,
+        oracle
+            .layer4_captures
+            .get("routed")
+            .ok_or("missing layer-4 routed capture")?,
+        HIDDEN,
+    )?;
+    let expected_final = read_oracle_capture(
+        oracle_manifest_path,
+        oracle
+            .layer4_captures
+            .get("final")
+            .ok_or("missing layer-4 final capture")?,
+        HIDDEN,
+    )?;
+    let mut route_ledger = EndpointLedger::default();
+    let routing = route_mlp(&checkpoint, 4, &moe_input, 1, &mut route_ledger)?;
+    if routing.selected.len() != 1
+        || routing.weights.len() != 1
+        || routing.selected[0] != oracle.layer4_routes.selected_experts
+    {
+        return Err("PW-0111 route mismatch".to_owned());
+    }
+    let maximum_route_weight_absolute_error = routing.weights[0]
+        .iter()
+        .zip(&oracle.layer4_routes.route_weights)
+        .map(|(actual, expected)| (actual - expected).abs())
+        .fold(0.0_f32, f32::max);
+    if maximum_route_weight_absolute_error > 3.0e-8 {
+        return Err("PW-0111 route-weight mismatch".to_owned());
+    }
+    let weight_by_expert = routing.selected[0]
+        .iter()
+        .copied()
+        .zip(routing.weights[0].iter().copied())
+        .collect::<BTreeMap<_, _>>();
+    let selected_sorted = weight_by_expert.keys().copied().collect::<Vec<_>>();
+    let mut control_trials = Vec::with_capacity(6);
+    let mut candidate_trials = Vec::with_capacity(6);
+    let mut trial_order = Vec::with_capacity(12);
+    let mut warm_prefault_ms = 0.0;
+    let mut warm_prefault_checksum = 0_u64;
+    for &cache_state in &["cold", "warm"] {
+        if cache_state == "warm" {
+            let warm_started = Instant::now();
+            let artifact =
+                open_routed_layer_artifact(artifact_path, artifact_manifest_path, false)?;
+            warm_prefault_checksum = artifact.prefault_pages();
+            drop(artifact);
+            warm_prefault_ms = warm_started.elapsed().as_secs_f64() * 1000.0;
+            safety.checkpoint("pw0111_warm_prefault_complete", true)?;
+        }
+        for repetition in 0_usize..3 {
+            let order = if repetition.is_multiple_of(2) {
+                [0_u8, 1]
+            } else {
+                [1_u8, 0]
+            };
+            for variant in order {
+                if variant == 0 {
+                    let trial = run_layer4_artifact_trial(
+                        repetition,
+                        cache_state,
+                        true,
+                        artifact_path,
+                        artifact_manifest_path,
+                        &runtime,
+                        oracle_manifest_path,
+                        &oracle,
+                        &selected_sorted,
+                        &weight_by_expert,
+                        &moe_input,
+                        &post_attention,
+                        &expected_routed,
+                        &expected_final,
+                    )?;
+                    if trial.installed_source_bytes != 201_375_744
+                        || trial.sparse_repair_counts != [6, 4, 3]
+                        || trial.expert_diagnostics.len() != TOP_K
+                        || trial.expert_tomography.len() != TOP_K
+                    {
+                        return Err("PW-0111 C2 accounting mismatch".to_owned());
+                    }
+                    control_trials.push(trial);
+                    trial_order.push(format!(
+                        "{cache_state}:repetition={repetition}:C2_artifact_no_copy"
+                    ));
+                    safety.checkpoint("pw0111_control_released", true)?;
+                } else {
+                    let trial = run_layer4_metal_native_trial(
+                        repetition,
+                        cache_state,
+                        artifact_path,
+                        artifact_manifest_path,
+                        &runtime,
+                        oracle_manifest_path,
+                        &oracle,
+                        &selected_sorted,
+                        &weight_by_expert,
+                        &moe_input,
+                        &post_attention,
+                        &expected_routed,
+                        &expected_final,
+                        &mut safety,
+                    )?;
+                    let transaction = &trial.transaction;
+                    if trial.installed_source_bytes != 201_375_744
+                        || trial.sparse_repair_counts != [0, 0, 0]
+                        || trial.expert_diagnostics.len() != TOP_K
+                        || transaction.command_buffers != 1
+                        || transaction.encoders != 6
+                        || transaction.commits != 1
+                        || transaction.waits != 1
+                        || transaction.projection_dispatches != 24
+                        || transaction.kernel_dispatches != 28
+                        || transaction.final_residual_readbacks != 1
+                        || transaction.error_flags != 0
+                        || transaction.scratch_high_water_bytes >= 1 << 30
+                        || transaction.total_metal_resource_bytes
+                            > transaction.recommended_max_working_set_size
+                    {
+                        return Err("PW-0111 C4 accounting mismatch".to_owned());
+                    }
+                    candidate_trials.push(trial);
+                    trial_order.push(format!(
+                        "{cache_state}:repetition={repetition}:C4_one_barrier_metal_native"
+                    ));
+                }
+            }
+        }
+    }
+    let first_candidate_diagnostics = serde_json::to_vec(&candidate_trials[0].expert_diagnostics)
+        .map_err(|error| error.to_string())?;
+    let first_candidate_routed = candidate_trials[0].routed_sha256.clone();
+    let first_candidate_final = candidate_trials[0].final_residual_sha256.clone();
+    if candidate_trials.iter().any(|trial| {
+        trial.routed_sha256 != first_candidate_routed
+            || trial.final_residual_sha256 != first_candidate_final
+            || serde_json::to_vec(&trial.expert_diagnostics)
+                .map(|bytes| bytes != first_candidate_diagnostics)
+                .unwrap_or(true)
+    }) {
+        return Err("PW-0111 candidate determinism mismatch".to_owned());
+    }
+    checkpoint.release_file_pages()?;
+    pressure_relief();
+    safety.checkpoint("pw0111_final_release", true)?;
+    let report = MetalNativeRoutedLayerBenchmarkReport {
+        schema_version: 1,
+        semantic: "mimo_v2_5_layer4_one_barrier_metal_native_l3_benchmark",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        checkpoint_verification_sha256: verification_sha256,
+        oracle_manifest_sha256,
+        artifact_manifest_sha256,
+        artifact_sha256,
+        kernel_sha256: runtime.kernel_sha256.clone(),
+        kernel_compile_ms: runtime.compile_ms,
+        metal_device: runtime.device_name.clone(),
+        primitive_probe_passed: true,
+        selected_experts: routing.selected[0].clone(),
+        route_weights: routing.weights[0].clone(),
+        maximum_route_weight_absolute_error,
+        warm_prefault_ms,
+        warm_prefault_checksum,
+        control_trials,
+        candidate_trials,
+        trial_order,
+        safety_snapshots: safety.snapshots,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        accepted_per_verification: 0,
+        unique_experts: TOP_K,
+        exactness: "L1 no-copy storage; named L3 Metal-native arithmetic without sparse repair",
         performance_claim: None,
     };
     write_create_new(

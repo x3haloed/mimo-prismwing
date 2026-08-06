@@ -4,7 +4,7 @@
 - Disposition: pending
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Contract commit: pending
+- Contract commit: `69f9cd51b21d069a6bc827b92c3f2324811d1906`
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; checkpoint verification
   `9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`;

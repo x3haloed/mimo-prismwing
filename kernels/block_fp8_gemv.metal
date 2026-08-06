@@ -14,6 +14,126 @@ inline float decode_f8_e4m3fn(uchar bits) {
     return sign * exp2(float(exponent - 7)) * (1.0f + float(mantissa) / 8.0f);
 }
 
+inline float pw_round_bf16(float value) {
+    const uint bits = as_type<uint>(value);
+    if ((bits & 0x7f800000u) == 0x7f800000u) {
+        if ((bits & 0x007fffffu) == 0u) {
+            return value;
+        }
+        return as_type<float>((uint(ushort(bits >> 16) | 0x0040u)) << 16);
+    }
+    const uint bias = 0x7fffu + ((bits >> 16) & 1u);
+    return as_type<float>((bits + bias) & 0xffff0000u);
+}
+
+kernel void dynamic_fp8_dequantized_group128(
+    device const float *input [[buffer(0)]],
+    device float *output [[buffer(1)]],
+    constant float *decode_lut [[buffer(2)]],
+    device atomic_uint *error_flags [[buffer(3)]],
+    threadgroup float *maximums [[threadgroup(0)]],
+    uint group [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    if (lanes != 128) {
+        if (lane == 0) {
+            atomic_fetch_or_explicit(error_flags, 1u, memory_order_relaxed);
+        }
+        return;
+    }
+    const uint index = group * 128 + lane;
+    const float value = input[index];
+    if (!isfinite(value)) {
+        atomic_fetch_or_explicit(error_flags, 2u, memory_order_relaxed);
+        maximums[lane] = 0.0f;
+    } else {
+        maximums[lane] = abs(value);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint offset = 64; offset > 0; offset /= 2) {
+        if (lane < offset) {
+            maximums[lane] = max(maximums[lane], maximums[lane + offset]);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    const float scale = max(maximums[0], 1.0e-10f) / 448.0f;
+    const float normalized = clamp(value / scale, -448.0f, 448.0f);
+    if (normalized == 0.0f) {
+        output[index] = as_type<uint>(normalized) >> 31 ? -0.0f : 0.0f;
+        return;
+    }
+    const float magnitude = abs(normalized);
+    uchar best = 0;
+    float distance = INFINITY;
+    for (uint candidate = 0; candidate <= 0x7e; ++candidate) {
+        const float candidate_distance = abs(magnitude - decode_lut[candidate]);
+        if (candidate_distance < distance ||
+            (candidate_distance == distance && (candidate & 1u) == 0u &&
+             (uint(best) & 1u) != 0u)) {
+            best = uchar(candidate);
+            distance = candidate_distance;
+        }
+    }
+    const uchar encoded = best | (signbit(normalized) ? uchar(0x80) : uchar(0));
+    output[index] = decode_lut[encoded] * scale;
+}
+
+kernel void bf16_staged_swiglu(
+    device float *gate [[buffer(0)]],
+    device float *up [[buffer(1)]],
+    device float *hidden [[buffer(2)]],
+    constant uint &count [[buffer(3)]],
+    device atomic_uint *error_flags [[buffer(4)]],
+    uint index [[thread_position_in_grid]]) {
+    if (index >= count) {
+        return;
+    }
+    const float rounded_gate = pw_round_bf16(gate[index]);
+    const float rounded_up = pw_round_bf16(up[index]);
+    const float silu = pw_round_bf16(
+        rounded_gate / (1.0f + exp(-rounded_gate)));
+    const float result = pw_round_bf16(silu * rounded_up);
+    if (!isfinite(rounded_gate) || !isfinite(rounded_up) || !isfinite(result)) {
+        atomic_fetch_or_explicit(error_flags, 4u, memory_order_relaxed);
+    }
+    gate[index] = rounded_gate;
+    up[index] = rounded_up;
+    hidden[index] = result;
+}
+
+struct RoutedReductionShape {
+    uint experts;
+    uint width;
+};
+
+kernel void route_weighted_reduce_bf16(
+    device float *expert_outputs [[buffer(0)]],
+    device const float *route_weights [[buffer(1)]],
+    device float *routed [[buffer(2)]],
+    constant RoutedReductionShape &shape [[buffer(3)]],
+    device atomic_uint *error_flags [[buffer(4)]],
+    uint column [[thread_position_in_grid]]) {
+    if (column >= shape.width) {
+        return;
+    }
+    if (shape.experts != 8) {
+        atomic_fetch_or_explicit(error_flags, 8u, memory_order_relaxed);
+        return;
+    }
+    float sum = 0.0f;
+    for (uint expert = 0; expert < 8; ++expert) {
+        const uint index = expert * shape.width + column;
+        const float rounded = pw_round_bf16(expert_outputs[index]);
+        expert_outputs[index] = rounded;
+        sum += rounded * route_weights[expert];
+    }
+    const float result = pw_round_bf16(sum);
+    if (!isfinite(result)) {
+        atomic_fetch_or_explicit(error_flags, 16u, memory_order_relaxed);
+    }
+    routed[column] = result;
+}
+
 struct GemvShape {
     uint rows;
     uint columns;

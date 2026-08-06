@@ -6,8 +6,8 @@ use super::{
     validate_fp8_views, validate_mapped_fp8, write_create_new,
 };
 use crate::text_endpoint::{
-    ComponentSafetyMonitor, ProcessActivityDelta, SafetySnapshot, component_pytorch_noaux_route,
-    process_activity,
+    ComponentSafetyMonitor, ProcessActivityDelta, SafetyMonitor, SafetySnapshot,
+    component_pytorch_noaux_route, process_activity,
 };
 use foreign_types::ForeignTypeRef;
 use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize};
@@ -22,6 +22,9 @@ const GATE: &str = "model.layers.43.mlp.experts.32.gate_proj.weight";
 const UP: &str = "model.layers.43.mlp.experts.32.up_proj.weight";
 const DOWN: &str = "model.layers.43.mlp.experts.32.down_proj.weight";
 const KERNEL: &str = "block_fp8_gemv_parallel_lut_blocked";
+const DYNAMIC_FP8_KERNEL: &str = "dynamic_fp8_dequantized_group128";
+const STAGED_SWIGLU_KERNEL: &str = "bf16_staged_swiglu";
+const ROUTED_REDUCTION_KERNEL: &str = "route_weighted_reduce_bf16";
 const LANES: u64 = 64;
 const WARMUPS: usize = 5;
 const MEASUREMENTS: usize = 30;
@@ -35,10 +38,20 @@ struct ProjectionShape {
     block_columns: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct RoutedReductionShape {
+    experts: u32,
+    width: u32,
+}
+
 pub(crate) struct BoundedMetalExpertRuntime {
     device: metal::Device,
     queue: metal::CommandQueue,
     pipeline: metal::ComputePipelineState,
+    dynamic_fp8_pipeline: metal::ComputePipelineState,
+    staged_swiglu_pipeline: metal::ComputePipelineState,
+    routed_reduction_pipeline: metal::ComputePipelineState,
     lut: Vec<f32>,
     pub(crate) compile_ms: f64,
     pub(crate) kernel_sha256: String,
@@ -101,6 +114,38 @@ pub struct RoutedTransactionTomography {
 pub(crate) struct RoutedTransactionOutput {
     pub(crate) experts: Vec<(u32, BoundedMetalExpertOutput)>,
     pub(crate) tomography: RoutedTransactionTomography,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetalNativeRoutedLayerTomography {
+    pub layer: usize,
+    pub source_buffer_bind_ms: f64,
+    pub scratch_allocation_ms: f64,
+    pub command_encode_ms: f64,
+    pub commit_call_ms: f64,
+    pub synchronous_wait_ms: f64,
+    pub gpu_interval_ms: f64,
+    pub diagnostic_and_final_readback_ms: f64,
+    pub explicit_release_ms: f64,
+    pub command_buffers: usize,
+    pub encoders: usize,
+    pub commits: usize,
+    pub waits: usize,
+    pub projection_dispatches: usize,
+    pub kernel_dispatches: usize,
+    pub final_residual_readbacks: usize,
+    pub scratch_high_water_bytes: u64,
+    pub total_metal_resource_bytes: u64,
+    pub recommended_max_working_set_size: u64,
+    pub error_flags: u32,
+    pub wall_ms: f64,
+    pub activity: ProcessActivityDelta,
+}
+
+pub(crate) struct MetalNativeRoutedLayerOutput {
+    pub(crate) routed: Vec<f32>,
+    pub(crate) experts: Vec<(u32, BoundedMetalExpertOutput)>,
+    pub(crate) tomography: MetalNativeRoutedLayerTomography,
 }
 
 fn validate_no_copy_region(
@@ -205,12 +250,18 @@ impl BoundedMetalExpertRuntime {
         let library = device
             .new_library_with_source(&kernel_source, &options)
             .map_err(|error| format!("Metal compilation failed: {error}"))?;
-        let function = library
-            .get_function(KERNEL, None)
-            .map_err(|error| format!("Metal kernel lookup failed: {error}"))?;
-        let pipeline = device
-            .new_compute_pipeline_state_with_function(&function)
-            .map_err(|error| format!("Metal pipeline creation failed: {error}"))?;
+        let make_pipeline = |name: &str| -> Result<metal::ComputePipelineState, String> {
+            let function = library
+                .get_function(name, None)
+                .map_err(|error| format!("Metal kernel {name} lookup failed: {error}"))?;
+            device
+                .new_compute_pipeline_state_with_function(&function)
+                .map_err(|error| format!("Metal pipeline {name} creation failed: {error}"))
+        };
+        let pipeline = make_pipeline(KERNEL)?;
+        let dynamic_fp8_pipeline = make_pipeline(DYNAMIC_FP8_KERNEL)?;
+        let staged_swiglu_pipeline = make_pipeline(STAGED_SWIGLU_KERNEL)?;
+        let routed_reduction_pipeline = make_pipeline(ROUTED_REDUCTION_KERNEL)?;
         let compile_ms = compile_started.elapsed().as_secs_f64() * 1000.0;
         if pipeline.max_total_threads_per_threadgroup() < LANES {
             return Err("Metal pipeline cannot dispatch 64 lanes".to_owned());
@@ -223,10 +274,718 @@ impl BoundedMetalExpertRuntime {
             device,
             queue,
             pipeline,
+            dynamic_fp8_pipeline,
+            staged_swiglu_pipeline,
+            routed_reduction_pipeline,
             lut,
             compile_ms,
             kernel_sha256,
             device_name,
+        })
+    }
+
+    pub(crate) fn probe_metal_native_primitives(&self) -> Result<(), String> {
+        const WIDTH: usize = 256;
+        const EXPERTS: usize = 8;
+        let input = (0..WIDTH)
+            .map(|index| ((index % 37) as f32 - 18.0) / 7.0)
+            .collect::<Vec<_>>();
+        let gate = (0..EXPERTS * WIDTH)
+            .map(|index| ((index % 29) as f32 - 14.0) / 9.0)
+            .collect::<Vec<_>>();
+        let up = (0..EXPERTS * WIDTH)
+            .map(|index| ((index % 31) as f32 - 15.0) / 11.0)
+            .collect::<Vec<_>>();
+        let route_weights = [0.24_f32, 0.19, 0.16, 0.13, 0.10, 0.08, 0.06, 0.04];
+        let expected_input = dynamic_fp8_dequantized(&input)?;
+        let mut expected_gate = gate.clone();
+        let mut expected_up = up.clone();
+        round_bf16_values(&mut expected_gate);
+        round_bf16_values(&mut expected_up);
+        let expected_hidden = expected_gate
+            .iter()
+            .zip(&expected_up)
+            .map(|(&gate, &up)| staged_swiglu(gate, up))
+            .collect::<Vec<_>>();
+        let expected_staged_hidden = dynamic_fp8_dequantized(&expected_hidden)?;
+        let expected_routed = (0..WIDTH)
+            .map(|column| {
+                let sum = (0..EXPERTS)
+                    .map(|expert| {
+                        expected_staged_hidden[expert * WIDTH + column] * route_weights[expert]
+                    })
+                    .sum();
+                round_bf16(sum)
+            })
+            .collect::<Vec<_>>();
+
+        let shared = MTLResourceOptions::StorageModeShared;
+        let input_buffer = self.device.new_buffer_with_data(
+            input.as_ptr().cast(),
+            std::mem::size_of_val(input.as_slice()) as u64,
+            shared,
+        );
+        let staged_input_buffer = self.device.new_buffer((WIDTH * 4) as u64, shared);
+        let gate_buffer = self.device.new_buffer_with_data(
+            gate.as_ptr().cast(),
+            std::mem::size_of_val(gate.as_slice()) as u64,
+            shared,
+        );
+        let up_buffer = self.device.new_buffer_with_data(
+            up.as_ptr().cast(),
+            std::mem::size_of_val(up.as_slice()) as u64,
+            shared,
+        );
+        let hidden_buffer = self.device.new_buffer((EXPERTS * WIDTH * 4) as u64, shared);
+        let staged_hidden_buffer = self.device.new_buffer((EXPERTS * WIDTH * 4) as u64, shared);
+        let routed_buffer = self.device.new_buffer((WIDTH * 4) as u64, shared);
+        let route_buffer = self.device.new_buffer_with_data(
+            route_weights.as_ptr().cast(),
+            std::mem::size_of_val(route_weights.as_slice()) as u64,
+            shared,
+        );
+        let lut_buffer = self.device.new_buffer_with_data(
+            self.lut.as_ptr().cast(),
+            std::mem::size_of_val(self.lut.as_slice()) as u64,
+            shared,
+        );
+        let zero = 0_u32;
+        let error_buffer = self.device.new_buffer_with_data(
+            (&zero as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        );
+        let count = (EXPERTS * WIDTH) as u32;
+        let count_buffer = self.device.new_buffer_with_data(
+            (&count as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        );
+        let reduction_shape = RoutedReductionShape {
+            experts: EXPERTS as u32,
+            width: WIDTH as u32,
+        };
+        let reduction_shape_buffer = self.device.new_buffer_with_data(
+            (&reduction_shape as *const RoutedReductionShape).cast(),
+            std::mem::size_of::<RoutedReductionShape>() as u64,
+            shared,
+        );
+
+        let command = self.queue.new_command_buffer();
+        let dynamic_input_encoder = command.new_compute_command_encoder();
+        dynamic_input_encoder.set_compute_pipeline_state(&self.dynamic_fp8_pipeline);
+        dynamic_input_encoder.set_buffer(0, Some(&input_buffer), 0);
+        dynamic_input_encoder.set_buffer(1, Some(&staged_input_buffer), 0);
+        dynamic_input_encoder.set_buffer(2, Some(&lut_buffer), 0);
+        dynamic_input_encoder.set_buffer(3, Some(&error_buffer), 0);
+        dynamic_input_encoder.set_threadgroup_memory_length(0, 128 * 4);
+        dynamic_input_encoder.dispatch_thread_groups(
+            MTLSize {
+                width: (WIDTH / 128) as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 128,
+                height: 1,
+                depth: 1,
+            },
+        );
+        dynamic_input_encoder.end_encoding();
+
+        let swiglu_encoder = command.new_compute_command_encoder();
+        swiglu_encoder.set_compute_pipeline_state(&self.staged_swiglu_pipeline);
+        swiglu_encoder.set_buffer(0, Some(&gate_buffer), 0);
+        swiglu_encoder.set_buffer(1, Some(&up_buffer), 0);
+        swiglu_encoder.set_buffer(2, Some(&hidden_buffer), 0);
+        swiglu_encoder.set_buffer(3, Some(&count_buffer), 0);
+        swiglu_encoder.set_buffer(4, Some(&error_buffer), 0);
+        swiglu_encoder.dispatch_threads(
+            MTLSize {
+                width: count as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        swiglu_encoder.end_encoding();
+
+        let dynamic_hidden_encoder = command.new_compute_command_encoder();
+        dynamic_hidden_encoder.set_compute_pipeline_state(&self.dynamic_fp8_pipeline);
+        dynamic_hidden_encoder.set_buffer(0, Some(&hidden_buffer), 0);
+        dynamic_hidden_encoder.set_buffer(1, Some(&staged_hidden_buffer), 0);
+        dynamic_hidden_encoder.set_buffer(2, Some(&lut_buffer), 0);
+        dynamic_hidden_encoder.set_buffer(3, Some(&error_buffer), 0);
+        dynamic_hidden_encoder.set_threadgroup_memory_length(0, 128 * 4);
+        dynamic_hidden_encoder.dispatch_thread_groups(
+            MTLSize {
+                width: (EXPERTS * WIDTH / 128) as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 128,
+                height: 1,
+                depth: 1,
+            },
+        );
+        dynamic_hidden_encoder.end_encoding();
+
+        let reduction_encoder = command.new_compute_command_encoder();
+        reduction_encoder.set_compute_pipeline_state(&self.routed_reduction_pipeline);
+        reduction_encoder.set_buffer(0, Some(&staged_hidden_buffer), 0);
+        reduction_encoder.set_buffer(1, Some(&route_buffer), 0);
+        reduction_encoder.set_buffer(2, Some(&routed_buffer), 0);
+        reduction_encoder.set_buffer(3, Some(&reduction_shape_buffer), 0);
+        reduction_encoder.set_buffer(4, Some(&error_buffer), 0);
+        reduction_encoder.dispatch_threads(
+            MTLSize {
+                width: WIDTH as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        reduction_encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+        if command.status() != MTLCommandBufferStatus::Completed {
+            return Err(format!(
+                "Metal-native primitive probe failed: {:?}",
+                command.status()
+            ));
+        }
+        // SAFETY: the one command has completed all shared-buffer writes.
+        let error = unsafe { *error_buffer.contents().cast::<u32>() };
+        if error != 0 {
+            return Err(format!(
+                "Metal-native primitive probe error flags {error:#x}"
+            ));
+        }
+        let read = |buffer: &metal::BufferRef, count: usize| {
+            // SAFETY: completion precedes each exactly count-long shared read.
+            unsafe { std::slice::from_raw_parts(buffer.contents().cast::<f32>(), count) }
+        };
+        let actual_input = read(&staged_input_buffer, WIDTH);
+        let actual_gate = read(&gate_buffer, EXPERTS * WIDTH);
+        let actual_up = read(&up_buffer, EXPERTS * WIDTH);
+        let actual_hidden = read(&hidden_buffer, EXPERTS * WIDTH);
+        let actual_staged_hidden = read(&staged_hidden_buffer, EXPERTS * WIDTH);
+        let actual_routed = read(&routed_buffer, WIDTH);
+        for (stage, actual, expected) in [
+            ("dynamic_input", actual_input, expected_input.as_slice()),
+            ("gate_bf16", actual_gate, expected_gate.as_slice()),
+            ("up_bf16", actual_up, expected_up.as_slice()),
+            ("swiglu", actual_hidden, expected_hidden.as_slice()),
+        ] {
+            if let Some((index, (candidate, reference))) = actual
+                .iter()
+                .zip(expected)
+                .enumerate()
+                .find(|(_, (candidate, reference))| candidate.to_bits() != reference.to_bits())
+            {
+                return Err(format!(
+                    "Metal-native {stage} mismatch at {index}: actual={:#010x}, expected={:#010x}",
+                    candidate.to_bits(),
+                    reference.to_bits(),
+                ));
+            }
+        }
+        for (stage, actual, expected) in [
+            (
+                "dynamic_hidden",
+                actual_staged_hidden,
+                expected_staged_hidden.as_slice(),
+            ),
+            ("routed_reduce", actual_routed, expected_routed.as_slice()),
+        ] {
+            let squared_error = actual
+                .iter()
+                .zip(expected)
+                .map(|(&candidate, &reference)| f64::from(candidate - reference).powi(2))
+                .sum::<f64>();
+            let squared_reference = expected
+                .iter()
+                .map(|&reference| f64::from(reference).powi(2))
+                .sum::<f64>();
+            let relative_l2 = (squared_error / squared_reference.max(f64::MIN_POSITIVE)).sqrt();
+            let maximum_absolute_error = actual
+                .iter()
+                .zip(expected)
+                .map(|(&candidate, &reference)| (candidate - reference).abs())
+                .fold(0.0_f32, f32::max);
+            if relative_l2 > 0.01 || maximum_absolute_error > 0.01 {
+                return Err(format!(
+                    "Metal-native {stage} exceeds L3 primitive gate: relative_l2={relative_l2}, maximum_absolute_error={maximum_absolute_error}"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn execute_metal_native_routed_layer(
+        &self,
+        layer: usize,
+        experts: &[RoutedNoCopyExpert<'_>],
+        input: &[f32],
+        route_weights: &[f32],
+        safety: &mut SafetyMonitor,
+    ) -> Result<MetalNativeRoutedLayerOutput, String> {
+        const EXPERTS: usize = 8;
+        const HIDDEN: usize = 4096;
+        const INTERMEDIATE: usize = 2048;
+        const MAX_CANDIDATE_BYTES: u64 = 1 << 30;
+        if experts.len() != EXPERTS
+            || route_weights.len() != EXPERTS
+            || input.len() != HIDDEN
+            || input.iter().any(|value| !value.is_finite())
+            || route_weights.iter().any(|value| !value.is_finite())
+            || experts
+                .iter()
+                .map(|expert| expert.expert)
+                .collect::<BTreeSet<_>>()
+                .len()
+                != EXPERTS
+        {
+            return Err("Metal-native routed-layer identity or input mismatch".to_owned());
+        }
+        for expert in experts {
+            if (expert.gate.rows, expert.gate.columns) != (INTERMEDIATE, HIDDEN)
+                || (expert.up.rows, expert.up.columns) != (INTERMEDIATE, HIDDEN)
+                || (expert.down.rows, expert.down.columns) != (HIDDEN, INTERMEDIATE)
+            {
+                return Err("Metal-native routed-layer projection shape mismatch".to_owned());
+            }
+            for (tensor, backing) in [expert.gate, expert.up, expert.down]
+                .into_iter()
+                .zip(expert.backing)
+            {
+                if !validate_no_copy_region(
+                    tensor.weight.bytes.as_ptr() as usize,
+                    tensor.weight.bytes.len(),
+                    backing.weight_region_bytes,
+                    backing.page_bytes,
+                ) || !validate_no_copy_region(
+                    tensor.scale.bytes.as_ptr() as usize,
+                    tensor.scale.bytes.len(),
+                    backing.scale_region_bytes,
+                    backing.page_bytes,
+                ) {
+                    return Err("Metal-native routed-layer no-copy region mismatch".to_owned());
+                }
+            }
+        }
+
+        let wall_started = Instant::now();
+        let activity_before = process_activity()?;
+        let shared = MTLResourceOptions::StorageModeShared;
+        let source_started = Instant::now();
+        let sources = experts
+            .iter()
+            .flat_map(|expert| {
+                [expert.gate, expert.up, expert.down]
+                    .into_iter()
+                    .zip(expert.backing)
+                    .map(|(tensor, backing)| {
+                        (
+                            self.device.new_buffer_with_bytes_no_copy(
+                                tensor.weight.bytes.as_ptr().cast(),
+                                backing.weight_region_bytes as u64,
+                                shared,
+                                None,
+                            ),
+                            self.device.new_buffer_with_bytes_no_copy(
+                                tensor.scale.bytes.as_ptr().cast(),
+                                backing.scale_region_bytes as u64,
+                                shared,
+                                None,
+                            ),
+                            tensor,
+                            backing,
+                        )
+                    })
+            })
+            .collect::<Vec<_>>();
+        let source_buffer_bind_ms = source_started.elapsed().as_secs_f64() * 1000.0;
+
+        let scratch_started = Instant::now();
+        let input_buffer = self.device.new_buffer_with_data(
+            input.as_ptr().cast(),
+            std::mem::size_of_val(input) as u64,
+            shared,
+        );
+        let staged_input_buffer = self.device.new_buffer((HIDDEN * 4) as u64, shared);
+        let gate_buffer = self
+            .device
+            .new_buffer((EXPERTS * INTERMEDIATE * 4) as u64, shared);
+        let up_buffer = self
+            .device
+            .new_buffer((EXPERTS * INTERMEDIATE * 4) as u64, shared);
+        let hidden_buffer = self
+            .device
+            .new_buffer((EXPERTS * INTERMEDIATE * 4) as u64, shared);
+        let staged_hidden_buffer = self
+            .device
+            .new_buffer((EXPERTS * INTERMEDIATE * 4) as u64, shared);
+        let down_buffer = self
+            .device
+            .new_buffer((EXPERTS * HIDDEN * 4) as u64, shared);
+        let routed_buffer = self.device.new_buffer((HIDDEN * 4) as u64, shared);
+        let route_buffer = self.device.new_buffer_with_data(
+            route_weights.as_ptr().cast(),
+            std::mem::size_of_val(route_weights) as u64,
+            shared,
+        );
+        let lut_buffer = self.device.new_buffer_with_data(
+            self.lut.as_ptr().cast(),
+            std::mem::size_of_val(self.lut.as_slice()) as u64,
+            shared,
+        );
+        let zero = 0_u32;
+        let error_buffer = self.device.new_buffer_with_data(
+            (&zero as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        );
+        let gate_up_shape = ProjectionShape {
+            rows: INTERMEDIATE as u32,
+            columns: HIDDEN as u32,
+            block_rows: 128,
+            block_columns: 128,
+        };
+        let down_shape = ProjectionShape {
+            rows: HIDDEN as u32,
+            columns: INTERMEDIATE as u32,
+            block_rows: 128,
+            block_columns: 128,
+        };
+        let gate_up_shape_buffer = self.device.new_buffer_with_data(
+            (&gate_up_shape as *const ProjectionShape).cast(),
+            std::mem::size_of::<ProjectionShape>() as u64,
+            shared,
+        );
+        let down_shape_buffer = self.device.new_buffer_with_data(
+            (&down_shape as *const ProjectionShape).cast(),
+            std::mem::size_of::<ProjectionShape>() as u64,
+            shared,
+        );
+        let swiglu_count = (EXPERTS * INTERMEDIATE) as u32;
+        let swiglu_count_buffer = self.device.new_buffer_with_data(
+            (&swiglu_count as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        );
+        let reduction_shape = RoutedReductionShape {
+            experts: EXPERTS as u32,
+            width: HIDDEN as u32,
+        };
+        let reduction_shape_buffer = self.device.new_buffer_with_data(
+            (&reduction_shape as *const RoutedReductionShape).cast(),
+            std::mem::size_of::<RoutedReductionShape>() as u64,
+            shared,
+        );
+        let scratch_high_water_bytes =
+            ((2 * HIDDEN + 4 * EXPERTS * INTERMEDIATE + EXPERTS * HIDDEN) * 4
+                + route_weights.len() * 4
+                + self.lut.len() * 4
+                + 2 * std::mem::size_of::<ProjectionShape>()
+                + std::mem::size_of::<RoutedReductionShape>()
+                + 2 * std::mem::size_of::<u32>()) as u64;
+        let source_resource_bytes = sources.iter().try_fold(0_u64, |total, source| {
+            total
+                .checked_add(source.3.weight_region_bytes as u64)
+                .and_then(|value| value.checked_add(source.3.scale_region_bytes as u64))
+                .ok_or("Metal-native resource-byte ledger overflow")
+        })?;
+        let total_metal_resource_bytes = source_resource_bytes
+            .checked_add(scratch_high_water_bytes)
+            .ok_or("Metal-native total resource-byte ledger overflow")?;
+        let recommended_max_working_set_size = self.device.recommended_max_working_set_size();
+        if total_metal_resource_bytes >= MAX_CANDIDATE_BYTES
+            || total_metal_resource_bytes > recommended_max_working_set_size
+        {
+            return Err(format!(
+                "Metal-native candidate resource bound failed: {total_metal_resource_bytes} bytes, recommended {recommended_max_working_set_size}"
+            ));
+        }
+        let scratch_allocation_ms = scratch_started.elapsed().as_secs_f64() * 1000.0;
+        safety.checkpoint("pw0111_scratch_allocated", false)?;
+
+        let encode_started = Instant::now();
+        let command = self.queue.new_command_buffer();
+        let dynamic_input_encoder = command.new_compute_command_encoder();
+        dynamic_input_encoder.set_compute_pipeline_state(&self.dynamic_fp8_pipeline);
+        dynamic_input_encoder.set_buffer(0, Some(&input_buffer), 0);
+        dynamic_input_encoder.set_buffer(1, Some(&staged_input_buffer), 0);
+        dynamic_input_encoder.set_buffer(2, Some(&lut_buffer), 0);
+        dynamic_input_encoder.set_buffer(3, Some(&error_buffer), 0);
+        dynamic_input_encoder.set_threadgroup_memory_length(0, 128 * 4);
+        dynamic_input_encoder.dispatch_thread_groups(
+            MTLSize {
+                width: (HIDDEN / 128) as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 128,
+                height: 1,
+                depth: 1,
+            },
+        );
+        dynamic_input_encoder.end_encoding();
+
+        let gate_up_encoder = command.new_compute_command_encoder();
+        gate_up_encoder.set_compute_pipeline_state(&self.pipeline);
+        for expert in 0..EXPERTS {
+            for projection in 0..2 {
+                let source = &sources[expert * 3 + projection];
+                gate_up_encoder.set_buffer(0, Some(&source.0), 0);
+                gate_up_encoder.set_buffer(1, Some(&source.1), 0);
+                gate_up_encoder.set_buffer(2, Some(&staged_input_buffer), 0);
+                gate_up_encoder.set_buffer(
+                    3,
+                    Some(if projection == 0 {
+                        &gate_buffer
+                    } else {
+                        &up_buffer
+                    }),
+                    (expert * INTERMEDIATE * 4) as u64,
+                );
+                gate_up_encoder.set_buffer(4, Some(&gate_up_shape_buffer), 0);
+                gate_up_encoder.set_buffer(5, Some(&lut_buffer), 0);
+                gate_up_encoder.set_threadgroup_memory_length(0, LANES * 4);
+                gate_up_encoder.dispatch_thread_groups(
+                    MTLSize {
+                        width: INTERMEDIATE as u64,
+                        height: 1,
+                        depth: 1,
+                    },
+                    MTLSize {
+                        width: LANES,
+                        height: 1,
+                        depth: 1,
+                    },
+                );
+            }
+        }
+        gate_up_encoder.end_encoding();
+
+        let swiglu_encoder = command.new_compute_command_encoder();
+        swiglu_encoder.set_compute_pipeline_state(&self.staged_swiglu_pipeline);
+        swiglu_encoder.set_buffer(0, Some(&gate_buffer), 0);
+        swiglu_encoder.set_buffer(1, Some(&up_buffer), 0);
+        swiglu_encoder.set_buffer(2, Some(&hidden_buffer), 0);
+        swiglu_encoder.set_buffer(3, Some(&swiglu_count_buffer), 0);
+        swiglu_encoder.set_buffer(4, Some(&error_buffer), 0);
+        swiglu_encoder.dispatch_threads(
+            MTLSize {
+                width: swiglu_count as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        swiglu_encoder.end_encoding();
+
+        let dynamic_hidden_encoder = command.new_compute_command_encoder();
+        dynamic_hidden_encoder.set_compute_pipeline_state(&self.dynamic_fp8_pipeline);
+        dynamic_hidden_encoder.set_buffer(0, Some(&hidden_buffer), 0);
+        dynamic_hidden_encoder.set_buffer(1, Some(&staged_hidden_buffer), 0);
+        dynamic_hidden_encoder.set_buffer(2, Some(&lut_buffer), 0);
+        dynamic_hidden_encoder.set_buffer(3, Some(&error_buffer), 0);
+        dynamic_hidden_encoder.set_threadgroup_memory_length(0, 128 * 4);
+        dynamic_hidden_encoder.dispatch_thread_groups(
+            MTLSize {
+                width: (EXPERTS * INTERMEDIATE / 128) as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 128,
+                height: 1,
+                depth: 1,
+            },
+        );
+        dynamic_hidden_encoder.end_encoding();
+
+        let down_encoder = command.new_compute_command_encoder();
+        down_encoder.set_compute_pipeline_state(&self.pipeline);
+        for expert in 0..EXPERTS {
+            let source = &sources[expert * 3 + 2];
+            down_encoder.set_buffer(0, Some(&source.0), 0);
+            down_encoder.set_buffer(1, Some(&source.1), 0);
+            down_encoder.set_buffer(
+                2,
+                Some(&staged_hidden_buffer),
+                (expert * INTERMEDIATE * 4) as u64,
+            );
+            down_encoder.set_buffer(3, Some(&down_buffer), (expert * HIDDEN * 4) as u64);
+            down_encoder.set_buffer(4, Some(&down_shape_buffer), 0);
+            down_encoder.set_buffer(5, Some(&lut_buffer), 0);
+            down_encoder.set_threadgroup_memory_length(0, LANES * 4);
+            down_encoder.dispatch_thread_groups(
+                MTLSize {
+                    width: HIDDEN as u64,
+                    height: 1,
+                    depth: 1,
+                },
+                MTLSize {
+                    width: LANES,
+                    height: 1,
+                    depth: 1,
+                },
+            );
+        }
+        down_encoder.end_encoding();
+
+        let reduction_encoder = command.new_compute_command_encoder();
+        reduction_encoder.set_compute_pipeline_state(&self.routed_reduction_pipeline);
+        reduction_encoder.set_buffer(0, Some(&down_buffer), 0);
+        reduction_encoder.set_buffer(1, Some(&route_buffer), 0);
+        reduction_encoder.set_buffer(2, Some(&routed_buffer), 0);
+        reduction_encoder.set_buffer(3, Some(&reduction_shape_buffer), 0);
+        reduction_encoder.set_buffer(4, Some(&error_buffer), 0);
+        reduction_encoder.dispatch_threads(
+            MTLSize {
+                width: HIDDEN as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        reduction_encoder.end_encoding();
+        let command_encode_ms = encode_started.elapsed().as_secs_f64() * 1000.0;
+        safety.checkpoint("pw0111_precommit", false)?;
+        let commit_started = Instant::now();
+        command.commit();
+        let commit_call_ms = commit_started.elapsed().as_secs_f64() * 1000.0;
+        let wait_started = Instant::now();
+        command.wait_until_completed();
+        let synchronous_wait_ms = wait_started.elapsed().as_secs_f64() * 1000.0;
+        let gpu_interval_ms = validate_phase_completion(
+            "metal_native_routed_layer",
+            command.status(),
+            completed_gpu_interval_ms(command),
+            synchronous_wait_ms,
+        )?;
+        safety.checkpoint("pw0111_command_completed", false)?;
+        // SAFETY: the one command has completed all shared-buffer writes.
+        let error_flags = unsafe { *error_buffer.contents().cast::<u32>() };
+        if error_flags != 0 {
+            return Err(format!(
+                "Metal-native routed layer error flags {error_flags:#x}"
+            ));
+        }
+
+        let readback_started = Instant::now();
+        let read = |buffer: &metal::BufferRef, count: usize| {
+            // SAFETY: completion precedes each exactly count-long shared read.
+            unsafe { std::slice::from_raw_parts(buffer.contents().cast::<f32>(), count).to_vec() }
+        };
+        let gate = read(&gate_buffer, EXPERTS * INTERMEDIATE);
+        let up = read(&up_buffer, EXPERTS * INTERMEDIATE);
+        let hidden = read(&hidden_buffer, EXPERTS * INTERMEDIATE);
+        let down = read(&down_buffer, EXPERTS * HIDDEN);
+        let routed = read(&routed_buffer, HIDDEN);
+        let diagnostic_and_final_readback_ms = readback_started.elapsed().as_secs_f64() * 1000.0;
+        safety.checkpoint("pw0111_readback_complete", false)?;
+        if routed.iter().any(|value| !value.is_finite()) {
+            return Err("Metal-native routed residual is non-finite".to_owned());
+        }
+        let mut outputs = Vec::with_capacity(EXPERTS);
+        for (index, expert) in experts.iter().enumerate() {
+            let gate = gate[index * INTERMEDIATE..(index + 1) * INTERMEDIATE].to_vec();
+            let up = up[index * INTERMEDIATE..(index + 1) * INTERMEDIATE].to_vec();
+            let swiglu = hidden[index * INTERMEDIATE..(index + 1) * INTERMEDIATE].to_vec();
+            let down = down[index * HIDDEN..(index + 1) * HIDDEN].to_vec();
+            let installed_source_bytes =
+                [expert.gate, expert.up, expert.down]
+                    .iter()
+                    .try_fold(0_u64, |total, tensor| {
+                        total
+                            .checked_add(tensor.weight.metadata.data_bytes)
+                            .and_then(|value| value.checked_add(tensor.scale.metadata.data_bytes))
+                            .ok_or("Metal-native installed-byte ledger overflow")
+                    })?;
+            outputs.push((
+                expert.expert,
+                BoundedMetalExpertOutput {
+                    gate: gate.clone(),
+                    up: up.clone(),
+                    swiglu,
+                    down: down.clone(),
+                    gate_pre_round: gate,
+                    up_pre_round: up,
+                    down_pre_round: down,
+                    sparse_repair_counts: [0, 0, 0],
+                    installed_source_bytes,
+                    sparse_decoded_weight_bytes: 0,
+                    tomography: None,
+                },
+            ));
+        }
+        let release_started = Instant::now();
+        drop(sources);
+        drop(input_buffer);
+        drop(staged_input_buffer);
+        drop(gate_buffer);
+        drop(up_buffer);
+        drop(hidden_buffer);
+        drop(staged_hidden_buffer);
+        drop(down_buffer);
+        drop(routed_buffer);
+        drop(route_buffer);
+        drop(lut_buffer);
+        drop(error_buffer);
+        drop(gate_up_shape_buffer);
+        drop(down_shape_buffer);
+        drop(swiglu_count_buffer);
+        drop(reduction_shape_buffer);
+        let explicit_release_ms = release_started.elapsed().as_secs_f64() * 1000.0;
+        safety.checkpoint("pw0111_buffers_released", true)?;
+        Ok(MetalNativeRoutedLayerOutput {
+            routed,
+            experts: outputs,
+            tomography: MetalNativeRoutedLayerTomography {
+                layer,
+                source_buffer_bind_ms,
+                scratch_allocation_ms,
+                command_encode_ms,
+                commit_call_ms,
+                synchronous_wait_ms,
+                gpu_interval_ms,
+                diagnostic_and_final_readback_ms,
+                explicit_release_ms,
+                command_buffers: 1,
+                encoders: 6,
+                commits: 1,
+                waits: 1,
+                projection_dispatches: 24,
+                kernel_dispatches: 28,
+                final_residual_readbacks: 1,
+                scratch_high_water_bytes,
+                total_metal_resource_bytes,
+                recommended_max_working_set_size,
+                error_flags,
+                wall_ms: wall_started.elapsed().as_secs_f64() * 1000.0,
+                activity: process_activity()?.checked_delta(activity_before)?,
+            },
         })
     }
 
@@ -1988,6 +2747,15 @@ pub fn run_bounded_metal_routed_row(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metal_native_primitives_match_cpu_reference_in_one_command() {
+        let runtime = BoundedMetalExpertRuntime::compile(Path::new("kernels/block_fp8_gemv.metal"))
+            .expect("compile Metal-native primitive pipelines");
+        runtime
+            .probe_metal_native_primitives()
+            .expect("one-command Metal-native primitive parity");
+    }
 
     #[test]
     fn bf16_rounding_is_ties_to_even() {
