@@ -16,7 +16,7 @@ except ModuleNotFoundError:
     from openrouter_reference import atomic_write_new, canonical_json
 
 
-RAW_SHA256 = "220048acda95f9622d1579db549e891255df3d63ac0da543a018de061c157566"
+RAW_SHA256 = "fb0a1cf0e9dba0d3941a5d9786e4867fe04ea21dcd81469d986928fdaada9232"
 VARIANTS = (
     "C0_copied_global_release",
     "C1_artifact_copied",
@@ -80,7 +80,7 @@ def analyze(path: Path) -> dict:
         report.get("schema_version") != 1
         or report.get("semantic")
         != "mimo_v2_5_layer4_page_stable_copied_no_copy_benchmark"
-        or report.get("commit") != "ec1d2f2da953f37121b0c6c5c5c56d0c1b50c749"
+        or report.get("commit") != "ec1d2f2b42532a3e870218d0b47021a8525a45b6"
         or report.get("artifact_manifest_sha256")
         != "40179385a571a19b135a4740122744ae3d8ea2c97ef265ac20968296e98822b8"
         or report.get("artifact_sha256")
