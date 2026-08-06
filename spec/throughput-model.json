@@ -568,6 +568,26 @@
             "status": "promoted_target_faithful_routed_layer_candidate; warm_cache_single_expert_component; not_endpoint_tps_or_default",
             "provenance": "PW-0097; commit ad6e1fb404d9d832c3abceb6423df3cb529d7c07; two clean processes; dynamic FP8 and BF16 source boundaries; real tensor installation and release included; Gate 8 passed"
         },
+        "pw0098_bounded_metal_one_row_routed_layer": {
+            "layer": 43,
+            "batch_size": 1,
+            "top_k": 8,
+            "unique_experts_U": 8,
+            "wall_median_ms_repeats": [
+                55.901333,
+                55.867917
+            ],
+            "wall_median_ms_repeat_mean": 55.884625,
+            "pw0096_attributed_cpu_routed_layer_ms": 3180.0,
+            "component_speedup_vs_pw0096_attribution": 56.90294960375953,
+            "route_weight_maximum_absolute_error": 0.0,
+            "relative_l2_vs_independent_torch": 0.0009590207726228476,
+            "maximum_absolute_error_vs_independent_torch": 1.1920929e-7,
+            "bf16_equality_fraction": 0.92236328125,
+            "expert_182_bf16_equal_values": 2992,
+            "status": "rejected_correctness_gates_failed; timing_and_memory_gates_passed; not_endpoint_tps_or_default",
+            "provenance": "PW-0098; final safety commit e8a12e69a46b08bcc5780b78c2fd88cfbf892448; verified-checkpoint BF16 oracle; native unsorted routes; bounded serial tensor installation; failure localized to expert 182"
+        },
         "native_simdgroup_matrix_source_fp8_moe_schedule": {
             "candidate_wall_median_ms_repeats": [22.450083, 22.531125],
             "control_wall_median_ms_repeats": [17.107709, 17.089417],

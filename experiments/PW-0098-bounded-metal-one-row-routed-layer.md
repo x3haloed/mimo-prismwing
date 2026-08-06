@@ -1,10 +1,11 @@
 # PW-0098 — Bounded Metal one-row routed layer
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Commit and dirty state: contract precedes implementation and execution
+- Commit and dirty state: contract `9cc629e`; final diagnostic/safety
+  implementation `e8a12e69a46b08bcc5780b78c2fd88cfbf892448`; clean tree
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; checkpoint verification
   `9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`;
@@ -62,8 +63,66 @@ default. A passing result only authorizes complete-token candidate integration.
 
 ## Result
 
-Unexecuted.
+The independent verified-checkpoint oracle is under
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0098/reference-002`.
+Its manifest hashes to
+`5884217fbc804a7a34bc76534b985eb7e6fe90f5e49e27e6328bda8584607cda`
+and its BF16-widened routed output to
+`6e3e3fe76c20b8ebb88ca7bafe212ae4d041cc914083dd3af3d1d64bf6c52779`.
+It completed in 2,237.637 ms, peaked at 369,262,592 resident bytes, retained
+79% free memory, caused no swap growth or throttling, and preserved all four
+protected services.
+
+Two authority defects failed closed before the numerical run. First, the old
+PW-0039 helper returned descending top-k order while the source uses PyTorch
+`topk(sorted=False)`; the existing source-exact bridge repaired the causal
+route order. Second, PW-0037's route weights belonged to its FP16-rounded
+fixture input. PW-0098 applies the target-faithful BF16 boundary, so its
+verified-checkpoint oracle became route-weight authority while PW-0037 remains
+input, selected-set, artifact, and tensor inventory authority. One expert also
+legally split a weight and scale across two artifacts; the final loader
+validates those mapped views jointly. No gate was relaxed.
+
+The final candidate recomputes the exact source unsorted order
+`[182,208,185,3,152,8,63,98]` and reproduces all eight BF16 route weights
+bit-for-bit. Two clean numerical runs report identical correctness diagnostics
+and 55.9013/55.8679 ms medians, a mean of 55.8846 ms and a 56.90x diagnostic
+gain over PW-0096's 3,180 ms routed-layer attribution. The timing threshold
+passes, but correctness does not:
+
+- routed output relative L2 `9.59021e-4` versus the `5e-4` gate;
+- maximum absolute error `1.19209e-7`, well inside the `2e-2` gate;
+- BF16 identity 92.2363% versus the 99% gate;
+- no accepted output file is written.
+
+Per-expert captures localize the failure. Experts 208, 185, 3, 152, 8, 63,
+and 98 match 4,092--4,096 of 4,096 BF16 values. Expert 182 matches only 2,992,
+with maximum absolute error `4.76837e-7`. All six expert-182 weight/scale raw
+tensor ranges were independently compared between selected artifacts and the
+verified SSD checkpoint and are byte-identical, excluding artifact corruption.
+The residual is the 64-lane Metal accumulation crossing source BF16 boundaries
+for that expert.
+
+The final fail-closed artifact is
+`candidate-007/error.txt`, SHA-256
+`1ffa33d7a7f4d2742e142db65f4267e5ee7f9691c7c6666dbad4e140aa30c3c0`.
+It records a 55.9615 ms median, 79% minimum free memory, 253,345,792-byte peak,
+29,509,568-byte post-release footprint, zero swap growth, zero new throttled
+pages, and successful protected-service checks. Thus the rejected path also
+closes Gate 8 after buffer release.
+The updated throughput model hashes to
+`6777a425ee5344ed89e17bfacb901a7ba71572198caba8d2e68a972358b681cb`.
 
 ## Decision
 
-Unexecuted.
+Reject the uncorrected 64-lane source-FP8 Metal routed-row candidate. Its
+performance and bounded-memory mechanism are real, but PW-0097's single-expert
+success does not generalize across expert numerical distributions. Do not
+integrate this path into the complete token or claim its component rate as TPS.
+
+Promote the precise risk frontier instead: expert 182 requires a production-
+bounded BF16 boundary repair or a closer source reduction topology. The next
+experiment should capture gate/up/SwiGLU/down boundaries for that expert,
+identify the minimum uncertain-row set, and test sparse source-exact row
+recomputation while retaining the 100 ms routed-row budget. Preserve the seven
+passing experts as controls.

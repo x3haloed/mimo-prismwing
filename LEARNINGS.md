@@ -1459,3 +1459,15 @@ while retaining at least 78% free memory, peaking below 68 MB RSS, causing no
 swap growth or throttling, and preserving all protected services. Promote the
 bounded source-FP8 Metal executor only as the next routed-layer candidate;
 one expert under warm OS cache is not endpoint TPS or a performance default.
+
+PW-0098 rejects direct generalization of PW-0097's 64-lane Metal reduction to
+a complete routed row. Native source-exact routing is bit-exact and the bounded
+eight-expert path runs in 55.90/55.87 ms—56.90x faster than PW-0096's CPU
+routed-layer attribution—but final BF16 identity is only 92.2363% and relative
+L2 `9.59e-4`. Seven experts individually match at least 4,092/4,096 BF16
+values; expert 182 alone falls to 2,992/4,096 despite all six raw tensor ranges
+matching the verified checkpoint byte-for-byte. The failure is accumulation-
+topology sensitivity at BF16 boundaries, not routing, scatter, storage, or
+memory pressure. The rejected run peaks at 253 MB, returns to 30 MB, retains
+79% free memory, and causes no swap growth or throttling. Localize and repair
+only uncertain expert-182 rows; do not promote the fast path or weaken gates.
