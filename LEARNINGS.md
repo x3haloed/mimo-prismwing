@@ -1243,3 +1243,12 @@ BF16 boundaries. Router and expert differences are downstream. The 230.205-
 second Rust trace peaked at 747 MB RSS, ended at 376 MB, retained at least 82%
 free memory, and caused no swap growth, throttling, or service loss. Gate the
 real row and pinned cascade topology before changing RMSNorm production code.
+
+PW-0079 promotes PyTorch's contiguous-inner F32 cascade for RMS variance. The
+hash-bound 4,096-value row distinguishes it from the prior F64 reduction and
+gates the exact variance and inverse bits. The repaired layer-14 replay makes
+all 21 captures bit-exact, preserves exact expert sets/order, and holds route-
+weight serialization error to `1.70e-8`. It safely peaked at 715 MB RSS,
+returned to 137 MB, retained at least 82% free memory, and caused no swap
+growth, throttling, or service loss. A full-prefix replay can now advance the
+accumulated frontier beyond layer 14; no throughput constant changes.
