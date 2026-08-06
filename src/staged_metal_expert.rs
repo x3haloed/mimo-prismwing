@@ -300,8 +300,10 @@ fn execute_staged_expert(
 ) -> Result<StagedExpertExecution, String> {
     let [gate, up, down] = projections;
     let staged_input = dynamic_fp8_dequantized(input)?;
-    let mut gate_output = metal_project(device, queue, pipeline, lut, gate, &staged_input)?;
-    let mut up_output = metal_project(device, queue, pipeline, lut, up, &staged_input)?;
+    let gate_pre_round = metal_project(device, queue, pipeline, lut, gate, &staged_input)?;
+    let up_pre_round = metal_project(device, queue, pipeline, lut, up, &staged_input)?;
+    let mut gate_output = gate_pre_round.clone();
+    let mut up_output = up_pre_round.clone();
     round_bf16_values(&mut gate_output);
     round_bf16_values(&mut up_output);
     let hidden = gate_output
@@ -310,7 +312,8 @@ fn execute_staged_expert(
         .map(|(&g, &u)| staged_swiglu(g, u))
         .collect::<Vec<_>>();
     let staged_hidden = dynamic_fp8_dequantized(&hidden)?;
-    let mut output = metal_project(device, queue, pipeline, lut, down, &staged_hidden)?;
+    let down_pre_round = metal_project(device, queue, pipeline, lut, down, &staged_hidden)?;
+    let mut output = down_pre_round.clone();
     round_bf16_values(&mut output);
     if output.iter().any(|x| !x.is_finite()) {
         return Err("staged Metal expert produced non-finite output".to_owned());
@@ -320,6 +323,9 @@ fn execute_staged_expert(
         up: up_output,
         hidden,
         down: output,
+        gate_pre_round,
+        up_pre_round,
+        down_pre_round,
     })
 }
 
@@ -328,6 +334,9 @@ struct StagedExpertExecution {
     up: Vec<f32>,
     hidden: Vec<f32>,
     down: Vec<f32>,
+    gate_pre_round: Vec<f32>,
+    up_pre_round: Vec<f32>,
+    down_pre_round: Vec<f32>,
 }
 
 pub fn run_staged_metal_fp8_expert(
@@ -841,7 +850,34 @@ pub fn run_bounded_metal_routed_row(
                 .zip(&expected)
                 .map(|(left, right)| (left - right).abs())
                 .fold(0.0_f32, f32::max);
-            expert_diagnostics.push((*expert, stage, equal, values.len(), maximum));
+            let pre_round = match stage {
+                "gate" => Some(actual.gate_pre_round.as_slice()),
+                "up" => Some(actual.up_pre_round.as_slice()),
+                "down" => Some(actual.down_pre_round.as_slice()),
+                _ => None,
+            };
+            let mismatches = values
+                .iter()
+                .zip(&expected)
+                .enumerate()
+                .filter(|(_, (left, right))| left.to_bits() != right.to_bits())
+                .take(8)
+                .map(|(index, (candidate, oracle))| {
+                    let pre = pre_round.map_or(*candidate, |values| values[index]);
+                    let low = pre.to_bits() & 0xffff;
+                    let midpoint_distance = low.abs_diff(0x8000);
+                    format!(
+                        "{index}:actual={:#010x},expected={:#010x},pre={:#010x},midpoint_distance={midpoint_distance}",
+                        candidate.to_bits(),
+                        oracle.to_bits(),
+                        pre.to_bits()
+                    )
+                })
+                .collect::<Vec<_>>();
+            expert_diagnostics.push(format!(
+                "expert={expert},stage={stage},equal={equal}/{},max={maximum},mismatches={mismatches:?}",
+                values.len()
+            ));
         }
     }
     let mut squared_error = 0.0_f64;
