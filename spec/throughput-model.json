@@ -535,6 +535,16 @@
             "status": "measured_source_exact_walking_slice_not_accepted_tps",
             "provenance": "PW-0092; exact run route traces replayed against verified Safetensors header byte ranges; two clean retained-cache endpoint processes"
         },
+        "pw0096_incremental_token_cost_profile": {
+            "profile_sha256": "7638d5daafd9d4e5ed39f020e7ab2eca166cbd4d4d9613ef045ef29a1c4d2143",
+            "routed_layer_wall_fraction_repeats": [0.9424869214695887, 0.9427459648723802],
+            "expert_source_byte_fraction": 0.5500181390121135,
+            "expert_fp8_expansion_fraction": 0.9567430025445293,
+            "incremental_wall_relative_spread": 0.0005908774060123693,
+            "routed_wall_relative_spread": 0.0008656905302072208,
+            "status": "measured_endpoint_bottleneck_attribution_not_accepted_tps",
+            "provenance": "PW-0096; offline fail-closed profile of immutable PW-0092 run-001/run-002 reports and PW-0092 source-byte constants"
+        },
         "native_simdgroup_matrix_source_fp8_moe_schedule": {
             "candidate_wall_median_ms_repeats": [22.450083, 22.531125],
             "control_wall_median_ms_repeats": [17.107709, 17.089417],

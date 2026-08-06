@@ -1434,3 +1434,15 @@ retains at least 71% memory-pressure headroom, grows swap by less than 0.4 MB,
 and causes no throttling or protected-service loss. Incremental correctness is
 closed for the walking slice; profile and compress the 17.208 GB/1,179-expansion
 one-token embodiment next.
+
+PW-0096 profiles the two immutable PW-0092 endpoint reports without another
+model run. The 158.52/158.61-second retained-cache tokens vary by only 0.059%.
+Routed layers consume 149.40/149.53 seconds, 94.25% of complete token wall;
+full and SWA routed layers both average about 3.18 seconds. Experts are 55.00%
+of the 17.208 GB logical source path but cause 1,128 of 1,179 FP8 matrix
+expansions (95.67%) through 376 executions. Layer zero is about 2.1 seconds and
+the non-layer/LM-head remainder about 7.0 seconds. Promote repeated routed
+expert FP8-to-F32 expansion/execution as the primary embodiment bottleneck.
+Integrate the validated source-FP8 Metal expert path as an explicit candidate
+before spending work on attention or K/V compression; no performance default
+or accepted TPS changes yet.
