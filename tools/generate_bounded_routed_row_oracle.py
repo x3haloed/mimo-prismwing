@@ -68,15 +68,18 @@ def generate(checkpoint_root: Path, verification: Path, manifest_path: Path,
         hidden = (torch.nn.functional.silu(gate) * up).to(torch.bfloat16)
         down = expert_linear(checkpoint, prefix + ".down_proj.weight", hidden)
         routed += down.float() * float(weights_list[slot])
-        expert_bytes = down.float().numpy().astype("<f4", copy=False).tobytes()
-        expert_path = output / f"expert_{expert}.f32"
-        atomic_write_new(expert_path, expert_bytes)
-        expert_outputs[str(expert)] = {
-            "file": expert_path.name,
-            "sha256": sha256(expert_path),
-            "shape": [4096],
-            "dtype": "BF16_widened_F32",
-        }
+        captures = {}
+        for stage, tensor in (("gate", gate), ("up", up), ("swiglu", hidden), ("down", down)):
+            stage_bytes = tensor.float().numpy().astype("<f4", copy=False).tobytes()
+            stage_path = output / f"expert_{expert}_{stage}.f32"
+            atomic_write_new(stage_path, stage_bytes)
+            captures[stage] = {
+                "file": stage_path.name,
+                "sha256": sha256(stage_path),
+                "shape": list(tensor.shape[1:]),
+                "dtype": "BF16_widened_F32",
+            }
+        expert_outputs[str(expert)] = captures
         safety.check(f"expert_{expert}_complete")
     result = routed.to(torch.bfloat16)
     result_bytes = result.float().numpy().astype("<f4", copy=False).tobytes()

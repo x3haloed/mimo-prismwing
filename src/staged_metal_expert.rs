@@ -123,7 +123,7 @@ struct RoutedRowOracleManifest {
     input_sha256: String,
     selected_experts: Vec<u32>,
     route_weights: Vec<f32>,
-    expert_outputs: BTreeMap<String, RoutedRowOracleCapture>,
+    expert_outputs: BTreeMap<String, BTreeMap<String, RoutedRowOracleCapture>>,
     output_sha256: String,
 }
 
@@ -297,7 +297,7 @@ fn execute_staged_expert(
     lut: &[f32],
     projections: [&ValidatedMappedFp8<'_>; 3],
     input: &[f32],
-) -> Result<Vec<f32>, String> {
+) -> Result<StagedExpertExecution, String> {
     let [gate, up, down] = projections;
     let staged_input = dynamic_fp8_dequantized(input)?;
     let mut gate_output = metal_project(device, queue, pipeline, lut, gate, &staged_input)?;
@@ -315,7 +315,20 @@ fn execute_staged_expert(
     if output.iter().any(|x| !x.is_finite()) {
         return Err("staged Metal expert produced non-finite output".to_owned());
     }
-    Ok(output)
+    Ok(StagedExpertExecution {
+        gate: gate_output,
+        up: up_output,
+        hidden,
+        down: output,
+    })
+}
+
+#[allow(dead_code)]
+struct StagedExpertExecution {
+    gate: Vec<f32>,
+    up: Vec<f32>,
+    hidden: Vec<f32>,
+    down: Vec<f32>,
 }
 
 pub fn run_staged_metal_fp8_expert(
@@ -402,7 +415,8 @@ pub fn run_staged_metal_fp8_expert(
             &lut,
             [&gate, &up, &down],
             &input,
-        )?;
+        )?
+        .down;
         Ok((output, start.elapsed().as_secs_f64() * 1000.0))
     };
 
@@ -740,8 +754,9 @@ pub fn run_bounded_metal_routed_row(
             let (gate, up, down) = projections
                 .get(&expert_id)
                 .ok_or_else(|| format!("runtime selected unauthoritative expert {expert_id}"))?;
-            let expert_output =
+            let expert_execution =
                 execute_staged_expert(&device, &queue, &pipeline, &lut, [gate, up, down], &input)?;
+            let expert_output = expert_execution.down;
             for (destination, value) in output.iter_mut().zip(&expert_output) {
                 *destination += *value * route_weight;
             }
@@ -794,6 +809,7 @@ pub fn run_bounded_metal_routed_row(
         let capture = reference_manifest
             .expert_outputs
             .get(&expert.to_string())
+            .and_then(|captures| captures.get("down"))
             .ok_or("missing expert oracle capture")?;
         if capture.shape != [4096]
             || capture.dtype != "BF16_widened_F32"
