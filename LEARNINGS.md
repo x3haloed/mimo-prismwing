@@ -1115,3 +1115,13 @@ that order makes all complete real layer-0 through layer-4 probability corpora
 exact. The first formal BF16 gate failure is downstream at post-attention
 RMSNorm. Gate the true softmax operation order on both failing rows before
 repeating layer 4; routing and expert changes remain unjustified.
+
+PW-0066 promotes the pinned PyTorch ARM softmax order. SLEEF exponentials,
+four-lane accumulation, horizontal reduction, one reciprocal, and
+multiplication reproduce all 101,952 real BF16 probabilities across layers 0,
+1, 2, and 4. Layer 4 is exact again from its post-attention residual through
+final state, with bit-exact routes and weights. A one-value attention-output
+delta and five projection values remain below `0.000977` and disappear at the
+BF16 residual boundary; preserve them as a separate accumulation diagnostic,
+but they do not fail the layer or justify holding the accumulated frontier at
+layer 3. The next cheap discriminator is another frozen full-prefix replay.

@@ -1,10 +1,11 @@
 # PW-0066 — PyTorch ARM softmax operation order
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: contract precedes implementation
+- Commit and dirty state: clean implementation
+  `ab2a9407979e65e7116628ecc2a107953ad25060`
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PyTorch
   `cf30153c4c131c8164ee7798e5022d810682e2cb`; PW-0065 comparison
@@ -37,8 +38,33 @@ tokens zero, not a performance result or hosted-threshold change.
 
 ## Result
 
-Unexecuted.
+Both frozen PW-0065 rows pass bit-exactly at F32 and BF16. All 31 Rust tests,
+42 Python tests, strict Clippy, and the release build pass. A content-addressed
+replay over 101,952 real probability values from layers 0, 1, 2, and 4 reports
+zero BF16 mismatches; its evidence hash is
+`16becf506663acc1dd823ee69e0e5ca44d745288277b5ceb06eef4c3a4b1d516`.
+
+PW-0065 Rust run 002 makes all 25,920 layer-4 probabilities bit-exact, and the
+post-attention residual onward is bit-exact through all router, expert,
+scatter, and final captures. Every selected expert and all 216 route-weight
+F32 values are bit-exact. One attention-output value differs by
+`0.000244140625`, and five projection values differ by at most
+`0.0009765625`; both are far inside their gates and disappear at the BF16
+residual boundary. They are a separate attention-accumulation-order diagnostic,
+not evidence against this softmax repair.
+
+The Rust replay completed in 58.675 seconds, peaked at 720,568,320 bytes,
+retained at least 80% system-free memory, ended at 127,454,848 bytes, grew no
+swap, observed no throttling, and retained every protected service. Rust
+manifest hash:
+`2b1ec903c27241c096b78199930e36e6837f906f3b1e9a413513a9780411c224`.
+Comparison hash:
+`432ac5db9ab02ff5031442424e7a0c72b0f0b9319ce07e952c3d951534f6e759`.
 
 ## Decision
 
-Unexecuted.
+Promote the PyTorch ARM softmax operation order as a correctness repair. It
+removes the first PW-0065 difference and restores exact accumulated layer-4
+state without weakening any gate. The tiny pre-residual attention accumulation
+delta is preserved but does not justify blocking the next full-prefix
+localization replay. No throughput or hosted threshold changes.
