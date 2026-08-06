@@ -961,3 +961,11 @@ Parasail's completions endpoint. Parasail returned HTTP 400 before inference.
 This is reproducible API-boundary evidence, not a behavioral model result. The
 hosted comparison must use the supported chat surface and local native
 multi-token prefill over the frozen checkpoint template.
+
+PW-0052 freezes the first directly usable whole-model comparison for the M2
+endpoint. Pinned Parasail, reasoning disabled, returned `Hello!` with exactly
+20 logprob alternatives at both positions. The request consumed 27 prompt
+tokens, so a single causal batched prefill is the appropriate local mechanism;
+27 serial whole-model walks would add no semantic authority and would be an
+unnecessary storage pass. Hosted capture success establishes the answer key,
+not local parity.

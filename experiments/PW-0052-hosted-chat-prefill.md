@@ -56,16 +56,28 @@ mode.
 
 ## Isolated attribution
 
-Unexecuted.
+The hosted request completed in 0.619 seconds and cost USD 0.00000254. It used
+27 prompt tokens and two completion tokens, with zero reasoning tokens. These
+are external-reference diagnostics, not local performance measurements.
 
 ## End-to-end result
 
-Unexecuted.
+Parasail returned visible text `Hello!` and finish reason `length`. The first
+token `Hello` had logprob -0.0611581; the second token `!` had logprob
+-0.0168504. Both positions contain exactly 20 alternatives. The immutable
+capture verifies offline; its manifest hashes to
+`f9c5dd42a76e0eb87581fa427fe03c69ad32903c5711e5078a002ab7514732ea`.
 
 ## Correctness result
 
-Unexecuted.
+Hosted acquisition passes. Request SHA-256 is
+`50459a8b9d142947c34fbf819fb0e3fb4796cbbfc08a04cf253ad4cc08c70e48`;
+response SHA-256 is
+`e5a8956f3a7985e1ac3d5396c7bc9fe73bc77c6451eb2225c8df7c8973e3212d`.
+Local identical-prefix parity remains unexecuted.
 
 ## Decision
 
-Unexecuted.
+Proceed with native frozen-template tokenization and one batched 27-token
+prefill. No local semantic decision is made from the readable hosted output
+alone.
