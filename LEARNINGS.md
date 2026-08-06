@@ -1301,3 +1301,13 @@ and expert sets remain exact. The 466.678-second safe Rust trace peaked at 750
 MB RSS, returned to 149 MB, retained 82% free memory, and caused no swap
 growth, throttling, or service loss. Freeze the 23-value row and discriminate
 exponential, denominator, and normalization order before changing softmax.
+
+PW-0085 corrects the earlier PW-0066 interpretation of ARM `vaddvq_f32`:
+four accumulated F32 lanes reduce low against high as `(lane0 + lane2) +
+(lane1 + lane3)`, not adjacent pairs. The layer-29 fixture proves all SLEEF
+exponentials were already exact and discriminates the denominators by one ULP.
+The repaired layer replay makes all 21 captures bit-exact, preserves exact
+expert sets/order, and holds route-weight error to `1.93e-8`. It safely peaked
+at 746 MB RSS, returned to 144 MB, retained at least 83% free memory, and
+caused no swap growth, throttling, or service loss. The exact accumulated
+frontier is now through layer 29; run one frozen full-prefix replay next.

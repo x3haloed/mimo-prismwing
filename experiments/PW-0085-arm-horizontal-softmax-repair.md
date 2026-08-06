@@ -1,7 +1,7 @@
 # PW-0085 — ARM horizontal softmax reduction repair
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
 - Commit and dirty state: contract precedes implementation
@@ -38,8 +38,33 @@ correctness experiment and cannot count as TPS or alter any threshold.
 
 ## Result
 
-Unexecuted.
+The hash-bound 23-value fixture proves every SLEEF exponential bit already
+matched PyTorch. It discriminates only the horizontal reduction: adjacent
+pairs produce denominator `0x40c255d5`, while ARM low/high pairs produce
+`0x40c255d4` and all 23 PyTorch F32 and BF16 probability payloads exactly.
+The fixture hash is
+`3fdd3c5f49d5922329621e8eb1df03dff08b4124f66cad9735cb6ee172be6a71`.
+
+Changing the final four-lane reduction to `(lane0 + lane2) + (lane1 + lane3)`
+passes all 37 Rust tests, 42 Python tests, strict Clippy, deterministic fixture
+regeneration, and every prior softmax fixture. The repaired production
+layer-29 replay makes all 21 captures bit-exact, preserves exact expert
+selection/order, and holds route-weight serialization error to
+`1.9330596900957175e-8`.
+
+The Rust replay completed in 465.415 seconds, peaked at 746,192,896 bytes RSS,
+returned to a 144,471,296-byte footprint, retained at least 83% free memory,
+grew no swap, observed no throttling, and kept every protected service
+healthy. Evidence hashes:
+
+- Rust manifest:
+  `e850fbc09014f89dcfe4dbccd0bb9ced40b5f03511770dbe3870aca25f2871ce`
+- Comparison:
+  `716fa337cde3e90de10342f46afafd802d5b78f5b73a2e82e7c90ef9462da5b3`
 
 ## Decision
 
-Unexecuted.
+Promote the ARM low/high horizontal reduction as a correctness repair. It
+removes PW-0084's first actual difference and restores exact layer-29 state
+without weakening any gate. The accumulated exact frontier is ready for a
+full-prefix replay beyond layer 29. No throughput or hosted threshold changes.
