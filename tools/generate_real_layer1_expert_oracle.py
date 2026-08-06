@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
 from pathlib import Path
@@ -15,12 +16,12 @@ import torch
 
 try:
     from tools.generate_real_layer0_bf16_oracle import (
-        PROMPT_IDS, REVISION, VERIFICATION_SHA256, Safety, fp8_linear, write_capture,
+        PROMPT_IDS, REVISION, VERIFICATION_SHA256, Safety, dynamic_input, write_capture,
     )
     from tools.openrouter_reference import atomic_write_new, canonical_json
 except ModuleNotFoundError:
     from generate_real_layer0_bf16_oracle import (
-        PROMPT_IDS, REVISION, VERIFICATION_SHA256, Safety, fp8_linear, write_capture,
+        PROMPT_IDS, REVISION, VERIFICATION_SHA256, Safety, dynamic_input, write_capture,
     )
     from openrouter_reference import atomic_write_new, canonical_json
 
@@ -114,10 +115,18 @@ def load_routing_authority(manifest_path: Path) -> tuple[dict, torch.Tensor, tor
 
 def expert_linear(checkpoint: ShardedCheckpoint, name: str,
                   values: torch.Tensor) -> torch.Tensor:
-    shard = checkpoint.shard(name)
-    if checkpoint.shard(name + "_scale_inv") != shard:
-        raise ValueError(f"{name}: weight and scale shard disagreement")
-    return fp8_linear(shard, name, values)
+    weight = checkpoint.tensor(name).float()
+    scale = checkpoint.tensor(name + "_scale_inv").float()
+    expected = ((weight.shape[0] + 127) // 128, (weight.shape[1] + 127) // 128)
+    if (tuple(scale.shape) != expected or weight.shape[0] % 128
+            or weight.shape[1] % 128):
+        raise ValueError(f"{name}: FP8 layout mismatch")
+    expanded = scale.repeat_interleave(128, 0).repeat_interleave(128, 1)
+    inputs = dynamic_input(values)
+    output = (inputs @ (weight * expanded).T).to(torch.bfloat16)
+    del inputs, weight, scale, expanded
+    gc.collect()
+    return output
 
 
 def generate(checkpoint_root: Path, verification: Path, routing_manifest: Path,
