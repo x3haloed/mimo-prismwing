@@ -1225,3 +1225,12 @@ serialization error to `2.60e-8`. It safely peaked at 754 MB RSS, returned to
 throttling, or service loss. The accumulated exact frontier is ready for a
 full-prefix replay beyond layer 13; this correctness result changes no
 throughput constant.
+
+PW-0077 confirms the accumulated state is bit-exact through layer 13. Layer 14
+is both the first actual divergence and first formal layer-final failure: 396
+BF16 values differ, equality remains 99.6419%, relative L2 is `9.82e-6`, and
+maximum error is `0.0625`. Route weights first exceed their strict gate at
+layer 14; expert sets remain exact through layer 18. The 797.596-second safe
+walk peaked at 3.946 GB RSS in the LM head, ended at 2.681 GB, retained at
+least 82% free memory, and caused no swap growth, throttling, or service loss.
+Localize layer 14 from exact layer 13 rather than changing downstream behavior.
