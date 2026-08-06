@@ -42,6 +42,8 @@ class HostReading:
     process_physical_footprint_bytes: int
     process_peak_resident_bytes: int
     protected_service_pids: dict[str, list[int]]
+    process_disk_bytes_read: int = 0
+    process_disk_bytes_written: int = 0
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,8 @@ class HostSafetySnapshot:
     process_peak_resident_bytes: int
     allocator_pressure_relief_bytes: int
     protected_service_pids: dict[str, list[int]]
+    process_disk_bytes_read: int = 0
+    process_disk_bytes_written: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -173,6 +177,8 @@ class DarwinHostProbe:
             process_physical_footprint_bytes=int(usage.phys_footprint),
             process_peak_resident_bytes=peak,
             protected_service_pids=self._protected_service_pids(protected_services),
+            process_disk_bytes_read=int(usage.diskio_bytesread),
+            process_disk_bytes_written=int(usage.diskio_byteswritten),
         )
 
     def allocator_pressure_relief(self) -> int:
@@ -241,6 +247,8 @@ class HostSafetyMonitor:
             process_peak_resident_bytes=reading.process_peak_resident_bytes,
             allocator_pressure_relief_bytes=relief,
             protected_service_pids=reading.protected_service_pids,
+            process_disk_bytes_read=reading.process_disk_bytes_read,
+            process_disk_bytes_written=reading.process_disk_bytes_written,
         )
         self.snapshots.append(snapshot)
 
