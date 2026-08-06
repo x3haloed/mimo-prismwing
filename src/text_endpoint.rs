@@ -1323,6 +1323,44 @@ fn bf16_linear(
     Ok(output)
 }
 
+fn bf16_last_row_linear(
+    checkpoint: &Checkpoint,
+    weight_name: &str,
+    input: &[f32],
+    columns: usize,
+    output_columns: usize,
+    ledger: &mut EndpointLedger,
+) -> Result<Vec<f32>, String> {
+    if input.len() != columns || columns == 0 {
+        return Err(format!("{weight_name}: BF16 last-row input shape mismatch"));
+    }
+    let output = {
+        let view = checkpoint.tensor(weight_name)?;
+        if view.metadata.dtype != "BF16"
+            || view.metadata.shape != [output_columns as u64, columns as u64]
+        {
+            return Err(format!(
+                "{weight_name}: BF16 last-row weight shape mismatch"
+            ));
+        }
+        ledger.logical_source_bytes = ledger
+            .logical_source_bytes
+            .checked_add(view.metadata.data_bytes)
+            .ok_or("logical byte ledger overflow")?;
+        ledger.bf16_matrices_expanded += 1;
+        let decoded = decode_bf16_tensor(view, output_columns * columns)?;
+        let mut output = Vec::with_capacity(output_columns);
+        for weight_row in decoded.chunks_exact(columns) {
+            output.push(round_bf16(pytorch_bf16_specialized_vector_dot_f32(
+                input, weight_row,
+            )));
+        }
+        output
+    };
+    release_matrix_transients(checkpoint)?;
+    Ok(output)
+}
+
 fn f32_linear(
     checkpoint: &Checkpoint,
     weight_name: &str,
@@ -2216,16 +2254,14 @@ fn decode_step(
     if let Some(captures) = full_captures {
         captures.final_norm = normalized.clone();
     }
-    let logits = bf16_linear(
+    let last_logits = bf16_last_row_linear(
         checkpoint,
         "lm_head.weight",
-        &normalized,
-        rows,
+        &normalized[(rows - 1) * HIDDEN..rows * HIDDEN],
         HIDDEN,
         config.vocab_size,
         ledger,
     )?;
-    let last_logits = logits[(rows - 1) * config.vocab_size..rows * config.vocab_size].to_vec();
     let top = top_logits(&last_logits, 20)?;
     checkpoint.release_file_pages()?;
     safety.checkpoint("lm_head_complete", true)?;
@@ -4309,6 +4345,66 @@ mod tests {
             discriminating["matrix_result_bf16_u16"]
                 .as_u64()
                 .expect("matrix result bits") as u16
+        );
+    }
+
+    #[test]
+    fn pytorch_bf16_lm_head_dot_matches_source_order() {
+        fn bits(value: &Value, name: &str) -> Vec<f32> {
+            value
+                .as_array()
+                .unwrap_or_else(|| panic!("{name} bits"))
+                .iter()
+                .map(|value| {
+                    f32::from_bits(u32::from(value.as_u64().expect("BF16 payload") as u16) << 16)
+                })
+                .collect()
+        }
+
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0090-pytorch-bf16-lm-head-dot.json"
+        ))
+        .expect("valid BF16 LM-head dot fixture");
+        assert_eq!(
+            fixture["semantic"],
+            "pytorch_aarch64_bf16_lm_head_specialized_dot"
+        );
+        let input = bits(&fixture["input_bf16_u16"], "input");
+        let weight = bits(&fixture["weight_bf16_u16"], "weight");
+        assert_eq!(input.len(), HIDDEN);
+        assert_eq!(weight.len(), HIDDEN);
+        let specialized = pytorch_bf16_specialized_vector_dot_f32(&input, &weight);
+        let generic = pytorch_bf16_four_lane_dot_f32(&input, &weight);
+        let forward = input
+            .iter()
+            .zip(&weight)
+            .map(|(left, right)| left * right)
+            .sum::<f32>();
+        assert_eq!(
+            specialized.to_bits(),
+            fixture["source_specialized_vector_f32_u32"]
+                .as_u64()
+                .expect("specialized bits") as u32
+        );
+        assert_eq!(
+            generic.to_bits(),
+            fixture["source_generic_four_lane_f32_u32"]
+                .as_u64()
+                .expect("generic bits") as u32
+        );
+        assert_eq!(
+            forward.to_bits(),
+            fixture["forward_f32_u32"].as_u64().expect("forward bits") as u32
+        );
+        let expected = fixture["pytorch_dot_bf16_u16"]
+            .as_u64()
+            .expect("PyTorch BF16 bits") as u16;
+        assert_eq!((round_bf16(specialized).to_bits() >> 16) as u16, expected);
+        assert_ne!(
+            fixture["pw0089_rust_logit_bf16_u16"]
+                .as_u64()
+                .expect("prior Rust BF16 bits") as u16,
+            expected
         );
     }
 
