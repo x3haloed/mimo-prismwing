@@ -15,7 +15,7 @@ use prismwing::{
 use prismwing::{
     run_full_prefix_trace, run_real_layer0_trace, run_real_layer1_expert_trace,
     run_real_layer1_routing_trace, run_real_layer2_trace, run_real_layer4_trace,
-    run_real_layer7_trace, run_slow_text_endpoint,
+    run_real_layer7_trace, run_real_routed_layer_trace, run_slow_text_endpoint,
 };
 use std::path::PathBuf;
 use tokenizers::Tokenizer;
@@ -113,6 +113,10 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing real-layer7-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <output-dir> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing real-routed-layer-trace <layer> <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <output-dir> <commit>"
     );
     std::process::exit(2);
 }
@@ -308,6 +312,34 @@ fn main() {
                         .map_err(|error| error.to_string())?;
                     println!();
                     Ok(Some(output.join("manifest.json")))
+                })
+            }
+            #[cfg(target_os = "macos")]
+            Some("real-routed-layer-trace") if arguments.len() == 9 => {
+                let target_layer = arguments[2]
+                    .parse::<usize>()
+                    .map_err(|error| format!("invalid routed trace layer: {error}"));
+                target_layer.and_then(|target_layer| {
+                    let checkpoint = PathBuf::from(&arguments[3]);
+                    let model_lock = PathBuf::from(&arguments[4]);
+                    let verification = PathBuf::from(&arguments[5]);
+                    let fixture = PathBuf::from(&arguments[6]);
+                    let output = PathBuf::from(&arguments[7]);
+                    run_real_routed_layer_trace(
+                        &checkpoint,
+                        &model_lock,
+                        &verification,
+                        &fixture,
+                        &output,
+                        &arguments[8],
+                        target_layer,
+                    )
+                    .and_then(|report| {
+                        serde_json::to_writer(std::io::stdout(), &report)
+                            .map_err(|error| error.to_string())?;
+                        println!();
+                        Ok(Some(output.join("manifest.json")))
+                    })
                 })
             }
             Some("census") if arguments.len() == 5 => {

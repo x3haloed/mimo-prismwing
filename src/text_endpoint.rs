@@ -3087,7 +3087,6 @@ pub fn run_real_layer2_trace(
         output_dir,
         commit,
         2,
-        "mimo_real_layer2_complete_rust_trace",
     )
 }
 
@@ -3108,7 +3107,6 @@ pub fn run_real_layer4_trace(
         output_dir,
         commit,
         4,
-        "mimo_real_layer4_complete_rust_trace",
     )
 }
 
@@ -3129,12 +3127,11 @@ pub fn run_real_layer7_trace(
         output_dir,
         commit,
         7,
-        "mimo_real_layer7_complete_rust_trace",
     )
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_real_routed_layer_trace(
+pub fn run_real_routed_layer_trace(
     checkpoint_root: &Path,
     model_lock_path: &Path,
     verification_path: &Path,
@@ -3142,11 +3139,14 @@ fn run_real_routed_layer_trace(
     output_dir: &Path,
     commit: &str,
     target_layer: usize,
-    semantic: &'static str,
 ) -> Result<Layer1ExpertTraceReport, String> {
-    if !matches!(target_layer, 2 | 4 | 7) {
-        return Err(format!("unsupported routed trace layer {target_layer}"));
-    }
+    let semantic = match target_layer {
+        2 => "mimo_real_layer2_complete_rust_trace",
+        4 => "mimo_real_layer4_complete_rust_trace",
+        7 => "mimo_real_layer7_complete_rust_trace",
+        11 => "mimo_real_layer11_complete_rust_trace",
+        _ => return Err(format!("unsupported routed trace layer {target_layer}")),
+    };
     if output_dir.exists() {
         return Err(format!("refusing to overwrite {}", output_dir.display()));
     }
