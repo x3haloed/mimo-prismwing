@@ -324,6 +324,28 @@ impl Checkpoint {
             .ok_or_else(|| format!("mapped shard absent: {shard}"))?
             .tensor(name)
     }
+
+    fn release_file_pages(&self) -> Result<(), String> {
+        for (shard, mapped) in &self.shards {
+            // SAFETY: the pointer and length describe this live, immutable file mapping.
+            // MADV_DONTNEED only permits Darwin to discard clean resident pages; later
+            // tensor reads remain valid and fault the checkpoint bytes back in.
+            let result = unsafe {
+                libc::madvise(
+                    mapped.mapping.as_ptr().cast_mut().cast(),
+                    mapped.mapping.len(),
+                    libc::MADV_DONTNEED,
+                )
+            };
+            if result != 0 {
+                return Err(format!(
+                    "{shard}: checkpoint page release failed: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Default)]
@@ -610,7 +632,8 @@ impl SafetyMonitor {
             || peak > self.policy.maximum_process_physical_footprint_bytes
         {
             return Err(format!(
-                "safety stop at {phase}: process footprint limit exceeded"
+                "safety stop at {phase}: process footprint limit exceeded (current={}, peak={}, limit={})",
+                usage.phys_footprint, peak, self.policy.maximum_process_physical_footprint_bytes
             ));
         }
         if relieve && usage.phys_footprint > self.policy.maximum_post_phase_physical_footprint_bytes
@@ -1334,6 +1357,7 @@ fn decode_step(
             expert_union_factor: if layer == 0 { 0.0 } else { unique as f64 },
             wall_ms: layer_started.elapsed().as_secs_f64() * 1000.0,
         });
+        checkpoint.release_file_pages()?;
         safety.checkpoint(&format!("layer_{layer}_complete"), true)?;
     }
     let final_norm = bf16_vector(checkpoint, "model.norm.weight", HIDDEN, ledger)?;
@@ -1348,6 +1372,7 @@ fn decode_step(
         ledger,
     )?;
     let top = top_logits(&logits, 20)?;
+    checkpoint.release_file_pages()?;
     safety.checkpoint("lm_head_complete", true)?;
     let token = top[0].0;
     Ok(NativeDecodeStep {

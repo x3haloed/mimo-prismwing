@@ -141,6 +141,23 @@ The failed-attempt manifest hashes to
 `07bbce444da6e3f1beda3ae9e9040884ad1dd7f10dca62791db0331da6b90a10`.
 No passing endpoint report exists from run 001.
 
+Run 002 used committed scale-layout repair `1035d69` and crossed the run-001
+boundary, then the shared-host safety gate stopped it after layer 24 with
+`process footprint limit exceeded`. An independent sample at 34 seconds found
+6,580,448 KiB RSS, 86% system memory free, unchanged 1,845.44 MiB swap, zero
+throttled pages, and 31,718 compressor pages. The endpoint had released decoded
+matrix allocations after each layer, but clean pages faulted from all 17
+long-lived checkpoint mappings remained resident and accumulated across the
+walk. No output report or accepted token was produced. The failed-attempt
+manifest hashes to
+`de27be00788e7b21871c8516be2f04e4c40503b9f8555c448ffea2db27c5163f`.
+
+The safety thresholds remain unchanged. The next candidate explicitly advises
+Darwin to discard clean pages from every immutable checkpoint mapping before
+each phase-level safety check. Mapping addresses and tensor views remain valid;
+later access faults authoritative checkpoint bytes back from the SSD. This is
+a resource-lifetime repair to test, not evidence of a passing memory bound.
+
 ## Isolated attribution
 
 Unexecuted. Initial diagnostics will separate tokenizer, embedding, attention,

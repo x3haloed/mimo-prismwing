@@ -904,3 +904,14 @@ four 192-wide K heads, and one row for each of four 128-wide V heads. Generic
 row-block validation must remain strict; full QKV requires a separately named,
 head-aware scale mapping. The first endpoint attempt failed closed before
 substantial memory growth and is preserved rather than omitted.
+
+PW-0050 run 002 validates the shared-host safety gate and exposes a second
+embodiment boundary. The repaired endpoint reached layer 24, then stopped on
+the fixed 8 GiB process-footprint limit. System memory still reported 86% free,
+swap had not grown from its 1,845.44 MiB baseline, and VM throttling remained
+zero, so global pressure alone would have missed the accumulating process
+residency. Dropping expanded matrices and calling malloc pressure relief was
+insufficient because clean pages from the 17 persistent checkpoint mappings
+remained resident. The next test must explicitly release those file-backed
+pages between phases; it must not raise the 8 GiB/4 GiB footprint limits or
+reinterpret the stopped walk as endpoint evidence.
