@@ -1,10 +1,11 @@
 # PW-0102 — Pinned-base DFlash acceptance trace
 
-- Status: planned
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Commit and dirty state: to be recorded before execution
+- Commit and dirty state: Phase C `ecd9c7cbec11824d89242061394a53c145ca7df3`,
+  clean
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; checkpoint verification
   `9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`;
@@ -214,8 +215,44 @@ explicit draft and LM-head releases returned footprint below 282 MiB. The warm
 run observed equivalent safety results. Phase B therefore authorizes the one
 contracted Phase C target walk.
 
+Phase C completed its one authorized source-target walk. Its immutable manifest
+is `/Volumes/Elements/mimo-prismwing/evidence/PW-0102/target-001/manifest.json`
+and hashes to
+`cb30738d5a79d7d85587a68b53f876a59101d5ca09bbc7c895daaf501954f4d3`.
+All 48 prefill layer captures and routed selections matched PW-0091. The full
+prefill logit capture is byte-identical at
+`c43be0909487235bddfe6e0de69aa42a98339faf43cd6b77d6ef4b5f1a853cab`
+and reproduced token 264. The width-eight target posterior is
+`[13, 15, 18, 481, 15, 481, 15, 15]`; its complete F32 logit capture hashes to
+`aea8f5b90e43477edcaa3211f826cb30c72070bf125adbad1b2ae6c950d64360`.
+
+The first draft suffix token 1773 mismatches target token 13, so matching draft
+length is zero and formal `A=1` counts only the already-established anchor.
+Across the 47 routed layers the width-eight pass installed 878 unique
+layer-local experts, 8--31 per layer and 18.680851 on average. Therefore
+`U=2.3351063829787235` and `A/U=0.42824601366742593`. This is below the minimum
+routed-byte leverage gate of 1 and only 5.67% of PW-0011's otherwise-free INT4
+requirement 7.548793. Selected expert source traffic alone was 22,100,987,904
+bytes; complete verification source traffic was 29,844,290,432 bytes. The pass
+does more routed-expert work per accepted token than ordinary one-token decoding
+and cannot be rescued by otherwise-free draft execution.
+
+The complete process took 1,131,052.640 ms. The measured post-prefill path took
+272,841.507 ms, including 269,184.445 ms in target layers, for a single-trace
+diagnostic 0.003665 accepted token/s. This is not accepted endpoint TPS. The
+process read 97,365,983,232 physical bytes; source-ledger partitions and K/V
+read/write traffic are preserved in the manifest. Phase C retained at least
+71% system-free memory, peaked at 4,044,210,176 bytes RSS and 203,508,736 bytes
+physical footprint, saw at most 1 MiB transient swap growth and no throttled
+pages or protected-service loss, and released to 161,221,376 bytes physical
+footprint before its final health check.
+
 ## Decision
 
-Proceed to the one authorized Phase C source-target verification walk using the
-byte-identical Phase B proposal. No second target walk is authorized without a
-separately documented reason arising from this result.
+Reject this pinned DFlash-8/base-checkpoint trace as a Prismwing-50 mechanism.
+It fails the experiment's first physical leverage gate before draft, dense,
+attention, K/V, or orchestration cost can help it. Preserve the working draft
+adapter and verifier as reusable measurement infrastructure, but do not promote
+a runtime default or spend a second target walk on this proposal. A future
+base-trained draft or materially different proposer may reopen speculative
+decoding only as a new experiment with independent acceptance/union evidence.

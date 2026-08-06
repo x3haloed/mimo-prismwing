@@ -655,6 +655,25 @@
             "status": "diagnostic_rejected_threshold_widening; sparse_row_correction_topology_not_source_authoritative; not_performance_or_tps",
             "provenance": "PW-0101; exact-input Metal report b2021bb4d37383a62693565da7f39a0e313a721419a49fb3b64881bfd91893bf; source-exact counterfactual 1489517ceb9e704279a3c6f908bf4e38c0e1c8ef33515ccbaca4d3231b676781"
         },
+        "pw0102_pinned_base_dflash_acceptance_trace": {
+            "batch_size": 1,
+            "concurrency": 1,
+            "q": 8,
+            "matching_draft_tokens": 0,
+            "accepted_length_A": 1,
+            "routed_layer_unique_experts_sum": 878,
+            "routed_layer_mean_unique_experts": 18.680851063829788,
+            "mean_normalized_union_U": 2.3351063829787235,
+            "A_over_U": 0.42824601366742593,
+            "pw0011_otherwise_free_required_A_over_U": 7.548793274514925,
+            "verification_expert_source_bytes": 22100987904,
+            "verification_total_source_bytes": 29844290432,
+            "post_prefill_complete_wall_ms": 272841.5072080097,
+            "single_trace_accepted_tps_diagnostic": 0.003665131490560258,
+            "target_posterior_token_ids": [13, 15, 18, 481, 15, 481, 15, 15],
+            "status": "rejected_routed_expert_byte_leverage_gate_failed; pinned_base_dflash_trace; not_endpoint_tps_or_default",
+            "provenance": "PW-0102; clean commit ecd9c7cbec11824d89242061394a53c145ca7df3; one authorized source-target walk; manifest cb30738d5a79d7d85587a68b53f876a59101d5ca09bbc7c895daaf501954f4d3; Gate 8 passed"
+        },
         "native_simdgroup_matrix_source_fp8_moe_schedule": {
             "candidate_wall_median_ms_repeats": [22.450083, 22.531125],
             "control_wall_median_ms_repeats": [17.107709, 17.089417],

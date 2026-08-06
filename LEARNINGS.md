@@ -1559,3 +1559,29 @@ versus 1.39-second draft-forward difference and reinforce that cached draft
 latency is not an endpoint claim. Both runs pass every shared-host safety stop
 and release below 282 MiB physical footprint. The one contracted target
 verification walk is now authorized.
+
+PW-0102 closes the pinned DFlash artifact/base-checkpoint trace after the one
+authorized full target walk. The target first posterior token is 13 while the
+draft first suffix token is 1773, so no draft suffix token is accepted and
+formal `A=1` counts only the target anchor. The 47 routed layers install 878
+layer-local unique experts across width eight: mean 18.680851 experts/layer,
+`U=2.3351063829787235`, and `A/U=0.42824601366742593`. This is below even the
+minimum routed-byte leverage gate of 1 and far below PW-0011's otherwise-free
+INT4 requirement 7.548793. The earlier planning possibility that the published
+draft might amortize base-target expert traffic is superseded for this pinned
+trace. Its verified target pass moves 22,100,987,904 logical expert bytes and
+29,844,290,432 total logical source bytes for one accepted anchor, before
+charging draft work. Do not optimize or repeat this proposal as a Prismwing-50
+path. A base-trained or materially different proposer would be a new branch,
+not a reversal without new acceptance evidence.
+
+The immutable Phase C manifest hashes to
+`cb30738d5a79d7d85587a68b53f876a59101d5ca09bbc7c895daaf501954f4d3`.
+It reproduces all PW-0091 prefill layer captures/routes and its full logit hash,
+then produces target posterior IDs `[13, 15, 18, 481, 15, 481, 15, 15]`.
+Post-prefill wall time is 272,841.507 ms, a single-trace diagnostic 0.003665
+accepted token/s rather than endpoint TPS. Gate 8 passed all 103 boundaries:
+minimum free memory 71%, peak RSS 4,044,210,176 bytes, maximum physical
+footprint 203,508,736 bytes, at most 1 MiB transient swap growth, zero new
+throttled pages, no protected-service loss, and 161,221,376 bytes physical
+footprint after final buffer release.
