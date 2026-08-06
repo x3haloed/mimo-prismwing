@@ -1,10 +1,11 @@
 # PW-0100 — Bounded Metal retained-cache token
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Commit and dirty state: contract precedes implementation and execution
+- Commit and dirty state: implementation
+  `36bb2928530281e69d46f93382728610542dd45a`; clean tree
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; checkpoint verification
   `9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`;
@@ -95,8 +96,59 @@ broader endpoint slices and repeated decode work, not a production default.
 
 ## Result
 
-Unexecuted.
+The implementation introduced an explicitly named candidate endpoint rather
+than changing the CPU default. It compiled one process-owned Metal pipeline,
+validated real checkpoint tensor views, rejected non-one-row use, preserved
+the source router and BTree expert scatter authority, and accounted for every
+projection installation, release, dispatch, and sparse repair. Forty-seven
+Rust tests, 50 Python tests, formatting, and strict Clippy passed before the
+walk.
+
+The first invocation used the stale pre-PW-0100 release executable and stopped
+at argument parsing before opening the model. It is preserved as
+`run-001/error.txt`, SHA-256
+`5308e89d653b5d4a1c334c32f6b1a30a73b8083e1a1049e350cafd6b5ca94d9d`.
+After rebuilding the standalone release binary from the pinned clean commit,
+`run-001a` completed the full CPU prefill and bounded Metal incremental step.
+
+The candidate retained the cache and still chose greedy token 13. Its first
+failed layer was layer 4; selected experts remained exact and maximum route-
+weight error was zero, but the layer-final state reached `0.00163510` relative
+L2, `1.0` maximum absolute error, and 97.8760% BF16 identity. These fail the
+unchanged `5e-4`, `2e-2`, and 99% gates respectively. Final RMSNorm and logits
+also failed their unchanged gates. Because the candidate failed closed, it did
+not emit an accepted report or claim that token identity proves distributional
+parity.
+
+The complete retained-cache token took 75,725.919 ms, a diagnostic 0.01321
+token/s and only 2.0934x/2.0946x faster than PW-0092's 158,521/158,615 ms CPU
+controls. It therefore also fails the 20,000 ms and 5x gates independently of
+correctness. The failure record hashes to
+`7e76c0bcabb445ded01f547ce56f096f2a6c9474a1fccee74761293cfd29df74`.
+No second expensive run was authorized.
+
+Gate 8 passed through the failed-candidate release boundary: minimum system
+free memory was 79%, peak RSS was 4,311,433,216 bytes, post-release physical
+footprint was 3,062,211,200 bytes, swap growth was zero, new throttled pages
+were zero, and all protected services remained resident. The run demonstrates
+real phase-scoped release behavior, but safety does not rescue either failed
+promotion gate. Power was not measured and remains unknown.
+The updated throughput model hashes to
+`0698c43507dcba0ce4464af352c3aaf3061707a26213baf055917d24130af9c0`.
 
 ## Decision
 
-Unexecuted.
+Reject the PW-0099 sparse-repaired Metal executor as a complete retained-cache
+token embodiment. Its layer-43 component result does not generalize through
+accumulated real layer states, and warm repeated component timing overstated
+the gain when 376 source experts had to be installed across a complete token.
+Do not enable this endpoint as a default, do not repeat the full walk, and do
+not report its component rate or 0.01321 token/s diagnostic as accepted TPS.
+
+Preserve two separate next questions. Correctness needs a cheap layer-4 cached
+oracle localization to determine whether another BF16 midpoint amplification
+escaped the fixed four-ULP predicate. Embodiment needs a cold expert-working-
+set and buffer-install attribution; the 75.7-second token shows that kernel
+arithmetic alone is not the endpoint bottleneck after integration. Neither
+question authorizes a broader threshold, a persistent model-wide expansion, or
+another full walk before a bounded falsification experiment passes.

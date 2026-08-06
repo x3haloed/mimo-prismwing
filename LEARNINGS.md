@@ -1485,3 +1485,18 @@ passes with two down repairs. Gate 8 retains 79% free memory, peaks below 258
 MB, returns below 31 MB, and records no swap growth, throttling, or protected-
 service loss. Promote sparse boundary repair only as a complete-token candidate;
 component success is not endpoint TPS or a default.
+
+PW-0100 rejects complete-token promotion of PW-0099's sparse-repaired Metal
+executor. The real retained-cache walk still chooses token 13 and has exact
+routes at its first failed layer, but accumulated state crosses the unchanged
+gate at layer 4: `0.001635` relative L2, `1.0` maximum error, and 97.876% BF16
+identity. Final norm and logits also fail. The token takes 75.726 seconds—only
+2.09x faster than the 158.5-second CPU control and far slower than the 20-second
+candidate gate—despite 55 ms warm component results at layer 43. Thus two PW-
+0099 assumptions are superseded: a fixed four-ULP midpoint repair does not
+generalize through all accumulated layer distributions, and warm repeated
+routed-row timing does not predict cold complete-token expert installation.
+The failed walk safely retains 79% free memory, peaks at 4.311 GB RSS, releases
+to 3.062 GB, and causes no swap growth, throttling, or protected-service loss.
+Localize layer 4 and measure cold install/I/O separately before another full
+walk; do not widen correctness thresholds or promote the endpoint.
