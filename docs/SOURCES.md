@@ -28,11 +28,13 @@ and binds all 39 files to this revision.
 - Authoritative files: `aten/src/ATen/native/cpu/SoftMaxKernel.cpp`,
   `aten/src/ATen/cpu/vec/functional_base.h`, ARM
   `aten/src/ATen/cpu/vec/vec128/vec128_float_neon.h`, and
-  `aten/src/ATen/native/TopKImpl.h` at that commit.
+  `aten/src/ATen/native/TopKImpl.h` at that commit. PW-0070 additionally uses
+  the four-part reduced-precision dot reduction in
+  `aten/src/ATen/native/cpu/BlasKernel.cpp` at the same commit.
 - Build identity: CPU capability `DEFAULT`,
   `AT_BUILD_ARM_VEC256_WITH_SLEEF`, Apple aarch64.
-- Decision: operation-order reference for PW-0061 through PW-0065 only. It is
-  not a runtime dependency or an authority for MiMo model topology.
+- Decision: operation-order reference for PW-0061 through PW-0066 and PW-0070.
+  It is not a runtime dependency or an authority for MiMo model topology.
 
 ## OpenRouter MiMo-V2.5
 
