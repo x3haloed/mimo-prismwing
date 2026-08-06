@@ -1456,7 +1456,6 @@ fn causal_attention_head_bf16(
     causal_attention_head_with_dtype(query, keys, values, scale, sink, true, None)
 }
 
-#[cfg(test)]
 fn pytorch_bf16_four_lane_dot_f32(left: &[f32], right: &[f32]) -> f32 {
     debug_assert_eq!(left.len(), right.len());
     let mut partials = [0.0_f32; 4];
@@ -1575,10 +1574,8 @@ fn causal_attention_head_with_dtype(
             for (destination, value) in value_column.iter_mut().zip(values) {
                 *destination = value[dimension];
             }
-            output[dimension] = pytorch_bf16_specialized_vector_dot_f32(
-                &probabilities[..values.len()],
-                &value_column,
-            );
+            output[dimension] =
+                pytorch_bf16_four_lane_dot_f32(&probabilities[..values.len()], &value_column);
         }
     } else {
         for (position, value) in values.iter().enumerate() {
@@ -4251,6 +4248,7 @@ mod tests {
         assert_eq!(probability.len(), 25);
         assert_eq!(value.len(), 25);
         let specialized = pytorch_bf16_specialized_vector_dot_f32(&probability, &value);
+        let generic = pytorch_bf16_four_lane_dot_f32(&probability, &value);
         let forward = probability
             .iter()
             .zip(&value)
@@ -4262,6 +4260,7 @@ mod tests {
                 .as_u64()
                 .expect("specialized dot bits") as u32
         );
+        assert_eq!(generic.to_bits(), specialized.to_bits());
         assert_eq!(
             forward.to_bits(),
             fixture["forward_dot_f32_u32"]
@@ -4275,6 +4274,41 @@ mod tests {
         assert_eq!(
             (round_bf16(specialized).to_bits() >> 16) as u16,
             fixture["dot_bf16_u16"].as_u64().expect("BF16 dot bits") as u16
+        );
+
+        let discriminating: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0088-pytorch-bf16-attention-value-gemm.json"
+        ))
+        .expect("valid discriminating BF16 attention-value GEMM fixture");
+        assert_eq!(
+            discriminating["semantic"],
+            "pytorch_aarch64_bf16_attention_value_gemm_order"
+        );
+        let probability = bits(&discriminating["probability_bf16_u16"], "probability");
+        let value = bits(&discriminating["value_bf16_u16"], "value");
+        let generic = pytorch_bf16_four_lane_dot_f32(&probability, &value);
+        let specialized = pytorch_bf16_specialized_vector_dot_f32(&probability, &value);
+        assert_eq!(
+            generic.to_bits(),
+            discriminating["source_generic_four_lane_f32_u32"]
+                .as_u64()
+                .expect("generic dot bits") as u32
+        );
+        assert_eq!(
+            specialized.to_bits(),
+            discriminating["source_specialized_vector_f32_u32"]
+                .as_u64()
+                .expect("specialized dot bits") as u32
+        );
+        assert_ne!(
+            round_bf16(generic).to_bits(),
+            round_bf16(specialized).to_bits()
+        );
+        assert_eq!(
+            (round_bf16(generic).to_bits() >> 16) as u16,
+            discriminating["matrix_result_bf16_u16"]
+                .as_u64()
+                .expect("matrix result bits") as u16
         );
     }
 
