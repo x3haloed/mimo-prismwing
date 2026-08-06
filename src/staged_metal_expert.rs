@@ -85,6 +85,11 @@ fn round_bf16_values(values: &mut [f32]) {
         .for_each(|value| *value = round_bf16(*value));
 }
 
+fn staged_swiglu(gate: f32, up: f32) -> f32 {
+    let silu = round_bf16(gate / (1.0 + (-gate).exp()));
+    round_bf16(silu * up)
+}
+
 fn encode_f8_e4m3fn(value: f32) -> Result<u8, String> {
     if !value.is_finite() || value.abs() > 448.0 {
         return Err("E4M3FN encoder requires a finite value in [-448,448]".to_owned());
@@ -277,12 +282,11 @@ pub fn run_staged_metal_fp8_expert(
         let mut up_output = project(&up, &staged_input)?;
         round_bf16_values(&mut gate_output);
         round_bf16_values(&mut up_output);
-        let mut hidden = gate_output
+        let hidden = gate_output
             .iter()
             .zip(&up_output)
-            .map(|(&g, &u)| (g / (1.0 + (-g).exp())) * u)
+            .map(|(&g, &u)| staged_swiglu(g, u))
             .collect::<Vec<_>>();
-        round_bf16_values(&mut hidden);
         let staged_hidden = dynamic_fp8_dequantized(&hidden)?;
         let mut output = project(&down, &staged_hidden)?;
         round_bf16_values(&mut output);
@@ -423,6 +427,14 @@ mod tests {
         let mut values = vec![0.0; 128];
         values[9] = f32::NAN;
         assert!(dynamic_fp8_dequantized(&values).is_err());
+    }
+
+    #[test]
+    fn swiglu_rounds_silu_before_the_product() {
+        let gate = 1.03125_f32;
+        let up = 0.71484375_f32;
+        let silu = round_bf16(gate / (1.0 + (-gate).exp()));
+        assert_eq!(staged_swiglu(gate, up), round_bf16(silu * up));
     }
 
     #[test]
