@@ -51,7 +51,7 @@ def validate_schedule(manifest: dict) -> list[dict]:
     return wanted
 
 def compare(oracle_path: Path, rust_path: Path, target_layer: int = 2) -> dict:
-    if target_layer not in (2, 4, 7, 11, 13, 14): raise ValueError(f"unsupported routed trace layer {target_layer}")
+    if target_layer not in (2, 4, 7, 11, 13, 14, 19): raise ValueError(f"unsupported routed trace layer {target_layer}")
     oracle = json.loads(oracle_path.read_text()); rust = json.loads(rust_path.read_text())
     if (oracle.get("semantic") != f"mimo_real_layer{target_layer}_complete_oracle"
             or rust.get("semantic") != f"mimo_real_layer{target_layer}_complete_rust_trace"
@@ -99,7 +99,7 @@ def compare(oracle_path: Path, rust_path: Path, target_layer: int = 2) -> dict:
 def main() -> int:
     p = argparse.ArgumentParser(); p.add_argument("--oracle", required=True, type=Path)
     p.add_argument("--rust", required=True, type=Path); p.add_argument("--output", required=True, type=Path)
-    p.add_argument("--layer", choices=(2, 4, 7, 11, 13, 14), default=2, type=int); a = p.parse_args()
+    p.add_argument("--layer", choices=(2, 4, 7, 11, 13, 14, 19), default=2, type=int); a = p.parse_args()
     atomic_write_new(a.output, canonical_json(compare(a.oracle, a.rust, a.layer))); return 0
 
 if __name__ == "__main__": raise SystemExit(main())

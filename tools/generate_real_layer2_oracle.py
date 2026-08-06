@@ -50,7 +50,7 @@ def load_input(manifest_path: Path, target_layer: int) -> tuple[torch.Tensor, st
 
 def generate(checkpoint_root: Path, verification: Path, source_manifest: Path,
              output: Path, target_layer: int = 2) -> None:
-    if target_layer not in (2, 4, 7, 11, 13, 14):
+    if target_layer not in (2, 4, 7, 11, 13, 14, 19):
         raise ValueError(f"unsupported routed trace layer {target_layer}")
     started = time.monotonic(); torch.set_num_threads(1)
     hidden, source_hash = load_input(source_manifest, target_layer)
@@ -133,7 +133,7 @@ def main() -> int:
     p = argparse.ArgumentParser(); p.add_argument("--checkpoint", required=True, type=Path)
     p.add_argument("--verification", required=True, type=Path); p.add_argument("--source-manifest", required=True, type=Path)
     p.add_argument("--output", required=True, type=Path)
-    p.add_argument("--layer", choices=(2, 4, 7, 11, 13, 14), default=2, type=int); a = p.parse_args()
+    p.add_argument("--layer", choices=(2, 4, 7, 11, 13, 14, 19), default=2, type=int); a = p.parse_args()
     generate(a.checkpoint, a.verification, a.source_manifest, a.output, a.layer); return 0
 
 
