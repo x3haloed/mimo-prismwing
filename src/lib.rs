@@ -506,14 +506,37 @@ fn select_noaux_tc_routes(
     {
         return Err("invalid noaux-tc router inputs".to_owned());
     }
+    let scores = logits
+        .iter()
+        .map(|logit| 1.0_f32 / (1.0 + (-logit).exp()))
+        .collect::<Vec<_>>();
+    select_noaux_tc_routes_from_scores(&scores, correction, batch, rows, top_k)
+}
+
+#[cfg(target_os = "macos")]
+fn select_noaux_tc_routes_from_scores(
+    all_scores: &[f32],
+    correction: &[f32],
+    batch: usize,
+    rows: usize,
+    top_k: usize,
+) -> Result<NativeRoutes, String> {
+    if all_scores.len() != batch * rows
+        || correction.len() != rows
+        || top_k == 0
+        || top_k >= rows
+        || all_scores
+            .iter()
+            .any(|value| !value.is_finite() || *value < 0.0 || *value > 1.0)
+        || correction.iter().any(|value| !value.is_finite())
+    {
+        return Err("invalid noaux-tc score inputs".to_owned());
+    }
     let mut selected = Vec::with_capacity(batch);
     let mut route_weights = Vec::with_capacity(batch);
     let mut minimum_boundary_margin = f32::INFINITY;
     for position in 0..batch {
-        let scores = logits[position * rows..(position + 1) * rows]
-            .iter()
-            .map(|logit| 1.0_f32 / (1.0 + (-logit).exp()))
-            .collect::<Vec<_>>();
+        let scores = &all_scores[position * rows..(position + 1) * rows];
         let corrected = scores
             .iter()
             .zip(correction)

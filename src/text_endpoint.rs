@@ -2,8 +2,8 @@
 
 use super::{
     MappedSafetensors, MappedTensorView, UniqueJson, accelerate_sgemm_right_transposed,
-    decode_bf16_tensor, decode_fp8_matrix_f32, select_noaux_tc_routes, sha256_hex, sha256_reader,
-    stable_rms_inverse, validate_fp8_views, write_create_new,
+    decode_bf16_tensor, decode_fp8_matrix_f32, select_noaux_tc_routes_from_scores, sha256_hex,
+    sha256_reader, stable_rms_inverse, validate_fp8_views, write_create_new,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1706,17 +1706,44 @@ fn route_mlp(
         &[ROUTED_EXPERTS as u64],
         ledger,
     )?;
-    let routes = select_noaux_tc_routes(&logits, &correction, rows, ROUTED_EXPERTS, TOP_K)?;
     let scores = logits
         .iter()
-        .map(|logit| 1.0_f32 / (1.0 + (-logit).exp()))
-        .collect();
+        .map(|&logit| pytorch_sigmoid_f32(logit))
+        .collect::<Vec<_>>();
+    let routes =
+        select_noaux_tc_routes_from_scores(&scores, &correction, rows, ROUTED_EXPERTS, TOP_K)?;
     Ok(RoutingTrace {
         logits,
         scores,
         selected: routes.selected,
         weights: routes.weights,
     })
+}
+
+fn sleef_expf_u10(d: f32) -> f32 {
+    if d < -104.0 {
+        return 0.0;
+    }
+    if d > 100.0 {
+        return f32::INFINITY;
+    }
+    let q = (d * std::f32::consts::LOG2_E).round_ties_even() as i32;
+    let qf = q as f32;
+    let mut s = qf.mul_add(-0.693_145_75_f32, d);
+    s = qf.mul_add(-1.428_606_8e-6_f32, s);
+    let mut u = 0.000_198_527_62_f32;
+    u = u.mul_add(s, 0.001_393_043_6_f32);
+    u = u.mul_add(s, 0.008_333_361_f32);
+    u = u.mul_add(s, 0.041_666_485_f32);
+    u = u.mul_add(s, 0.166_666_67_f32);
+    u = u.mul_add(s, 0.5);
+    u = (s * s).mul_add(u, s) + 1.0;
+    let exponent = u32::try_from(q + 127).expect("router sigmoid exponent is in range") << 23;
+    u * f32::from_bits(exponent)
+}
+
+fn pytorch_sigmoid_f32(value: f32) -> f32 {
+    1.0 / (1.0 + sleef_expf_u10(-value))
 }
 
 fn routed_mlp(
@@ -3618,5 +3645,24 @@ mod tests {
         }
         assert!(attention_softmax(&[], true).is_err());
         assert!(attention_softmax(&[f32::NAN], true).is_err());
+    }
+
+    #[test]
+    fn pytorch_router_sigmoid_matches_real_vectorized_payloads() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0062-router-sigmoid.json"
+        ))
+        .expect("valid router sigmoid fixture");
+        assert_eq!(fixture["semantic"], "pytorch_vectorized_f32_sigmoid");
+        let logits = fixture["logit_f32_u32"].as_array().expect("logits");
+        let expected = fixture["score_f32_u32"].as_array().expect("scores");
+        assert_eq!(logits.len(), expected.len());
+        for (logit, score) in logits.iter().zip(expected) {
+            assert_eq!(
+                pytorch_sigmoid_f32(f32::from_bits(logit.as_u64().expect("logit bits") as u32))
+                    .to_bits(),
+                score.as_u64().expect("score bits") as u32
+            );
+        }
     }
 }
