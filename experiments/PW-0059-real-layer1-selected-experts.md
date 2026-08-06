@@ -1,10 +1,10 @@
 # PW-0059 — Real layer-1 selected-expert execution
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: diagnostic contract precedes implementation
+- Commit and dirty state: clean `4b0b2d1a1475d7806759e67c84122c2908c48fb6`
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0058 comparison
   `1cea804681d175b0fe4c359aafe120a6659f3dc45d5c125a3f5aad5ca36880d2`;
@@ -61,8 +61,43 @@ change hosted thresholds or become accepted TPS.
 
 ## Result
 
-Unexecuted.
+Rust run 001 causally executed the exact production prefix, router, 28-expert
+union, 216 placements, weighted scatter, and final residual. Oracle run 001
+independently derived the same union from PW-0058's oracle routes and resolved
+every weight/scale pair through the verified checkpoint index.
+
+Comparison 001 clears every boundary. MoE input, all gate/up projections,
+every BF16 SwiGLU result, and all down projections are bit-exact. The routed
+output has relative L2 `2.085193256852955e-8`, maximum absolute error
+`7.62939453125e-6`, and 99.9973% BF16 equality, reflecting the independently
+computed route-weight difference. The complete final layer-1 state is
+bit-exact, exceeding the stronger PW-0049 final-layer gate.
+
+Evidence hashes:
+
+- independent oracle manifest:
+  `a1ceaa6a730dc4803e6abe8d390c7d70386f841062d0c12a4acc46d62a86e0b6`;
+- Rust manifest:
+  `6855f28b9f23b2892cbc048481c91963b024c45fe261ec9c84a887902959e5cf`;
+- comparison 001:
+  `72d0b7156984c41f418b736e18dcbccef0d05f95060beccc62d54f40797ed209`.
+
+Rust completed in 15.199 seconds, moved 1,161,278,592 logical source bytes,
+measured 1,199,529,984 process disk-read bytes, executed exactly 28 experts,
+and peaked at 712,835,072 resident bytes. The independent oracle completed in
+9.529 seconds and peaked at 378,372,096 bytes. Both retained at least 84%
+system-free memory, grew no swap, observed no throttling, and preserved every
+protected service. The Rust post-capture footprint was 385,425,088 bytes.
+All 29 Rust tests, 41 Python tests, strict Clippy, Python compilation, and the
+release build pass. No throughput-model constant changes because these are
+diagnostic timings with accepted tokens zero.
 
 ## Decision
 
-Unexecuted.
+Promote the selected-expert trace as a correctness diagnostic and
+provisionally clear the complete first routed decoder layer. The belief that
+dynamic expert gather, source-FP8 execution, weighted scatter, or the routed
+residual is the first hosted-divergence mechanism is superseded. Dense layer 0
+and routed layer 1 together now cover every model semantic category. The next
+justified rung is a serial, phase-safe 48-layer oracle/native layer-final trace
+to localize accumulated divergence before changing any more arithmetic.

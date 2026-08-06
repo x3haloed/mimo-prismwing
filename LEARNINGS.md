@@ -1044,3 +1044,14 @@ All 27 eight-expert sets are exact, with maximum per-expert route-weight error
 routing is the first hosted-divergence mechanism is superseded. The next rung
 is execution of only the causally selected real experts; the 4.245-second,
 686 MB Rust trace is diagnostic and changes no throughput-model constant.
+
+PW-0059 clears the complete first routed decoder layer. Across 28 independently
+selected experts and 216 placements, gate/up, BF16 SwiGLU, and down projections
+are bit-exact. The weighted scatter differs by only `2.09e-8` relative L2 and
+one BF16 quantum maximum because independent route weights differ at `2.54e-8`;
+the final layer state is bit-exact. Dynamic gather, source-FP8 expert execution,
+scatter, and routed residual are superseded as primary hosted-mismatch causes.
+Together dense layer 0 and routed layer 1 exercise every model semantic
+category, so another isolated layer is lower value than a serial layer-final
+whole-model oracle/native trace. The 15.199-second Rust diagnostic changes no
+throughput constant.
