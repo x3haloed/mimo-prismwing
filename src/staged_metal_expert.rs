@@ -838,8 +838,12 @@ pub fn run_bounded_metal_routed_row(
     let relative_l2 = (squared_error / squared_reference).sqrt();
     let bf16_equality_fraction = equal as f64 / output.len() as f64;
     if relative_l2 > 5.0e-4 || maximum_absolute_error > 2.0e-2 || bf16_equality_fraction < 0.99 {
+        let mut diagnostic_ordered = wall_ms.clone();
+        diagnostic_ordered.sort_by(f64::total_cmp);
+        let diagnostic_median =
+            diagnostic_ordered[((diagnostic_ordered.len() - 1) as f64 * 0.5).round() as usize];
         return Err(format!(
-            "routed-row parity failed: rel L2 {relative_l2}, max abs {maximum_absolute_error}, BF16 equality {bf16_equality_fraction}, route error {maximum_route_weight_absolute_error}, experts {expert_diagnostics:?}"
+            "routed-row parity failed: rel L2 {relative_l2}, max abs {maximum_absolute_error}, BF16 equality {bf16_equality_fraction}, route error {maximum_route_weight_absolute_error}, median ms {diagnostic_median}, experts {expert_diagnostics:?}"
         ));
     }
     let output_bytes = output
