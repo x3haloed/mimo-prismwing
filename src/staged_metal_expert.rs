@@ -5,7 +5,7 @@ use super::{
 };
 use crate::text_endpoint::{ComponentSafetyMonitor, SafetySnapshot, component_pytorch_noaux_route};
 use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::path::Path;
@@ -78,6 +78,7 @@ pub struct BoundedRoutedRowReport {
     pub manifest_sha256: String,
     pub input_sha256: String,
     pub router_sha256: String,
+    pub reference_manifest_sha256: String,
     pub reference_sha256: String,
     pub output_sha256: String,
     pub selected_experts: Vec<u32>,
@@ -110,6 +111,19 @@ pub struct BoundedRoutedRowReport {
     pub safety_snapshots: Vec<SafetySnapshot>,
     pub cache_state: &'static str,
     pub performance_claim: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RoutedRowOracleManifest {
+    schema_version: u32,
+    semantic: String,
+    revision: String,
+    checkpoint_verification_sha256: String,
+    source_manifest_sha256: String,
+    input_sha256: String,
+    selected_experts: Vec<u32>,
+    route_weights: Vec<f32>,
+    output_sha256: String,
 }
 
 struct RoutedRowExecution {
@@ -561,6 +575,31 @@ pub fn run_bounded_metal_routed_row(
     let mut input = all_input[..4096].to_vec();
     round_bf16_values(&mut input);
     let (reference_bytes, reference) = read_f32_file(reference_path, Some(4096))?;
+    let reference_manifest_path = reference_path.with_file_name("manifest.json");
+    let reference_manifest_bytes = fs::read(&reference_manifest_path)
+        .map_err(|error| format!("{}: {error}", reference_manifest_path.display()))?;
+    let reference_manifest: RoutedRowOracleManifest =
+        serde_json::from_slice(&reference_manifest_bytes)
+            .map_err(|error| format!("routed-row oracle manifest: {error}"))?;
+    if reference_manifest.schema_version != 1
+        || reference_manifest.semantic
+            != "mimo_layer43_verified_checkpoint_bf16_staged_routed_row_oracle"
+        || reference_manifest.revision != REVISION
+        || reference_manifest.checkpoint_verification_sha256
+            != "9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03"
+        || reference_manifest.source_manifest_sha256 != MANIFEST_SHA256
+        || reference_manifest.input_sha256 != INPUT_SHA256
+        || reference_manifest.selected_experts != frozen_selected
+        || reference_manifest.route_weights.len() != 8
+        || reference_manifest
+            .route_weights
+            .iter()
+            .any(|value| !value.is_finite())
+        || reference_manifest.output_sha256 != sha256_hex(&reference_bytes)
+    {
+        return Err("routed-row oracle manifest identity mismatch".to_owned());
+    }
+    let oracle_weights = reference_manifest.route_weights;
 
     let mut router_file =
         File::open(router_path).map_err(|error| format!("{}: {error}", router_path.display()))?;
@@ -721,7 +760,7 @@ pub fn run_bounded_metal_routed_row(
     }
     let maximum_route_weight_absolute_error = weights
         .iter()
-        .zip(&frozen_weights)
+        .zip(&oracle_weights)
         .map(|(actual, expected)| (actual - expected).abs())
         .fold(0.0_f32, f32::max);
     if maximum_route_weight_absolute_error > 3.0e-8 {
@@ -786,6 +825,7 @@ pub fn run_bounded_metal_routed_row(
         manifest_sha256: MANIFEST_SHA256.to_owned(),
         input_sha256: INPUT_SHA256.to_owned(),
         router_sha256: ROUTER_SHA256.to_owned(),
+        reference_manifest_sha256: sha256_hex(&reference_manifest_bytes),
         reference_sha256: sha256_hex(&reference_bytes),
         output_sha256: sha256_hex(&output_bytes),
         selected_experts: selected,
