@@ -8,6 +8,7 @@ use prismwing::{
     run_metal_incremental_text_endpoint, run_metal_mapped_fp8_gemv, run_metal_noaux_tc_router,
     run_metal_real_base_layer, run_metal_simdgroup_matrix_fp8_moe_block,
     run_metal_union_parallel_fp8_moe_block, run_staged_metal_fp8_expert,
+    run_weight_install_tomography,
 };
 use prismwing::{
     build_census, inspect_mapped_tensor, repack_expert_container, run_mapped_fp8_gemv,
@@ -102,6 +103,10 @@ fn usage() -> ! {
     );
     #[cfg(target_os = "macos")]
     eprintln!(
+        "  prismwing weight-install-tomography <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <oracle-manifest.json> <kernel.metal> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
         "  prismwing layer4-metal-diagnostic <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <oracle-manifest.json> <kernel.metal> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
@@ -188,6 +193,32 @@ fn main() {
                 let kernel = PathBuf::from(&arguments[7]);
                 let output = PathBuf::from(&arguments[8]);
                 run_metal_incremental_text_endpoint(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &fixture,
+                    &oracle,
+                    &kernel,
+                    &output,
+                    &arguments[9],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output))
+                })
+            }
+            #[cfg(target_os = "macos")]
+            Some("weight-install-tomography") if arguments.len() == 10 => {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let fixture = PathBuf::from(&arguments[5]);
+                let oracle = PathBuf::from(&arguments[6]);
+                let kernel = PathBuf::from(&arguments[7]);
+                let output = PathBuf::from(&arguments[8]);
+                run_weight_install_tomography(
                     &checkpoint,
                     &model_lock,
                     &verification,

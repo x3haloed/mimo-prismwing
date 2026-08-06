@@ -516,9 +516,11 @@ name = "prismwing"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "foreign-types",
  "libc",
  "memmap2",
  "metal",
+ "objc",
  "serde",
  "serde_json",
  "sha2",

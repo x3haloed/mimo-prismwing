@@ -5,7 +5,7 @@ use super::{
     decode_bf16_tensor, decode_fp8_matrix_f32, read_f32_file, sha256_hex, sha256_reader,
     stable_rms_inverse, validate_fp8_views, write_create_new,
 };
-use crate::staged_metal_expert::BoundedMetalExpertRuntime;
+use crate::staged_metal_expert::{BoundedMetalExpertRuntime, ExpertTomography};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -186,6 +186,23 @@ pub struct MetalExpertLedger {
     pub released_projection_buffers: u64,
     pub sparse_decoded_weight_bytes: u64,
     pub sparse_repair_counts: [u64; 3],
+    #[serde(skip)]
+    pub tomography_enabled: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub expert_tomography: Vec<ExpertTomography>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub layer_tomography: Vec<MetalLayerTomography>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetalLayerTomography {
+    pub layer: usize,
+    pub route_and_schedule_ms: f64,
+    pub expert_count: usize,
+    pub expert_wall_sum_ms: f64,
+    pub layer_final_bf16_round_ms: f64,
+    pub routed_mlp_wall_ms: f64,
+    pub activity: ProcessActivityDelta,
 }
 
 #[derive(Debug, Serialize)]
@@ -301,6 +318,8 @@ pub struct MetalIncrementalTextReport {
     pub exactness: &'static str,
     pub performance_claim: Option<String>,
     pub implementation: &'static str,
+    pub promotion_gates_passed: bool,
+    pub status: &'static str,
 }
 
 #[derive(Deserialize)]
@@ -715,6 +734,13 @@ impl Checkpoint {
             .tensor(name)
     }
 
+    fn shard_for_tensor(&self, name: &str) -> Result<&str, String> {
+        self.weight_map
+            .get(name)
+            .map(String::as_str)
+            .ok_or_else(|| format!("tensor absent from checkpoint index: {name}"))
+    }
+
     fn release_file_pages(&self) -> Result<(), String> {
         for (shard, mapped) in &self.shards {
             // SAFETY: the pointer and length describe this live, immutable file mapping.
@@ -850,6 +876,44 @@ struct RusageInfoV2 {
     diskio_byteswritten: u64,
 }
 
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+pub(crate) struct ProcessActivity {
+    pub disk_bytes_read: u64,
+    pub pageins: u64,
+    pub minor_faults: u64,
+    pub major_faults: u64,
+    pub user_cpu_us: u64,
+    pub system_cpu_us: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+pub struct ProcessActivityDelta {
+    pub disk_bytes_read: u64,
+    pub pageins: u64,
+    pub minor_faults: u64,
+    pub major_faults: u64,
+    pub user_cpu_us: u64,
+    pub system_cpu_us: u64,
+}
+
+impl ProcessActivity {
+    pub(crate) fn checked_delta(self, earlier: Self) -> Result<ProcessActivityDelta, String> {
+        let delta = |later: u64, before: u64, name: &str| {
+            later
+                .checked_sub(before)
+                .ok_or_else(|| format!("process activity counter moved backwards: {name}"))
+        };
+        Ok(ProcessActivityDelta {
+            disk_bytes_read: delta(self.disk_bytes_read, earlier.disk_bytes_read, "disk read")?,
+            pageins: delta(self.pageins, earlier.pageins, "pageins")?,
+            minor_faults: delta(self.minor_faults, earlier.minor_faults, "minor faults")?,
+            major_faults: delta(self.major_faults, earlier.major_faults, "major faults")?,
+            user_cpu_us: delta(self.user_cpu_us, earlier.user_cpu_us, "user CPU")?,
+            system_cpu_us: delta(self.system_cpu_us, earlier.system_cpu_us, "system CPU")?,
+        })
+    }
+}
+
 #[link(name = "proc")]
 unsafe extern "C" {
     fn proc_pid_rusage(
@@ -873,6 +937,35 @@ fn process_usage() -> Result<RusageInfoV2, String> {
         return Err(format!("proc_pid_rusage failed with {result}"));
     }
     Ok(usage)
+}
+
+pub(crate) fn process_activity() -> Result<ProcessActivity, String> {
+    let process = process_usage()?;
+    // SAFETY: Darwin initializes the complete rusage structure for RUSAGE_SELF.
+    let mut usage = unsafe { std::mem::zeroed::<libc::rusage>() };
+    // SAFETY: `usage` is a valid exclusive output pointer.
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) } != 0 {
+        return Err("getrusage(RUSAGE_SELF) failed".to_owned());
+    }
+    let nonnegative = |value: libc::c_long, name: &str| {
+        u64::try_from(value).map_err(|_| format!("negative process activity counter: {name}"))
+    };
+    let timeval_us = |value: libc::timeval, name: &str| -> Result<u64, String> {
+        let seconds = nonnegative(value.tv_sec, name)?;
+        let micros = nonnegative(value.tv_usec.into(), name)?;
+        seconds
+            .checked_mul(1_000_000)
+            .and_then(|total| total.checked_add(micros))
+            .ok_or_else(|| format!("process CPU counter overflow: {name}"))
+    };
+    Ok(ProcessActivity {
+        disk_bytes_read: process.diskio_bytesread,
+        pageins: process.pageins,
+        minor_faults: nonnegative(usage.ru_minflt, "minor faults")?,
+        major_faults: nonnegative(usage.ru_majflt, "major faults")?,
+        user_cpu_us: timeval_us(usage.ru_utime, "user CPU")?,
+        system_cpu_us: timeval_us(usage.ru_stime, "system CPU")?,
+    })
 }
 
 fn process_disk_bytes_read() -> Result<u64, String> {
@@ -2274,11 +2367,17 @@ fn routed_mlp_metal(
     metal_ledger: &mut MetalExpertLedger,
     runtime: &BoundedMetalExpertRuntime,
 ) -> Result<RoutedMlpOutput, String> {
+    let routed_wall_started = Instant::now();
+    let routed_activity_started = metal_ledger
+        .tomography_enabled
+        .then(process_activity)
+        .transpose()?;
     require_one_row_metal_experts(rows)?;
     if input.len() != HIDDEN {
         return Err("bounded Metal routed expert input shape mismatch".to_owned());
     }
     let prefix = format!("model.layers.{layer}.mlp");
+    let route_started = Instant::now();
     let routing = route_mlp(checkpoint, layer, input, rows, ledger)?;
     let mut schedule: BTreeMap<u32, Vec<(usize, f32)>> = BTreeMap::new();
     for slot in 0..TOP_K {
@@ -2290,10 +2389,18 @@ fn routed_mlp_metal(
     if schedule.len() != TOP_K || schedule.values().any(|placements| placements.len() != 1) {
         return Err("bounded Metal route did not contain eight unique experts".to_owned());
     }
+    let route_and_schedule_ms = route_started.elapsed().as_secs_f64() * 1000.0;
     let mut output = vec![0.0_f32; HIDDEN];
     let down_shape_authority = vec![0.0_f32; MOE_INTERMEDIATE];
+    let expert_tomography_start = metal_ledger.expert_tomography.len();
     for (expert, placements) in schedule {
+        let expert_wall_started = Instant::now();
+        let expert_activity_started = metal_ledger
+            .tomography_enabled
+            .then(process_activity)
+            .transpose()?;
         let expert_prefix = format!("{prefix}.experts.{expert}");
+        let validation_started = Instant::now();
         let tensor = |projection: &str| -> Result<_, String> {
             let name = format!("{expert_prefix}.{projection}_proj.weight");
             validate_fp8_views(
@@ -2311,6 +2418,7 @@ fn routed_mlp_metal(
         let gate = tensor("gate")?;
         let up = tensor("up")?;
         let down = tensor("down")?;
+        let tensor_lookup_validation_ms = validation_started.elapsed().as_secs_f64() * 1000.0;
         if (gate.rows, gate.columns) != (MOE_INTERMEDIATE, HIDDEN)
             || (up.rows, up.columns) != (MOE_INTERMEDIATE, HIDDEN)
             || (down.rows, down.columns) != (HIDDEN, MOE_INTERMEDIATE)
@@ -2319,11 +2427,17 @@ fn routed_mlp_metal(
                 "layer {layer} expert {expert}: projection shape mismatch"
             ));
         }
-        let execution = runtime.execute([&gate, &up, &down], input)?;
+        let mut execution = if metal_ledger.tomography_enabled {
+            runtime.execute_profiled(layer, expert, [&gate, &up, &down], input)?
+        } else {
+            runtime.execute([&gate, &up, &down], input)?
+        };
         let weight = placements[0].1;
+        let scatter_started = Instant::now();
         for (destination, value) in output.iter_mut().zip(&execution.down) {
             *destination += *value * weight;
         }
+        let weighted_scatter_ms = scatter_started.elapsed().as_secs_f64() * 1000.0;
         ledger.logical_source_bytes = ledger
             .logical_source_bytes
             .checked_add(execution.installed_source_bytes)
@@ -2349,9 +2463,46 @@ fn routed_mlp_metal(
         {
             *total += count as u64;
         }
+        let release_started = Instant::now();
         release_matrix_transients(checkpoint)?;
+        let matrix_transient_release_ms = release_started.elapsed().as_secs_f64() * 1000.0;
+        if let Some(mut tomography) = execution.tomography.take() {
+            tomography.source_shards = ["gate", "up", "down"]
+                .iter()
+                .map(|projection| {
+                    checkpoint
+                        .shard_for_tensor(&format!("{expert_prefix}.{projection}_proj.weight"))
+                        .map(str::to_owned)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            tomography.tensor_lookup_validation_ms = tensor_lookup_validation_ms;
+            tomography.weighted_scatter_ms = weighted_scatter_ms;
+            tomography.matrix_transient_release_ms = matrix_transient_release_ms;
+            tomography.wall_ms = expert_wall_started.elapsed().as_secs_f64() * 1000.0;
+            tomography.activity = process_activity()?.checked_delta(
+                expert_activity_started.ok_or("missing expert activity baseline")?,
+            )?;
+            metal_ledger.expert_tomography.push(tomography);
+        }
     }
+    let final_round_started = Instant::now();
     round_bf16_values(&mut output);
+    let layer_final_bf16_round_ms = final_round_started.elapsed().as_secs_f64() * 1000.0;
+    if let Some(before) = routed_activity_started {
+        let expert_wall_sum_ms = metal_ledger.expert_tomography[expert_tomography_start..]
+            .iter()
+            .map(|record| record.wall_ms)
+            .sum();
+        metal_ledger.layer_tomography.push(MetalLayerTomography {
+            layer,
+            route_and_schedule_ms,
+            expert_count: metal_ledger.expert_tomography.len() - expert_tomography_start,
+            expert_wall_sum_ms,
+            layer_final_bf16_round_ms,
+            routed_mlp_wall_ms: routed_wall_started.elapsed().as_secs_f64() * 1000.0,
+            activity: process_activity()?.checked_delta(before)?,
+        });
+    }
     Ok(RoutedMlpOutput {
         output,
         logits: routing.logits,
@@ -2977,6 +3128,55 @@ pub fn run_metal_incremental_text_endpoint(
     output_path: &Path,
     commit: &str,
 ) -> Result<MetalIncrementalTextReport, String> {
+    run_metal_incremental(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+        oracle_manifest_path,
+        kernel_path,
+        output_path,
+        commit,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_weight_install_tomography(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    oracle_manifest_path: &Path,
+    kernel_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<MetalIncrementalTextReport, String> {
+    run_metal_incremental(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+        oracle_manifest_path,
+        kernel_path,
+        output_path,
+        commit,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_metal_incremental(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    oracle_manifest_path: &Path,
+    kernel_path: &Path,
+    output_path: &Path,
+    commit: &str,
+    tomography_enabled: bool,
+) -> Result<MetalIncrementalTextReport, String> {
     const ORACLE_SHA256: &str = "75b4a5799bcc7dc898643c266d42a00b52c75be0f1fe1682ef253ce8fe4287a8";
     const PREFILL_LOGITS_SHA256: &str =
         "c43be0909487235bddfe6e0de69aa42a98339faf43cd6b77d6ef4b5f1a853cab";
@@ -3057,7 +3257,10 @@ pub fn run_metal_incremental_text_endpoint(
     }
     safety.checkpoint("token_1_accepted", true)?;
     let mut captures = FullPrefixCaptures::default();
-    let mut metal_ledger = MetalExpertLedger::default();
+    let mut metal_ledger = MetalExpertLedger {
+        tomography_enabled,
+        ..MetalExpertLedger::default()
+    };
     let incremental = decode_step(
         &checkpoint,
         &config,
@@ -3146,12 +3349,12 @@ pub fn run_metal_incremental_text_endpoint(
             .all(|speedup| *speedup >= 5.0);
     checkpoint.release_file_pages()?;
     safety.checkpoint("candidate_buffers_released", true)?;
-    if incremental.output_token != 13
-        || !all_layer_parity_passed
-        || !final_norm_parity.passed
-        || !logits_parity.passed
-        || !timing_gate_passed
-    {
+    let promotion_gates_passed = incremental.output_token == 13
+        && all_layer_parity_passed
+        && final_norm_parity.passed
+        && logits_parity.passed
+        && timing_gate_passed;
+    if !promotion_gates_passed && !tomography_enabled {
         let minimum_free = safety
             .snapshots
             .iter()
@@ -3209,7 +3412,16 @@ pub fn run_metal_incremental_text_endpoint(
             maximum_new_throttled,
         ));
     }
-    safety.checkpoint("token_2_accepted", true)?;
+    if incremental.output_token != 13
+        || !all_layer_parity_passed
+        || !final_norm_parity.passed
+        || !logits_parity.passed
+        || !timing_gate_passed
+    {
+        safety.checkpoint("tomography_candidate_rejected", true)?;
+    } else {
+        safety.checkpoint("token_2_accepted", true)?;
+    }
     safety.checkpoint("final_release", true)?;
     ledger.actual_process_disk_bytes_read = process_disk_bytes_read()?
         .checked_sub(disk_bytes_read_before)
@@ -3251,7 +3463,11 @@ pub fn run_metal_incremental_text_endpoint(
     ];
     let report = MetalIncrementalTextReport {
         schema_version: 1,
-        semantic: "mimo_v2_5_target_faithful_bounded_metal_incremental_text_endpoint",
+        semantic: if tomography_enabled {
+            "mimo_v2_5_bounded_metal_incremental_weight_install_tomography"
+        } else {
+            "mimo_v2_5_target_faithful_bounded_metal_incremental_text_endpoint"
+        },
         revision: REVISION,
         commit: commit.to_owned(),
         fixture_sha256: sha256_hex(&fixture_bytes),
@@ -3279,12 +3495,18 @@ pub fn run_metal_incremental_text_endpoint(
         timing_gate_passed,
         batch_size: 1,
         concurrency: 1,
-        accepted_tokens_in_timed_interval: 1,
+        accepted_tokens_in_timed_interval: usize::from(promotion_gates_passed),
         accepted_per_verification: 1,
-        cache_state: "cold process and verified SSD mmap; CPU prefill; retained K/V; warm process-local Metal pipeline; bounded expert tensors released per projection",
+        cache_state: "cold process and verified SSD mmap; CPU prefill; retained K/V; warm process-local Metal pipeline; bounded copied expert tensors released per projection",
         exactness: "L3 bounded arithmetic approximation: source weights/routes and value-derived sparse BF16 midpoint repair",
         performance_claim: None,
         implementation: "single_rust_authority_retained_kv_cpu_attention_bounded_source_fp8_metal_experts_sparse_bf16_repair",
+        promotion_gates_passed,
+        status: if promotion_gates_passed {
+            "promotion_gates_passed"
+        } else {
+            "diagnostic_complete_candidate_gates_failed"
+        },
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;
@@ -3437,7 +3659,10 @@ pub fn run_layer4_metal_diagnostic(
         .copied()
         .zip(route_weights.iter().copied())
         .collect::<BTreeMap<_, _>>();
-    let mut metal_ledger = MetalExpertLedger::default();
+    let mut metal_ledger = MetalExpertLedger {
+        tomography_enabled: true,
+        ..MetalExpertLedger::default()
+    };
     let mut routed = vec![0.0_f32; HIDDEN];
     let down_shape_authority = vec![0.0_f32; MOE_INTERMEDIATE];
     let mut expert_diagnostics = Vec::with_capacity(TOP_K);
@@ -5624,5 +5849,33 @@ mod tests {
         let (identity, jsd) = projected_top20_jsd(&logits, &logits).expect("projected JSD");
         assert!(identity);
         assert_eq!(jsd, 0.0);
+    }
+
+    #[test]
+    fn process_activity_deltas_fail_closed_on_counter_regression() {
+        let before = ProcessActivity {
+            disk_bytes_read: 10,
+            pageins: 20,
+            minor_faults: 30,
+            major_faults: 40,
+            user_cpu_us: 50,
+            system_cpu_us: 60,
+        };
+        let after = ProcessActivity {
+            disk_bytes_read: 11,
+            pageins: 22,
+            minor_faults: 33,
+            major_faults: 44,
+            user_cpu_us: 55,
+            system_cpu_us: 66,
+        };
+        let delta = after.checked_delta(before).expect("monotonic counters");
+        assert_eq!(delta.disk_bytes_read, 1);
+        assert_eq!(delta.pageins, 2);
+        assert_eq!(delta.minor_faults, 3);
+        assert_eq!(delta.major_faults, 4);
+        assert_eq!(delta.user_cpu_us, 5);
+        assert_eq!(delta.system_cpu_us, 6);
+        assert!(before.checked_delta(after).is_err());
     }
 }

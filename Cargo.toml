@@ -5,6 +5,10 @@ edition = "2024"
 license = "MIT"
 description = "Fail-closed local runtime research tools for Xiaomi MiMo-V2.5"
 
+[features]
+# Declared because objc 0.2's selector macro probes this historical cfg.
+cargo-clippy = []
+
 [dependencies]
 memmap2 = "0.9.8"
 libc = "0.2.177"
@@ -14,7 +18,9 @@ sha2 = "0.10.9"
 tokenizers = { version = "0.22.2", default-features = false, features = ["onig"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+foreign-types = "0.5.0"
 metal = "=0.33.0"
+objc = "0.2.7"
 
 [build-dependencies]
 cc = "1.2.53"

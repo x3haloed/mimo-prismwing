@@ -1,10 +1,17 @@
+#![allow(unexpected_cfgs)]
+
 use super::{
     MappedSafetensors, MappedTensorMetadata, MetalMoeManifest, UniqueJson, ValidatedMappedFp8,
     accelerate_sgemm_right_transposed, decode_f8_e4m3fn, read_f32_file, sha256_hex, sha256_reader,
     validate_fp8_views, validate_mapped_fp8, write_create_new,
 };
-use crate::text_endpoint::{ComponentSafetyMonitor, SafetySnapshot, component_pytorch_noaux_route};
+use crate::text_endpoint::{
+    ComponentSafetyMonitor, ProcessActivityDelta, SafetySnapshot, component_pytorch_noaux_route,
+    process_activity,
+};
+use foreign_types::ForeignTypeRef;
 use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize};
+use objc::{msg_send, sel, sel_impl};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
@@ -40,6 +47,47 @@ pub(crate) struct BoundedMetalExpertOutput {
     pub(crate) sparse_repair_counts: [usize; 3],
     pub(crate) installed_source_bytes: u64,
     pub(crate) sparse_decoded_weight_bytes: u64,
+    pub(crate) tomography: Option<ExpertTomography>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProjectionTomography {
+    pub projection: &'static str,
+    pub rows: usize,
+    pub columns: usize,
+    pub source_weight_bytes: u64,
+    pub source_scale_bytes: u64,
+    pub source_buffer_install_ms: f64,
+    pub small_buffer_install_ms: f64,
+    pub command_encode_ms: f64,
+    pub commit_call_ms: f64,
+    pub synchronous_wait_ms: f64,
+    pub gpu_interval_ms: Option<f64>,
+    pub readback_ms: f64,
+    pub explicit_release_ms: f64,
+    pub wall_ms: f64,
+    pub source_install_activity: ProcessActivityDelta,
+    pub total_activity: ProcessActivityDelta,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExpertTomography {
+    pub layer: usize,
+    pub expert: u32,
+    pub source_shards: Vec<String>,
+    pub tensor_lookup_validation_ms: f64,
+    pub dynamic_input_ms: f64,
+    pub gate_up_bf16_round_ms: f64,
+    pub gate_up_sparse_repair_ms: f64,
+    pub swiglu_ms: f64,
+    pub dynamic_hidden_ms: f64,
+    pub down_bf16_round_ms: f64,
+    pub down_sparse_repair_ms: f64,
+    pub weighted_scatter_ms: f64,
+    pub matrix_transient_release_ms: f64,
+    pub projections: Vec<ProjectionTomography>,
+    pub wall_ms: f64,
+    pub activity: ProcessActivityDelta,
 }
 
 impl BoundedMetalExpertRuntime {
@@ -90,6 +138,25 @@ impl BoundedMetalExpertRuntime {
         projections: [&ValidatedMappedFp8<'_>; 3],
         input: &[f32],
     ) -> Result<BoundedMetalExpertOutput, String> {
+        self.execute_internal(projections, input, None)
+    }
+
+    pub(crate) fn execute_profiled(
+        &self,
+        layer: usize,
+        expert: u32,
+        projections: [&ValidatedMappedFp8<'_>; 3],
+        input: &[f32],
+    ) -> Result<BoundedMetalExpertOutput, String> {
+        self.execute_internal(projections, input, Some((layer, expert)))
+    }
+
+    fn execute_internal(
+        &self,
+        projections: [&ValidatedMappedFp8<'_>; 3],
+        input: &[f32],
+        identity: Option<(usize, u32)>,
+    ) -> Result<BoundedMetalExpertOutput, String> {
         let execution = execute_staged_expert(
             &self.device,
             &self.queue,
@@ -97,6 +164,7 @@ impl BoundedMetalExpertRuntime {
             &self.lut,
             projections,
             input,
+            identity,
         )?;
         let installed_source_bytes = projections.iter().try_fold(0_u64, |total, tensor| {
             total
@@ -119,6 +187,7 @@ impl BoundedMetalExpertRuntime {
             sparse_repair_counts: execution.repairs,
             installed_source_bytes,
             sparse_decoded_weight_bytes,
+            tomography: execution.tomography,
         })
     }
 }
@@ -357,6 +426,17 @@ fn repair_uncertain_rows(
     Ok(rows.len())
 }
 
+fn completed_gpu_interval_ms(command: &metal::CommandBufferRef) -> Option<f64> {
+    // SAFETY: the command buffer has completed and these MTLCommandBuffer
+    // selectors return process-independent monotonic GPU timestamps in seconds.
+    let start: f64 = unsafe { msg_send![command.as_ptr(), GPUStartTime] };
+    // SAFETY: same completed command buffer and API contract as above.
+    let end: f64 = unsafe { msg_send![command.as_ptr(), GPUEndTime] };
+    (start.is_finite() && end.is_finite() && start > 0.0 && end >= start)
+        .then_some((end - start) * 1000.0)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn metal_project(
     device: &metal::DeviceRef,
     queue: &metal::CommandQueueRef,
@@ -364,7 +444,9 @@ fn metal_project(
     lut: &[f32],
     tensor: &ValidatedMappedFp8<'_>,
     activation: &[f32],
-) -> Result<Vec<f32>, String> {
+    projection: &'static str,
+    tomography_enabled: bool,
+) -> Result<(Vec<f32>, Option<ProjectionTomography>), String> {
     #[repr(C)]
     struct Shape {
         rows: u32,
@@ -381,12 +463,23 @@ fn metal_project(
         block_rows: 128,
         block_columns: 128,
     };
+    let wall_started = Instant::now();
+    let activity_started = tomography_enabled.then(process_activity).transpose()?;
     let shared = MTLResourceOptions::StorageModeShared;
     let buffer = |bytes: &[u8]| {
         device.new_buffer_with_data(bytes.as_ptr().cast(), bytes.len() as u64, shared)
     };
+    let source_install_started = Instant::now();
+    let source_activity_started = tomography_enabled.then(process_activity).transpose()?;
     let weight = buffer(tensor.weight.bytes);
     let scale = buffer(tensor.scale.bytes);
+    let source_buffer_install_ms = source_install_started.elapsed().as_secs_f64() * 1000.0;
+    let source_install_activity = if let Some(before) = source_activity_started {
+        process_activity()?.checked_delta(before)?
+    } else {
+        ProcessActivityDelta::default()
+    };
+    let small_install_started = Instant::now();
     let input_buffer = device.new_buffer_with_data(
         activation.as_ptr().cast(),
         std::mem::size_of_val(activation) as u64,
@@ -403,6 +496,8 @@ fn metal_project(
         std::mem::size_of_val(lut) as u64,
         shared,
     );
+    let small_buffer_install_ms = small_install_started.elapsed().as_secs_f64() * 1000.0;
+    let encode_started = Instant::now();
     let command = queue.new_command_buffer();
     let encoder = command.new_compute_command_encoder();
     encoder.set_compute_pipeline_state(pipeline);
@@ -426,15 +521,57 @@ fn metal_project(
         },
     );
     encoder.end_encoding();
+    let command_encode_ms = encode_started.elapsed().as_secs_f64() * 1000.0;
+    let commit_started = Instant::now();
     command.commit();
+    let commit_call_ms = commit_started.elapsed().as_secs_f64() * 1000.0;
+    let wait_started = Instant::now();
     command.wait_until_completed();
+    let synchronous_wait_ms = wait_started.elapsed().as_secs_f64() * 1000.0;
     if command.status() != MTLCommandBufferStatus::Completed {
         return Err(format!("Metal projection failed: {:?}", command.status()));
     }
+    let gpu_interval_ms = tomography_enabled
+        .then(|| completed_gpu_interval_ms(command))
+        .flatten();
     // SAFETY: completion precedes reading the exactly rows-long shared F32 buffer.
-    Ok(unsafe {
+    let readback_started = Instant::now();
+    let output = unsafe {
         std::slice::from_raw_parts(output_buffer.contents().cast::<f32>(), tensor.rows).to_vec()
-    })
+    };
+    let readback_ms = readback_started.elapsed().as_secs_f64() * 1000.0;
+    let release_started = Instant::now();
+    drop(weight);
+    drop(scale);
+    drop(input_buffer);
+    drop(output_buffer);
+    drop(shape_buffer);
+    drop(lut_buffer);
+    let explicit_release_ms = release_started.elapsed().as_secs_f64() * 1000.0;
+    let wall_ms = wall_started.elapsed().as_secs_f64() * 1000.0;
+    let tomography = if let Some(before) = activity_started {
+        Some(ProjectionTomography {
+            projection,
+            rows: tensor.rows,
+            columns: tensor.columns,
+            source_weight_bytes: tensor.weight.metadata.data_bytes,
+            source_scale_bytes: tensor.scale.metadata.data_bytes,
+            source_buffer_install_ms,
+            small_buffer_install_ms,
+            command_encode_ms,
+            commit_call_ms,
+            synchronous_wait_ms,
+            gpu_interval_ms,
+            readback_ms,
+            explicit_release_ms,
+            wall_ms,
+            source_install_activity,
+            total_activity: process_activity()?.checked_delta(before)?,
+        })
+    } else {
+        None
+    };
+    Ok((output, tomography))
 }
 
 fn execute_staged_expert(
@@ -444,31 +581,102 @@ fn execute_staged_expert(
     lut: &[f32],
     projections: [&ValidatedMappedFp8<'_>; 3],
     input: &[f32],
+    identity: Option<(usize, u32)>,
 ) -> Result<StagedExpertExecution, String> {
+    let wall_started = Instant::now();
+    let activity_started = identity.map(|_| process_activity()).transpose()?;
     let [gate, up, down] = projections;
+    let dynamic_input_started = Instant::now();
     let staged_input = dynamic_fp8_dequantized(input)?;
-    let gate_pre_round = metal_project(device, queue, pipeline, lut, gate, &staged_input)?;
-    let up_pre_round = metal_project(device, queue, pipeline, lut, up, &staged_input)?;
+    let dynamic_input_ms = dynamic_input_started.elapsed().as_secs_f64() * 1000.0;
+    let profiling = identity.is_some();
+    let (gate_pre_round, gate_tomography) = metal_project(
+        device,
+        queue,
+        pipeline,
+        lut,
+        gate,
+        &staged_input,
+        "gate",
+        profiling,
+    )?;
+    let (up_pre_round, up_tomography) = metal_project(
+        device,
+        queue,
+        pipeline,
+        lut,
+        up,
+        &staged_input,
+        "up",
+        profiling,
+    )?;
     let mut gate_output = gate_pre_round.clone();
     let mut up_output = up_pre_round.clone();
+    let gate_up_round_started = Instant::now();
     round_bf16_values(&mut gate_output);
     round_bf16_values(&mut up_output);
+    let gate_up_bf16_round_ms = gate_up_round_started.elapsed().as_secs_f64() * 1000.0;
+    let gate_up_repair_started = Instant::now();
     let gate_repairs =
         repair_uncertain_rows(gate, &staged_input, &gate_pre_round, &mut gate_output)?;
     let up_repairs = repair_uncertain_rows(up, &staged_input, &up_pre_round, &mut up_output)?;
+    let gate_up_sparse_repair_ms = gate_up_repair_started.elapsed().as_secs_f64() * 1000.0;
+    let swiglu_started = Instant::now();
     let hidden = gate_output
         .iter()
         .zip(&up_output)
         .map(|(&g, &u)| staged_swiglu(g, u))
         .collect::<Vec<_>>();
+    let swiglu_ms = swiglu_started.elapsed().as_secs_f64() * 1000.0;
+    let dynamic_hidden_started = Instant::now();
     let staged_hidden = dynamic_fp8_dequantized(&hidden)?;
-    let down_pre_round = metal_project(device, queue, pipeline, lut, down, &staged_hidden)?;
+    let dynamic_hidden_ms = dynamic_hidden_started.elapsed().as_secs_f64() * 1000.0;
+    let (down_pre_round, down_tomography) = metal_project(
+        device,
+        queue,
+        pipeline,
+        lut,
+        down,
+        &staged_hidden,
+        "down",
+        profiling,
+    )?;
     let mut output = down_pre_round.clone();
+    let down_round_started = Instant::now();
     round_bf16_values(&mut output);
+    let down_bf16_round_ms = down_round_started.elapsed().as_secs_f64() * 1000.0;
+    let down_repair_started = Instant::now();
     let down_repairs = repair_uncertain_rows(down, &staged_hidden, &down_pre_round, &mut output)?;
+    let down_sparse_repair_ms = down_repair_started.elapsed().as_secs_f64() * 1000.0;
     if output.iter().any(|x| !x.is_finite()) {
         return Err("staged Metal expert produced non-finite output".to_owned());
     }
+    let tomography = if let (Some((layer, expert)), Some(before)) = (identity, activity_started) {
+        Some(ExpertTomography {
+            layer,
+            expert,
+            source_shards: Vec::new(),
+            tensor_lookup_validation_ms: 0.0,
+            dynamic_input_ms,
+            gate_up_bf16_round_ms,
+            gate_up_sparse_repair_ms,
+            swiglu_ms,
+            dynamic_hidden_ms,
+            down_bf16_round_ms,
+            down_sparse_repair_ms,
+            weighted_scatter_ms: 0.0,
+            matrix_transient_release_ms: 0.0,
+            projections: vec![
+                gate_tomography.ok_or("missing gate tomography")?,
+                up_tomography.ok_or("missing up tomography")?,
+                down_tomography.ok_or("missing down tomography")?,
+            ],
+            wall_ms: wall_started.elapsed().as_secs_f64() * 1000.0,
+            activity: process_activity()?.checked_delta(before)?,
+        })
+    } else {
+        None
+    };
     Ok(StagedExpertExecution {
         gate: gate_output,
         up: up_output,
@@ -478,6 +686,7 @@ fn execute_staged_expert(
         up_pre_round,
         down_pre_round,
         repairs: [gate_repairs, up_repairs, down_repairs],
+        tomography,
     })
 }
 
@@ -490,6 +699,7 @@ struct StagedExpertExecution {
     up_pre_round: Vec<f32>,
     down_pre_round: Vec<f32>,
     repairs: [usize; 3],
+    tomography: Option<ExpertTomography>,
 }
 
 pub fn run_staged_metal_fp8_expert(
@@ -576,6 +786,7 @@ pub fn run_staged_metal_fp8_expert(
             &lut,
             [&gate, &up, &down],
             &input,
+            None,
         )?;
         Ok((
             execution.down,
@@ -921,8 +1132,15 @@ pub fn run_bounded_metal_routed_row(
             let (gate, up, down) = projections
                 .get(&expert_id)
                 .ok_or_else(|| format!("runtime selected unauthoritative expert {expert_id}"))?;
-            let expert_execution =
-                execute_staged_expert(&device, &queue, &pipeline, &lut, [gate, up, down], &input)?;
+            let expert_execution = execute_staged_expert(
+                &device,
+                &queue,
+                &pipeline,
+                &lut,
+                [gate, up, down],
+                &input,
+                None,
+            )?;
             for (destination, value) in output.iter_mut().zip(&expert_execution.down) {
                 *destination += *value * route_weight;
             }
@@ -1231,5 +1449,32 @@ mod tests {
         let second = dynamic_fp8_dequantized(&input).expect("valid input");
         assert_eq!(first, second);
         assert!(first.iter().all(|x| x.is_finite()));
+    }
+
+    #[test]
+    fn tomography_serialization_retains_projection_identity_and_null_gpu_time() {
+        let activity = ProcessActivityDelta::default();
+        let projection = ProjectionTomography {
+            projection: "gate",
+            rows: 2048,
+            columns: 4096,
+            source_weight_bytes: 8_388_608,
+            source_scale_bytes: 2048,
+            source_buffer_install_ms: 1.0,
+            small_buffer_install_ms: 2.0,
+            command_encode_ms: 3.0,
+            commit_call_ms: 4.0,
+            synchronous_wait_ms: 5.0,
+            gpu_interval_ms: None,
+            readback_ms: 6.0,
+            explicit_release_ms: 7.0,
+            wall_ms: 28.0,
+            source_install_activity: activity,
+            total_activity: activity,
+        };
+        let value = serde_json::to_value(projection).expect("serialize tomography");
+        assert_eq!(value["projection"], "gate");
+        assert_eq!(value["rows"], 2048);
+        assert!(value["gpu_interval_ms"].is_null());
     }
 }
