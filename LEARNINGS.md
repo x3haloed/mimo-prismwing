@@ -1162,3 +1162,14 @@ expert selection/order is exact and route-weight serialization differs by only
 retained 81% free memory, and caused no swap growth, throttling, or service
 loss. The exact accumulated frontier is now through layer 7; use one frozen
 full-prefix replay to find the next boundary.
+
+PW-0071 advances the bit-exact accumulated frontier through layer 10. Layer 11
+is the first actual divergence—only five BF16 values, `8.83e-7` relative L2,
+and `0.015625` maximum error—while layer 14 is the first layer-final threshold
+failure after that error accumulates. Route weights remain within their strict
+gate through layer 11 and first fail at layer 12; expert sets remain exact
+through layer 18. Treating layer 14 as the causal boundary would skip the first
+arithmetic defect, so localize layer 11 from exact layer 10. The first full walk
+under normative Gate 8 peaked at 4.168 GB RSS in the LM head, ended at 2.904 GB,
+retained at least 80% free memory, and caused no swap growth, throttling, or
+protected-service loss.
