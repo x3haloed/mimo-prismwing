@@ -1,10 +1,11 @@
 # PW-0095 — Independent PyTorch cached decode
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Commit and dirty state: contract precedes implementation and execution
+- Commit and dirty state: clean oracle implementation and execution at
+  `ff4ebc2`
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0092 run 001
   `18c3ccde4a8645d9ea46d0091f877eebe256ca2c7d82c34e771f5f4114bb5f25`;
@@ -56,8 +57,43 @@ component rate is accepted TPS or a promoted performance default.
 
 ## Result
 
-Unexecuted.
+The independent oracle completed in 804,493.062 ms. Its manifest is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0095/oracle-001/manifest.json`
+with SHA-256
+`75b4a5799bcc7dc898643c266d42a00b52c75be0f1fe1682ef253ce8fe4287a8`.
+It used only the verified checkpoint and pinned source operations: no Rust K/V,
+layer state, routes, or logits were imported.
+
+All gates clear. The 27-row PyTorch prefill and PW-0092 Rust step one have
+identical expert sets and order in every routed layer; maximum route-weight
+error by expert is `2.97e-8`. The independent one-row cache pass appends at
+absolute position 27 and leaves all 48 caches at 28 positions. The nine full
+attention layers retain four KV heads and the 39 SWA layers retain eight. Its
+incremental expert sets and order exactly match PW-0092 step two, with maximum
+route-weight error `2.08e-7`, below the unchanged `5e-7` source gate.
+
+The complete incremental F32 logit vectors are byte-identical. Both the
+PyTorch capture and packed PW-0092 Rust step-two logits hash to
+`e86670ade50a8c02be5451f9233a65e6b982e80d09f8fd38b41c2d8e3ea2526a`
+and choose token 13. This independently validates the real prompt -> retained
+K/V -> one-row attention/MLP -> route -> LM-head -> accepted-token path.
+
+Gate 8 passed with at least 71% system memory-free pressure, peak RSS
+4,170,235,904 bytes, maximum sampled current resident size 513,703,936 bytes,
+and final resident size 420,560,896 bytes. Swap grew by only 398,459 bytes,
+well below 512 MiB; no new throttled pages appeared. ChatGPT, WindowServer,
+`nxnode`, and both Syncthing processes remained resident at the final boundary.
 
 ## Decision
 
-Unexecuted.
+Promote PW-0092's retained-cache text semantics as independently source-exact
+for this 27+1 walking slice. PW-0093's rejected 28-row-versus-one-row byte
+identity premise is explained by row-count-dependent source matrix arithmetic,
+not K/V corruption. Preserve both results and do not require whole-sequence
+byte identity as an incremental cache gate; compare equal execution shapes.
+
+Close incremental-state localization and move to one-token profiling and
+physical work compression. The measured 17.208 GB logical source path, 1,179
+FP8 matrix expansions, and 158.5--158.6 second Rust token remain the active
+bottleneck evidence. No throughput-model constant changes are needed because
+this oracle accepted zero tokens and confirmed the existing PW-0092 constant.

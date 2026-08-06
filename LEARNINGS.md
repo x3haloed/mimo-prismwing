@@ -1417,3 +1417,20 @@ headroom, and caused no swap growth, throttling, or service loss. A trace-only
 schema now admits exactly the frozen prefix plus token 264 while the production
 endpoint rejects it. Build an independent PyTorch 27+1 cached oracle next; do
 not infer cache correctness from whole-sequence equivalence alone.
+
+PW-0095 independently clears retained-cache semantics. A separate PyTorch
+implementation performs the exact 27-token prefill, retains source K/V in all
+48 layers, then propagates only token 264 at absolute position 27. All caches
+reach 28 positions with the pinned nine-global/four-head and 39-SWA/eight-head
+schedule. Its prefill and incremental expert sets/order exactly match Rust;
+maximum route-weight errors are `2.97e-8` and `2.08e-7`. The complete one-row
+logit vectors are byte-identical and hash to
+`e86670ade50a8c02be5451f9233a65e6b982e80d09f8fd38b41c2d8e3ea2526a`,
+choosing token 13.
+Thus PW-0093's whole-sequence mismatch is row-count-dependent source matrix
+arithmetic, not K/V corruption; equal-shape comparisons are the correct cache
+gate. The 804.493-second oracle safely peaks at 4.170 GB RSS, ends at 421 MB,
+retains at least 71% memory-pressure headroom, grows swap by less than 0.4 MB,
+and causes no throttling or protected-service loss. Incremental correctness is
+closed for the walking slice; profile and compress the 17.208 GB/1,179-expansion
+one-token embodiment next.

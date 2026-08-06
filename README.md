@@ -77,11 +77,11 @@ See [RED_LINES.md](RED_LINES.md) for shortcuts that do not count.
 **Active executable research foundation.** The checkpoint and hosted provider
 are pinned. A source-exact Rust full-prefix path and deterministic two-token
 incremental text endpoint now run against the real checkpoint with retained
-per-layer K/V and shared-host safety stops. The walking slice is intentionally
-slow and does not establish accepted TPS; native modalities and hosted parity
-also remain open. Active work is independent incremental-state validation,
-physical weight-work compression, complete capability coverage, and
-end-to-end optimization.
+per-layer K/V and shared-host safety stops. An independent PyTorch cached walk
+confirms the second-step routes and full logits exactly. The walking slice is
+intentionally slow and does not establish accepted TPS; native modalities and
+hosted parity also remain open. Active work is physical weight-work
+compression, complete capability coverage, and end-to-end optimization.
 
 ## Terminology
 
