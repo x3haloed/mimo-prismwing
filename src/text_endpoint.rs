@@ -1456,6 +1456,7 @@ fn causal_attention_head_bf16(
     causal_attention_head_with_dtype(query, keys, values, scale, sink, true, None)
 }
 
+#[cfg(test)]
 fn pytorch_bf16_four_lane_dot_f32(left: &[f32], right: &[f32]) -> f32 {
     debug_assert_eq!(left.len(), right.len());
     let mut partials = [0.0_f32; 4];
@@ -1534,11 +1535,7 @@ fn causal_attention_head_with_dtype(
         .iter()
         .map(|key| {
             let dot = if bf16_boundaries {
-                if sink.is_some() {
-                    pytorch_bf16_four_lane_dot_f32(query, key)
-                } else {
-                    pytorch_bf16_specialized_vector_dot_f32(query, key)
-                }
+                pytorch_bf16_specialized_vector_dot_f32(query, key)
             } else {
                 query
                     .iter()
@@ -4095,6 +4092,68 @@ mod tests {
                 .as_u64()
                 .expect("scaled score bits") as u16
         );
+        let maximum = f32::from_bits(
+            u32::from(
+                fixture["row_maximum_bf16_u16"]
+                    .as_u64()
+                    .expect("row maximum bits") as u16,
+            ) << 16,
+        );
+        assert_eq!(
+            (round_bf16(score - maximum).to_bits() >> 16) as u16,
+            fixture["centered_score_bf16_u16"]
+                .as_u64()
+                .expect("centered score bits") as u16
+        );
+    }
+
+    #[test]
+    fn pytorch_bf16_specialized_swa_score_dot_matches_source_order() {
+        fn bits(value: &Value, name: &str) -> Vec<f32> {
+            value
+                .as_array()
+                .unwrap_or_else(|| panic!("{name} bits"))
+                .iter()
+                .map(|value| {
+                    f32::from_bits(u32::from(value.as_u64().expect("BF16 payload") as u16) << 16)
+                })
+                .collect()
+        }
+
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0082-pytorch-bf16-swa-score-dot.json"
+        ))
+        .expect("valid specialized SWA score-dot fixture");
+        assert_eq!(
+            fixture["semantic"],
+            "pytorch_aarch64_bf16_specialized_swa_score_dot_order"
+        );
+        let query = bits(&fixture["query_bf16_u16"], "query");
+        let key = bits(&fixture["key_bf16_u16"], "key");
+        let specialized = pytorch_bf16_specialized_vector_dot_f32(&query, &key);
+        let four_lane = pytorch_bf16_four_lane_dot_f32(&query, &key);
+        assert_eq!(
+            specialized.to_bits(),
+            fixture["source_specialized_vector_dot_f32_u32"]
+                .as_u64()
+                .expect("specialized dot bits") as u32
+        );
+        assert_eq!(
+            four_lane.to_bits(),
+            fixture["four_lane_dot_f32_u32"]
+                .as_u64()
+                .expect("four-lane dot bits") as u32
+        );
+        assert_ne!(
+            round_bf16(specialized).to_bits(),
+            round_bf16(four_lane).to_bits()
+        );
+        assert_eq!(
+            (round_bf16(specialized).to_bits() >> 16) as u16,
+            fixture["dot_bf16_u16"].as_u64().expect("BF16 dot bits") as u16
+        );
+        let scale = f32::from_bits(fixture["scale_f32_u32"].as_u64().expect("scale bits") as u32);
+        let score = round_bf16(round_bf16(specialized) * scale);
         let maximum = f32::from_bits(
             u32::from(
                 fixture["row_maximum_bf16_u16"]

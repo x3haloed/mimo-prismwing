@@ -33,6 +33,12 @@ CASES = {
         "fixture_semantic": "pytorch_aarch64_bf16_specialized_vector_dot_order",
         "position": 22, "head": 3, "kv_head": 0, "source_token": 16, "kv_heads": 4,
     },
+    "swa_vector": {
+        "manifest_sha256": "5bf6ed69aa01293e8020e3d4b2dc3a34dd087672901f59e321258f8ab1c0313b",
+        "oracle_semantic": "mimo_real_layer19_complete_oracle",
+        "fixture_semantic": "pytorch_aarch64_bf16_specialized_swa_score_dot_order",
+        "position": 12, "head": 25, "kv_head": 3, "source_token": 2, "kv_heads": 8,
+    },
 }
 
 
