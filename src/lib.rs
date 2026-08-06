@@ -156,6 +156,9 @@ pub struct MetalBaseLayerAttentionReport {
     pub query_count: usize,
     pub qkv_relative_l2: f64,
     pub qkv_maximum_absolute_error: f32,
+    pub post_attention_reference_sha256: String,
+    pub post_attention_relative_l2: f64,
+    pub post_attention_maximum_absolute_error: f32,
     pub moe_input_relative_l2: f64,
     pub moe_input_maximum_absolute_error: f32,
     pub selected_experts_by_position: Vec<Vec<u32>>,
@@ -348,6 +351,12 @@ struct MetalMoeManifest {
     experts: Vec<MetalMoeExpertManifest>,
     artifact_sha256: BTreeMap<String, String>,
     scheduling: String,
+    #[serde(default)]
+    parent_attention_manifest_sha256: Option<String>,
+    #[serde(default)]
+    post_attention_sha256: Option<String>,
+    #[serde(default)]
+    final_reference_sha256: Option<String>,
 }
 
 #[cfg(target_os = "macos")]
@@ -422,6 +431,29 @@ pub struct MetalFp8MoeReport {
     pub expert_union_factor: f64,
     pub cache_state: &'static str,
     pub scheduling_limitation: String,
+    pub implementation: &'static str,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Serialize)]
+pub struct MetalRealBaseLayerReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub attention: MetalBaseLayerAttentionReport,
+    pub moe: MetalFp8MoeReport,
+    pub final_reference_sha256: String,
+    pub final_output_sha256: String,
+    pub final_relative_l2: f64,
+    pub final_maximum_absolute_error: f32,
+    pub complete_wall_ms: f64,
+    pub batch_size: usize,
+    pub concurrency: u32,
+    pub accepted_tokens: u32,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: u32,
+    #[serde(rename = "U")]
+    pub expert_union_factor: f64,
+    pub performance_claim: Option<String>,
     pub implementation: &'static str,
 }
 
@@ -1238,6 +1270,30 @@ pub fn run_metal_base_layer_attention(
     input_path: &Path,
     output_path: &Path,
 ) -> Result<MetalBaseLayerAttentionReport, String> {
+    run_metal_base_layer_attention_impl(
+        source_path,
+        kernel_path,
+        manifest_path,
+        input_path,
+        output_path,
+    )
+    .map(|execution| execution.report)
+}
+
+#[cfg(target_os = "macos")]
+struct BaseLayerAttentionExecution {
+    report: MetalBaseLayerAttentionReport,
+    post_attention: Vec<f32>,
+}
+
+#[cfg(target_os = "macos")]
+fn run_metal_base_layer_attention_impl(
+    source_path: &Path,
+    kernel_path: &Path,
+    manifest_path: &Path,
+    input_path: &Path,
+    output_path: &Path,
+) -> Result<BaseLayerAttentionExecution, String> {
     use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize};
     use std::path::Component;
 
@@ -1342,6 +1398,8 @@ pub fn run_metal_base_layer_attention(
         return Err("base-layer hidden input identity mismatch".to_owned());
     }
     let (_, qkv_reference) = read_artifact("qkv_f32", CONTEXT * QKV_ROWS)?;
+    let (post_attention_reference_bytes, post_attention_reference) =
+        read_artifact("post_attention_f32", QUERIES * HIDDEN)?;
     let (_, moe_input_reference) = read_artifact("moe_input_f32", QUERIES * HIDDEN)?;
 
     let mapped = MappedSafetensors::open(source_path)?;
@@ -1641,25 +1699,33 @@ pub fn run_metal_base_layer_attention(
     let projected = unsafe {
         std::slice::from_raw_parts(projected_buffer.contents().cast::<f32>(), QUERIES * HIDDEN)
     };
+    let mut post_attention = vec![0.0_f32; QUERIES * HIDDEN];
     let mut moe_input = vec![0.0_f32; QUERIES * HIDDEN];
     for position in 0..QUERIES {
         let residual = &hidden[(manifest.query_start + position) * HIDDEN
             ..(manifest.query_start + position + 1) * HIDDEN];
         let projected_row = &projected[position * HIDDEN..(position + 1) * HIDDEN];
-        let variance = residual
+        let post_attention_row = &mut post_attention[position * HIDDEN..(position + 1) * HIDDEN];
+        for column in 0..HIDDEN {
+            post_attention_row[column] = residual[column] + projected_row[column];
+        }
+        let variance = post_attention_row
             .iter()
-            .zip(projected_row)
-            .map(|(left, right)| {
-                let value = left + right;
-                value * value
-            })
+            .map(|value| value * value)
             .sum::<f32>()
             / HIDDEN as f32;
         let inverse = (variance + parameters.rms_epsilon).sqrt().recip();
         for column in 0..HIDDEN {
             moe_input[position * HIDDEN + column] =
-                (residual[column] + projected_row[column]) * inverse * post_norm[column];
+                post_attention_row[column] * inverse * post_norm[column];
         }
+    }
+    let (post_attention_relative_l2, post_attention_maximum_absolute_error) =
+        numerical_error(&post_attention, &post_attention_reference)?;
+    if post_attention_relative_l2 > 4.0e-5 || post_attention_maximum_absolute_error > 3.0e-5 {
+        return Err(format!(
+            "base-layer post-attention parity failed: relative L2 {post_attention_relative_l2}, max abs {post_attention_maximum_absolute_error}"
+        ));
     }
     let (moe_input_relative_l2, moe_input_maximum_absolute_error) =
         numerical_error(&moe_input, &moe_input_reference)?;
@@ -1774,7 +1840,7 @@ pub fn run_metal_base_layer_attention(
         .and_then(|value| value.checked_add(output_weight.metadata.data_bytes))
         .and_then(|value| value.checked_add(router.metadata.data_bytes))
         .ok_or("base-layer logical byte count overflow")?;
-    Ok(MetalBaseLayerAttentionReport {
+    let report = MetalBaseLayerAttentionReport {
         schema_version: 1,
         semantic: "mimo_base_layer43_native_source_attention_to_dynamic_routes",
         manifest_sha256: sha256_hex(&manifest_bytes),
@@ -1788,6 +1854,9 @@ pub fn run_metal_base_layer_attention(
         query_count: QUERIES,
         qkv_relative_l2,
         qkv_maximum_absolute_error,
+        post_attention_reference_sha256: sha256_hex(&post_attention_reference_bytes),
+        post_attention_relative_l2,
+        post_attention_maximum_absolute_error,
         moe_input_relative_l2,
         moe_input_maximum_absolute_error,
         selected_experts_by_position: routes.selected,
@@ -1809,6 +1878,10 @@ pub fn run_metal_base_layer_attention(
         cache_state: "source hash and buffer installation included in complete wall; component dispatches use resident application buffers",
         performance_claim: None,
         implementation: "rust_owned_metal_source_fp8_qkv_cpu_swa_bf16_output_native_routes",
+    };
+    Ok(BaseLayerAttentionExecution {
+        report,
+        post_attention,
     })
 }
 
@@ -2624,6 +2697,122 @@ pub fn run_metal_dynamic_real_attention_fp8_moe_block(
             candidate_input_error: Some(candidate_input_error),
         },
     )
+}
+
+#[cfg(target_os = "macos")]
+pub struct RealBaseLayerRequest<'a> {
+    pub source_path: &'a Path,
+    pub kernel_path: &'a Path,
+    pub attention_manifest_path: &'a Path,
+    pub hidden_input_path: &'a Path,
+    pub moe_manifest_path: &'a Path,
+    pub artifact_root: &'a Path,
+    pub router_path: &'a Path,
+    pub source_moe_input_path: &'a Path,
+    pub moe_reference_path: &'a Path,
+    pub final_reference_path: &'a Path,
+    pub candidate_moe_input_path: &'a Path,
+    pub moe_output_path: &'a Path,
+    pub final_output_path: &'a Path,
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_real_base_layer(
+    request: RealBaseLayerRequest<'_>,
+) -> Result<MetalRealBaseLayerReport, String> {
+    let complete_start = Instant::now();
+    for path in [
+        request.candidate_moe_input_path,
+        request.moe_output_path,
+        request.final_output_path,
+    ] {
+        if path.exists() {
+            return Err(format!("refusing to overwrite {}", path.display()));
+        }
+    }
+    let moe_manifest_bytes = fs::read(request.moe_manifest_path)
+        .map_err(|error| format!("{}: {error}", request.moe_manifest_path.display()))?;
+    let unique: UniqueJson = serde_json::from_slice(&moe_manifest_bytes)
+        .map_err(|error| format!("{}: {error}", request.moe_manifest_path.display()))?;
+    let moe_manifest: MetalMoeManifest =
+        serde_json::from_value(unique.0).map_err(|error| format!("manifest: {error}"))?;
+    let attention_manifest_bytes = fs::read(request.attention_manifest_path)
+        .map_err(|error| format!("{}: {error}", request.attention_manifest_path.display()))?;
+    if moe_manifest.parent_attention_manifest_sha256.as_deref()
+        != Some(&sha256_hex(&attention_manifest_bytes))
+    {
+        return Err("MoE manifest does not bind the requested attention manifest".to_owned());
+    }
+    let attention = run_metal_base_layer_attention_impl(
+        request.source_path,
+        request.kernel_path,
+        request.attention_manifest_path,
+        request.hidden_input_path,
+        request.candidate_moe_input_path,
+    )?;
+    if moe_manifest.parent_attention_manifest_sha256.as_deref()
+        != Some(&attention.report.manifest_sha256)
+    {
+        return Err("MoE manifest does not bind the executed attention manifest".to_owned());
+    }
+    if moe_manifest.post_attention_sha256.as_deref()
+        != Some(&attention.report.post_attention_reference_sha256)
+    {
+        return Err("MoE manifest does not bind the post-attention oracle".to_owned());
+    }
+    let moe = run_metal_dynamic_real_attention_fp8_moe_block(RealAttentionMoeRequest {
+        manifest_path: request.moe_manifest_path,
+        artifact_root: request.artifact_root,
+        router_path: request.router_path,
+        kernel_path: request.kernel_path,
+        source_input_path: request.source_moe_input_path,
+        candidate_input_path: request.candidate_moe_input_path,
+        reference_path: request.moe_reference_path,
+        output_path: request.moe_output_path,
+    })?;
+    let (_, moe_output) = read_f32_file(request.moe_output_path, Some(8 * 4096))?;
+    let (final_reference_bytes, final_reference) =
+        read_f32_file(request.final_reference_path, Some(8 * 4096))?;
+    let final_reference_sha256 = sha256_hex(&final_reference_bytes);
+    if moe_manifest.final_reference_sha256.as_deref() != Some(&final_reference_sha256) {
+        return Err("final reference hash mismatch".to_owned());
+    }
+    let final_output = attention
+        .post_attention
+        .iter()
+        .zip(&moe_output)
+        .map(|(residual, routed)| residual + routed)
+        .collect::<Vec<_>>();
+    let (final_relative_l2, final_maximum_absolute_error) =
+        numerical_error(&final_output, &final_reference)?;
+    if final_relative_l2 > 4.0e-5 || final_maximum_absolute_error > 3.0e-6 {
+        return Err(format!(
+            "complete base-layer parity failed: relative L2 {final_relative_l2}, max abs {final_maximum_absolute_error}"
+        ));
+    }
+    let final_output_bytes = final_output
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    write_create_new(request.final_output_path, &final_output_bytes)?;
+    Ok(MetalRealBaseLayerReport {
+        schema_version: 1,
+        semantic: "mimo_layer43_native_complete_source_fp8_decoder_layer",
+        final_reference_sha256,
+        final_output_sha256: sha256_hex(&final_output_bytes),
+        final_relative_l2,
+        final_maximum_absolute_error,
+        complete_wall_ms: complete_start.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 8,
+        concurrency: 1,
+        accepted_tokens: 0,
+        accepted_per_verification: 0,
+        expert_union_factor: moe.expert_union_factor,
+        performance_claim: None,
+        implementation: "single_rust_authority_native_attention_dynamic_source_fp8_moe_and_residual",
+        attention: attention.report,
+        moe,
+    })
 }
 
 #[cfg(target_os = "macos")]
