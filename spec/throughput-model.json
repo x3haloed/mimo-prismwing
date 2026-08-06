@@ -674,6 +674,20 @@
             "status": "rejected_routed_expert_byte_leverage_gate_failed; pinned_base_dflash_trace; not_endpoint_tps_or_default",
             "provenance": "PW-0102; clean commit ecd9c7cbec11824d89242061394a53c145ca7df3; one authorized source-target walk; manifest cb30738d5a79d7d85587a68b53f876a59101d5ca09bbc7c895daaf501954f4d3; Gate 8 passed"
         },
+        "pw0103_native_mtp_first_causal_proposal": {
+            "mtp_layer": 0,
+            "target_anchor_token_id": 264,
+            "target_next_token_id": 13,
+            "mtp_proposal_token_id": 100730,
+            "target_token_rank_in_mtp_logits": 175,
+            "target_token_logit": 7.84375,
+            "top_token_logit": 12.0625,
+            "complete_wall_ms": 3195.0414160091896,
+            "selected_mtp_layer_source_bytes": 396466816,
+            "base_lm_head_source_bytes": 1249902592,
+            "status": "rejected_first_causal_proposal_mismatch; no_target_verification_authorized; not_endpoint_tps_or_default",
+            "provenance": "PW-0103; clean commit 8a99f2f2e3f171e16e4c54893ecb73392cc1e200; pinned SGLang shifted-token/pre-final-norm hidden transition; manifest 65404539dc1b0f0e5b8cf0a0962b1b65fcd5e5fdcfe15ae2f1fd5ebdd49992a7; Gate 8 passed"
+        },
         "native_simdgroup_matrix_source_fp8_moe_schedule": {
             "candidate_wall_median_ms_repeats": [22.450083, 22.531125],
             "control_wall_median_ms_repeats": [17.107709, 17.089417],

@@ -1585,3 +1585,19 @@ minimum free memory 71%, peak RSS 4,044,210,176 bytes, maximum physical
 footprint 203,508,736 bytes, at most 1 MiB transient swap growth, zero new
 throttled pages, no protected-service loss, and 161,221,376 bytes physical
 footprint after final buffer release.
+
+PW-0103 rejects the pinned checkpoint's native MTP path on the same causal
+trace without spending another target walk. Pinned SGLang confirms the exact
+input transition: rotate the prompt IDs left, append target anchor 264, pair
+those embeddings with the target hidden states before final norm, then run the
+selected MTP layer. With PW-0091 layer-47 states, MTP layer zero proposes token
+100730 while the independently proven target token is 13. The correct token
+ranks 175th (logit 7.84375 versus 12.0625 top), so the failure is not a greedy
+near-tie. The earlier possibility that the checkpoint-native draft would avoid
+DFlash's cross-revision mismatch is superseded for this trace. Do not build the
+three-layer MTP scheduler or authorize a target verifier until new semantic
+evidence changes this first complete logit vector. The immutable manifest
+hashes to
+`65404539dc1b0f0e5b8cf0a0962b1b65fcd5e5fdcfe15ae2f1fd5ebdd49992a7`;
+Gate 8 passed all 11 boundaries and released to 154,553,152 bytes physical
+footprint.

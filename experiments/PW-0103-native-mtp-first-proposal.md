@@ -1,10 +1,11 @@
 # PW-0103 — Native MTP first causal proposal
 
-- Status: planned
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Commit and dirty state: to be recorded by the executable manifest
+- Commit and dirty state: `8a99f2f2e3f171e16e4c54893ecb73392cc1e200`,
+  clean executable
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; checkpoint verification
   `9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`;
@@ -66,9 +67,43 @@ proposal proves only that the trained draft is aligned at one position.
 
 ## Result
 
-Unexecuted.
+The first attempt exposed a standalone harness import error before attention
+arithmetic. It is preserved at
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0103/mtp-001/failure.json`, SHA-256
+`493ad376f023e3bb9b5b82dc5e2f2ec35767d1f229e3e314aeef759239fd8f2a`.
+The next commit fixed the import and broadened exception capture; this attempt
+is tooling evidence only.
+
+The clean `mtp-002` execution completed and rejected the causal prerequisite.
+Its immutable manifest hashes to
+`65404539dc1b0f0e5b8cf0a0962b1b65fcd5e5fdcfe15ae2f1fd5ebdd49992a7`.
+MTP layer zero proposes token 100730, while the independently established base
+target requires token 13. Token 13 ranks 175th in the complete 152,576-token
+MTP logit vector, with logit 7.84375 versus the top logit 12.0625. The full
+logit capture hashes to
+`ecc64fe2775a708554abde06688cd1b1684e0801ff98f2831bbbe9f3e3a4bc0b`.
+This is not a near-tie or a top-k-one scheduling artifact.
+
+The source boundary is resolved rather than inferred. Pinned SGLang requests
+the target hidden state before final norm, rotates each prefill input sequence
+left, appends the target next token, and feeds that pair into the selected MTP
+layer. PW-0103 does exactly that with PW-0091 layer-47 states and
+`prompt[1:] + [264]`. The MTP payload's complete SHA-256 and all 48 tensor
+names, dtypes, and shapes pass before execution.
+
+The warm-cache run completed in 3,195.041 ms: 85.284 ms fusion, 333.716 ms
+attention, 794.424 ms MLP, and 581.115 ms LM head, with safety/evidence overhead
+outside those components. It read 122,880 process-disk bytes and moved no
+unrecorded model representation. It retained at least 76% system-free memory,
+peaked at 4,157,685,760 bytes RSS and 184,372,288 bytes physical footprint,
+grew neither swap nor throttled pages, retained every protected service, and
+released to 154,553,152 bytes physical footprint.
 
 ## Decision
 
-Execute the one-layer causal prerequisite before any multi-layer MTP scheduler
-or second target walk.
+Reject native MTP for this pinned trace without a chained three-layer scheduler
+or another full target walk. Its first required draft token is wrong and the
+correct token lies outside a practical top-k-one proposal. Preserve the MTP
+oracle and source lock; a future source-runtime parity result that changes this
+first logit vector would constitute new semantic evidence and may open a new
+experiment, but downstream speculation cannot repair a failed first proposal.
