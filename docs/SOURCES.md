@@ -148,3 +148,25 @@ correctness ladder before any implementation is promoted.
 PW-0012 measures the installed native Metal path through Python orchestration.
 Any final dependency must pin and build the C++ implementation or reproduce
 its kernel behavior; a mutable Python environment is not a release substrate.
+
+## Apple-silicon Metal execution model
+
+- Apple Developer, *Metal Compute on MacBook Pro* (accessed 2026-08-06):
+  <https://developer.apple.com/videos/play/tech-talks/10580/>
+- Apple Developer, `newBufferWithBytesNoCopy:length:options:deallocator:`
+  (accessed 2026-08-06):
+  <https://developer.apple.com/documentation/metal/mtldevice/makebuffer%28bytesnocopy%3Alength%3Aoptions%3Adeallocator%3A%29>
+- Apple Developer, *Resource loading* and `MTLIOCommandQueue` (accessed
+  2026-08-06): <https://developer.apple.com/documentation/metal/resource-loading>
+  and <https://developer.apple.com/documentation/metal/mtliocommandqueue>
+
+Decision: primary substrate authority for PW-0105 and its gated successors.
+Apple documents that CPU and GPU access the same physical memory through shared
+resources, recommends avoiding duplicate/shadow resources, recommends
+multi-buffering and larger submissions to avoid CPU/GPU stalls, and describes
+Metal I/O queues loading filesystem data directly into GPU resources alongside
+compute work. The no-copy API wraps an existing single-VM-region allocation and
+requires a page-aligned pointer and page-aligned region length. These are
+candidate capabilities, not evidence that the M1 checkpoint layout or current
+Rust bindings realize them; each path still requires a real device probe and
+end-to-end measurement.
