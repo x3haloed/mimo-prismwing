@@ -698,7 +698,6 @@ fn peak_resident_bytes() -> Result<u64, String> {
 
 unsafe extern "C" {
     fn malloc_zone_pressure_relief(zone: *mut libc::c_void, goal: usize) -> usize;
-    fn vvexpf(output: *mut f32, input: *const f32, count: *const i32);
     fn pw_pytorch_topk_unsorted_f32(
         values: *const f32,
         count: usize,
@@ -1379,32 +1378,61 @@ fn attention_softmax(scores: &[f32], bf16_output: bool) -> Result<Vec<f32>, Stri
             }
         })
         .collect::<Vec<_>>();
-    let mut probabilities = vec![0.0_f32; centered.len()];
     if bf16_output {
-        let count = i32::try_from(centered.len()).map_err(|_| "softmax length exceeds i32")?;
-        // SAFETY: input and output are disjoint initialized buffers of `count` F32 values.
-        unsafe { vvexpf(probabilities.as_mut_ptr(), centered.as_ptr(), &count) };
-    } else {
-        for (probability, score) in probabilities.iter_mut().zip(&centered) {
-            *probability = score.exp();
-        }
+        return pytorch_arm_softmax_f32(&centered).map(|mut probabilities| {
+            round_bf16_values(&mut probabilities);
+            probabilities
+        });
     }
-    let denominator = if bf16_output {
-        probabilities.iter().rev().sum::<f32>()
-    } else {
-        probabilities.iter().sum::<f32>()
-    };
+    let mut probabilities = centered.iter().map(|score| score.exp()).collect::<Vec<_>>();
+    let denominator = probabilities.iter().sum::<f32>();
     if !denominator.is_finite() || denominator <= 0.0 {
         return Err("attention softmax denominator is invalid".to_owned());
     }
     for probability in &mut probabilities {
-        *probability = if bf16_output {
-            round_bf16(*probability / denominator)
-        } else {
-            *probability / denominator
-        };
+        *probability /= denominator;
     }
     Ok(probabilities)
+}
+
+fn pytorch_arm_softmax_f32(centered: &[f32]) -> Result<Vec<f32>, String> {
+    if centered.is_empty() || centered.iter().any(|value| !value.is_finite()) {
+        return Err("PyTorch ARM softmax requires finite scores".to_owned());
+    }
+    let mut exponentials = centered
+        .iter()
+        .map(|value| sleef_expf_u10(*value))
+        .collect::<Vec<_>>();
+    let denominator = if exponentials.len() < 4 {
+        exponentials[1..]
+            .iter()
+            .fold(exponentials[0], |sum, value| sum + value)
+    } else {
+        let full = exponentials.len() - exponentials.len() % 4;
+        let mut lanes = [
+            exponentials[0],
+            exponentials[1],
+            exponentials[2],
+            exponentials[3],
+        ];
+        for chunk in exponentials[4..full].chunks_exact(4) {
+            for lane in 0..4 {
+                lanes[lane] += chunk[lane];
+            }
+        }
+        for (lane, value) in exponentials[full..].iter().enumerate() {
+            lanes[lane] += value;
+        }
+        (lanes[0] + lanes[1]) + (lanes[2] + lanes[3])
+    };
+    if !denominator.is_finite() || denominator <= 0.0 {
+        return Err("PyTorch ARM softmax denominator is invalid".to_owned());
+    }
+    let inverse = 1.0_f32 / denominator;
+    for exponential in &mut exponentials {
+        *exponential *= inverse;
+    }
+    Ok(exponentials)
 }
 
 #[cfg(test)]
@@ -3762,11 +3790,11 @@ mod tests {
     }
 
     #[test]
-    fn vforce_softmax_matches_pytorch_bf16_payloads() {
+    fn pytorch_arm_softmax_matches_pytorch_payloads() {
         let fixture: Value = serde_json::from_str(include_str!(
             "../evals/fixtures/tiny/pw0057-vforce-softmax.json"
         ))
-        .expect("valid vForce softmax fixture");
+        .expect("valid PyTorch ARM softmax fixture");
         assert_eq!(fixture["semantic"], "pytorch_f32_softmax_to_bf16");
         for case in fixture["cases"].as_array().expect("softmax cases") {
             let score_bits = case["score_bf16_u16"].as_array().expect("score bits");
@@ -3790,6 +3818,24 @@ mod tests {
                     .collect::<Vec<_>>(),
                 expected
             );
+            if let Some(expected_f32) = case["probability_f32_u32"].as_array() {
+                let maximum = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                let centered = scores
+                    .iter()
+                    .map(|score| round_bf16(*score - maximum))
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    pytorch_arm_softmax_f32(&centered)
+                        .expect("valid F32 softmax")
+                        .iter()
+                        .map(|value| value.to_bits())
+                        .collect::<Vec<_>>(),
+                    expected_f32
+                        .iter()
+                        .map(|value| value.as_u64().expect("F32 probability") as u32)
+                        .collect::<Vec<_>>()
+                );
+            }
         }
         assert!(attention_softmax(&[], true).is_err());
         assert!(attention_softmax(&[f32::NAN], true).is_err());
