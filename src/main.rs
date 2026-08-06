@@ -13,8 +13,8 @@ use prismwing::{
 };
 #[cfg(target_os = "macos")]
 use prismwing::{
-    run_real_layer0_trace, run_real_layer1_expert_trace, run_real_layer1_routing_trace,
-    run_slow_text_endpoint,
+    run_full_prefix_trace, run_real_layer0_trace, run_real_layer1_expert_trace,
+    run_real_layer1_routing_trace, run_slow_text_endpoint,
 };
 use std::path::PathBuf;
 use tokenizers::Tokenizer;
@@ -96,6 +96,10 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing real-layer1-expert-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <output-dir> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing full-prefix-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <output-dir> <commit>"
     );
     std::process::exit(2);
 }
@@ -191,6 +195,28 @@ fn main() {
                 let fixture = PathBuf::from(&arguments[5]);
                 let output = PathBuf::from(&arguments[6]);
                 run_real_layer1_expert_trace(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &fixture,
+                    &output,
+                    &arguments[7],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output.join("manifest.json")))
+                })
+            }
+            #[cfg(target_os = "macos")]
+            Some("full-prefix-trace") if arguments.len() == 8 => {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let fixture = PathBuf::from(&arguments[5]);
+                let output = PathBuf::from(&arguments[6]);
+                run_full_prefix_trace(
                     &checkpoint,
                     &model_lock,
                     &verification,

@@ -318,6 +318,28 @@ pub struct Layer1ExpertTraceReport {
 }
 
 #[derive(Debug, Serialize)]
+pub struct FullPrefixTraceReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub fixture_sha256: String,
+    pub checkpoint_verification_sha256: String,
+    pub prompt_token_ids: Vec<u32>,
+    pub numerics: &'static str,
+    pub captures: BTreeMap<String, CaptureRecord>,
+    pub layer_traces: Vec<LayerRouteTrace>,
+    pub ledger: EndpointLedger,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub complete_wall_ms: f64,
+    pub batch_size: usize,
+    pub prompt_positions: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    pub performance_claim: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct SafetySnapshot {
     pub phase: String,
     pub system_memory_free_percent: u64,
@@ -359,6 +381,13 @@ struct ExpertCaptures {
     up: Vec<f32>,
     swiglu: Vec<f32>,
     down: Vec<f32>,
+}
+
+#[derive(Default)]
+struct FullPrefixCaptures {
+    embedding: Vec<f32>,
+    layer_finals: Vec<Vec<f32>>,
+    final_norm: Vec<f32>,
 }
 
 struct NativeDecodeStep {
@@ -1859,6 +1888,7 @@ fn decode_step(
     caches: &mut [LayerKvCache],
     ledger: &mut EndpointLedger,
     safety: &mut SafetyMonitor,
+    mut full_captures: Option<&mut FullPrefixCaptures>,
 ) -> Result<NativeDecodeStep, String> {
     let started = Instant::now();
     if token_ids.is_empty() {
@@ -1866,6 +1896,9 @@ fn decode_step(
     }
     let rows = token_ids.len();
     let mut hidden = embedding(checkpoint, token_ids, ledger)?;
+    if let Some(captures) = full_captures.as_deref_mut() {
+        captures.embedding = hidden.clone();
+    }
     let mut traces = Vec::with_capacity(48);
     if caches.len() != 48 {
         return Err("text endpoint requires exactly 48 K/V caches".to_owned());
@@ -1916,6 +1949,9 @@ fn decode_step(
             .zip(mlp)
             .map(|(&residual, projected)| round_bf16(residual + projected))
             .collect();
+        if let Some(captures) = full_captures.as_deref_mut() {
+            captures.layer_finals.push(hidden.clone());
+        }
         let unique = selected
             .iter()
             .flatten()
@@ -1944,6 +1980,9 @@ fn decode_step(
     }
     let final_norm = bf16_vector(checkpoint, "model.norm.weight", HIDDEN, ledger)?;
     let normalized = rms_norm(&hidden, rows, &final_norm, config.layernorm_epsilon)?;
+    if let Some(captures) = full_captures {
+        captures.final_norm = normalized.clone();
+    }
     let logits = bf16_linear(
         checkpoint,
         "lm_head.weight",
@@ -2094,6 +2133,7 @@ pub fn run_slow_text_endpoint(
             &mut caches,
             &mut ledger,
             &mut safety,
+            None,
         )?;
         let output_token_text = tokenizer
             .decode(&[step.output_token], false)
@@ -2831,6 +2871,129 @@ pub fn run_real_layer1_expert_trace(
         selected_experts_by_position: routed.selected,
         route_weights_by_position: routed.weights,
         expert_schedule: expert_captures.schedule,
+        ledger,
+        safety_snapshots: safety.snapshots,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 1,
+        prompt_positions: rows,
+        concurrency: 1,
+        accepted_tokens: 0,
+        performance_claim: None,
+    };
+    let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(&output_dir.join("manifest.json"), &bytes)?;
+    Ok(report)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_full_prefix_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    output_dir: &Path,
+    commit: &str,
+) -> Result<FullPrefixTraceReport, String> {
+    if output_dir.exists() {
+        return Err(format!("refusing to overwrite {}", output_dir.display()));
+    }
+    let complete_started = Instant::now();
+    let disk_bytes_read_before = process_disk_bytes_read()?;
+    let EndpointAuthority {
+        fixture_bytes,
+        fixture,
+        mut safety,
+        config,
+        tokenizer: _,
+        prompt_token_ids,
+        checkpoint,
+        verification_sha256,
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    if fixture.schema_version != 2 || prompt_token_ids != CHAT_PROMPT_IDS {
+        return Err("full-prefix trace requires the frozen chat fixture".to_owned());
+    }
+    fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
+    let rows = prompt_token_ids.len();
+    let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
+    let mut ledger = EndpointLedger::default();
+    let mut internal = FullPrefixCaptures::default();
+    let step = decode_step(
+        &checkpoint,
+        &config,
+        &prompt_token_ids,
+        &mut caches,
+        &mut ledger,
+        &mut safety,
+        Some(&mut internal),
+    )?;
+    if internal.embedding.len() != rows * HIDDEN
+        || internal.layer_finals.len() != 48
+        || internal
+            .layer_finals
+            .iter()
+            .any(|values| values.len() != rows * HIDDEN)
+        || internal.final_norm.len() != rows * HIDDEN
+        || step.full_logits.len() != config.vocab_size
+    {
+        return Err("full-prefix capture shape mismatch".to_owned());
+    }
+    let mut captures = BTreeMap::new();
+    captures.insert(
+        "embedding".to_owned(),
+        write_capture(
+            output_dir,
+            "embedding",
+            &[rows, HIDDEN],
+            &internal.embedding,
+        )?,
+    );
+    for (layer, values) in internal.layer_finals.iter().enumerate() {
+        let name = format!("layer_{layer:02}_final");
+        captures.insert(
+            name.clone(),
+            write_capture(output_dir, &name, &[rows, HIDDEN], values)?,
+        );
+    }
+    captures.insert(
+        "final_norm".to_owned(),
+        write_capture(
+            output_dir,
+            "final_norm",
+            &[rows, HIDDEN],
+            &internal.final_norm,
+        )?,
+    );
+    captures.insert(
+        "last_logits".to_owned(),
+        write_capture_typed(
+            output_dir,
+            "last_logits",
+            &[config.vocab_size],
+            &step.full_logits,
+            "F32",
+        )?,
+    );
+    safety.checkpoint("captures_written", true)?;
+    ledger.actual_process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_bytes_read_before)
+        .ok_or("process disk byte counter moved backwards")?;
+    ledger.peak_resident_bytes = peak_resident_bytes()?;
+    let report = FullPrefixTraceReport {
+        schema_version: 1,
+        semantic: "mimo_full_prefix_layer_final_rust_trace",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        fixture_sha256: sha256_hex(&fixture_bytes),
+        checkpoint_verification_sha256: verification_sha256,
+        prompt_token_ids,
+        numerics: "dynamic_fp8_e4m3fn_per_token_group_128_bf16_boundaries",
+        captures,
+        layer_traces: step.traces,
         ledger,
         safety_snapshots: safety.snapshots,
         complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
