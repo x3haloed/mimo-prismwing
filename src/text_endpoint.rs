@@ -2,8 +2,8 @@
 
 use super::{
     MappedSafetensors, MappedTensorView, UniqueJson, accelerate_sgemm_right_transposed,
-    decode_bf16_tensor, decode_fp8_matrix_f32, select_noaux_tc_routes_from_scores, sha256_hex,
-    sha256_reader, stable_rms_inverse, validate_fp8_views, write_create_new,
+    decode_bf16_tensor, decode_fp8_matrix_f32, sha256_hex, sha256_reader, stable_rms_inverse,
+    validate_fp8_views, write_create_new,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -699,6 +699,12 @@ fn peak_resident_bytes() -> Result<u64, String> {
 unsafe extern "C" {
     fn malloc_zone_pressure_relief(zone: *mut libc::c_void, goal: usize) -> usize;
     fn vvexpf(output: *mut f32, input: *const f32, count: *const i32);
+    fn pw_pytorch_topk_unsorted_f32(
+        values: *const f32,
+        count: usize,
+        top_k: usize,
+        selected: *mut u32,
+    ) -> i32;
 }
 
 fn pressure_relief() -> u64 {
@@ -1710,14 +1716,102 @@ fn route_mlp(
         .iter()
         .map(|&logit| pytorch_sigmoid_f32(logit))
         .collect::<Vec<_>>();
-    let routes =
-        select_noaux_tc_routes_from_scores(&scores, &correction, rows, ROUTED_EXPERTS, TOP_K)?;
+    let (selected, weights) = pytorch_noaux_routes(&scores, &correction, rows)?;
     Ok(RoutingTrace {
         logits,
         scores,
-        selected: routes.selected,
-        weights: routes.weights,
+        selected,
+        weights,
     })
+}
+
+fn pytorch_sum_eight(values: &[f32; TOP_K]) -> f32 {
+    let lanes = [
+        values[0] + values[4],
+        values[1] + values[5],
+        values[2] + values[6],
+        values[3] + values[7],
+    ];
+    lanes.iter().fold(0.0_f32, |sum, value| sum + value)
+}
+
+type PytorchRouteRows = (Vec<Vec<u32>>, Vec<Vec<f32>>);
+
+fn pytorch_noaux_routes(
+    scores: &[f32],
+    correction: &[f32],
+    rows: usize,
+) -> Result<PytorchRouteRows, String> {
+    if scores.len() != rows * ROUTED_EXPERTS
+        || correction.len() != ROUTED_EXPERTS
+        || scores.iter().any(|value| !value.is_finite())
+        || correction.iter().any(|value| !value.is_finite())
+    {
+        return Err("invalid PyTorch noaux-tc inputs".to_owned());
+    }
+    let mut selected_rows = Vec::with_capacity(rows);
+    let mut weight_rows = Vec::with_capacity(rows);
+    for position in 0..rows {
+        let row = &scores[position * ROUTED_EXPERTS..(position + 1) * ROUTED_EXPERTS];
+        let corrected = row
+            .iter()
+            .zip(correction)
+            .map(|(score, bias)| score + bias)
+            .collect::<Vec<_>>();
+        let mut selected = [0_u32; TOP_K];
+        // SAFETY: both buffers have the lengths supplied to the C++ bridge.
+        let result = unsafe {
+            pw_pytorch_topk_unsorted_f32(
+                corrected.as_ptr(),
+                corrected.len(),
+                TOP_K,
+                selected.as_mut_ptr(),
+            )
+        };
+        if result != 0
+            || selected
+                .iter()
+                .any(|expert| *expert as usize >= ROUTED_EXPERTS)
+            || selected.iter().copied().collect::<BTreeSet<_>>().len() != TOP_K
+        {
+            return Err(format!("PyTorch top-k failed at position {position}"));
+        }
+        let selected_set = selected.iter().copied().collect::<BTreeSet<_>>();
+        let boundary = selected
+            .iter()
+            .map(|expert| corrected[*expert as usize])
+            .fold(f32::INFINITY, f32::min);
+        let rejected = corrected
+            .iter()
+            .enumerate()
+            .filter(|(expert, _)| !selected_set.contains(&(*expert as u32)))
+            .map(|(_, value)| *value)
+            .fold(f32::NEG_INFINITY, f32::max);
+        if !boundary.is_finite() || boundary <= rejected {
+            return Err(format!(
+                "PyTorch top-k boundary tied at position {position}"
+            ));
+        }
+        let chosen = selected.map(|expert| row[expert as usize]);
+        let denominator = pytorch_sum_eight(&chosen) + 1.0e-20;
+        let weights = selected
+            .iter()
+            .map(|expert| row[*expert as usize] / denominator)
+            .collect::<Vec<_>>();
+        let weight_sum = weights.iter().copied().sum::<f32>();
+        if weights
+            .iter()
+            .any(|value| !value.is_finite() || *value < 0.0)
+            || (weight_sum - 1.0).abs() > 1.0e-6
+        {
+            return Err(format!(
+                "PyTorch route weights invalid at position {position}"
+            ));
+        }
+        selected_rows.push(selected.to_vec());
+        weight_rows.push(weights);
+    }
+    Ok((selected_rows, weight_rows))
 }
 
 fn sleef_expf_u10(d: f32) -> f32 {
@@ -3664,5 +3758,39 @@ mod tests {
                 score.as_u64().expect("score bits") as u32
             );
         }
+    }
+
+    #[test]
+    fn pytorch_unsorted_topk_matches_real_route_order() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0063-topk-order.json"
+        ))
+        .expect("valid top-k fixture");
+        let corrected = fixture["corrected_f32_u32"]
+            .as_array()
+            .expect("corrected scores")
+            .iter()
+            .map(|value| f32::from_bits(value.as_u64().expect("score bits") as u32))
+            .collect::<Vec<_>>();
+        let mut selected = [0_u32; TOP_K];
+        // SAFETY: the fixture and output arrays provide the declared lengths.
+        assert_eq!(
+            unsafe {
+                pw_pytorch_topk_unsorted_f32(
+                    corrected.as_ptr(),
+                    corrected.len(),
+                    TOP_K,
+                    selected.as_mut_ptr(),
+                )
+            },
+            0
+        );
+        let expected = fixture["selected_experts"]
+            .as_array()
+            .expect("selected experts")
+            .iter()
+            .map(|value| value.as_u64().expect("expert") as u32)
+            .collect::<Vec<_>>();
+        assert_eq!(selected.as_slice(), expected);
     }
 }
