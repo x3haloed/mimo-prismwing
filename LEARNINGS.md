@@ -1373,3 +1373,22 @@ ends at 2.667 GB, retains at least 81% free memory, and causes no swap growth,
 throttling, or protected-service loss. The correctness frontier now covers the
 complete prefill and next-token logit path; move to generation semantics and
 end-to-end cold/warm throughput rather than further layer localization.
+
+PW-0092 establishes the first repaired real incremental text walk. Two clean
+processes deterministically emit `[264, 13]` (` a.`), with byte-identical full
+logits and route traces, and retain every layer cache from length 27 to 28
+while the second step consumes only one token. Step-one logits and routing are
+exactly PW-0091's source-checkpoint authority. The frozen hosted service instead
+emits `[9707, 0]` (`Hello!`); its first-token logprob differs by 12.5385 nats,
+so source parity does not imply hidden hosted-serving parity and local
+semantics must not be tuned to manufacture it. The retained-cache token still
+takes 158.5--158.6 seconds: 151.6 seconds across layers and roughly 7.0 seconds
+outside them. Exact route/header replay partitions 17,207,905,152 logical
+source bytes (16.026 GiB), 1,179 FP8 matrix expansions, and 376 expert
+executions into that one-token step; the larger 27-token prefill accounts for
+the remainder of the 84.18 GB two-step ledger. The repeated weight load and
+FP8-to-F32 expansion path is now the primary embodiment bottleneck. Both runs
+safely peak near 4.37 GB RSS, finish near 3.1 GB, retain at least 78%
+memory-pressure headroom, and cause no swap growth, throttling, or
+protected-service loss. Verify incremental state independently, then profile
+and compress physical weight work before claiming TPS.

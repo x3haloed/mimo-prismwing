@@ -75,12 +75,13 @@ See [RED_LINES.md](RED_LINES.md) for shortcuts that do not count.
 ## Status
 
 **Active executable research foundation.** The checkpoint and hosted provider
-are pinned; source-derived Rust oracles, real Metal kernels, and a native C++
-MLX quantized-matmul smoke path pass from the unified test command. Component
-experiments report reproducible projection measurements, but no complete local
-decode endpoint or accepted-TPS claim exists yet. The active work is full
-checkpoint verification, a real fused expert path, complete text decode,
-modalities, hosted parity, and end-to-end optimization.
+are pinned. A source-exact Rust full-prefix path and deterministic two-token
+incremental text endpoint now run against the real checkpoint with retained
+per-layer K/V and shared-host safety stops. The walking slice is intentionally
+slow and does not establish accepted TPS; native modalities and hosted parity
+also remain open. Active work is independent incremental-state validation,
+physical weight-work compression, complete capability coverage, and
+end-to-end optimization.
 
 ## Terminology
 

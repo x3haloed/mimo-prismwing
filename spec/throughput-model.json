@@ -520,6 +520,21 @@
             "status": "rejected_performance_gates_failed; exact_diagnostic_kernel_retained; not_endpoint_tps",
             "provenance": "PW-0042; paired fused-gate-up candidate/separate-dispatch PW-0039 control orders; real dynamic layer43 route fixture"
         },
+        "pw0092_source_exact_incremental_decode": {
+            "prompt_tokens": 27,
+            "generated_tokens": 2,
+            "run_complete_wall_ms": [951253.685333, 955390.418875],
+            "prefill_and_first_token_wall_ms": [792212.066542, 796251.5499590001],
+            "retained_cache_incremental_token_wall_ms": [158521.01495799999, 158614.709125],
+            "retained_cache_incremental_token_rate_diagnostic": 0.006306448148605815,
+            "incremental_logical_source_bytes": 17207905152,
+            "incremental_logical_source_gib": 16.026110529899597,
+            "incremental_fp8_matrices_expanded": 1179,
+            "incremental_bf16_matrices_expanded": 49,
+            "incremental_routed_expert_executions": 376,
+            "status": "measured_source_exact_walking_slice_not_accepted_tps",
+            "provenance": "PW-0092; exact run route traces replayed against verified Safetensors header byte ranges; two clean retained-cache endpoint processes"
+        },
         "native_simdgroup_matrix_source_fp8_moe_schedule": {
             "candidate_wall_median_ms_repeats": [22.450083, 22.531125],
             "control_wall_median_ms_repeats": [17.107709, 17.089417],
