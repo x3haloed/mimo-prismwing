@@ -210,6 +210,46 @@ fn dynamic_fp8_dequantized(input: &[f32]) -> Result<Vec<f32>, String> {
     Ok(output)
 }
 
+fn bf16_midpoint_distance_ulps(value: f32) -> u32 {
+    (value.to_bits() & 0xffff).abs_diff(0x8000)
+}
+
+fn repair_uncertain_rows(
+    tensor: &ValidatedMappedFp8<'_>,
+    input: &[f32],
+    pre_round: &[f32],
+    rounded: &mut [f32],
+) -> Result<usize, String> {
+    const MAX_MIDPOINT_DISTANCE_ULPS: u32 = 4;
+    let rows = pre_round
+        .iter()
+        .enumerate()
+        .filter_map(|(row, value)| {
+            (bf16_midpoint_distance_ulps(*value) <= MAX_MIDPOINT_DISTANCE_ULPS).then_some(row)
+        })
+        .collect::<Vec<_>>();
+    if rows.is_empty() {
+        return Ok(0);
+    }
+    let mut decoded = Vec::with_capacity(rows.len() * tensor.columns);
+    for &row in &rows {
+        let scale_row = row / 128 * tensor.scale_columns;
+        for column in 0..tensor.columns {
+            decoded.push(
+                decode_f8_e4m3fn(tensor.weight.bytes[row * tensor.columns + column])
+                    * tensor.scales[scale_row + column / 128],
+            );
+        }
+    }
+    let mut corrected =
+        accelerate_sgemm_right_transposed(input, &decoded, 1, rows.len(), tensor.columns)?;
+    round_bf16_values(&mut corrected);
+    for (&row, value) in rows.iter().zip(corrected) {
+        rounded[row] = value;
+    }
+    Ok(rows.len())
+}
+
 fn metal_project(
     device: &metal::DeviceRef,
     queue: &metal::CommandQueueRef,
@@ -306,6 +346,9 @@ fn execute_staged_expert(
     let mut up_output = up_pre_round.clone();
     round_bf16_values(&mut gate_output);
     round_bf16_values(&mut up_output);
+    let gate_repairs =
+        repair_uncertain_rows(gate, &staged_input, &gate_pre_round, &mut gate_output)?;
+    let up_repairs = repair_uncertain_rows(up, &staged_input, &up_pre_round, &mut up_output)?;
     let hidden = gate_output
         .iter()
         .zip(&up_output)
@@ -315,6 +358,7 @@ fn execute_staged_expert(
     let down_pre_round = metal_project(device, queue, pipeline, lut, down, &staged_hidden)?;
     let mut output = down_pre_round.clone();
     round_bf16_values(&mut output);
+    let down_repairs = repair_uncertain_rows(down, &staged_hidden, &down_pre_round, &mut output)?;
     if output.iter().any(|x| !x.is_finite()) {
         return Err("staged Metal expert produced non-finite output".to_owned());
     }
@@ -326,6 +370,7 @@ fn execute_staged_expert(
         gate_pre_round,
         up_pre_round,
         down_pre_round,
+        repairs: [gate_repairs, up_repairs, down_repairs],
     })
 }
 
@@ -337,6 +382,7 @@ struct StagedExpertExecution {
     gate_pre_round: Vec<f32>,
     up_pre_round: Vec<f32>,
     down_pre_round: Vec<f32>,
+    repairs: [usize; 3],
 }
 
 pub fn run_staged_metal_fp8_expert(
@@ -856,6 +902,12 @@ pub fn run_bounded_metal_routed_row(
                 "down" => Some(actual.down_pre_round.as_slice()),
                 _ => None,
             };
+            let repair_count = match stage {
+                "gate" => actual.repairs[0],
+                "up" => actual.repairs[1],
+                "down" => actual.repairs[2],
+                _ => 0,
+            };
             let mismatches = values
                 .iter()
                 .zip(&expected)
@@ -875,7 +927,7 @@ pub fn run_bounded_metal_routed_row(
                 })
                 .collect::<Vec<_>>();
             expert_diagnostics.push(format!(
-                "expert={expert},stage={stage},equal={equal}/{},max={maximum},mismatches={mismatches:?}",
+                "expert={expert},stage={stage},equal={equal}/{},max={maximum},repairs={repair_count},mismatches={mismatches:?}",
                 values.len()
             ));
         }
@@ -1031,6 +1083,16 @@ mod tests {
         let up = 0.71484375_f32;
         let silu = round_bf16(gate / (1.0 + (-gate).exp()));
         assert_eq!(staged_swiglu(gate, up), round_bf16(silu * up));
+    }
+
+    #[test]
+    fn bf16_midpoint_distance_is_value_derived() {
+        assert_eq!(bf16_midpoint_distance_ulps(f32::from_bits(0x3f80_8000)), 0);
+        assert_eq!(bf16_midpoint_distance_ulps(f32::from_bits(0xbf81_8001)), 1);
+        assert_eq!(
+            bf16_midpoint_distance_ulps(f32::from_bits(0x3f80_a000)),
+            8192
+        );
     }
 
     #[test]
