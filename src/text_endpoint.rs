@@ -363,6 +363,8 @@ struct SafetyMonitor {
 
 struct RoutedMlpOutput {
     output: Vec<f32>,
+    logits: Vec<f32>,
+    scores: Vec<f32>,
     selected: Vec<Vec<u32>>,
     weights: Vec<Vec<f32>>,
 }
@@ -1816,6 +1818,8 @@ fn routed_mlp_traced(
     round_bf16_values(&mut output);
     Ok(RoutedMlpOutput {
         output,
+        logits: routing.logits,
+        scores: routing.scores,
         selected: routing.selected,
         weights: routing.weights,
     })
@@ -2860,6 +2864,279 @@ pub fn run_real_layer1_expert_trace(
     let report = Layer1ExpertTraceReport {
         schema_version: 1,
         semantic: "mimo_real_layer1_selected_experts_rust_trace",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        fixture_sha256: sha256_hex(&fixture_bytes),
+        checkpoint_verification_sha256: verification_sha256,
+        prompt_token_ids,
+        source_input_sha256: sha256_hex(&incoming_bytes),
+        numerics: "dynamic_fp8_e4m3fn_per_token_group_128_bf16_boundaries",
+        captures,
+        selected_experts_by_position: routed.selected,
+        route_weights_by_position: routed.weights,
+        expert_schedule: expert_captures.schedule,
+        ledger,
+        safety_snapshots: safety.snapshots,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 1,
+        prompt_positions: rows,
+        concurrency: 1,
+        accepted_tokens: 0,
+        performance_claim: None,
+    };
+    let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(&output_dir.join("manifest.json"), &bytes)?;
+    Ok(report)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_real_layer2_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    output_dir: &Path,
+    commit: &str,
+) -> Result<Layer1ExpertTraceReport, String> {
+    if output_dir.exists() {
+        return Err(format!("refusing to overwrite {}", output_dir.display()));
+    }
+    let complete_started = Instant::now();
+    let disk_bytes_read_before = process_disk_bytes_read()?;
+    let EndpointAuthority {
+        fixture_bytes,
+        fixture,
+        mut safety,
+        config,
+        tokenizer: _,
+        prompt_token_ids,
+        checkpoint,
+        verification_sha256,
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    if fixture.schema_version != 2 || prompt_token_ids != CHAT_PROMPT_IDS {
+        return Err("layer-2 trace requires the frozen chat fixture".to_owned());
+    }
+    fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
+    let rows = prompt_token_ids.len();
+    let mut ledger = EndpointLedger::default();
+    let mut layer0_captures = Layer0Captures::default();
+    let mut hidden = execute_dense_layer0(
+        &checkpoint,
+        &config,
+        &prompt_token_ids,
+        &mut ledger,
+        &mut layer0_captures,
+    )?;
+    safety.checkpoint("layer_0_complete", true)?;
+    let input_norm = bf16_vector(
+        &checkpoint,
+        "model.layers.1.input_layernorm.weight",
+        HIDDEN,
+        &mut ledger,
+    )?;
+    let normalized = rms_norm(&hidden, rows, &input_norm, config.layernorm_epsilon)?;
+    let mut cache = LayerKvCache::default();
+    let attention_output = attention(
+        &checkpoint,
+        &config,
+        1,
+        &normalized,
+        rows,
+        &mut cache,
+        &mut ledger,
+        None,
+    )?;
+    let post_attention = hidden
+        .iter()
+        .zip(attention_output)
+        .map(|(&residual, projected)| round_bf16(residual + projected))
+        .collect::<Vec<_>>();
+    let post_norm = bf16_vector(
+        &checkpoint,
+        "model.layers.1.post_attention_layernorm.weight",
+        HIDDEN,
+        &mut ledger,
+    )?;
+    let moe_input = rms_norm(&post_attention, rows, &post_norm, config.layernorm_epsilon)?;
+    let layer1_mlp = routed_mlp(&checkpoint, 1, &moe_input, rows, &mut ledger)?;
+    hidden = post_attention
+        .iter()
+        .zip(layer1_mlp.output)
+        .map(|(&residual, projected)| round_bf16(residual + projected))
+        .collect();
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("layer_1_complete", true)?;
+    let incoming_bytes = hidden
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+
+    let input_norm = bf16_vector(
+        &checkpoint,
+        "model.layers.2.input_layernorm.weight",
+        HIDDEN,
+        &mut ledger,
+    )?;
+    let normalized = rms_norm(&hidden, rows, &input_norm, config.layernorm_epsilon)?;
+    let mut attention_captures = Layer0Captures::default();
+    let mut cache = LayerKvCache::default();
+    let attention_output = attention(
+        &checkpoint,
+        &config,
+        2,
+        &normalized,
+        rows,
+        &mut cache,
+        &mut ledger,
+        Some(&mut attention_captures),
+    )?;
+    safety.checkpoint("layer_2_attention_complete", true)?;
+    let post_attention = hidden
+        .iter()
+        .zip(&attention_output)
+        .map(|(&residual, &projected)| round_bf16(residual + projected))
+        .collect::<Vec<_>>();
+    let post_norm = bf16_vector(
+        &checkpoint,
+        "model.layers.2.post_attention_layernorm.weight",
+        HIDDEN,
+        &mut ledger,
+    )?;
+    let moe_input = rms_norm(&post_attention, rows, &post_norm, config.layernorm_epsilon)?;
+    let mut expert_captures = ExpertCaptures::default();
+    let mut expert_completed = |expert| {
+        checkpoint.release_file_pages()?;
+        safety.checkpoint(&format!("layer_2_expert_{expert}_complete"), true)
+    };
+    let routed = routed_mlp_traced(
+        &checkpoint,
+        2,
+        &moe_input,
+        rows,
+        &mut ledger,
+        Some(&mut expert_captures),
+        &mut expert_completed,
+    )?;
+    let final_hidden = post_attention
+        .iter()
+        .zip(&routed.output)
+        .map(|(&residual, &projected)| round_bf16(residual + projected))
+        .collect::<Vec<_>>();
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("layer_2_complete", true)?;
+    let placements = rows * TOP_K;
+    let attention_states = HEADS * rows * (rows + 3) / 2;
+    let mut captures = BTreeMap::new();
+    for (name, shape, values) in [
+        ("incoming", vec![rows, HIDDEN], hidden.as_slice()),
+        ("input_norm", vec![rows, HIDDEN], normalized.as_slice()),
+        ("qkv", vec![rows, 14_848], attention_captures.qkv.as_slice()),
+        (
+            "query",
+            vec![rows, HEADS, QK_HEAD_DIM],
+            attention_captures.query.as_slice(),
+        ),
+        (
+            "key",
+            vec![rows, 8, QK_HEAD_DIM],
+            attention_captures.key.as_slice(),
+        ),
+        (
+            "value",
+            vec![rows, 8, V_HEAD_DIM],
+            attention_captures.value.as_slice(),
+        ),
+        ("sinks", vec![HEADS], attention_captures.sinks.as_slice()),
+        (
+            "attention_scores",
+            vec![attention_states],
+            attention_captures.attention_scores.as_slice(),
+        ),
+        (
+            "attention_probabilities",
+            vec![attention_states],
+            attention_captures.attention_probabilities.as_slice(),
+        ),
+        (
+            "attention",
+            vec![rows, HEADS, V_HEAD_DIM],
+            attention_captures.attention.as_slice(),
+        ),
+        (
+            "attention_projection",
+            vec![rows, HIDDEN],
+            attention_captures.attention_projection.as_slice(),
+        ),
+        (
+            "post_attention",
+            vec![rows, HIDDEN],
+            post_attention.as_slice(),
+        ),
+        ("moe_input", vec![rows, HIDDEN], moe_input.as_slice()),
+        (
+            "expert_gate",
+            vec![placements, MOE_INTERMEDIATE],
+            expert_captures.gate.as_slice(),
+        ),
+        (
+            "expert_up",
+            vec![placements, MOE_INTERMEDIATE],
+            expert_captures.up.as_slice(),
+        ),
+        (
+            "expert_swiglu",
+            vec![placements, MOE_INTERMEDIATE],
+            expert_captures.swiglu.as_slice(),
+        ),
+        (
+            "expert_down",
+            vec![placements, HIDDEN],
+            expert_captures.down.as_slice(),
+        ),
+        (
+            "routed_output",
+            vec![rows, HIDDEN],
+            routed.output.as_slice(),
+        ),
+        ("final", vec![rows, HIDDEN], final_hidden.as_slice()),
+    ] {
+        captures.insert(
+            name.to_owned(),
+            write_capture(output_dir, name, &shape, values)?,
+        );
+    }
+    captures.insert(
+        "router_logits".to_owned(),
+        write_capture_typed(
+            output_dir,
+            "router_logits",
+            &[rows, ROUTED_EXPERTS],
+            &routed.logits,
+            "F32",
+        )?,
+    );
+    captures.insert(
+        "router_scores".to_owned(),
+        write_capture_typed(
+            output_dir,
+            "router_scores",
+            &[rows, ROUTED_EXPERTS],
+            &routed.scores,
+            "F32",
+        )?,
+    );
+    safety.checkpoint("captures_written", true)?;
+    ledger.actual_process_disk_bytes_read =
+        process_disk_bytes_read()?.saturating_sub(disk_bytes_read_before);
+    ledger.peak_resident_bytes = peak_resident_bytes()?;
+    let report = Layer1ExpertTraceReport {
+        schema_version: 1,
+        semantic: "mimo_real_layer2_complete_rust_trace",
         revision: REVISION,
         commit: commit.to_owned(),
         fixture_sha256: sha256_hex(&fixture_bytes),
