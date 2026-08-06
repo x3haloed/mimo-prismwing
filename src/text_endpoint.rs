@@ -287,6 +287,37 @@ pub struct Layer1RoutingTraceReport {
 }
 
 #[derive(Debug, Serialize)]
+pub struct ExpertScheduleEntry {
+    pub expert: u32,
+    pub positions: Vec<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Layer1ExpertTraceReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub fixture_sha256: String,
+    pub checkpoint_verification_sha256: String,
+    pub prompt_token_ids: Vec<u32>,
+    pub source_input_sha256: String,
+    pub numerics: &'static str,
+    pub captures: BTreeMap<String, CaptureRecord>,
+    pub selected_experts_by_position: Vec<Vec<u32>>,
+    pub route_weights_by_position: Vec<Vec<f32>>,
+    pub expert_schedule: Vec<ExpertScheduleEntry>,
+    pub ledger: EndpointLedger,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub complete_wall_ms: f64,
+    pub batch_size: usize,
+    pub prompt_positions: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    pub performance_claim: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct SafetySnapshot {
     pub phase: String,
     pub system_memory_free_percent: u64,
@@ -319,6 +350,15 @@ struct RoutingTrace {
     scores: Vec<f32>,
     selected: Vec<Vec<u32>>,
     weights: Vec<Vec<f32>>,
+}
+
+#[derive(Default)]
+struct ExpertCaptures {
+    schedule: Vec<ExpertScheduleEntry>,
+    gate: Vec<f32>,
+    up: Vec<f32>,
+    swiglu: Vec<f32>,
+    down: Vec<f32>,
 }
 
 struct NativeDecodeStep {
@@ -1651,6 +1691,27 @@ fn routed_mlp(
     rows: usize,
     ledger: &mut EndpointLedger,
 ) -> Result<RoutedMlpOutput, String> {
+    routed_mlp_traced(
+        checkpoint,
+        layer,
+        input,
+        rows,
+        ledger,
+        None,
+        &mut |_| Ok(()),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn routed_mlp_traced(
+    checkpoint: &Checkpoint,
+    layer: usize,
+    input: &[f32],
+    rows: usize,
+    ledger: &mut EndpointLedger,
+    mut captures: Option<&mut ExpertCaptures>,
+    expert_completed: &mut dyn FnMut(u32) -> Result<(), String>,
+) -> Result<RoutedMlpOutput, String> {
     let prefix = format!("model.layers.{layer}.mlp");
     let routing = route_mlp(checkpoint, layer, input, rows, ledger)?;
     let mut schedule: BTreeMap<u32, Vec<(usize, f32)>> = BTreeMap::new();
@@ -1690,8 +1751,8 @@ fn routed_mlp(
         )?;
         let activated = gate
             .iter()
-            .zip(up)
-            .map(|(&gate, up)| {
+            .zip(&up)
+            .map(|(&gate, &up)| {
                 let silu = round_bf16(gate / (1.0 + (-gate).exp()));
                 round_bf16(silu * up)
             })
@@ -1705,12 +1766,23 @@ fn routed_mlp(
             HIDDEN,
             ledger,
         )?;
+        if let Some(captures) = captures.as_deref_mut() {
+            captures.schedule.push(ExpertScheduleEntry {
+                expert,
+                positions: placements.iter().map(|(position, _)| *position).collect(),
+            });
+            captures.gate.extend_from_slice(&gate);
+            captures.up.extend_from_slice(&up);
+            captures.swiglu.extend_from_slice(&activated);
+            captures.down.extend_from_slice(&projected);
+        }
         for (local, &(position, weight)) in placements.iter().enumerate() {
             for column in 0..HIDDEN {
                 output[position * HIDDEN + column] += projected[local * HIDDEN + column] * weight;
             }
         }
         ledger.routed_expert_executions += 1;
+        expert_completed(expert)?;
     }
     round_bf16_values(&mut output);
     Ok(RoutedMlpOutput {
@@ -2560,6 +2632,205 @@ pub fn run_real_layer1_routing_trace(
         captures,
         selected_experts_by_position: routing.selected,
         route_weights_by_position: routing.weights,
+        ledger,
+        safety_snapshots: safety.snapshots,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 1,
+        prompt_positions: rows,
+        concurrency: 1,
+        accepted_tokens: 0,
+        performance_claim: None,
+    };
+    let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(&output_dir.join("manifest.json"), &bytes)?;
+    Ok(report)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_real_layer1_expert_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    output_dir: &Path,
+    commit: &str,
+) -> Result<Layer1ExpertTraceReport, String> {
+    if output_dir.exists() {
+        return Err(format!("refusing to overwrite {}", output_dir.display()));
+    }
+    let complete_started = Instant::now();
+    let disk_bytes_read_before = process_disk_bytes_read()?;
+    let EndpointAuthority {
+        fixture_bytes,
+        fixture,
+        mut safety,
+        config,
+        tokenizer: _,
+        prompt_token_ids,
+        checkpoint,
+        verification_sha256,
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    if fixture.schema_version != 2 || prompt_token_ids != CHAT_PROMPT_IDS {
+        return Err("layer-1 expert trace requires the frozen chat fixture".to_owned());
+    }
+    fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
+    let rows = prompt_token_ids.len();
+    let mut ledger = EndpointLedger::default();
+    let mut layer0_captures = Layer0Captures::default();
+    let incoming = execute_dense_layer0(
+        &checkpoint,
+        &config,
+        &prompt_token_ids,
+        &mut ledger,
+        &mut layer0_captures,
+    )?;
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("layer_0_complete", true)?;
+    let incoming_bytes = incoming
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    let input_norm_weight = bf16_vector(
+        &checkpoint,
+        "model.layers.1.input_layernorm.weight",
+        HIDDEN,
+        &mut ledger,
+    )?;
+    let normalized = rms_norm(
+        &incoming,
+        rows,
+        &input_norm_weight,
+        config.layernorm_epsilon,
+    )?;
+    let mut cache = LayerKvCache::default();
+    let attention_output = attention(
+        &checkpoint,
+        &config,
+        1,
+        &normalized,
+        rows,
+        &mut cache,
+        &mut ledger,
+        None,
+    )?;
+    safety.checkpoint("layer_1_attention_complete", true)?;
+    let post_attention = incoming
+        .iter()
+        .zip(&attention_output)
+        .map(|(&residual, &projected)| round_bf16(residual + projected))
+        .collect::<Vec<_>>();
+    let post_norm_weight = bf16_vector(
+        &checkpoint,
+        "model.layers.1.post_attention_layernorm.weight",
+        HIDDEN,
+        &mut ledger,
+    )?;
+    let post_attention_norm = rms_norm(
+        &post_attention,
+        rows,
+        &post_norm_weight,
+        config.layernorm_epsilon,
+    )?;
+    safety.checkpoint("layer_1_routing_input_complete", true)?;
+    let mut expert_captures = ExpertCaptures::default();
+    let mut expert_completed = |expert| {
+        checkpoint.release_file_pages()?;
+        safety.checkpoint(&format!("layer_1_expert_{expert}_complete"), true)
+    };
+    let routed = routed_mlp_traced(
+        &checkpoint,
+        1,
+        &post_attention_norm,
+        rows,
+        &mut ledger,
+        Some(&mut expert_captures),
+        &mut expert_completed,
+    )?;
+    let final_hidden = post_attention
+        .iter()
+        .zip(&routed.output)
+        .map(|(&residual, &projected)| round_bf16(residual + projected))
+        .collect::<Vec<_>>();
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("layer_1_complete", true)?;
+
+    let placements = rows * TOP_K;
+    if expert_captures
+        .schedule
+        .iter()
+        .map(|entry| entry.positions.len())
+        .sum::<usize>()
+        != placements
+        || expert_captures.gate.len() != placements * MOE_INTERMEDIATE
+        || expert_captures.up.len() != placements * MOE_INTERMEDIATE
+        || expert_captures.swiglu.len() != placements * MOE_INTERMEDIATE
+        || expert_captures.down.len() != placements * HIDDEN
+    {
+        return Err("layer-1 expert capture shape mismatch".to_owned());
+    }
+    let mut captures = BTreeMap::new();
+    for (name, shape, values) in [
+        (
+            "moe_input",
+            vec![rows, HIDDEN],
+            post_attention_norm.as_slice(),
+        ),
+        (
+            "expert_gate",
+            vec![placements, MOE_INTERMEDIATE],
+            expert_captures.gate.as_slice(),
+        ),
+        (
+            "expert_up",
+            vec![placements, MOE_INTERMEDIATE],
+            expert_captures.up.as_slice(),
+        ),
+        (
+            "expert_swiglu",
+            vec![placements, MOE_INTERMEDIATE],
+            expert_captures.swiglu.as_slice(),
+        ),
+        (
+            "expert_down",
+            vec![placements, HIDDEN],
+            expert_captures.down.as_slice(),
+        ),
+        (
+            "routed_output",
+            vec![rows, HIDDEN],
+            routed.output.as_slice(),
+        ),
+        ("final", vec![rows, HIDDEN], final_hidden.as_slice()),
+    ] {
+        captures.insert(
+            name.to_owned(),
+            write_capture(output_dir, name, &shape, values)?,
+        );
+    }
+    safety.checkpoint("captures_written", true)?;
+    ledger.actual_process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_bytes_read_before)
+        .ok_or("process disk byte counter moved backwards")?;
+    ledger.peak_resident_bytes = peak_resident_bytes()?;
+    let report = Layer1ExpertTraceReport {
+        schema_version: 1,
+        semantic: "mimo_real_layer1_selected_experts_rust_trace",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        fixture_sha256: sha256_hex(&fixture_bytes),
+        checkpoint_verification_sha256: verification_sha256,
+        prompt_token_ids,
+        source_input_sha256: sha256_hex(&incoming_bytes),
+        numerics: "dynamic_fp8_e4m3fn_per_token_group_128_bf16_boundaries",
+        captures,
+        selected_experts_by_position: routed.selected,
+        route_weights_by_position: routed.weights,
+        expert_schedule: expert_captures.schedule,
         ledger,
         safety_snapshots: safety.snapshots,
         complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
