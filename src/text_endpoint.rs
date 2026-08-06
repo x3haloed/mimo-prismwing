@@ -2,9 +2,10 @@
 
 use super::{
     MappedSafetensors, MappedTensorView, UniqueJson, accelerate_sgemm_right_transposed,
-    decode_bf16_tensor, decode_fp8_matrix_f32, sha256_hex, sha256_reader, stable_rms_inverse,
-    validate_fp8_views, write_create_new,
+    decode_bf16_tensor, decode_fp8_matrix_f32, read_f32_file, sha256_hex, sha256_reader,
+    stable_rms_inverse, validate_fp8_views, write_create_new,
 };
+use crate::staged_metal_expert::BoundedMetalExpertRuntime;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -177,6 +178,16 @@ pub struct EndpointLedger {
     pub dynamic_activation_values: u64,
 }
 
+#[derive(Debug, Default, Serialize)]
+pub struct MetalExpertLedger {
+    pub expert_executions: u64,
+    pub projection_dispatches: u64,
+    pub installed_source_bytes: u64,
+    pub released_projection_buffers: u64,
+    pub sparse_decoded_weight_bytes: u64,
+    pub sparse_repair_counts: [u64; 3],
+}
+
 #[derive(Debug, Serialize)]
 pub struct LayerRouteTrace {
     pub layer: usize,
@@ -232,6 +243,93 @@ pub struct TextEndpointReport {
     pub exactness: &'static str,
     pub performance_claim: Option<String>,
     pub implementation: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NumericalParity {
+    pub relative_l2: f64,
+    pub maximum_absolute_error: f32,
+    pub equal_values: usize,
+    pub total_values: usize,
+    pub equality_fraction: f64,
+    pub passed: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetalLayerParity {
+    pub layer: usize,
+    pub selected_experts_exact: bool,
+    pub maximum_route_weight_absolute_error: f32,
+    pub final_state: NumericalParity,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetalIncrementalTextReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub fixture_sha256: String,
+    pub checkpoint_verification_sha256: String,
+    pub oracle_manifest_sha256: String,
+    pub kernel_sha256: String,
+    pub kernel_compile_ms: f64,
+    pub metal_device: String,
+    pub prompt_token_ids: Vec<u32>,
+    pub generated_token_ids: Vec<u32>,
+    pub generated_text: String,
+    pub steps: Vec<DecodeStepReport>,
+    pub layer_parity: Vec<MetalLayerParity>,
+    pub final_norm_parity: NumericalParity,
+    pub logits_parity: NumericalParity,
+    pub top20_token_identity: bool,
+    pub projected_top20_jsd_nats: f64,
+    pub ledger: EndpointLedger,
+    pub metal_ledger: MetalExpertLedger,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub complete_wall_ms: f64,
+    pub prefill_wall_ms: f64,
+    pub incremental_wall_ms: f64,
+    pub speedup_vs_pw0092_repeats: [f64; 2],
+    pub timing_gate_passed: bool,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub accepted_tokens_in_timed_interval: usize,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: usize,
+    pub cache_state: &'static str,
+    pub exactness: &'static str,
+    pub performance_claim: Option<String>,
+    pub implementation: &'static str,
+}
+
+#[derive(Deserialize)]
+struct IncrementalOracleManifest {
+    schema_version: u32,
+    semantic: String,
+    revision: String,
+    checkpoint_verification_sha256: String,
+    prefill_token_ids: Vec<u32>,
+    incremental_input_token_id: u32,
+    output_token_id: u32,
+    captures: BTreeMap<String, OracleCapture>,
+    incremental_layer_traces: Vec<OracleLayerTrace>,
+}
+
+#[derive(Deserialize)]
+struct OracleCapture {
+    file: String,
+    shape: Vec<usize>,
+    dtype: String,
+    sha256: String,
+}
+
+#[derive(Deserialize)]
+struct OracleLayerTrace {
+    layer: usize,
+    cache_positions: usize,
+    selected_experts_by_position: Vec<Vec<u32>>,
+    route_weights_by_position: Vec<Vec<f32>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2095,6 +2193,111 @@ fn routed_mlp(
     )
 }
 
+fn require_one_row_metal_experts(rows: usize) -> Result<(), String> {
+    if rows != 1 {
+        return Err(format!(
+            "bounded Metal routed experts require exactly one row, got {rows}"
+        ));
+    }
+    Ok(())
+}
+
+fn routed_mlp_metal(
+    checkpoint: &Checkpoint,
+    layer: usize,
+    input: &[f32],
+    rows: usize,
+    ledger: &mut EndpointLedger,
+    metal_ledger: &mut MetalExpertLedger,
+    runtime: &BoundedMetalExpertRuntime,
+) -> Result<RoutedMlpOutput, String> {
+    require_one_row_metal_experts(rows)?;
+    if input.len() != HIDDEN {
+        return Err("bounded Metal routed expert input shape mismatch".to_owned());
+    }
+    let prefix = format!("model.layers.{layer}.mlp");
+    let routing = route_mlp(checkpoint, layer, input, rows, ledger)?;
+    let mut schedule: BTreeMap<u32, Vec<(usize, f32)>> = BTreeMap::new();
+    for slot in 0..TOP_K {
+        schedule
+            .entry(routing.selected[0][slot])
+            .or_default()
+            .push((0, routing.weights[0][slot]));
+    }
+    if schedule.len() != TOP_K || schedule.values().any(|placements| placements.len() != 1) {
+        return Err("bounded Metal route did not contain eight unique experts".to_owned());
+    }
+    let mut output = vec![0.0_f32; HIDDEN];
+    let down_shape_authority = vec![0.0_f32; MOE_INTERMEDIATE];
+    for (expert, placements) in schedule {
+        let expert_prefix = format!("{prefix}.experts.{expert}");
+        let tensor = |projection: &str| -> Result<_, String> {
+            let name = format!("{expert_prefix}.{projection}_proj.weight");
+            validate_fp8_views(
+                checkpoint.tensor(&name)?,
+                checkpoint.tensor(&format!("{name}_scale_inv"))?,
+                if projection == "down" {
+                    // Validation needs only authoritative input width and finiteness;
+                    // the runtime derives the actual staged hidden vector internally.
+                    &down_shape_authority
+                } else {
+                    input
+                },
+            )
+        };
+        let gate = tensor("gate")?;
+        let up = tensor("up")?;
+        let down = tensor("down")?;
+        if (gate.rows, gate.columns) != (MOE_INTERMEDIATE, HIDDEN)
+            || (up.rows, up.columns) != (MOE_INTERMEDIATE, HIDDEN)
+            || (down.rows, down.columns) != (HIDDEN, MOE_INTERMEDIATE)
+        {
+            return Err(format!(
+                "layer {layer} expert {expert}: projection shape mismatch"
+            ));
+        }
+        let execution = runtime.execute([&gate, &up, &down], input)?;
+        let weight = placements[0].1;
+        for (destination, value) in output.iter_mut().zip(&execution.values) {
+            *destination += *value * weight;
+        }
+        ledger.logical_source_bytes = ledger
+            .logical_source_bytes
+            .checked_add(execution.installed_source_bytes)
+            .ok_or("logical byte ledger overflow")?;
+        ledger.dynamic_activation_groups += 80;
+        ledger.dynamic_activation_values += 10_240;
+        ledger.routed_expert_executions += 1;
+        metal_ledger.expert_executions += 1;
+        metal_ledger.projection_dispatches += 3;
+        metal_ledger.installed_source_bytes = metal_ledger
+            .installed_source_bytes
+            .checked_add(execution.installed_source_bytes)
+            .ok_or("Metal installed-byte ledger overflow")?;
+        metal_ledger.released_projection_buffers += 3;
+        metal_ledger.sparse_decoded_weight_bytes = metal_ledger
+            .sparse_decoded_weight_bytes
+            .checked_add(execution.sparse_decoded_weight_bytes)
+            .ok_or("Metal sparse-byte ledger overflow")?;
+        for (total, count) in metal_ledger
+            .sparse_repair_counts
+            .iter_mut()
+            .zip(execution.sparse_repair_counts)
+        {
+            *total += count as u64;
+        }
+        release_matrix_transients(checkpoint)?;
+    }
+    round_bf16_values(&mut output);
+    Ok(RoutedMlpOutput {
+        output,
+        logits: routing.logits,
+        scores: routing.scores,
+        selected: routing.selected,
+        weights: routing.weights,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn routed_mlp_traced(
     checkpoint: &Checkpoint,
@@ -2247,6 +2450,7 @@ fn top_logits(logits: &[f32], count: usize) -> Result<Vec<(u32, f32)>, String> {
         .collect())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn decode_step(
     checkpoint: &Checkpoint,
     config: &ModelConfig,
@@ -2255,6 +2459,7 @@ fn decode_step(
     ledger: &mut EndpointLedger,
     safety: &mut SafetyMonitor,
     mut full_captures: Option<&mut FullPrefixCaptures>,
+    mut metal: Option<(&BoundedMetalExpertRuntime, &mut MetalExpertLedger)>,
 ) -> Result<NativeDecodeStep, String> {
     let started = Instant::now();
     if token_ids.is_empty() {
@@ -2307,7 +2512,19 @@ fn decode_step(
                 Vec::new(),
             )
         } else {
-            let routed = routed_mlp(checkpoint, layer, &moe_input, rows, ledger)?;
+            let routed = if let Some((runtime, metal_ledger)) = metal.as_mut() {
+                routed_mlp_metal(
+                    checkpoint,
+                    layer,
+                    &moe_input,
+                    rows,
+                    ledger,
+                    metal_ledger,
+                    runtime,
+                )?
+            } else {
+                routed_mlp(checkpoint, layer, &moe_input, rows, ledger)?
+            };
             (routed.output, routed.selected, routed.weights)
         };
         hidden = post_attention
@@ -2499,6 +2716,7 @@ pub fn run_slow_text_endpoint(
             &mut ledger,
             &mut safety,
             None,
+            None,
         )?;
         let output_token_text = tokenizer
             .decode(&[step.output_token], false)
@@ -2567,6 +2785,443 @@ pub fn run_slow_text_endpoint(
         exactness: "L0 source weights and routes; dynamic per-token-group E4M3FN activations; source-authorized BF16 tensor boundaries with readable FP32 accumulation",
         performance_claim: None,
         implementation: "single_rust_authority_tokenizers_mmap_accelerate_dynamic_activation_source_fp8_bf16_boundaries",
+    };
+    let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(output_path, &report_bytes)?;
+    Ok(report)
+}
+
+fn numerical_parity(actual: &[f32], expected: &[f32]) -> Result<NumericalParity, String> {
+    if actual.len() != expected.len()
+        || actual.is_empty()
+        || actual
+            .iter()
+            .chain(expected)
+            .any(|value| !value.is_finite())
+    {
+        return Err("numerical parity shape or finiteness mismatch".to_owned());
+    }
+    let mut squared_error = 0.0_f64;
+    let mut squared_reference = 0.0_f64;
+    let mut maximum_absolute_error = 0.0_f32;
+    let mut equal_values = 0_usize;
+    for (&candidate, &reference) in actual.iter().zip(expected) {
+        let difference = candidate - reference;
+        squared_error += f64::from(difference).powi(2);
+        squared_reference += f64::from(reference).powi(2);
+        maximum_absolute_error = maximum_absolute_error.max(difference.abs());
+        equal_values += usize::from(candidate.to_bits() == reference.to_bits());
+    }
+    if squared_reference == 0.0 {
+        return Err("numerical parity reference has zero L2 norm".to_owned());
+    }
+    let relative_l2 = (squared_error / squared_reference).sqrt();
+    let equality_fraction = equal_values as f64 / actual.len() as f64;
+    Ok(NumericalParity {
+        relative_l2,
+        maximum_absolute_error,
+        equal_values,
+        total_values: actual.len(),
+        equality_fraction,
+        passed: relative_l2 <= 5.0e-4
+            && maximum_absolute_error <= 2.0e-2
+            && equality_fraction >= 0.99,
+    })
+}
+
+fn read_oracle_capture(
+    manifest_path: &Path,
+    capture: &OracleCapture,
+    expected_values: usize,
+) -> Result<Vec<f32>, String> {
+    if capture.shape.iter().product::<usize>() != expected_values
+        || !matches!(capture.dtype.as_str(), "BF16_widened_F32" | "F32")
+        || Path::new(&capture.file)
+            .file_name()
+            .and_then(|name| name.to_str())
+            != Some(capture.file.as_str())
+    {
+        return Err("incremental oracle capture metadata mismatch".to_owned());
+    }
+    let path = manifest_path.with_file_name(&capture.file);
+    let (bytes, values) = read_f32_file(&path, Some(expected_values))?;
+    if sha256_hex(&bytes) != capture.sha256 {
+        return Err(format!(
+            "incremental oracle capture hash mismatch: {}",
+            capture.file
+        ));
+    }
+    Ok(values)
+}
+
+fn projected_top20_jsd(reference: &[f32], candidate: &[f32]) -> Result<(bool, f64), String> {
+    let reference_top = top_logits(reference, 20)?;
+    let candidate_top = top_logits(candidate, 20)?;
+    let top20_identity = reference_top
+        .iter()
+        .map(|(token, _)| token)
+        .eq(candidate_top.iter().map(|(token, _)| token));
+    let reference_max = reference.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let candidate_max = candidate.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let reference_sum = reference
+        .iter()
+        .map(|value| f64::from(*value - reference_max).exp())
+        .sum::<f64>();
+    let candidate_sum = candidate
+        .iter()
+        .map(|value| f64::from(*value - candidate_max).exp())
+        .sum::<f64>();
+    if !reference_sum.is_finite() || !candidate_sum.is_finite() {
+        return Err("incremental logit normalization is non-finite".to_owned());
+    }
+    let mut reference_projection = Vec::with_capacity(21);
+    let mut candidate_projection = Vec::with_capacity(21);
+    for (token, _) in &reference_top {
+        let index = *token as usize;
+        reference_projection
+            .push(f64::from(reference[index] - reference_max).exp() / reference_sum);
+        candidate_projection
+            .push(f64::from(candidate[index] - candidate_max).exp() / candidate_sum);
+    }
+    reference_projection.push((1.0 - reference_projection.iter().sum::<f64>()).max(0.0));
+    candidate_projection.push((1.0 - candidate_projection.iter().sum::<f64>()).max(0.0));
+    let jsd = reference_projection
+        .iter()
+        .zip(&candidate_projection)
+        .map(|(&reference, &candidate)| {
+            let midpoint = (reference + candidate) * 0.5;
+            let contribution = |value: f64| {
+                if value == 0.0 {
+                    0.0
+                } else {
+                    value * (value / midpoint).ln()
+                }
+            };
+            0.5 * (contribution(reference) + contribution(candidate))
+        })
+        .sum();
+    Ok((top20_identity, jsd))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_metal_incremental_text_endpoint(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    oracle_manifest_path: &Path,
+    kernel_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<MetalIncrementalTextReport, String> {
+    const ORACLE_SHA256: &str = "75b4a5799bcc7dc898643c266d42a00b52c75be0f1fe1682ef253ce8fe4287a8";
+    const PREFILL_LOGITS_SHA256: &str =
+        "c43be0909487235bddfe6e0de69aa42a98339faf43cd6b77d6ef4b5f1a853cab";
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("implementation commit must be a lowercase 40-hex Git object".to_owned());
+    }
+    let complete_started = Instant::now();
+    let disk_bytes_read_before = process_disk_bytes_read()?;
+    let EndpointAuthority {
+        fixture_bytes,
+        fixture,
+        mut safety,
+        config,
+        tokenizer,
+        prompt_token_ids,
+        checkpoint,
+        verification_sha256,
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    validate_slow_endpoint_fixture(&fixture)?;
+    if fixture.decode.new_tokens != 2 {
+        return Err("Metal incremental endpoint requires the frozen two-token fixture".to_owned());
+    }
+    let oracle_bytes = fs::read(oracle_manifest_path)
+        .map_err(|error| format!("{}: {error}", oracle_manifest_path.display()))?;
+    let oracle_manifest_sha256 = sha256_hex(&oracle_bytes);
+    if oracle_manifest_sha256 != ORACLE_SHA256 {
+        return Err("PW-0095 oracle manifest SHA-256 mismatch".to_owned());
+    }
+    let oracle: IncrementalOracleManifest = serde_json::from_slice(&oracle_bytes)
+        .map_err(|error| format!("incremental oracle manifest: {error}"))?;
+    if oracle.schema_version != 1
+        || oracle.semantic != "mimo_pytorch_incremental_cache_oracle"
+        || oracle.revision != REVISION
+        || oracle.checkpoint_verification_sha256 != verification_sha256
+        || oracle.prefill_token_ids != prompt_token_ids
+        || oracle.incremental_input_token_id != 264
+        || oracle.output_token_id != 13
+        || oracle.incremental_layer_traces.len() != 48
+    {
+        return Err("PW-0095 oracle authority mismatch".to_owned());
+    }
+    let runtime = BoundedMetalExpertRuntime::compile(kernel_path)?;
+    safety.checkpoint("metal_compile_complete", true)?;
+    let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
+    let mut ledger = EndpointLedger::default();
+    let prefill = decode_step(
+        &checkpoint,
+        &config,
+        &prompt_token_ids,
+        &mut caches,
+        &mut ledger,
+        &mut safety,
+        None,
+        None,
+    )?;
+    let prefill_bytes = prefill
+        .full_logits
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    if prefill.output_token != 264
+        || sha256_hex(&prefill_bytes) != PREFILL_LOGITS_SHA256
+        || caches.iter().any(|cache| cache.positions != 27)
+    {
+        return Err("CPU prefill diverged from PW-0092 authority".to_owned());
+    }
+    safety.checkpoint("token_1_accepted", true)?;
+    let mut captures = FullPrefixCaptures::default();
+    let mut metal_ledger = MetalExpertLedger::default();
+    let incremental = decode_step(
+        &checkpoint,
+        &config,
+        &[264],
+        &mut caches,
+        &mut ledger,
+        &mut safety,
+        Some(&mut captures),
+        Some((&runtime, &mut metal_ledger)),
+    )?;
+    if caches
+        .iter()
+        .any(|cache| cache.positions != 28 || cache.validate().is_err())
+        || captures.layer_finals.len() != 48
+        || metal_ledger.expert_executions != 376
+        || metal_ledger.projection_dispatches != 1_128
+        || metal_ledger.released_projection_buffers != 1_128
+    {
+        return Err("Metal incremental causal/accounting gate failed".to_owned());
+    }
+    let mut layer_parity = Vec::with_capacity(48);
+    let mut all_layer_parity_passed = true;
+    for layer in 0..48 {
+        let oracle_trace = &oracle.incremental_layer_traces[layer];
+        let actual_trace = &incremental.traces[layer];
+        if oracle_trace.layer != layer
+            || actual_trace.layer != layer
+            || oracle_trace.cache_positions != actual_trace.cache_length
+        {
+            return Err(format!(
+                "layer {layer}: incremental trace identity mismatch"
+            ));
+        }
+        let selected_experts_exact =
+            oracle_trace.selected_experts_by_position == actual_trace.selected_experts_by_position;
+        let maximum_route_weight_absolute_error = oracle_trace
+            .route_weights_by_position
+            .iter()
+            .flatten()
+            .zip(actual_trace.route_weights_by_position.iter().flatten())
+            .map(|(expected, actual)| (expected - actual).abs())
+            .fold(0.0_f32, f32::max);
+        let capture = oracle
+            .captures
+            .get(&format!("layer_{layer:02}_incremental_final"))
+            .ok_or_else(|| format!("layer {layer}: missing incremental oracle capture"))?;
+        let expected = read_oracle_capture(oracle_manifest_path, capture, HIDDEN)?;
+        let final_state = numerical_parity(&captures.layer_finals[layer], &expected)?;
+        all_layer_parity_passed &= selected_experts_exact
+            && maximum_route_weight_absolute_error <= 5.0e-4
+            && final_state.passed;
+        layer_parity.push(MetalLayerParity {
+            layer,
+            selected_experts_exact,
+            maximum_route_weight_absolute_error,
+            final_state,
+        });
+    }
+    let expected_final_norm = read_oracle_capture(
+        oracle_manifest_path,
+        oracle
+            .captures
+            .get("incremental_final_norm")
+            .ok_or("missing incremental final-norm oracle capture")?,
+        HIDDEN,
+    )?;
+    let final_norm_parity = numerical_parity(&captures.final_norm, &expected_final_norm)?;
+    let expected_logits = read_oracle_capture(
+        oracle_manifest_path,
+        oracle
+            .captures
+            .get("incremental_last_logits")
+            .ok_or("missing incremental logit oracle capture")?,
+        config.vocab_size,
+    )?;
+    let logits_parity = numerical_parity(&incremental.full_logits, &expected_logits)?;
+    let (top20_token_identity, projected_top20_jsd_nats) =
+        projected_top20_jsd(&expected_logits, &incremental.full_logits)?;
+    let speedup_vs_pw0092_repeats = [
+        158_521.015 / incremental.wall_ms,
+        158_614.709 / incremental.wall_ms,
+    ];
+    let timing_gate_passed = incremental.wall_ms <= 20_000.0
+        && speedup_vs_pw0092_repeats
+            .iter()
+            .all(|speedup| *speedup >= 5.0);
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("candidate_buffers_released", true)?;
+    if incremental.output_token != 13
+        || !all_layer_parity_passed
+        || !final_norm_parity.passed
+        || !logits_parity.passed
+        || !timing_gate_passed
+    {
+        let minimum_free = safety
+            .snapshots
+            .iter()
+            .map(|snapshot| snapshot.system_memory_free_percent)
+            .min()
+            .ok_or("missing failed-run safety snapshot")?;
+        let maximum_peak = safety
+            .snapshots
+            .iter()
+            .map(|snapshot| snapshot.process_peak_resident_bytes)
+            .max()
+            .ok_or("missing failed-run safety snapshot")?;
+        let post_release = safety
+            .snapshots
+            .last()
+            .ok_or("missing failed-run release snapshot")?
+            .process_physical_footprint_bytes;
+        let maximum_swap_growth = safety
+            .snapshots
+            .iter()
+            .map(|snapshot| snapshot.swap_growth_bytes)
+            .max()
+            .ok_or("missing failed-run swap snapshot")?;
+        let maximum_new_throttled = safety
+            .snapshots
+            .iter()
+            .map(|snapshot| snapshot.new_throttled_pages)
+            .max()
+            .ok_or("missing failed-run throttle snapshot")?;
+        let first_failed_layer = layer_parity.iter().find(|parity| {
+            !parity.selected_experts_exact
+                || parity.maximum_route_weight_absolute_error > 5.0e-4
+                || !parity.final_state.passed
+        });
+        return Err(format!(
+            "Metal incremental final gate failed: token {}, layers pass {}, first failed layer {:?}, norm pass {}, logits pass {}, wall {} ms, speedups {:?}, safety min-free {}%, peak {}, post-release {}, swap-growth {}, new-throttled {}",
+            incremental.output_token,
+            all_layer_parity_passed,
+            first_failed_layer.map(|parity| (
+                parity.layer,
+                parity.selected_experts_exact,
+                parity.maximum_route_weight_absolute_error,
+                parity.final_state.relative_l2,
+                parity.final_state.maximum_absolute_error,
+                parity.final_state.equality_fraction,
+            )),
+            final_norm_parity.passed,
+            logits_parity.passed,
+            incremental.wall_ms,
+            speedup_vs_pw0092_repeats,
+            minimum_free,
+            maximum_peak,
+            post_release,
+            maximum_swap_growth,
+            maximum_new_throttled,
+        ));
+    }
+    safety.checkpoint("token_2_accepted", true)?;
+    safety.checkpoint("final_release", true)?;
+    ledger.actual_process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_bytes_read_before)
+        .ok_or("process disk byte counter moved backwards")?;
+    ledger.peak_resident_bytes = peak_resident_bytes()?;
+    let prefill_text = tokenizer
+        .decode(&[prefill.output_token], false)
+        .map_err(|error| format!("tokenizer output decode: {error}"))?;
+    let incremental_text = tokenizer
+        .decode(&[incremental.output_token], false)
+        .map_err(|error| format!("tokenizer output decode: {error}"))?;
+    let generated_token_ids = vec![prefill.output_token, incremental.output_token];
+    let generated_text = tokenizer
+        .decode(&generated_token_ids, false)
+        .map_err(|error| format!("tokenizer generated decode: {error}"))?;
+    let prefill_wall_ms = prefill.wall_ms;
+    let incremental_wall_ms = incremental.wall_ms;
+    let steps = vec![
+        DecodeStepReport {
+            input_token_id: *prompt_token_ids.last().ok_or("empty prompt")?,
+            input_token_ids: prompt_token_ids.clone(),
+            output_token_id: prefill.output_token,
+            output_token_text: prefill_text,
+            top_logits: prefill.top_logits,
+            full_logits: Some(prefill.full_logits),
+            layer_traces: prefill.traces,
+            wall_ms: prefill_wall_ms,
+        },
+        DecodeStepReport {
+            input_token_id: 264,
+            input_token_ids: vec![264],
+            output_token_id: incremental.output_token,
+            output_token_text: incremental_text,
+            top_logits: incremental.top_logits,
+            full_logits: Some(incremental.full_logits),
+            layer_traces: incremental.traces,
+            wall_ms: incremental_wall_ms,
+        },
+    ];
+    let report = MetalIncrementalTextReport {
+        schema_version: 1,
+        semantic: "mimo_v2_5_target_faithful_bounded_metal_incremental_text_endpoint",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        fixture_sha256: sha256_hex(&fixture_bytes),
+        checkpoint_verification_sha256: verification_sha256,
+        oracle_manifest_sha256,
+        kernel_sha256: runtime.kernel_sha256.clone(),
+        kernel_compile_ms: runtime.compile_ms,
+        metal_device: runtime.device_name.clone(),
+        prompt_token_ids,
+        generated_token_ids,
+        generated_text,
+        steps,
+        layer_parity,
+        final_norm_parity,
+        logits_parity,
+        top20_token_identity,
+        projected_top20_jsd_nats,
+        ledger,
+        metal_ledger,
+        safety_snapshots: safety.snapshots,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        prefill_wall_ms,
+        incremental_wall_ms,
+        speedup_vs_pw0092_repeats,
+        timing_gate_passed,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens_in_timed_interval: 1,
+        accepted_per_verification: 1,
+        cache_state: "cold process and verified SSD mmap; CPU prefill; retained K/V; warm process-local Metal pipeline; bounded expert tensors released per projection",
+        exactness: "L3 bounded arithmetic approximation: source weights/routes and value-derived sparse BF16 midpoint repair",
+        performance_claim: None,
+        implementation: "single_rust_authority_retained_kv_cpu_attention_bounded_source_fp8_metal_experts_sparse_bf16_repair",
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;
@@ -3662,6 +4317,7 @@ pub fn run_full_prefix_trace(
         &mut ledger,
         &mut safety,
         Some(&mut internal),
+        None,
     )?;
     if internal.embedding.len() != rows * HIDDEN
         || internal.layer_finals.len() != 48
@@ -4602,5 +5258,33 @@ mod tests {
             .map(|value| value.as_u64().expect("expert") as u32)
             .collect::<Vec<_>>();
         assert_eq!(selected.as_slice(), expected);
+    }
+
+    #[test]
+    fn bounded_metal_endpoint_rejects_non_incremental_rows() {
+        assert!(require_one_row_metal_experts(0).is_err());
+        assert_eq!(require_one_row_metal_experts(1), Ok(()));
+        assert!(require_one_row_metal_experts(2).is_err());
+    }
+
+    #[test]
+    fn incremental_numerical_gate_is_fail_closed() {
+        let exact = numerical_parity(&[1.0, -2.0, 3.0], &[1.0, -2.0, 3.0]).expect("exact parity");
+        assert!(exact.passed);
+        assert_eq!(exact.equality_fraction, 1.0);
+        let drifted = numerical_parity(&[1.0, -2.0, 3.1], &[1.0, -2.0, 3.0]).expect("drift parity");
+        assert!(!drifted.passed);
+        assert!(numerical_parity(&[1.0], &[]).is_err());
+    }
+
+    #[test]
+    fn projected_top20_distribution_is_identity_on_equal_logits() {
+        let mut logits = vec![-20.0_f32; 152_576];
+        for (index, value) in logits.iter_mut().take(20).enumerate() {
+            *value = 20.0 - index as f32;
+        }
+        let (identity, jsd) = projected_top20_jsd(&logits, &logits).expect("projected JSD");
+        assert!(identity);
+        assert_eq!(jsd, 0.0);
     }
 }

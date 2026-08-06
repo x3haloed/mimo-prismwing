@@ -19,6 +19,98 @@ const LANES: u64 = 64;
 const WARMUPS: usize = 5;
 const MEASUREMENTS: usize = 30;
 
+pub(crate) struct BoundedMetalExpertRuntime {
+    device: metal::Device,
+    queue: metal::CommandQueue,
+    pipeline: metal::ComputePipelineState,
+    lut: Vec<f32>,
+    pub(crate) compile_ms: f64,
+    pub(crate) kernel_sha256: String,
+    pub(crate) device_name: String,
+}
+
+pub(crate) struct BoundedMetalExpertOutput {
+    pub(crate) values: Vec<f32>,
+    pub(crate) sparse_repair_counts: [usize; 3],
+    pub(crate) installed_source_bytes: u64,
+    pub(crate) sparse_decoded_weight_bytes: u64,
+}
+
+impl BoundedMetalExpertRuntime {
+    pub(crate) fn compile(kernel_path: &Path) -> Result<Self, String> {
+        let kernel_bytes =
+            fs::read(kernel_path).map_err(|error| format!("{}: {error}", kernel_path.display()))?;
+        let kernel_sha256 = sha256_hex(&kernel_bytes);
+        let kernel_source = String::from_utf8(kernel_bytes)
+            .map_err(|_| "Metal kernel source is not UTF-8".to_owned())?;
+        if !kernel_source.contains(&format!("kernel void {KERNEL}")) {
+            return Err(format!("kernel source lacks {KERNEL}"));
+        }
+        let device = Device::system_default().ok_or("no Metal device is available")?;
+        let device_name = device.name().to_owned();
+        let options = CompileOptions::new();
+        options.set_fast_math_enabled(false);
+        let compile_started = Instant::now();
+        let library = device
+            .new_library_with_source(&kernel_source, &options)
+            .map_err(|error| format!("Metal compilation failed: {error}"))?;
+        let function = library
+            .get_function(KERNEL, None)
+            .map_err(|error| format!("Metal kernel lookup failed: {error}"))?;
+        let pipeline = device
+            .new_compute_pipeline_state_with_function(&function)
+            .map_err(|error| format!("Metal pipeline creation failed: {error}"))?;
+        let compile_ms = compile_started.elapsed().as_secs_f64() * 1000.0;
+        if pipeline.max_total_threads_per_threadgroup() < LANES {
+            return Err("Metal pipeline cannot dispatch 64 lanes".to_owned());
+        }
+        let queue = device.new_command_queue();
+        let lut = (0_u16..=255)
+            .map(|value| decode_f8_e4m3fn(value as u8))
+            .collect();
+        Ok(Self {
+            device,
+            queue,
+            pipeline,
+            lut,
+            compile_ms,
+            kernel_sha256,
+            device_name,
+        })
+    }
+
+    pub(crate) fn execute(
+        &self,
+        projections: [&ValidatedMappedFp8<'_>; 3],
+        input: &[f32],
+    ) -> Result<BoundedMetalExpertOutput, String> {
+        let execution = execute_staged_expert(
+            &self.device,
+            &self.queue,
+            &self.pipeline,
+            &self.lut,
+            projections,
+            input,
+        )?;
+        let installed_source_bytes = projections.iter().try_fold(0_u64, |total, tensor| {
+            total
+                .checked_add(tensor.weight.metadata.data_bytes)
+                .and_then(|value| value.checked_add(tensor.scale.metadata.data_bytes))
+                .ok_or("Metal installed-byte ledger overflow")
+        })?;
+        let sparse_decoded_weight_bytes = (execution.repairs[0] * projections[0].columns
+            + execution.repairs[1] * projections[1].columns
+            + execution.repairs[2] * projections[2].columns)
+            as u64;
+        Ok(BoundedMetalExpertOutput {
+            values: execution.down,
+            sparse_repair_counts: execution.repairs,
+            installed_source_bytes,
+            sparse_decoded_weight_bytes,
+        })
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct StagedMetalExpertReport {
     pub schema_version: u32,

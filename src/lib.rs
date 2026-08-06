@@ -22,7 +22,8 @@ pub use staged_metal_expert::{
 #[cfg(target_os = "macos")]
 pub use text_endpoint::{
     FullPrefixTraceReport, Layer0TraceReport, Layer1ExpertTraceReport, Layer1RoutingTraceReport,
-    TextEndpointReport, run_full_prefix_trace, run_real_layer0_trace, run_real_layer1_expert_trace,
+    MetalIncrementalTextReport, TextEndpointReport, run_full_prefix_trace,
+    run_metal_incremental_text_endpoint, run_real_layer0_trace, run_real_layer1_expert_trace,
     run_real_layer1_routing_trace, run_real_layer2_trace, run_real_layer4_trace,
     run_real_layer7_trace, run_real_routed_layer_trace, run_slow_text_endpoint,
 };
@@ -809,13 +810,13 @@ pub fn inspect_mapped_tensor(path: &Path, name: &str) -> Result<MappedTensorInsp
     })
 }
 
-struct ValidatedMappedFp8<'a> {
-    weight: MappedTensorView<'a>,
-    scale: MappedTensorView<'a>,
-    rows: usize,
-    columns: usize,
-    scale_columns: usize,
-    scales: Vec<f32>,
+pub(crate) struct ValidatedMappedFp8<'a> {
+    pub(crate) weight: MappedTensorView<'a>,
+    pub(crate) scale: MappedTensorView<'a>,
+    pub(crate) rows: usize,
+    pub(crate) columns: usize,
+    pub(crate) scale_columns: usize,
+    pub(crate) scales: Vec<f32>,
 }
 
 fn validate_mapped_fp8<'a>(
@@ -829,7 +830,7 @@ fn validate_mapped_fp8<'a>(
     validate_fp8_views(weight, scale, input)
 }
 
-fn validate_fp8_views<'a>(
+pub(crate) fn validate_fp8_views<'a>(
     weight: MappedTensorView<'a>,
     scale: MappedTensorView<'a>,
     input: &[f32],
