@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/sgl-project/sglang.git",
+  "revision": "2fc557254b3aaf539e80266e52a6d1e1f8da9980",
+  "files": {
+    "LICENSE": "1495e1e757ef4d0925a2350563cf5754bb23c51701a8ec4fb3c5cdcbedae6747",
+    "python/sglang/srt/models/dflash.py": "121c584a38f6512037416e29d8aac6b532188630c848da9ca9d4b2186bd85885",
+    "python/sglang/srt/speculative/dflash_utils.py": "5dae8767a711c07bb3d1600abdea0fbda75872aea86396671f21b46f1da067bd",
+    "python/sglang/srt/speculative/dflash_worker_v2.py": "4f3b7e035f9983923c53e0dc490d94fb0d7e948335f503213081a3a43504e87e"
+  }
+}

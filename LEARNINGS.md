@@ -1514,3 +1514,19 @@ sound on this failure, while row-count-dependent correction topology is not.
 Do not widen the selector. A future repair must prove full-shape-equivalent
 boundary decisions without silently paying full-projection work; this numerical
 repair remains separate from PW-0100's 75.7-second physical bottleneck.
+
+PW-0102 Phase A verifies the complete pinned DFlash draft payload rather than
+trusting transfer metadata. The 2,936,121,080-byte file hashes to its locked LFS
+identity `29e60c5d876e1c2e5f11b03244d52e2fe4a2f05c2c6f4c2d5aa15dd971ebc0d5`;
+all five auxiliary artifacts and all 63 BF16 tensor names, shapes, and dtypes
+also pass. The artifact contains five nonzero per-layer attention-sink tensors,
+while its published Hugging Face class registers only the other 58 tensors and
+ignores nested value-scale and partial-RoPE configuration. This is not license
+to guess: pinned SGLang `2fc5572`, the deployment runtime named by Xiaomi's
+newer DFlash release, independently implements the same full-head Qwen3 RoPE,
+unscaled-value, no-sink draft path and silently ignores those five weights.
+Treat the extra weights/config as exported-but-unused for this checkpoint and
+preserve that limitation in every draft result. The immutable artifact audit
+hashes to `e67b0106aa2c26a091f1fef0661a4ccc408389f2bc5d1bab9ed42e46a6e898c6`;
+it retained at least 79% free memory, peaked at 222 MB RSS, returned below 151
+MB physical footprint, and caused no swap growth, throttling, or service loss.

@@ -155,8 +155,36 @@ interleaved endpoint measurement; it is not itself a throughput claim.
 
 ## Result
 
-Not executed.
+Phase A artifact verification is complete. The immutable manifest is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0102/artifact-001/manifest.json`
+and hashes to
+`e67b0106aa2c26a091f1fef0661a4ccc408389f2bc5d1bab9ed42e46a6e898c6`.
+The 2,936,121,080-byte draft hashes exactly to
+`29e60c5d876e1c2e5f11b03244d52e2fe4a2f05c2c6f4c2d5aa15dd971ebc0d5`;
+the config, source, mask embedding, and tensor index also match their lock.
+All 63 tensors are BF16 with the expected five-layer names and shapes.
+
+An official-framework compatibility probe with Transformers 4.57.6 and 5.14.1
+finds that the published class registers 58 tensors. It does not register the
+five nonzero `layers.*.self_attn.attention_sink_bias` tensors and does not
+consume the nested `attention_value_scale` or `partial_rotary_factor` fields.
+This initially created a semantic ambiguity. The DFlash implementation in
+pinned SGLang `2fc557254b3aaf539e80266e52a6d1e1f8da9980` resolves executable
+behavior independently: it uses full-head Qwen3 RoPE, unscaled values, no sink
+in the draft softmax, and silently ignores those five weights. This matches the
+published wrapper and is the runtime path named by Xiaomi's newer DFlash model
+card. The extra weights/config remain explicitly exported-but-unused; no
+inferred third implementation is authorized.
+
+The artifact audit completed in 46,710.842 ms with 13 safety boundaries. It
+retained at least 79% free memory, peaked at 222,068,736 bytes RSS and
+167,020,800 bytes physical footprint, released to 150,636,736 bytes, recorded
+zero swap growth and throttled pages, and retained every protected service.
+Fourteen focused artifact, draft-semantic, and host-safety tests pass. Phase B
+has not yet executed.
 
 ## Decision
 
-Await the pinned draft payload, artifact verification, and Phase A/B gates.
+Proceed to the frozen-hidden Phase B proposal using the pinned published/SGLang
+semantics. Phase C remains unauthorized until Phase B passes and releases its
+buffers below the normative post-release limit.

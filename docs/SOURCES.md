@@ -77,6 +77,26 @@ acceptance cannot be assumed for the base revision. The source verifier is
 target-preserving for greedy decoding; its positive-temperature sampling path
 lacks the correction needed for an L2 distribution-preservation claim.
 
+## SGLang DFlash runtime
+
+- Repository: `sgl-project/sglang`
+- Revision: `2fc557254b3aaf539e80266e52a6d1e1f8da9980`
+- Local source root:
+  `/Volumes/Elements/mimo-prismwing/research-sources/sglang-dflash`
+- Machine-readable source identity: `spec/sglang-dflash.lock.json`
+- Decision: executable semantic authority for the DFlash draft path named by
+  Xiaomi's later DFlash deployment instructions; not a Mac runtime dependency.
+
+The pinned SGLang model implementation independently agrees with the published
+Hugging Face wrapper on the first-block draft topology: full-head Qwen3 RoPE,
+unscaled values, no attention sink in the draft attention softmax, target
+embedding/LM head reuse, a masked width-eight block, and greedy logits from
+positions one through seven. Its loader silently ignores checkpoint weights it
+does not register. PW-0102 therefore records the five nonzero
+`attention_sink_bias` tensors and the nested `attention_value_scale` and
+`partial_rotary_factor` fields as exported-but-unused by both executable paths,
+not as authority to invent a third draft variant.
+
 ## Atomic llama.cpp TurboQuant fork
 
 - Repository: `AtomicBot-ai/atomic-llama-cpp-turboquant`
