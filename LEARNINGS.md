@@ -1055,3 +1055,16 @@ Together dense layer 0 and routed layer 1 exercise every model semantic
 category, so another isolated layer is lower value than a serial layer-final
 whole-model oracle/native trace. The 15.199-second Rust diagnostic changes no
 throughput constant.
+
+PW-0060 performs that serial trace and localizes the first accumulated failure
+to layer 2. Embedding and complete layers 0–1 are bit-exact; layer 2 retains
+exact expert sets but reaches `1.78e-6` maximum route-weight error and `0.0625`
+maximum final-state error at 99.452% BF16 equality. Later states and routes
+compound from there, so output-only whole-model repairs were addressing a
+downstream symptom. A separate oracle failure also exposed real cross-shard
+expert weight/scale placement at layer 43; tensor authority must resolve weight
+and scale independently rather than requiring co-location. Both 48-layer walks
+passed the shared-host contract with no swap growth or throttling. The next
+diagnostic is layer-2 substage localization from the bit-exact layer-1 final,
+not another full walk. These cold correctness walls change no throughput-model
+constant.
