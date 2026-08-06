@@ -1281,3 +1281,13 @@ holds route-weight serialization error to `2.21e-8`. It safely peaked at 747
 MB RSS, returned to 138 MB, retained at least 82% free memory, and caused no
 swap growth, throttling, or service loss. The accumulated frontier is ready
 for replay beyond layer 19; no throughput constant changes.
+
+PW-0083 advances the accumulated bit-exact frontier through layer 28, showing
+that the unified score-dot repair clears nine additional layers without
+intervention. Layer 29 is both the first actual and formal failure: only 20 of
+110,592 BF16 values differ, equality is 99.9819%, relative L2 is `6.25e-6`,
+and maximum error is `0.0625`. Route weights first fail their strict gate at
+layer 29, while expert sets remain exact through layer 46. The 800.724-second
+safe walk peaked at 4.171 GB RSS in the LM head, ended at 2.909 GB, retained
+at least 72% free memory, reduced swap use, and caused no throttling or
+protected-service loss. Localize layer 29 from exact layer 28.
