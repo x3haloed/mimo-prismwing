@@ -10,6 +10,11 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::time::Instant;
 
+#[cfg(target_os = "macos")]
+mod text_endpoint;
+#[cfg(target_os = "macos")]
+pub use text_endpoint::{TextEndpointReport, run_slow_text_endpoint};
+
 const MAX_HEADER_BYTES: u64 = 256 * 1024 * 1024;
 const EXPERT_MAGIC: &[u8; 8] = b"PWEXPRT1";
 const EXPERT_ALIGNMENT: u64 = 64;

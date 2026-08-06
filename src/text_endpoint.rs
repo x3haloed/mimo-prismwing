@@ -1,0 +1,1444 @@
+//! PW-0050 bounded, target-faithful slow text endpoint.
+
+use super::{
+    MappedSafetensors, MappedTensorView, UniqueJson, accelerate_sgemm_right_transposed,
+    decode_bf16_tensor, decode_fp8_matrix_f32, select_noaux_tc_routes, sha256_hex, sha256_reader,
+    stable_rms_inverse, validate_fp8_views, write_create_new,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs::{self, File};
+use std::os::unix::fs::MetadataExt;
+use std::path::{Component, Path};
+use std::process::Command;
+use std::time::Instant;
+use tokenizers::Tokenizer;
+
+const REVISION: &str = "63651580ca774f8504f676040460aed3e1244ac1";
+const MODEL_LOCK_SHA256: &str = "df8c74e6f9e1cef154aae5881b9042777653206aaff72855f7b1a1340e0d1050";
+const HIDDEN: usize = 4096;
+const HEADS: usize = 64;
+const QK_HEAD_DIM: usize = 192;
+const V_HEAD_DIM: usize = 128;
+const ROPE_DIM: usize = 64;
+const ROUTED_EXPERTS: usize = 256;
+const TOP_K: usize = 8;
+const MOE_INTERMEDIATE: usize = 2048;
+
+#[derive(Debug, Deserialize)]
+struct EndpointFixture {
+    schema_version: u32,
+    semantic: String,
+    revision: String,
+    config_sha256: String,
+    index_sha256: String,
+    tokenizer_sha256: String,
+    tokenizer_config_sha256: String,
+    checkpoint_verification_sha256: String,
+    prompt_utf8: String,
+    add_special_tokens: bool,
+    expected_prompt_token_ids: Vec<u32>,
+    decode: DecodeFixture,
+    safety: SafetyFixture,
+}
+
+#[derive(Debug, Deserialize)]
+struct DecodeFixture {
+    sampling: String,
+    new_tokens: usize,
+    batch_size: usize,
+    concurrency: usize,
+    use_kv_cache: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct SafetyFixture {
+    minimum_system_memory_free_percent: u64,
+    maximum_process_physical_footprint_bytes: u64,
+    maximum_post_phase_physical_footprint_bytes: u64,
+    maximum_swap_growth_bytes: u64,
+    maximum_new_throttled_pages: u64,
+    require_malloc_pressure_relief: bool,
+    protect_resident_services: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelConfig {
+    model_type: String,
+    hidden_size: usize,
+    num_hidden_layers: usize,
+    num_attention_heads: usize,
+    num_key_value_heads: usize,
+    head_dim: usize,
+    v_head_dim: usize,
+    swa_num_attention_heads: usize,
+    swa_num_key_value_heads: usize,
+    swa_head_dim: usize,
+    swa_v_head_dim: usize,
+    partial_rotary_factor: f64,
+    rope_theta: f64,
+    swa_rope_theta: f64,
+    sliding_window: usize,
+    attention_value_scale: f32,
+    add_full_attention_sink_bias: bool,
+    add_swa_attention_sink_bias: bool,
+    attention_projection_layout: String,
+    intermediate_size: usize,
+    moe_intermediate_size: usize,
+    n_routed_experts: usize,
+    num_experts_per_tok: usize,
+    n_group: usize,
+    topk_group: usize,
+    norm_topk_prob: bool,
+    routed_scaling_factor: Option<f32>,
+    scoring_func: String,
+    topk_method: String,
+    layernorm_epsilon: f32,
+    vocab_size: usize,
+    hybrid_layer_pattern: Vec<u8>,
+    moe_layer_freq: Vec<u8>,
+    tie_word_embeddings: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct CheckpointVerification {
+    schema_version: u32,
+    evidence_class: String,
+    complete: bool,
+    lock_sha256: String,
+    revision: String,
+    files: Vec<VerifiedFile>,
+}
+
+#[derive(Debug, Deserialize)]
+struct VerifiedFile {
+    path: String,
+    bytes: u64,
+    device: u64,
+    inode: u64,
+    modified_ns: i128,
+    sha256: String,
+    status: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct EndpointLedger {
+    pub logical_source_bytes: u64,
+    pub actual_process_disk_bytes_read: u64,
+    pub peak_resident_bytes: u64,
+    pub fp8_matrices_expanded: u64,
+    pub bf16_matrices_expanded: u64,
+    pub routed_expert_executions: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LayerRouteTrace {
+    pub layer: usize,
+    pub attention: &'static str,
+    pub cache_length: usize,
+    pub selected_experts_by_position: Vec<Vec<u32>>,
+    pub route_weights_by_position: Vec<Vec<f32>>,
+    #[serde(rename = "U")]
+    pub expert_union_factor: f64,
+    pub wall_ms: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DecodeStepReport {
+    pub input_token_id: u32,
+    pub output_token_id: u32,
+    pub output_token_text: String,
+    pub top_logits: Vec<(u32, f32)>,
+    pub layer_traces: Vec<LayerRouteTrace>,
+    pub wall_ms: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TextEndpointReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub fixture_sha256: String,
+    pub model_lock_sha256: &'static str,
+    pub checkpoint_verification_sha256: String,
+    pub config_sha256: String,
+    pub index_sha256: String,
+    pub tokenizer_sha256: String,
+    pub tokenizer_config_sha256: String,
+    pub prompt_utf8: String,
+    pub prompt_token_ids: Vec<u32>,
+    pub generated_token_ids: Vec<u32>,
+    pub generated_text: String,
+    pub steps: Vec<DecodeStepReport>,
+    pub ledger: EndpointLedger,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub complete_wall_ms: f64,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: usize,
+    pub cache_state: &'static str,
+    pub exactness: &'static str,
+    pub performance_claim: Option<String>,
+    pub implementation: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SafetySnapshot {
+    pub phase: String,
+    pub system_memory_free_percent: u64,
+    pub swap_used_bytes: u64,
+    pub swap_growth_bytes: u64,
+    pub throttled_pages: u64,
+    pub new_throttled_pages: u64,
+    pub process_physical_footprint_bytes: u64,
+    pub process_peak_resident_bytes: u64,
+    pub malloc_pressure_relief_bytes: u64,
+    pub protected_service_pids: BTreeMap<String, Vec<u32>>,
+}
+
+struct SafetyMonitor {
+    policy: SafetyFixture,
+    baseline_swap_bytes: u64,
+    baseline_throttled_pages: u64,
+    baseline_services: BTreeSet<String>,
+    snapshots: Vec<SafetySnapshot>,
+}
+
+struct RoutedMlpOutput {
+    output: Vec<f32>,
+    selected: Vec<Vec<u32>>,
+    weights: Vec<Vec<f32>>,
+}
+
+struct NativeDecodeStep {
+    output_token: u32,
+    top_logits: Vec<(u32, f32)>,
+    traces: Vec<LayerRouteTrace>,
+    wall_ms: f64,
+}
+
+struct Checkpoint {
+    weight_map: BTreeMap<String, String>,
+    shards: BTreeMap<String, MappedSafetensors>,
+}
+
+impl Checkpoint {
+    fn open(
+        root: &Path,
+        index_path: &Path,
+        verification: &CheckpointVerification,
+    ) -> Result<Self, String> {
+        let bytes =
+            fs::read(index_path).map_err(|error| format!("{}: {error}", index_path.display()))?;
+        let unique: UniqueJson =
+            serde_json::from_slice(&bytes).map_err(|error| format!("checkpoint index: {error}"))?;
+        let object = unique
+            .0
+            .as_object()
+            .ok_or("checkpoint index must be an object")?;
+        let map = object
+            .get("weight_map")
+            .and_then(Value::as_object)
+            .ok_or("checkpoint index lacks weight_map")?;
+        let mut weight_map = BTreeMap::new();
+        let mut shard_names = BTreeSet::new();
+        for (tensor, shard) in map {
+            let shard = shard
+                .as_str()
+                .ok_or_else(|| format!("{tensor}: shard is not a string"))?;
+            validate_relative_file(shard)?;
+            if weight_map
+                .insert(tensor.clone(), shard.to_owned())
+                .is_some()
+            {
+                return Err(format!("duplicate checkpoint tensor: {tensor}"));
+            }
+            shard_names.insert(shard.to_owned());
+        }
+        if weight_map.len() != 73_081 || shard_names.len() != 17 {
+            return Err("checkpoint index tensor or shard count mismatch".to_owned());
+        }
+        let verified = verification
+            .files
+            .iter()
+            .map(|record| (record.path.as_str(), record))
+            .collect::<BTreeMap<_, _>>();
+        let mut shards = BTreeMap::new();
+        for shard in shard_names {
+            let record = verified
+                .get(shard.as_str())
+                .ok_or_else(|| format!("indexed shard absent from verification: {shard}"))?;
+            verify_live_identity(root, record)?;
+            let mapped = MappedSafetensors::open(&root.join(&shard))?;
+            shards.insert(shard, mapped);
+        }
+        for (tensor, shard) in &weight_map {
+            if !shards
+                .get(shard)
+                .ok_or_else(|| format!("mapped shard absent: {shard}"))?
+                .tensors
+                .contains_key(tensor)
+            {
+                return Err(format!("{tensor}: index tensor absent from {shard}"));
+            }
+        }
+        for (shard, mapped) in &shards {
+            for tensor in mapped.tensors.keys() {
+                if weight_map.get(tensor) != Some(shard) {
+                    return Err(format!(
+                        "{tensor}: tensor exists outside its indexed shard {shard}"
+                    ));
+                }
+            }
+        }
+        Ok(Self { weight_map, shards })
+    }
+
+    fn tensor(&self, name: &str) -> Result<MappedTensorView<'_>, String> {
+        let shard = self
+            .weight_map
+            .get(name)
+            .ok_or_else(|| format!("tensor absent from checkpoint index: {name}"))?;
+        self.shards
+            .get(shard)
+            .ok_or_else(|| format!("mapped shard absent: {shard}"))?
+            .tensor(name)
+    }
+}
+
+#[derive(Default)]
+struct LayerKvCache {
+    keys: Vec<f32>,
+    values: Vec<f32>,
+    positions: usize,
+    kv_heads: usize,
+}
+
+impl LayerKvCache {
+    fn validate(&self) -> Result<(), String> {
+        if self.positions == 0 {
+            if !self.keys.is_empty() || !self.values.is_empty() {
+                return Err("empty K/V cache contains data".to_owned());
+            }
+            return Ok(());
+        }
+        if self.kv_heads == 0
+            || self.keys.len() != self.positions * self.kv_heads * QK_HEAD_DIM
+            || self.values.len() != self.positions * self.kv_heads * V_HEAD_DIM
+            || self
+                .keys
+                .iter()
+                .chain(&self.values)
+                .any(|value| !value.is_finite())
+        {
+            return Err("retained K/V cache identity mismatch".to_owned());
+        }
+        Ok(())
+    }
+}
+
+fn validate_relative_file(name: &str) -> Result<(), String> {
+    let path = Path::new(name);
+    if path.components().count() != 1
+        || !matches!(path.components().next(), Some(Component::Normal(_)))
+    {
+        return Err(format!("unsafe checkpoint shard path: {name}"));
+    }
+    Ok(())
+}
+
+fn verify_live_identity(root: &Path, record: &VerifiedFile) -> Result<(), String> {
+    if record.status != "verified" {
+        return Err(format!(
+            "{} did not pass checkpoint verification",
+            record.path
+        ));
+    }
+    validate_relative_file(&record.path)?;
+    let metadata = root
+        .join(&record.path)
+        .metadata()
+        .map_err(|error| format!("{}: {error}", record.path))?;
+    let modified_ns =
+        i128::from(metadata.mtime()) * 1_000_000_000_i128 + i128::from(metadata.mtime_nsec());
+    if metadata.len() != record.bytes
+        || metadata.dev() != record.device
+        || metadata.ino() != record.inode
+        || modified_ns != record.modified_ns
+        || record.sha256.len() != 64
+    {
+        return Err(format!(
+            "{} identity changed after checkpoint verification",
+            record.path
+        ));
+    }
+    Ok(())
+}
+
+fn hash_file(path: &Path) -> Result<String, String> {
+    let mut file = File::open(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    sha256_reader(&mut file)
+}
+
+#[repr(C)]
+#[derive(Default)]
+struct RusageInfoV2 {
+    uuid: [u8; 16],
+    user_time: u64,
+    system_time: u64,
+    pkg_idle_wkups: u64,
+    interrupt_wkups: u64,
+    pageins: u64,
+    wired_size: u64,
+    resident_size: u64,
+    phys_footprint: u64,
+    proc_start_abstime: u64,
+    proc_exit_abstime: u64,
+    child_user_time: u64,
+    child_system_time: u64,
+    child_pkg_idle_wkups: u64,
+    child_interrupt_wkups: u64,
+    child_pageins: u64,
+    child_elapsed_abstime: u64,
+    diskio_bytesread: u64,
+    diskio_byteswritten: u64,
+}
+
+#[link(name = "proc")]
+unsafe extern "C" {
+    fn proc_pid_rusage(
+        pid: libc::c_int,
+        flavor: libc::c_int,
+        buffer: *mut libc::c_void,
+    ) -> libc::c_int;
+}
+
+fn process_usage() -> Result<RusageInfoV2, String> {
+    let mut usage = RusageInfoV2::default();
+    // SAFETY: `usage` has Darwin's rusage_info_v2 layout and is exclusively borrowed.
+    let result = unsafe {
+        proc_pid_rusage(
+            std::process::id() as libc::c_int,
+            2,
+            (&mut usage as *mut RusageInfoV2).cast(),
+        )
+    };
+    if result != 0 {
+        return Err(format!("proc_pid_rusage failed with {result}"));
+    }
+    Ok(usage)
+}
+
+fn process_disk_bytes_read() -> Result<u64, String> {
+    Ok(process_usage()?.diskio_bytesread)
+}
+
+fn peak_resident_bytes() -> Result<u64, String> {
+    // SAFETY: Darwin initializes the complete rusage structure for RUSAGE_SELF.
+    let mut usage = unsafe { std::mem::zeroed::<libc::rusage>() };
+    // SAFETY: `usage` is a valid exclusive output pointer.
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) } != 0 {
+        return Err("getrusage(RUSAGE_SELF) failed".to_owned());
+    }
+    u64::try_from(usage.ru_maxrss).map_err(|_| "negative peak resident set".to_owned())
+}
+
+unsafe extern "C" {
+    fn malloc_zone_pressure_relief(zone: *mut libc::c_void, goal: usize) -> usize;
+}
+
+fn pressure_relief() -> u64 {
+    // SAFETY: a null zone asks Darwin to visit every malloc zone; no Rust allocation is
+    // accessed while the call runs and a zero goal requests all presently releasable bytes.
+    unsafe { malloc_zone_pressure_relief(std::ptr::null_mut(), 0) as u64 }
+}
+
+fn command_output(program: &str, arguments: &[&str]) -> Result<String, String> {
+    let output = Command::new(program)
+        .args(arguments)
+        .output()
+        .map_err(|error| format!("{program}: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("{program} exited {}", output.status));
+    }
+    String::from_utf8(output.stdout).map_err(|error| format!("{program}: {error}"))
+}
+
+fn system_memory_free_percent() -> Result<u64, String> {
+    let output = command_output("/usr/bin/memory_pressure", &["-Q"])?;
+    let marker = "System-wide memory free percentage:";
+    output
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(marker))
+        .and_then(|value| value.trim().strip_suffix('%'))
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or("memory_pressure output lacks free percentage".to_owned())
+}
+
+fn swap_used_bytes() -> Result<u64, String> {
+    let output = command_output("/usr/sbin/sysctl", &["-n", "vm.swapusage"])?;
+    let used = output
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .windows(3)
+        .find_map(|fields| (fields[0] == "used" && fields[1] == "=").then_some(fields[2]))
+        .ok_or("vm.swapusage output lacks used value")?;
+    let (number, multiplier) = if let Some(value) = used.strip_suffix('M') {
+        (value, 1024.0_f64 * 1024.0)
+    } else if let Some(value) = used.strip_suffix('G') {
+        (value, 1024.0_f64 * 1024.0 * 1024.0)
+    } else {
+        return Err("vm.swapusage used value has unknown unit".to_owned());
+    };
+    let bytes = number
+        .parse::<f64>()
+        .map_err(|error| format!("vm.swapusage used value: {error}"))?
+        * multiplier;
+    if !bytes.is_finite() || bytes < 0.0 || bytes > u64::MAX as f64 {
+        return Err("vm.swapusage used value is invalid".to_owned());
+    }
+    Ok(bytes.round() as u64)
+}
+
+fn throttled_pages() -> Result<u64, String> {
+    let output = command_output("/usr/bin/vm_stat", &[])?;
+    output
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Pages throttled:"))
+        .and_then(|value| value.trim().strip_suffix('.'))
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .ok_or("vm_stat output lacks throttled pages".to_owned())
+}
+
+fn protected_service_pids(names: &[String]) -> Result<BTreeMap<String, Vec<u32>>, String> {
+    let output = command_output("/bin/ps", &["-axo", "pid=,comm="])?;
+    let mut result = names
+        .iter()
+        .cloned()
+        .map(|name| (name, Vec::new()))
+        .collect::<BTreeMap<_, _>>();
+    for line in output.lines() {
+        let mut fields = line.trim().splitn(2, char::is_whitespace);
+        let Some(pid) = fields.next().and_then(|value| value.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Some(command) = fields.next().map(str::trim) else {
+            continue;
+        };
+        let basename = Path::new(command)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(command);
+        for (name, pids) in &mut result {
+            if basename == name {
+                pids.push(pid);
+            }
+        }
+    }
+    Ok(result)
+}
+
+impl SafetyMonitor {
+    fn start(policy: SafetyFixture) -> Result<Self, String> {
+        let baseline_swap_bytes = swap_used_bytes()?;
+        let baseline_throttled_pages = throttled_pages()?;
+        let services = protected_service_pids(&policy.protect_resident_services)?;
+        let baseline_services = services
+            .iter()
+            .filter_map(|(name, pids)| (!pids.is_empty()).then_some(name.clone()))
+            .collect();
+        let mut monitor = Self {
+            policy,
+            baseline_swap_bytes,
+            baseline_throttled_pages,
+            baseline_services,
+            snapshots: Vec::new(),
+        };
+        monitor.checkpoint("process_start", false)?;
+        Ok(monitor)
+    }
+
+    fn checkpoint(&mut self, phase: &str, relieve: bool) -> Result<(), String> {
+        let relief = if relieve { pressure_relief() } else { 0 };
+        let memory_free = system_memory_free_percent()?;
+        let swap = swap_used_bytes()?;
+        let throttled = throttled_pages()?;
+        let usage = process_usage()?;
+        let peak = peak_resident_bytes()?;
+        let services = protected_service_pids(&self.policy.protect_resident_services)?;
+        let swap_growth = swap.saturating_sub(self.baseline_swap_bytes);
+        let new_throttled = throttled.saturating_sub(self.baseline_throttled_pages);
+        let snapshot = SafetySnapshot {
+            phase: phase.to_owned(),
+            system_memory_free_percent: memory_free,
+            swap_used_bytes: swap,
+            swap_growth_bytes: swap_growth,
+            throttled_pages: throttled,
+            new_throttled_pages: new_throttled,
+            process_physical_footprint_bytes: usage.phys_footprint,
+            process_peak_resident_bytes: peak,
+            malloc_pressure_relief_bytes: relief,
+            protected_service_pids: services.clone(),
+        };
+        self.snapshots.push(snapshot);
+        if memory_free < self.policy.minimum_system_memory_free_percent {
+            return Err(format!(
+                "safety stop at {phase}: system memory free is {memory_free}%"
+            ));
+        }
+        if usage.phys_footprint > self.policy.maximum_process_physical_footprint_bytes
+            || peak > self.policy.maximum_process_physical_footprint_bytes
+        {
+            return Err(format!(
+                "safety stop at {phase}: process footprint limit exceeded"
+            ));
+        }
+        if relieve && usage.phys_footprint > self.policy.maximum_post_phase_physical_footprint_bytes
+        {
+            return Err(format!(
+                "safety stop at {phase}: post-phase footprint limit exceeded"
+            ));
+        }
+        if swap_growth > self.policy.maximum_swap_growth_bytes {
+            return Err(format!(
+                "safety stop at {phase}: swap growth limit exceeded"
+            ));
+        }
+        if new_throttled > self.policy.maximum_new_throttled_pages {
+            return Err(format!("safety stop at {phase}: VM throttling observed"));
+        }
+        for name in &self.baseline_services {
+            if services.get(name).is_none_or(Vec::is_empty) {
+                return Err(format!(
+                    "safety stop at {phase}: resident service {name} disappeared"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn validate_fixture(fixture: &EndpointFixture) -> Result<(), String> {
+    if fixture.schema_version != 1
+        || fixture.semantic != "mimo_v2_5_target_faithful_raw_text_incremental_decode"
+        || fixture.revision != REVISION
+        || fixture.prompt_utf8 != "Hello"
+        || fixture.add_special_tokens
+        || fixture.expected_prompt_token_ids != [9707]
+        || fixture.decode.sampling != "greedy"
+        || fixture.decode.new_tokens != 2
+        || fixture.decode.batch_size != 1
+        || fixture.decode.concurrency != 1
+        || !fixture.decode.use_kv_cache
+        || fixture.safety.minimum_system_memory_free_percent != 20
+        || fixture.safety.maximum_process_physical_footprint_bytes != 8 * 1024 * 1024 * 1024
+        || fixture.safety.maximum_post_phase_physical_footprint_bytes != 4 * 1024 * 1024 * 1024
+        || fixture.safety.maximum_swap_growth_bytes != 512 * 1024 * 1024
+        || fixture.safety.maximum_new_throttled_pages != 0
+        || !fixture.safety.require_malloc_pressure_relief
+        || fixture.safety.protect_resident_services
+            != ["ChatGPT", "WindowServer", "nxnode", "syncthing"]
+    {
+        return Err("unknown PW-0050 endpoint fixture identity".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_config(config: &ModelConfig) -> Result<(), String> {
+    let full_layers = config
+        .hybrid_layer_pattern
+        .iter()
+        .enumerate()
+        .filter_map(|(layer, &kind)| (kind == 0).then_some(layer))
+        .collect::<Vec<_>>();
+    if config.model_type != "mimo_v2"
+        || config.hidden_size != HIDDEN
+        || config.num_hidden_layers != 48
+        || config.num_attention_heads != HEADS
+        || config.num_key_value_heads != 4
+        || config.head_dim != QK_HEAD_DIM
+        || config.v_head_dim != V_HEAD_DIM
+        || config.swa_num_attention_heads != HEADS
+        || config.swa_num_key_value_heads != 8
+        || config.swa_head_dim != QK_HEAD_DIM
+        || config.swa_v_head_dim != V_HEAD_DIM
+        || (config.partial_rotary_factor * QK_HEAD_DIM as f64) as usize != ROPE_DIM
+        || config.rope_theta != 10_000_000.0
+        || config.swa_rope_theta != 10_000.0
+        || config.sliding_window != 128
+        || config.attention_value_scale != 0.707
+        || config.add_full_attention_sink_bias
+        || !config.add_swa_attention_sink_bias
+        || config.attention_projection_layout != "fused_qkv"
+        || config.intermediate_size != 16_384
+        || config.moe_intermediate_size != MOE_INTERMEDIATE
+        || config.n_routed_experts != ROUTED_EXPERTS
+        || config.num_experts_per_tok != TOP_K
+        || config.n_group != 1
+        || config.topk_group != 1
+        || !config.norm_topk_prob
+        || config.routed_scaling_factor.is_some()
+        || config.scoring_func != "sigmoid"
+        || config.topk_method != "noaux_tc"
+        || config.layernorm_epsilon != 1.0e-5
+        || config.vocab_size != 152_576
+        || config.hybrid_layer_pattern.len() != 48
+        || config.moe_layer_freq.len() != 48
+        || config.moe_layer_freq[0] != 0
+        || config.moe_layer_freq[1..].iter().any(|&value| value != 1)
+        || config.tie_word_embeddings
+        || full_layers != [0, 5, 11, 17, 23, 29, 35, 41, 47]
+    {
+        return Err("pinned MiMo text config identity mismatch".to_owned());
+    }
+    Ok(())
+}
+
+fn decode_f32(view: MappedTensorView<'_>, shape: &[u64]) -> Result<Vec<f32>, String> {
+    if view.metadata.dtype != "F32" || view.metadata.shape != shape {
+        return Err(format!("{} F32 tensor layout mismatch", view.metadata.name));
+    }
+    let values = view
+        .bytes
+        .chunks_exact(4)
+        .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four-byte F32")))
+        .collect::<Vec<_>>();
+    if values.iter().any(|value| !value.is_finite()) {
+        return Err(format!("{} contains non-finite F32", view.metadata.name));
+    }
+    Ok(values)
+}
+
+fn bf16_vector(
+    checkpoint: &Checkpoint,
+    name: &str,
+    count: usize,
+    ledger: &mut EndpointLedger,
+) -> Result<Vec<f32>, String> {
+    let view = checkpoint.tensor(name)?;
+    ledger.logical_source_bytes = ledger
+        .logical_source_bytes
+        .checked_add(view.metadata.data_bytes)
+        .ok_or("logical byte ledger overflow")?;
+    decode_bf16_tensor(view, count)
+}
+
+fn f32_vector(
+    checkpoint: &Checkpoint,
+    name: &str,
+    shape: &[u64],
+    ledger: &mut EndpointLedger,
+) -> Result<Vec<f32>, String> {
+    let view = checkpoint.tensor(name)?;
+    ledger.logical_source_bytes = ledger
+        .logical_source_bytes
+        .checked_add(view.metadata.data_bytes)
+        .ok_or("logical byte ledger overflow")?;
+    decode_f32(view, shape)
+}
+
+fn rms_norm(
+    values: &[f32],
+    rows: usize,
+    weights: &[f32],
+    epsilon: f32,
+) -> Result<Vec<f32>, String> {
+    if values.len() != rows * HIDDEN || weights.len() != HIDDEN {
+        return Err("RMSNorm shape mismatch".to_owned());
+    }
+    let mut output = vec![0.0_f32; values.len()];
+    for row in 0..rows {
+        let source = &values[row * HIDDEN..(row + 1) * HIDDEN];
+        let inverse = stable_rms_inverse(source, epsilon)?;
+        for column in 0..HIDDEN {
+            output[row * HIDDEN + column] = source[column] * inverse * weights[column];
+        }
+    }
+    Ok(output)
+}
+
+fn fp8_linear(
+    checkpoint: &Checkpoint,
+    weight_name: &str,
+    input: &[f32],
+    rows: usize,
+    columns: usize,
+    output_columns: usize,
+    ledger: &mut EndpointLedger,
+) -> Result<Vec<f32>, String> {
+    if input.len() != rows * columns || rows == 0 {
+        return Err(format!("{weight_name}: FP8 linear input shape mismatch"));
+    }
+    let weight = checkpoint.tensor(weight_name)?;
+    let scale_name = format!("{weight_name}_scale_inv");
+    let scale = checkpoint.tensor(&scale_name)?;
+    let validated = validate_fp8_views(weight, scale, &input[..columns])?;
+    if validated.rows != output_columns || validated.columns != columns {
+        return Err(format!("{weight_name}: FP8 linear weight shape mismatch"));
+    }
+    ledger.logical_source_bytes = ledger
+        .logical_source_bytes
+        .checked_add(validated.weight.metadata.data_bytes + validated.scale.metadata.data_bytes)
+        .ok_or("logical byte ledger overflow")?;
+    ledger.fp8_matrices_expanded += 1;
+    let decoded = decode_fp8_matrix_f32(&validated);
+    accelerate_sgemm_right_transposed(input, &decoded, rows, output_columns, columns)
+}
+
+fn bf16_linear(
+    checkpoint: &Checkpoint,
+    weight_name: &str,
+    input: &[f32],
+    rows: usize,
+    columns: usize,
+    output_columns: usize,
+    ledger: &mut EndpointLedger,
+) -> Result<Vec<f32>, String> {
+    if input.len() != rows * columns || rows == 0 {
+        return Err(format!("{weight_name}: BF16 linear input shape mismatch"));
+    }
+    let view = checkpoint.tensor(weight_name)?;
+    if view.metadata.dtype != "BF16"
+        || view.metadata.shape != [output_columns as u64, columns as u64]
+    {
+        return Err(format!("{weight_name}: BF16 linear weight shape mismatch"));
+    }
+    ledger.logical_source_bytes = ledger
+        .logical_source_bytes
+        .checked_add(view.metadata.data_bytes)
+        .ok_or("logical byte ledger overflow")?;
+    ledger.bf16_matrices_expanded += 1;
+    let decoded = decode_bf16_tensor(view, output_columns * columns)?;
+    accelerate_sgemm_right_transposed(input, &decoded, rows, output_columns, columns)
+}
+
+fn f32_linear(
+    checkpoint: &Checkpoint,
+    weight_name: &str,
+    input: &[f32],
+    rows: usize,
+    columns: usize,
+    output_columns: usize,
+    ledger: &mut EndpointLedger,
+) -> Result<Vec<f32>, String> {
+    if input.len() != rows * columns || rows == 0 {
+        return Err(format!("{weight_name}: F32 linear input shape mismatch"));
+    }
+    let view = checkpoint.tensor(weight_name)?;
+    let decoded = decode_f32(view, &[output_columns as u64, columns as u64])?;
+    ledger.logical_source_bytes = ledger
+        .logical_source_bytes
+        .checked_add((decoded.len() * 4) as u64)
+        .ok_or("logical byte ledger overflow")?;
+    accelerate_sgemm_right_transposed(input, &decoded, rows, output_columns, columns)
+}
+
+fn apply_rope(values: &mut [f32], heads: usize, position: usize, theta: f64) {
+    for head in 0..heads {
+        let offset = head * QK_HEAD_DIM;
+        for pair in 0..ROPE_DIM / 2 {
+            let angle = position as f64 / theta.powf(2.0 * pair as f64 / ROPE_DIM as f64);
+            let cosine = angle.cos() as f32;
+            let sine = angle.sin() as f32;
+            let first = values[offset + pair];
+            let second = values[offset + pair + ROPE_DIM / 2];
+            values[offset + pair] = first * cosine - second * sine;
+            values[offset + pair + ROPE_DIM / 2] = second * cosine + first * sine;
+        }
+    }
+}
+
+fn attention(
+    checkpoint: &Checkpoint,
+    config: &ModelConfig,
+    layer: usize,
+    normalized: &[f32],
+    rows: usize,
+    cache: &mut LayerKvCache,
+    ledger: &mut EndpointLedger,
+) -> Result<Vec<f32>, String> {
+    cache.validate()?;
+    let is_swa = config.hybrid_layer_pattern[layer] == 1;
+    let kv_heads = if is_swa { 8 } else { 4 };
+    if cache.positions != 0 && cache.kv_heads != kv_heads {
+        return Err(format!("layer {layer}: K/V head authority changed"));
+    }
+    let q_size = HEADS * QK_HEAD_DIM;
+    let k_size = kv_heads * QK_HEAD_DIM;
+    let v_size = kv_heads * V_HEAD_DIM;
+    let qkv_rows = q_size + k_size + v_size;
+    let prefix = format!("model.layers.{layer}.self_attn");
+    let qkv = fp8_linear(
+        checkpoint,
+        &format!("{prefix}.qkv_proj.weight"),
+        normalized,
+        rows,
+        HIDDEN,
+        qkv_rows,
+        ledger,
+    )?;
+    let prior = cache.positions;
+    let theta = if is_swa {
+        config.swa_rope_theta
+    } else {
+        config.rope_theta
+    };
+    let mut queries = vec![0.0_f32; rows * q_size];
+    for row in 0..rows {
+        let source = &qkv[row * qkv_rows..(row + 1) * qkv_rows];
+        let query = &mut queries[row * q_size..(row + 1) * q_size];
+        query.copy_from_slice(&source[..q_size]);
+        apply_rope(query, HEADS, prior + row, theta);
+        let mut key = source[q_size..q_size + k_size].to_vec();
+        apply_rope(&mut key, kv_heads, prior + row, theta);
+        cache.keys.extend(key);
+        cache.values.extend(
+            source[q_size + k_size..]
+                .iter()
+                .map(|value| value * config.attention_value_scale),
+        );
+    }
+    cache.positions += rows;
+    cache.kv_heads = kv_heads;
+    cache.validate()?;
+    let sinks = if is_swa {
+        Some(bf16_vector(
+            checkpoint,
+            &format!("{prefix}.attention_sink_bias"),
+            HEADS,
+            ledger,
+        )?)
+    } else {
+        None
+    };
+    let mut result = vec![0.0_f32; rows * HEADS * V_HEAD_DIM];
+    let scale = 1.0_f32 / (QK_HEAD_DIM as f32).sqrt();
+    let kv_groups = HEADS / kv_heads;
+    for row in 0..rows {
+        let end = prior + row + 1;
+        let start = if is_swa {
+            end.saturating_sub(config.sliding_window)
+        } else {
+            0
+        };
+        for head in 0..HEADS {
+            let kv_head = head / kv_groups;
+            let query = &queries
+                [row * q_size + head * QK_HEAD_DIM..row * q_size + (head + 1) * QK_HEAD_DIM];
+            let mut scores = Vec::with_capacity(end - start + usize::from(is_swa));
+            for position in start..end {
+                let key_offset = (position * kv_heads + kv_head) * QK_HEAD_DIM;
+                let key = &cache.keys[key_offset..key_offset + QK_HEAD_DIM];
+                scores.push(
+                    query
+                        .iter()
+                        .zip(key)
+                        .map(|(left, right)| left * right)
+                        .sum::<f32>()
+                        * scale,
+                );
+            }
+            if let Some(sinks) = &sinks {
+                scores.push(sinks[head]);
+            }
+            let maximum = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let mut probabilities = scores
+                .iter()
+                .map(|score| (score - maximum).exp())
+                .collect::<Vec<_>>();
+            let denominator = probabilities.iter().sum::<f32>();
+            for probability in &mut probabilities {
+                *probability /= denominator;
+            }
+            let destination = &mut result[row * HEADS * V_HEAD_DIM + head * V_HEAD_DIM
+                ..row * HEADS * V_HEAD_DIM + (head + 1) * V_HEAD_DIM];
+            for (slot, position) in (start..end).enumerate() {
+                let value_offset = (position * kv_heads + kv_head) * V_HEAD_DIM;
+                for (column, destination) in destination.iter_mut().enumerate() {
+                    *destination += probabilities[slot] * cache.values[value_offset + column];
+                }
+            }
+        }
+    }
+    bf16_linear(
+        checkpoint,
+        &format!("{prefix}.o_proj.weight"),
+        &result,
+        rows,
+        HEADS * V_HEAD_DIM,
+        HIDDEN,
+        ledger,
+    )
+}
+
+fn dense_mlp(
+    checkpoint: &Checkpoint,
+    input: &[f32],
+    rows: usize,
+    ledger: &mut EndpointLedger,
+) -> Result<Vec<f32>, String> {
+    let prefix = "model.layers.0.mlp";
+    let gate = fp8_linear(
+        checkpoint,
+        &format!("{prefix}.gate_proj.weight"),
+        input,
+        rows,
+        HIDDEN,
+        16_384,
+        ledger,
+    )?;
+    let up = fp8_linear(
+        checkpoint,
+        &format!("{prefix}.up_proj.weight"),
+        input,
+        rows,
+        HIDDEN,
+        16_384,
+        ledger,
+    )?;
+    let activated = gate
+        .iter()
+        .zip(up)
+        .map(|(&gate, up)| gate / (1.0 + (-gate).exp()) * up)
+        .collect::<Vec<_>>();
+    fp8_linear(
+        checkpoint,
+        &format!("{prefix}.down_proj.weight"),
+        &activated,
+        rows,
+        16_384,
+        HIDDEN,
+        ledger,
+    )
+}
+
+fn routed_mlp(
+    checkpoint: &Checkpoint,
+    layer: usize,
+    input: &[f32],
+    rows: usize,
+    ledger: &mut EndpointLedger,
+) -> Result<RoutedMlpOutput, String> {
+    let prefix = format!("model.layers.{layer}.mlp");
+    let logits = f32_linear(
+        checkpoint,
+        &format!("{prefix}.gate.weight"),
+        input,
+        rows,
+        HIDDEN,
+        ROUTED_EXPERTS,
+        ledger,
+    )?;
+    let correction = f32_vector(
+        checkpoint,
+        &format!("{prefix}.gate.e_score_correction_bias"),
+        &[ROUTED_EXPERTS as u64],
+        ledger,
+    )?;
+    let routes = select_noaux_tc_routes(&logits, &correction, rows, ROUTED_EXPERTS, TOP_K)?;
+    let mut schedule: BTreeMap<u32, Vec<(usize, f32)>> = BTreeMap::new();
+    for position in 0..rows {
+        for slot in 0..TOP_K {
+            schedule
+                .entry(routes.selected[position][slot])
+                .or_default()
+                .push((position, routes.weights[position][slot]));
+        }
+    }
+    let mut output = vec![0.0_f32; rows * HIDDEN];
+    for (expert, placements) in schedule {
+        let mut gathered = vec![0.0_f32; placements.len() * HIDDEN];
+        for (local, &(position, _)) in placements.iter().enumerate() {
+            gathered[local * HIDDEN..(local + 1) * HIDDEN]
+                .copy_from_slice(&input[position * HIDDEN..(position + 1) * HIDDEN]);
+        }
+        let expert_prefix = format!("{prefix}.experts.{expert}");
+        let gate = fp8_linear(
+            checkpoint,
+            &format!("{expert_prefix}.gate_proj.weight"),
+            &gathered,
+            placements.len(),
+            HIDDEN,
+            MOE_INTERMEDIATE,
+            ledger,
+        )?;
+        let up = fp8_linear(
+            checkpoint,
+            &format!("{expert_prefix}.up_proj.weight"),
+            &gathered,
+            placements.len(),
+            HIDDEN,
+            MOE_INTERMEDIATE,
+            ledger,
+        )?;
+        let activated = gate
+            .iter()
+            .zip(up)
+            .map(|(&gate, up)| gate / (1.0 + (-gate).exp()) * up)
+            .collect::<Vec<_>>();
+        let projected = fp8_linear(
+            checkpoint,
+            &format!("{expert_prefix}.down_proj.weight"),
+            &activated,
+            placements.len(),
+            MOE_INTERMEDIATE,
+            HIDDEN,
+            ledger,
+        )?;
+        for (local, &(position, weight)) in placements.iter().enumerate() {
+            for column in 0..HIDDEN {
+                output[position * HIDDEN + column] += projected[local * HIDDEN + column] * weight;
+            }
+        }
+        ledger.routed_expert_executions += 1;
+    }
+    Ok(RoutedMlpOutput {
+        output,
+        selected: routes.selected,
+        weights: routes.weights,
+    })
+}
+
+fn embedding(
+    checkpoint: &Checkpoint,
+    token_ids: &[u32],
+    ledger: &mut EndpointLedger,
+) -> Result<Vec<f32>, String> {
+    let view = checkpoint.tensor("model.embed_tokens.weight")?;
+    if view.metadata.dtype != "BF16"
+        || view.metadata.shape != [152_576, HIDDEN as u64]
+        || token_ids.iter().any(|&token| token as usize >= 152_576)
+    {
+        return Err("embedding tensor or token identity mismatch".to_owned());
+    }
+    let mut output = Vec::with_capacity(token_ids.len() * HIDDEN);
+    for &token in token_ids {
+        let start = token as usize * HIDDEN * 2;
+        ledger.logical_source_bytes = ledger
+            .logical_source_bytes
+            .checked_add((HIDDEN * 2) as u64)
+            .ok_or("logical byte ledger overflow")?;
+        output.extend(
+            view.bytes[start..start + HIDDEN * 2]
+                .chunks_exact(2)
+                .map(|bytes| {
+                    f32::from_bits(
+                        u32::from(u16::from_le_bytes(bytes.try_into().expect("two-byte BF16")))
+                            << 16,
+                    )
+                }),
+        );
+    }
+    if output.iter().any(|value| !value.is_finite()) {
+        return Err("embedding contains non-finite values".to_owned());
+    }
+    Ok(output)
+}
+
+fn top_logits(logits: &[f32], count: usize) -> Result<Vec<(u32, f32)>, String> {
+    if logits.len() != 152_576 || logits.iter().any(|value| !value.is_finite()) {
+        return Err("LM-head logits are invalid".to_owned());
+    }
+    let mut indices = (0..logits.len()).collect::<Vec<_>>();
+    indices.sort_by(|left, right| {
+        logits[*right]
+            .total_cmp(&logits[*left])
+            .then(left.cmp(right))
+    });
+    Ok(indices
+        .into_iter()
+        .take(count)
+        .map(|index| (index as u32, logits[index]))
+        .collect())
+}
+
+fn decode_step(
+    checkpoint: &Checkpoint,
+    config: &ModelConfig,
+    token_id: u32,
+    caches: &mut [LayerKvCache],
+    ledger: &mut EndpointLedger,
+    safety: &mut SafetyMonitor,
+) -> Result<NativeDecodeStep, String> {
+    let started = Instant::now();
+    let mut hidden = embedding(checkpoint, &[token_id], ledger)?;
+    let mut traces = Vec::with_capacity(48);
+    if caches.len() != 48 {
+        return Err("text endpoint requires exactly 48 K/V caches".to_owned());
+    }
+    for (layer, cache) in caches.iter_mut().enumerate() {
+        let layer_started = Instant::now();
+        let input_norm = bf16_vector(
+            checkpoint,
+            &format!("model.layers.{layer}.input_layernorm.weight"),
+            HIDDEN,
+            ledger,
+        )?;
+        let normalized = rms_norm(&hidden, 1, &input_norm, config.layernorm_epsilon)?;
+        let attention_output = attention(checkpoint, config, layer, &normalized, 1, cache, ledger)?;
+        let post_attention = hidden
+            .iter()
+            .zip(attention_output)
+            .map(|(&residual, projected)| residual + projected)
+            .collect::<Vec<_>>();
+        let post_norm = bf16_vector(
+            checkpoint,
+            &format!("model.layers.{layer}.post_attention_layernorm.weight"),
+            HIDDEN,
+            ledger,
+        )?;
+        let moe_input = rms_norm(&post_attention, 1, &post_norm, config.layernorm_epsilon)?;
+        let (mlp, selected, weights) = if layer == 0 {
+            (
+                dense_mlp(checkpoint, &moe_input, 1, ledger)?,
+                Vec::new(),
+                Vec::new(),
+            )
+        } else {
+            let routed = routed_mlp(checkpoint, layer, &moe_input, 1, ledger)?;
+            (routed.output, routed.selected, routed.weights)
+        };
+        hidden = post_attention
+            .iter()
+            .zip(mlp)
+            .map(|(&residual, projected)| residual + projected)
+            .collect();
+        let unique = selected
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<BTreeSet<_>>()
+            .len();
+        traces.push(LayerRouteTrace {
+            layer,
+            attention: if config.hybrid_layer_pattern[layer] == 1 {
+                "sliding_window_128"
+            } else {
+                "full"
+            },
+            cache_length: cache.positions,
+            selected_experts_by_position: selected,
+            route_weights_by_position: weights,
+            expert_union_factor: if layer == 0 { 0.0 } else { unique as f64 },
+            wall_ms: layer_started.elapsed().as_secs_f64() * 1000.0,
+        });
+        safety.checkpoint(&format!("layer_{layer}_complete"), true)?;
+    }
+    let final_norm = bf16_vector(checkpoint, "model.norm.weight", HIDDEN, ledger)?;
+    let normalized = rms_norm(&hidden, 1, &final_norm, config.layernorm_epsilon)?;
+    let logits = bf16_linear(
+        checkpoint,
+        "lm_head.weight",
+        &normalized,
+        1,
+        HIDDEN,
+        config.vocab_size,
+        ledger,
+    )?;
+    let top = top_logits(&logits, 20)?;
+    safety.checkpoint("lm_head_complete", true)?;
+    let token = top[0].0;
+    Ok(NativeDecodeStep {
+        output_token: token,
+        top_logits: top,
+        traces,
+        wall_ms: started.elapsed().as_secs_f64() * 1000.0,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_slow_text_endpoint(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<TextEndpointReport, String> {
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    let complete_started = Instant::now();
+    let disk_bytes_read_before = process_disk_bytes_read()?;
+    if hash_file(model_lock_path)? != MODEL_LOCK_SHA256 {
+        return Err("model lock SHA-256 mismatch".to_owned());
+    }
+    let fixture_bytes =
+        fs::read(fixture_path).map_err(|error| format!("{}: {error}", fixture_path.display()))?;
+    let fixture: EndpointFixture = serde_json::from_slice(&fixture_bytes)
+        .map_err(|error| format!("endpoint fixture: {error}"))?;
+    validate_fixture(&fixture)?;
+    let mut safety = SafetyMonitor::start(fixture.safety.clone())?;
+    let paths = [
+        ("config.json", fixture.config_sha256.as_str()),
+        (
+            "model.safetensors.index.json",
+            fixture.index_sha256.as_str(),
+        ),
+        ("tokenizer.json", fixture.tokenizer_sha256.as_str()),
+        (
+            "tokenizer_config.json",
+            fixture.tokenizer_config_sha256.as_str(),
+        ),
+    ];
+    for (name, expected) in paths {
+        if hash_file(&checkpoint_root.join(name))? != expected {
+            return Err(format!("{name} SHA-256 mismatch"));
+        }
+    }
+    let verification_sha256 = hash_file(verification_path)?;
+    if verification_sha256 != fixture.checkpoint_verification_sha256 {
+        return Err("checkpoint verification SHA-256 mismatch".to_owned());
+    }
+    let verification: CheckpointVerification = serde_json::from_reader(
+        File::open(verification_path)
+            .map_err(|error| format!("{}: {error}", verification_path.display()))?,
+    )
+    .map_err(|error| format!("checkpoint verification: {error}"))?;
+    if verification.schema_version != 1
+        || verification.evidence_class != "local_checkpoint_lock_verification"
+        || !verification.complete
+        || verification.lock_sha256 != MODEL_LOCK_SHA256
+        || verification.revision != REVISION
+    {
+        return Err("checkpoint verification identity mismatch".to_owned());
+    }
+    let config: ModelConfig = serde_json::from_reader(
+        File::open(checkpoint_root.join("config.json")).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| format!("model config: {error}"))?;
+    validate_config(&config)?;
+    let tokenizer = Tokenizer::from_file(checkpoint_root.join("tokenizer.json"))
+        .map_err(|error| format!("tokenizer load: {error}"))?;
+    let encoded = tokenizer
+        .encode(fixture.prompt_utf8.clone(), fixture.add_special_tokens)
+        .map_err(|error| format!("tokenizer encode: {error}"))?;
+    let prompt_token_ids = encoded.get_ids().to_vec();
+    if prompt_token_ids != fixture.expected_prompt_token_ids
+        || tokenizer
+            .decode(&prompt_token_ids, false)
+            .map_err(|error| format!("tokenizer decode: {error}"))?
+            != fixture.prompt_utf8
+    {
+        return Err("tokenizer prompt identity mismatch".to_owned());
+    }
+    let checkpoint = Checkpoint::open(
+        checkpoint_root,
+        &checkpoint_root.join("model.safetensors.index.json"),
+        &verification,
+    )?;
+    safety.checkpoint("checkpoint_open", true)?;
+    let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
+    let mut ledger = EndpointLedger::default();
+    let mut input_token = prompt_token_ids[0];
+    let mut generated = Vec::with_capacity(fixture.decode.new_tokens);
+    let mut steps = Vec::with_capacity(fixture.decode.new_tokens);
+    for _ in 0..fixture.decode.new_tokens {
+        let step = decode_step(
+            &checkpoint,
+            &config,
+            input_token,
+            &mut caches,
+            &mut ledger,
+            &mut safety,
+        )?;
+        let output_token_text = tokenizer
+            .decode(&[step.output_token], false)
+            .map_err(|error| format!("tokenizer output decode: {error}"))?;
+        steps.push(DecodeStepReport {
+            input_token_id: input_token,
+            output_token_id: step.output_token,
+            output_token_text,
+            top_logits: step.top_logits,
+            layer_traces: step.traces,
+            wall_ms: step.wall_ms,
+        });
+        generated.push(step.output_token);
+        input_token = step.output_token;
+        safety.checkpoint(&format!("token_{}_accepted", generated.len()), true)?;
+    }
+    if caches
+        .iter()
+        .any(|cache| cache.positions != 2 || cache.validate().is_err())
+    {
+        return Err("incremental K/V cache did not retain two positions".to_owned());
+    }
+    let generated_text = tokenizer
+        .decode(&generated, false)
+        .map_err(|error| format!("tokenizer generated decode: {error}"))?;
+    ledger.actual_process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_bytes_read_before)
+        .ok_or("process disk byte counter moved backwards")?;
+    ledger.peak_resident_bytes = peak_resident_bytes()?;
+    let report = TextEndpointReport {
+        schema_version: 1,
+        semantic: "mimo_v2_5_target_faithful_slow_text_endpoint",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        fixture_sha256: sha256_hex(&fixture_bytes),
+        model_lock_sha256: MODEL_LOCK_SHA256,
+        checkpoint_verification_sha256: verification_sha256,
+        config_sha256: fixture.config_sha256,
+        index_sha256: fixture.index_sha256,
+        tokenizer_sha256: fixture.tokenizer_sha256,
+        tokenizer_config_sha256: fixture.tokenizer_config_sha256,
+        prompt_utf8: fixture.prompt_utf8,
+        prompt_token_ids,
+        generated_token_ids: generated,
+        generated_text,
+        steps,
+        ledger,
+        safety_snapshots: safety.snapshots,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 2,
+        accepted_per_verification: 1,
+        cache_state: "cold process; verified source mmap; one matrix expanded at a time; retained per-layer K/V",
+        exactness: "L0 source weights and routes; reordered FP32 arithmetic under component gates",
+        performance_claim: None,
+        implementation: "single_rust_authority_tokenizers_mmap_accelerate_bounded_source_fp8_bf16",
+    };
+    let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(output_path, &report_bytes)?;
+    Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retained_cache_rejects_corruption() {
+        let valid = LayerKvCache {
+            keys: vec![0.0; 4 * QK_HEAD_DIM],
+            values: vec![0.0; 4 * V_HEAD_DIM],
+            positions: 1,
+            kv_heads: 4,
+        };
+        assert!(valid.validate().is_ok());
+        let mut corrupted = valid;
+        corrupted.keys.pop();
+        assert!(corrupted.validate().is_err());
+    }
+
+    #[test]
+    fn unsafe_checkpoint_shard_paths_fail_closed() {
+        assert!(validate_relative_file("model.safetensors").is_ok());
+        assert!(validate_relative_file("../model.safetensors").is_err());
+        assert!(validate_relative_file("nested/model.safetensors").is_err());
+    }
+
+    #[test]
+    fn darwin_monitor_parsers_observe_live_safe_values() {
+        assert!(system_memory_free_percent().is_ok_and(|value| value <= 100));
+        assert!(swap_used_bytes().is_ok());
+        assert!(throttled_pages().is_ok());
+        assert!(process_usage().is_ok());
+        assert!(peak_resident_bytes().is_ok_and(|value| value > 0));
+    }
+}

@@ -1,4 +1,6 @@
 #[cfg(target_os = "macos")]
+use prismwing::run_slow_text_endpoint;
+#[cfg(target_os = "macos")]
 use prismwing::{
     RealAttentionMoeRequest, RealBaseLayerRequest, run_metal_base_layer_attention,
     run_metal_dynamic_fp8_moe_block, run_metal_dynamic_real_attention_fp8_moe_block,
@@ -74,6 +76,10 @@ fn usage() -> ! {
     eprintln!(
         "  prismwing metal-simdgroup-matrix-fp8-moe-block <manifest.json> <artifact-dir> <router.safetensors> <kernel.metal> <input.f32> <reference.f32> <output.f32>"
     );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing slow-text-endpoint <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <output.json> <commit>"
+    );
     std::process::exit(2);
 }
 
@@ -81,6 +87,28 @@ fn main() {
     let arguments: Vec<String> = std::env::args().collect();
     let result: Result<Option<PathBuf>, String> =
         match arguments.get(1).map(String::as_str) {
+            #[cfg(target_os = "macos")]
+            Some("slow-text-endpoint") if arguments.len() == 8 => {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let fixture = PathBuf::from(&arguments[5]);
+                let output = PathBuf::from(&arguments[6]);
+                run_slow_text_endpoint(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &fixture,
+                    &output,
+                    &arguments[7],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output))
+                })
+            }
             Some("census") if arguments.len() == 5 => {
                 let index = PathBuf::from(&arguments[2]);
                 let checkpoint = PathBuf::from(&arguments[3]);
