@@ -1320,3 +1320,14 @@ layer 34; expert sets remain exact through layer 43. The 781.393-second safe
 walk peaked at 3.942 GB RSS in the LM head, ended at 2.674 GB, retained 83%
 free memory, and caused no swap growth, throttling, or protected-service loss.
 Localize layer 34 from exact layer 33 rather than skipping to layer 36.
+
+PW-0087 localizes layer 34 to one attention value after scores and
+probabilities match bit-for-bit. PyTorch's vector-by-25×128 BF16 matrix path
+uses generic four-part GEMM reduction and lands one F32 ULP below a BF16 tie;
+Rust's specialized contiguous dot lands on the tie and rounds upward. The
+PW-0076 pair did not distinguish those topologies, so its narrower inference
+is superseded. That single quantum reproduces all six PW-0086 final-state
+differences; routing is downstream. The 543.499-second safe trace peaked at
+720 MB RSS, returned to 154 MB, retained 83% free memory, and caused no swap
+growth, throttling, or service loss. Gate the discriminating pair before
+changing attention value-by-matrix reduction.
