@@ -3186,6 +3186,7 @@ pub fn run_real_routed_layer_trace(
         4 => "mimo_real_layer4_complete_rust_trace",
         7 => "mimo_real_layer7_complete_rust_trace",
         11 => "mimo_real_layer11_complete_rust_trace",
+        13 => "mimo_real_layer13_complete_rust_trace",
         _ => return Err(format!("unsupported routed trace layer {target_layer}")),
     };
     if output_dir.exists() {
