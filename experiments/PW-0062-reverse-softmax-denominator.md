@@ -1,7 +1,7 @@
 # PW-0062 — PyTorch-compatible softmax denominator order
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
 - Commit and dirty state: contract precedes implementation
@@ -28,8 +28,23 @@ cannot alter hosted acceptance or make a throughput claim.
 
 ## Result
 
-Unexecuted.
+The exact 19-value PW-0061 row was added to the fixture and passes with reverse
+F32 denominator accumulation. All 29 Rust and 42 Python tests, strict Clippy,
+and the release build pass.
+
+PW-0061 Rust run 002 makes attention probabilities, output, projection,
+post-attention state, MoE input, router logits, and every expert tensor
+bit-exact. Route expert sets remain exact. The next difference is router
+sigmoid: scores differ by one F32 ULP maximum, route weights by
+`2.2180175779373812e-8`, routed output by `0.001953125`, and nine final BF16
+values differ with maximum `0.015625`. Rust run 002 manifest hashes to
+`c4e3a1d52ddfe757e11e9d266ad494f21d64d2fc9cca5e9bd5f6d40332c3a435`;
+comparison 002 hashes to
+`dc0aee3b534f8ccc6ea37c1e8cf47215a9c848571dc5dc400abffbcaafa88a09`.
 
 ## Decision
 
-Unexecuted.
+Promote reverse denominator accumulation as a correctness repair. It removes
+the first PW-0061 mismatch without perturbing earlier real corpora. Do not
+relax the final-layer gate: open the independently gated vector-sigmoid repair
+for the remaining one-ULP score difference.

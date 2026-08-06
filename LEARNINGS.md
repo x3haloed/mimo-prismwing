@@ -1077,3 +1077,10 @@ row and preserves exact probability payloads on the complete real layer-0,
 layer-1, and layer-2 corpora. The single probability quantum amplifies into
 router-weight and final-state failure, so sigmoid and scatter changes would be
 downstream repairs. Gate denominator order directly before repeating layer 2.
+
+PW-0062 confirms reverse denominator accumulation removes that first mismatch:
+layer 2 becomes bit-exact through router logits and every selected expert
+tensor. The remaining nine final BF16 differences originate in one-ULP router
+sigmoid differences; route weights differ only `2.22e-8`, but the strict final
+gate correctly preserves the discrepancy. Denominator order is promoted as a
+correctness repair; vectorized PyTorch sigmoid is the next isolated boundary.
