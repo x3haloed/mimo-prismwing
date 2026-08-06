@@ -116,5 +116,6 @@ before each mechanism independently passes its attribution gate.
 7. A combined branch receives a new experiment ID. Do not overwrite the
    component records or promote a microbenchmark as endpoint TPS.
 
-PW-0049 is reserved for the prerequisite real base-model decoder-layer causal
-transition. The next unreserved experiment ID is `PW-0050`.
+PW-0049 is the completed prerequisite real base-model decoder-layer causal
+transition. PW-0050 is reserved for the slow complete text endpoint. The next
+unreserved experiment ID is `PW-0051`.

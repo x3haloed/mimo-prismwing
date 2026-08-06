@@ -230,6 +230,20 @@ bounded expanded-F32 Accelerate embodiment is deliberately not a performance
 default; the result advances the correctness ladder and changes the search
 priors, not endpoint TPS.
 
+## E11 — Slow complete text endpoint
+
+[PW-0050](../experiments/PW-0050-slow-complete-text-endpoint.md) is the next
+causal boundary. It carries a one-token real UTF-8 prompt through the pinned
+tokenizer, all 48 source decoder layers, final norm and LM head, then retains
+K/V state for one incremental greedy token. This deliberately small raw-text
+walking slice must become whole before chat-template expansion or any new
+performance mechanism is promoted.
+
+PW-0050 may stream and sequentially materialize selected source experts to fit
+the 16 GiB host. A layer prefix, frozen-route replay, fixture-supplied hidden
+state, or logits-only probe is not a text endpoint. Its first passing timing is
+an end-to-end baseline, not an accepted performance default.
+
 ## Black-swan budget
 
 No more than 10% of research time before Prismwing 10 goes to black swans:

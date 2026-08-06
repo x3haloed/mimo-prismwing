@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "semantic": "mimo_v2_5_target_faithful_raw_text_incremental_decode",
+  "revision": "63651580ca774f8504f676040460aed3e1244ac1",
+  "config_sha256": "292a60e74ae9a6d53422b31b21468ce2111c0ab3f7f7a4f4e9c7cd5133b96587",
+  "index_sha256": "f2e1774c9acf9a62338b68c144e6fc7a66495e59f2e64b3078c1b7ef5a196816",
+  "tokenizer_sha256": "633518aad78f9f61bae2ae420d621215754a4424c918b052cd8c22a3b59e99d2",
+  "tokenizer_config_sha256": "fd34b805f75a890a5c123d79a2982bbe240b3b6efb156d22401bd619484d9bd2",
+  "checkpoint_verification_sha256": "9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03",
+  "prompt_utf8": "Hello",
+  "add_special_tokens": false,
+  "expected_prompt_token_ids": [9707],
+  "decode": {
+    "sampling": "greedy",
+    "new_tokens": 2,
+    "batch_size": 1,
+    "concurrency": 1,
+    "use_kv_cache": true
+  }
+}
