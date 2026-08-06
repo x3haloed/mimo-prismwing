@@ -16,7 +16,8 @@ except ModuleNotFoundError:
     from openrouter_reference import atomic_write_new, canonical_json
 
 
-ORDER = ["embedding", "input_norm", "qkv", "query", "key", "value", "attention",
+ORDER = ["embedding", "input_norm", "qkv", "query", "key", "value",
+         "attention_scores", "attention_probabilities", "attention",
          "attention_projection", "post_attention", "post_attention_norm", "gate", "up",
          "swiglu", "down", "final"]
 

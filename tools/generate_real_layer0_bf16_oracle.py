@@ -238,13 +238,23 @@ def generate(checkpoint: Path, verification: Path, output: Path) -> dict:
     captures["key"] = write_capture(output, "key", k, safety)
     captures["value"] = write_capture(output, "value", v, safety)
     core = torch.empty((27, 64, 128), dtype=torch.bfloat16)
+    attention_scores = []
+    attention_probabilities = []
     scale = 1.0 / math.sqrt(192)
     for position in range(27):
         for head in range(64):
             kv_head = head // 16
             scores = (q[position, head] @ k[:position + 1, kv_head].T) * scale
             probabilities = torch.softmax(scores, dim=-1, dtype=torch.float32).to(torch.bfloat16)
+            attention_scores.append(scores)
+            attention_probabilities.append(probabilities)
             core[position, head] = probabilities @ v[:position + 1, kv_head]
+    captures["attention_scores"] = write_capture(
+        output, "attention_scores", torch.cat(attention_scores), safety
+    )
+    captures["attention_probabilities"] = write_capture(
+        output, "attention_probabilities", torch.cat(attention_probabilities), safety
+    )
     captures["attention"] = write_capture(output, "attention", core, safety)
     core = core.reshape(27, 8192)
     projected = bf16_linear(shard, "model.layers.0.self_attn.o_proj.weight", core)

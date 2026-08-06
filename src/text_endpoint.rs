@@ -315,12 +315,20 @@ struct Layer0Captures {
     query: Vec<f32>,
     key: Vec<f32>,
     value: Vec<f32>,
+    attention_scores: Vec<f32>,
+    attention_probabilities: Vec<f32>,
     attention: Vec<f32>,
     attention_projection: Vec<f32>,
     gate: Vec<f32>,
     up: Vec<f32>,
     swiglu: Vec<f32>,
     down: Vec<f32>,
+}
+
+#[derive(Default)]
+struct AttentionHeadTrace {
+    scores: Vec<f32>,
+    probabilities: Vec<f32>,
 }
 
 struct Checkpoint {
@@ -1254,7 +1262,7 @@ fn causal_attention_head(
     scale: f32,
     sink: Option<f32>,
 ) -> Result<Vec<f32>, String> {
-    causal_attention_head_with_dtype(query, keys, values, scale, sink, false)
+    causal_attention_head_with_dtype(query, keys, values, scale, sink, false, None)
 }
 
 fn causal_attention_head_bf16(
@@ -1264,7 +1272,7 @@ fn causal_attention_head_bf16(
     scale: f32,
     sink: Option<f32>,
 ) -> Result<Vec<f32>, String> {
-    causal_attention_head_with_dtype(query, keys, values, scale, sink, true)
+    causal_attention_head_with_dtype(query, keys, values, scale, sink, true, None)
 }
 
 fn causal_attention_head_with_dtype(
@@ -1274,6 +1282,7 @@ fn causal_attention_head_with_dtype(
     scale: f32,
     sink: Option<f32>,
     bf16_boundaries: bool,
+    trace: Option<&mut AttentionHeadTrace>,
 ) -> Result<Vec<f32>, String> {
     if query.is_empty()
         || keys.is_empty()
@@ -1302,6 +1311,7 @@ fn causal_attention_head_with_dtype(
     if let Some(sink) = sink {
         scores.push(sink);
     }
+    let scaled_scores = scores.clone();
     let maximum = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     for score in &mut scores {
         *score = if bf16_boundaries {
@@ -1318,6 +1328,10 @@ fn causal_attention_head_with_dtype(
         } else {
             *probability / denominator
         };
+    }
+    if let Some(trace) = trace {
+        trace.scores = scaled_scores;
+        trace.probabilities = probabilities.clone();
     }
     let mut output = vec![0.0_f32; values[0].len()];
     for (position, value) in values.iter().enumerate() {
@@ -1425,13 +1439,32 @@ fn attention(
                 let value_offset = (position * kv_heads + kv_head) * V_HEAD_DIM;
                 values.push(&cache.values[value_offset..value_offset + V_HEAD_DIM]);
             }
-            let head_output = causal_attention_head_bf16(
-                query,
-                &keys,
-                &values,
-                scale,
-                sinks.as_ref().map(|values| values[head]),
-            )?;
+            let mut head_trace = AttentionHeadTrace::default();
+            let head_output = if captures.is_some() {
+                causal_attention_head_with_dtype(
+                    query,
+                    &keys,
+                    &values,
+                    scale,
+                    sinks.as_ref().map(|values| values[head]),
+                    true,
+                    Some(&mut head_trace),
+                )?
+            } else {
+                causal_attention_head_bf16(
+                    query,
+                    &keys,
+                    &values,
+                    scale,
+                    sinks.as_ref().map(|values| values[head]),
+                )?
+            };
+            if let Some(captures) = captures.as_deref_mut() {
+                captures.attention_scores.extend(head_trace.scores);
+                captures
+                    .attention_probabilities
+                    .extend(head_trace.probabilities);
+            }
             let destination = &mut result[row * HEADS * V_HEAD_DIM + head * V_HEAD_DIM
                 ..row * HEADS * V_HEAD_DIM + (head + 1) * V_HEAD_DIM];
             destination.copy_from_slice(&head_output);
@@ -2107,6 +2140,16 @@ pub fn run_real_layer0_trace(
             "value",
             vec![rows, 4, V_HEAD_DIM],
             internal.value.as_slice(),
+        ),
+        (
+            "attention_scores",
+            vec![HEADS * rows * (rows + 1) / 2],
+            internal.attention_scores.as_slice(),
+        ),
+        (
+            "attention_probabilities",
+            vec![HEADS * rows * (rows + 1) / 2],
+            internal.attention_probabilities.as_slice(),
         ),
         (
             "attention",
