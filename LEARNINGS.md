@@ -1133,3 +1133,12 @@ panics where SLEEF's two-stage `vldexp2` deliberately creates subnormals. The
 12-minute run remained memory-safe and produced no manifest. Gate subnormal
 exponential and saturated sigmoid values before repeating; this failure says
 nothing about attainable throughput or the next divergent layer.
+
+PW-0068 implements SLEEF's two-factor `vldexp2` and clears exact PyTorch bits
+through minimum subnormal, underflow, overflow, and saturated sigmoid cases.
+The full walk then completes safely and advances the exact accumulated
+frontier through layer 6, with exact route order and every route-weight F32 bit
+for layers 1–6. Layer 7 is the first failure: 12 BF16 state values differ by at
+most `0.0625`, and eight route weights differ by at most `1.70e-6`; expert sets
+remain exact. The next diagnostic is a layer-7 substage trace from exact layer
+6, not another full walk.
