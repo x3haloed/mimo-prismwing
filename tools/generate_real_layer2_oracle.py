@@ -13,14 +13,14 @@ import numpy as np
 import torch
 
 try:
-    from tools.generate_full_prefix_oracle import checked_bf16, checked_fp8
+    from tools.generate_full_prefix_oracle import PATTERN, checked_bf16, checked_fp8
     from tools.generate_real_layer0_bf16_oracle import (
         PROMPT_IDS, REVISION, VERIFICATION_SHA256, Safety, apply_rope, rms_norm, write_capture,
     )
     from tools.generate_real_layer1_expert_oracle import NUMERICS, ShardedCheckpoint, expert_linear
     from tools.openrouter_reference import atomic_write_new, canonical_json
 except ModuleNotFoundError:
-    from generate_full_prefix_oracle import checked_bf16, checked_fp8
+    from generate_full_prefix_oracle import PATTERN, checked_bf16, checked_fp8
     from generate_real_layer0_bf16_oracle import (
         PROMPT_IDS, REVISION, VERIFICATION_SHA256, Safety, apply_rope, rms_norm, write_capture,
     )
@@ -58,25 +58,30 @@ def generate(checkpoint_root: Path, verification: Path, source_manifest: Path,
     output.mkdir(parents=True, exist_ok=False); safety = Safety(); captures = {}
     captures["incoming"] = write_capture(output, "incoming", hidden, safety)
     prefix = f"model.layers.{target_layer}"; attention_prefix = f"{prefix}.self_attn"
+    swa = PATTERN[target_layer] == 1
+    kv_heads = 8 if swa else 4
     normalized = rms_norm(hidden, checkpoint.tensor(f"{prefix}.input_layernorm.weight"))
     captures["input_norm"] = write_capture(output, "input_norm", normalized, safety)
-    qkv = checked_fp8(checkpoint, f"{attention_prefix}.qkv_proj.weight", normalized)
+    qkv = checked_fp8(checkpoint, f"{attention_prefix}.qkv_proj.weight", normalized, full_qkv=not swa)
     captures["qkv"] = write_capture(output, "qkv", qkv, safety)
-    q = apply_rope(qkv[:, :12288].reshape(27, 64, 192), 10_000.0)
-    k = apply_rope(qkv[:, 12288:13824].reshape(27, 8, 192), 10_000.0)
-    v = (qkv[:, 13824:].reshape(27, 8, 128) * 0.707).to(torch.bfloat16)
-    sinks = checkpoint.tensor(f"{attention_prefix}.attention_sink_bias")
+    q_size = 64 * 192; k_size = kv_heads * 192
+    theta = 10_000.0 if swa else 10_000_000.0
+    q = apply_rope(qkv[:, :q_size].reshape(27, 64, 192), theta)
+    k = apply_rope(qkv[:, q_size:q_size + k_size].reshape(27, kv_heads, 192), theta)
+    v = (qkv[:, q_size + k_size:].reshape(27, kv_heads, 128) * 0.707).to(torch.bfloat16)
+    sinks = checkpoint.tensor(f"{attention_prefix}.attention_sink_bias") if swa else torch.empty(0, dtype=torch.bfloat16)
     for name, value in (("query", q), ("key", k), ("value", v), ("sinks", sinks)):
         captures[name] = write_capture(output, name, value, safety)
     core = torch.empty((27, 64, 128), dtype=torch.bfloat16); score_rows = []; probability_rows = []
     for position in range(27):
         for head in range(64):
-            kv_head = head // 8
+            kv_head = head // (64 // kv_heads)
             scores = (q[position, head] @ k[:position + 1, kv_head].T) / math.sqrt(192)
-            scores = torch.cat((scores, sinks[head:head + 1])); scores = scores - scores.max()
+            if swa: scores = torch.cat((scores, sinks[head:head + 1]))
+            scores = scores - scores.max()
             probabilities = torch.softmax(scores, dim=-1, dtype=torch.float32).to(torch.bfloat16)
             score_rows.append(scores); probability_rows.append(probabilities)
-            core[position, head] = probabilities[:-1] @ v[:position + 1, kv_head]
+            core[position, head] = (probabilities[:-1] if swa else probabilities) @ v[:position + 1, kv_head]
     captures["attention_scores"] = write_capture(output, "attention_scores", torch.cat(score_rows), safety)
     captures["attention_probabilities"] = write_capture(output, "attention_probabilities", torch.cat(probability_rows), safety)
     captures["attention"] = write_capture(output, "attention", core, safety)

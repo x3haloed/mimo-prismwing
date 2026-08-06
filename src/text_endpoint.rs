@@ -3286,12 +3286,24 @@ pub fn run_real_routed_layer_trace(
     checkpoint.release_file_pages()?;
     safety.checkpoint(&format!("layer_{target_layer}_complete"), true)?;
     let placements = rows * TOP_K;
-    let attention_states = HEADS * rows * (rows + 3) / 2;
+    let target_is_swa = config.hybrid_layer_pattern[target_layer] == 1;
+    let target_kv_heads = if target_is_swa { 8 } else { 4 };
+    let target_qkv_rows =
+        HEADS * QK_HEAD_DIM + target_kv_heads * QK_HEAD_DIM + target_kv_heads * V_HEAD_DIM;
+    let attention_states = if target_is_swa {
+        HEADS * rows * (rows + 3) / 2
+    } else {
+        HEADS * rows * (rows + 1) / 2
+    };
     let mut captures = BTreeMap::new();
     for (name, shape, values) in [
         ("incoming", vec![rows, HIDDEN], hidden.as_slice()),
         ("input_norm", vec![rows, HIDDEN], normalized.as_slice()),
-        ("qkv", vec![rows, 14_848], attention_captures.qkv.as_slice()),
+        (
+            "qkv",
+            vec![rows, target_qkv_rows],
+            attention_captures.qkv.as_slice(),
+        ),
         (
             "query",
             vec![rows, HEADS, QK_HEAD_DIM],
@@ -3299,15 +3311,19 @@ pub fn run_real_routed_layer_trace(
         ),
         (
             "key",
-            vec![rows, 8, QK_HEAD_DIM],
+            vec![rows, target_kv_heads, QK_HEAD_DIM],
             attention_captures.key.as_slice(),
         ),
         (
             "value",
-            vec![rows, 8, V_HEAD_DIM],
+            vec![rows, target_kv_heads, V_HEAD_DIM],
             attention_captures.value.as_slice(),
         ),
-        ("sinks", vec![HEADS], attention_captures.sinks.as_slice()),
+        (
+            "sinks",
+            vec![if target_is_swa { HEADS } else { 0 }],
+            attention_captures.sinks.as_slice(),
+        ),
         (
             "attention_scores",
             vec![attention_states],

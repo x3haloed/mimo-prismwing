@@ -72,6 +72,10 @@ def compare(oracle_path: Path, rust_path: Path, target_layer: int = 2) -> dict:
         expected = load(oracle_path.parent, oracle, name); actual = load(rust_path.parent, rust, name)
         if expected.shape != actual.shape: raise ValueError(f"{name}: shape disagreement")
         difference = actual.astype(np.float64) - expected.astype(np.float64)
+        if expected.size == 0:
+            rows.append({"capture": name, "shape": list(expected.shape), "relative_l2": 0.0,
+                         "maximum_absolute_error": 0.0, "equality_rate": 1.0})
+            continue
         denominator = float(np.sum(expected.astype(np.float64) ** 2))
         relative_l2 = float(np.sqrt(np.sum(difference ** 2) / denominator)) if denominator else 0.0
         maximum = float(np.max(np.abs(difference))); equality = float(np.mean(actual == expected))
