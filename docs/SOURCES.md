@@ -100,6 +100,23 @@ reference adapter must normalize only that factor to full-head RoPE and record
 the modification. The five `attention_sink_bias` tensors and nested
 `attention_value_scale` remain exported-but-unused; partial RoPE does not.
 
+## SGLang MiMo-V2 MTP runtime
+
+- Repository: `sgl-project/sglang`
+- Revision: `2fc557254b3aaf539e80266e52a6d1e1f8da9980`
+- Local source root:
+  `/Volumes/Elements/mimo-prismwing/research-sources/sglang-dflash`
+- Machine-readable source identity: `spec/sglang-mimo-mtp.lock.json`
+- Decision: executable semantic authority for PW-0103's native MTP transition;
+  not a Mac runtime dependency.
+
+The pinned runtime maps one selected `model.mtp.layers.N` payload into a single
+draft model. It normalizes a shifted base-token embedding and the target hidden
+state separately, concatenates and projects them with `eh_proj`, runs one dense
+MiMo SWA decoder block, applies the MTP final norm, and reuses the base
+embedding and LM head. Multi-layer execution creates one runner per draft step;
+PW-0103 first tests only layer zero's real causal proposal.
+
 ## Atomic llama.cpp TurboQuant fork
 
 - Repository: `AtomicBot-ai/atomic-llama-cpp-turboquant`
