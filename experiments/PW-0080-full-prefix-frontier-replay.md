@@ -1,7 +1,7 @@
 # PW-0080 — Full-prefix frontier replay after layer 14
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: promoted localization
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
 - Commit and dirty state: contract precedes execution
@@ -38,8 +38,34 @@ power, safety, or performance threshold.
 
 ## Result
 
-Unexecuted.
+The walk completed in 799.595 seconds. Embedding and layers 0–18 are bit-exact,
+advancing the accumulated exact frontier by four additional layers beyond the
+repaired layer 14. Layer 19 is both the first actual divergence and first
+formal layer-final failure: 190 of 110,592 BF16 values differ, equality is
+99.8282%, relative L2 is `3.068771986578986e-5`, and maximum error is `0.25`.
+
+Route weights remain inside their strict gate through layer 18
+(`2.7929687451688778e-8`) and first fail at layer 19
+(`0.00008033359680170715`). Expert sets/order remain exact through layer 24
+and first differ at layer 25. Later errors are downstream and do not justify
+changes beyond layer 19.
+
+Every Gate 8 stop passed. Streamed-layer RSS peaked at 708,001,792 bytes and
+phase footprints repeatedly returned near 100–161 MB. The bounded LM-head
+phase peaked at 4,169,187,328 bytes RSS and ended with a 2,903,563,136-byte
+footprint, below the 4 GiB post-release stop. System-free memory stayed at or
+above 82%; swap growth and new throttled pages were zero; ChatGPT,
+WindowServer, nxnode, and syncthing remained healthy. Evidence hashes:
+
+- Rust manifest:
+  `f5e482ebbd43f4f3febd450c9afbdfb198226617651bef95799b980c56f87fab`
+- Comparison:
+  `eb2f578b983a6be8befc29dc2724607d33fa81ec6cc4a77311dda1ad8a7d02c2`
 
 ## Decision
 
-Unexecuted.
+Promote the localization result. The exact accumulated frontier is through
+layer 18; layer 19 is the next causal boundary as both the first actual and
+formal failure. Run the generalized routed-layer trace on layer 19 from the
+frozen exact layer-18 oracle input. Do not change later routing, experts, or
+thresholds, and do not claim throughput from this correctness walk.

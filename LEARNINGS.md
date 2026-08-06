@@ -1252,3 +1252,12 @@ weight serialization error to `1.70e-8`. It safely peaked at 715 MB RSS,
 returned to 137 MB, retained at least 82% free memory, and caused no swap
 growth, throttling, or service loss. A full-prefix replay can now advance the
 accumulated frontier beyond layer 14; no throughput constant changes.
+
+PW-0080 advances the accumulated bit-exact frontier through layer 18, showing
+that the RMS cascade repair clears four additional layers without intervention.
+Layer 19 is both the first actual and formal failure: 190 BF16 values differ,
+equality is 99.8282%, relative L2 is `3.07e-5`, and maximum error is `0.25`.
+Route weights first fail at layer 19; expert sets remain exact through layer 24.
+The 799.595-second safe walk peaked at 4.169 GB RSS in the LM head, ended at
+2.904 GB, retained at least 82% free memory, and caused no swap growth,
+throttling, or service loss. Localize layer 19 from exact layer 18.
