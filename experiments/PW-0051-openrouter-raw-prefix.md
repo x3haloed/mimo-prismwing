@@ -1,7 +1,7 @@
 # PW-0051 — OpenRouter raw-prefix falsification
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
 - Commit and dirty state: contract precedes capture
@@ -52,16 +52,27 @@ than inferred from this metadata.
 
 ## Isolated attribution
 
-Unexecuted.
+The request returned HTTP 400 in 1.44 seconds before model inference. OpenRouter
+sent Parasail's `/v1/completions` endpoint an upstream body containing
+`messages:[{role:user,content:Hello}]` and no `prompt`. Parasail's validation
+correctly rejected the missing required `prompt` field.
 
 ## End-to-end result
 
-Unexecuted.
+No completion, tokens, or logprobs were returned. The sanitized failure
+manifest hashes to
+`19a0243884f57bd618dfd37bc42e79081541a4a2cb1835b9eb39c1761105a501`.
 
 ## Correctness result
 
-Unexecuted.
+The failure occurs at the OpenRouter-to-provider request transformation, not in
+the MiMo model and not in local inference. It provides no distributional
+comparison and cannot validate or refute local `[122046,13]`.
 
 ## Decision
 
-Unexecuted.
+Reject OpenRouter raw completions as the cheap exact-prefix path for this
+provider. Preserve the supported chat surface as the external authority and
+implement the checkpoint's frozen chat serialization plus multi-token local
+prefill. Do not relax the hosted gate or infer a model result from this API
+failure.

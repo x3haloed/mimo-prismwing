@@ -952,3 +952,12 @@ determinism and component fixtures cannot substitute for accumulated hosted
 logit comparison. `5345aa6` is promoted only as the M2 walking foundation;
 target-faithful labeling remains conditional on an identical-prefix hosted
 reference gate.
+
+PW-0051 rejects OpenRouter's legacy raw-completions surface as the cheap
+identical-prefix bridge for MiMo on Parasail. Although OpenRouter accepted a
+standard `prompt` request at `/api/v1/completions`, its transformed upstream
+body contained chat `messages` and omitted `prompt` while still calling
+Parasail's completions endpoint. Parasail returned HTTP 400 before inference.
+This is reproducible API-boundary evidence, not a behavioral model result. The
+hosted comparison must use the supported chat surface and local native
+multi-token prefill over the frozen checkpoint template.
