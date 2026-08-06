@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 #[cfg(target_os = "macos")]
+mod routed_layer_artifact;
+#[cfg(target_os = "macos")]
 mod staged_metal_expert;
 #[cfg(target_os = "macos")]
 mod text_endpoint;
@@ -22,11 +24,13 @@ pub use staged_metal_expert::{
 #[cfg(target_os = "macos")]
 pub use text_endpoint::{
     FullPrefixTraceReport, Layer0TraceReport, Layer1ExpertTraceReport, Layer1RoutingTraceReport,
-    Layer4MetalDiagnosticReport, MetalIncrementalTextReport, TextEndpointReport,
-    run_full_prefix_trace, run_layer4_metal_diagnostic, run_metal_incremental_text_endpoint,
-    run_real_layer0_trace, run_real_layer1_expert_trace, run_real_layer1_routing_trace,
-    run_real_layer2_trace, run_real_layer4_trace, run_real_layer7_trace,
-    run_real_routed_layer_trace, run_slow_text_endpoint, run_weight_install_tomography,
+    Layer4MetalDiagnosticReport, MetalIncrementalTextReport, RoutedLayerArtifactBenchmarkReport,
+    RoutedLayerArtifactBuildReport, TextEndpointReport, benchmark_layer4_metal_ready_artifact,
+    build_layer4_metal_ready_artifact, run_full_prefix_trace, run_layer4_metal_diagnostic,
+    run_metal_incremental_text_endpoint, run_real_layer0_trace, run_real_layer1_expert_trace,
+    run_real_layer1_routing_trace, run_real_layer2_trace, run_real_layer4_trace,
+    run_real_layer7_trace, run_real_routed_layer_trace, run_slow_text_endpoint,
+    run_weight_install_tomography,
 };
 
 const MAX_HEADER_BYTES: u64 = 256 * 1024 * 1024;
@@ -836,6 +840,23 @@ pub(crate) fn validate_fp8_views<'a>(
     scale: MappedTensorView<'a>,
     input: &[f32],
 ) -> Result<ValidatedMappedFp8<'a>, String> {
+    validate_fp8_views_internal(weight, scale, input, true)
+}
+
+pub(crate) fn validate_prevalidated_fp8_views<'a>(
+    weight: MappedTensorView<'a>,
+    scale: MappedTensorView<'a>,
+    input: &[f32],
+) -> Result<ValidatedMappedFp8<'a>, String> {
+    validate_fp8_views_internal(weight, scale, input, false)
+}
+
+fn validate_fp8_views_internal<'a>(
+    weight: MappedTensorView<'a>,
+    scale: MappedTensorView<'a>,
+    input: &[f32],
+    scan_weight_finiteness: bool,
+) -> Result<ValidatedMappedFp8<'a>, String> {
     if weight.metadata.dtype != "F8_E4M3" || weight.metadata.shape.len() != 2 {
         return Err("FP8 GEMV weight must be F8_E4M3 rank two".to_owned());
     }
@@ -864,10 +885,14 @@ pub(crate) fn validate_fp8_views<'a>(
     if scales.iter().any(|value| !value.is_finite()) {
         return Err("FP8 GEMV scale is non-finite".to_owned());
     }
-    if let Some(offset) = weight
-        .bytes
-        .iter()
-        .position(|bits| matches!(bits, 0x7f | 0xff))
+    if let Some(offset) = scan_weight_finiteness
+        .then(|| {
+            weight
+                .bytes
+                .iter()
+                .position(|bits| matches!(bits, 0x7f | 0xff))
+        })
+        .flatten()
     {
         return Err(format!("non-finite FP8 weight at byte offset {offset}"));
     }

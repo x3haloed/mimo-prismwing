@@ -1,7 +1,8 @@
 #[cfg(target_os = "macos")]
 use prismwing::{
-    RealAttentionMoeRequest, RealBaseLayerRequest, run_bounded_metal_routed_row,
-    run_layer4_metal_diagnostic, run_metal_base_layer_attention, run_metal_dynamic_fp8_moe_block,
+    RealAttentionMoeRequest, RealBaseLayerRequest, benchmark_layer4_metal_ready_artifact,
+    build_layer4_metal_ready_artifact, run_bounded_metal_routed_row, run_layer4_metal_diagnostic,
+    run_metal_base_layer_attention, run_metal_dynamic_fp8_moe_block,
     run_metal_dynamic_real_attention_fp8_moe_block, run_metal_fp8_expert,
     run_metal_fp8_expert_batch8, run_metal_fp8_expert_batch8_shared_weight,
     run_metal_fp8_moe_block, run_metal_fused_gate_up_fp8_moe_block,
@@ -108,6 +109,14 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing layer4-metal-diagnostic <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <oracle-manifest.json> <kernel.metal> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing build-layer4-metal-ready-artifact <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <oracle-manifest.json> <artifact.bin> <artifact-manifest.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing benchmark-layer4-metal-ready-artifact <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <oracle-manifest.json> <artifact.bin> <artifact-manifest.json> <kernel.metal> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -253,6 +262,62 @@ fn main() {
                     &kernel,
                     &output,
                     &arguments[9],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output))
+                })
+            }
+            #[cfg(target_os = "macos")]
+            Some("build-layer4-metal-ready-artifact") if arguments.len() == 10 => {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let fixture = PathBuf::from(&arguments[5]);
+                let oracle = PathBuf::from(&arguments[6]);
+                let artifact = PathBuf::from(&arguments[7]);
+                let manifest = PathBuf::from(&arguments[8]);
+                build_layer4_metal_ready_artifact(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &fixture,
+                    &oracle,
+                    &artifact,
+                    &manifest,
+                    &arguments[9],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(manifest))
+                })
+            }
+            #[cfg(target_os = "macos")]
+            Some("benchmark-layer4-metal-ready-artifact") if arguments.len() == 12 => {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let fixture = PathBuf::from(&arguments[5]);
+                let oracle = PathBuf::from(&arguments[6]);
+                let artifact = PathBuf::from(&arguments[7]);
+                let manifest = PathBuf::from(&arguments[8]);
+                let kernel = PathBuf::from(&arguments[9]);
+                let output = PathBuf::from(&arguments[10]);
+                benchmark_layer4_metal_ready_artifact(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &fixture,
+                    &oracle,
+                    &artifact,
+                    &manifest,
+                    &kernel,
+                    &output,
+                    &arguments[11],
                 )
                 .and_then(|report| {
                     serde_json::to_writer(std::io::stdout(), &report)

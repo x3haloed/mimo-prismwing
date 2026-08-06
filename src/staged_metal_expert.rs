@@ -36,6 +36,19 @@ pub(crate) struct BoundedMetalExpertRuntime {
     pub(crate) device_name: String,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct NoCopyProjectionBacking {
+    pub(crate) weight_region_bytes: usize,
+    pub(crate) scale_region_bytes: usize,
+    pub(crate) page_bytes: usize,
+}
+
+#[derive(Clone, Copy)]
+enum SourceBufferMode {
+    Copied,
+    NoCopy(NoCopyProjectionBacking),
+}
+
 pub(crate) struct BoundedMetalExpertOutput {
     pub(crate) gate: Vec<f32>,
     pub(crate) up: Vec<f32>,
@@ -151,11 +164,125 @@ impl BoundedMetalExpertRuntime {
         self.execute_internal(projections, input, Some((layer, expert)))
     }
 
+    pub(crate) fn execute_profiled_no_copy(
+        &self,
+        layer: usize,
+        expert: u32,
+        projections: [&ValidatedMappedFp8<'_>; 3],
+        backing: [NoCopyProjectionBacking; 3],
+        input: &[f32],
+    ) -> Result<BoundedMetalExpertOutput, String> {
+        self.execute_internal_with_modes(
+            projections,
+            input,
+            Some((layer, expert)),
+            backing.map(SourceBufferMode::NoCopy),
+        )
+    }
+
+    pub(crate) fn probe_no_copy_mapping(
+        &self,
+        region: &[u8],
+        page_bytes: usize,
+    ) -> Result<f64, String> {
+        const PROBE_BYTES: usize = 4096;
+        if page_bytes == 0
+            || !page_bytes.is_power_of_two()
+            || !(region.as_ptr() as usize).is_multiple_of(page_bytes)
+            || !region.len().is_multiple_of(page_bytes)
+            || region.len() < PROBE_BYTES
+        {
+            return Err("no-copy probe region is not page aligned or is too short".to_owned());
+        }
+        let source = r#"
+            #include <metal_stdlib>
+            using namespace metal;
+            kernel void pw_nocopy_read_probe(
+                device const uchar *input [[buffer(0)]],
+                device uchar *output [[buffer(1)]],
+                uint index [[thread_position_in_grid]]) {
+                output[index] = input[index];
+            }
+        "#;
+        let options = CompileOptions::new();
+        options.set_fast_math_enabled(false);
+        let library = self
+            .device
+            .new_library_with_source(source, &options)
+            .map_err(|error| format!("no-copy probe compilation failed: {error}"))?;
+        let function = library
+            .get_function("pw_nocopy_read_probe", None)
+            .map_err(|error| format!("no-copy probe function lookup failed: {error}"))?;
+        let pipeline = self
+            .device
+            .new_compute_pipeline_state_with_function(&function)
+            .map_err(|error| format!("no-copy probe pipeline failed: {error}"))?;
+        let shared = MTLResourceOptions::StorageModeShared;
+        let started = Instant::now();
+        let input = self.device.new_buffer_with_bytes_no_copy(
+            region.as_ptr().cast(),
+            region.len() as u64,
+            shared,
+            None,
+        );
+        let output = self.device.new_buffer(PROBE_BYTES as u64, shared);
+        let command = self.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&input), 0);
+        encoder.set_buffer(1, Some(&output), 0);
+        encoder.dispatch_threads(
+            MTLSize {
+                width: PROBE_BYTES as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 64,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+        if command.status() != MTLCommandBufferStatus::Completed {
+            return Err(format!(
+                "no-copy probe command failed: {:?}",
+                command.status()
+            ));
+        }
+        // SAFETY: completion precedes the exactly PROBE_BYTES-long shared read.
+        let actual =
+            unsafe { std::slice::from_raw_parts(output.contents().cast::<u8>(), PROBE_BYTES) };
+        if actual != &region[..PROBE_BYTES] {
+            return Err("no-copy probe returned non-identical bytes".to_owned());
+        }
+        drop(input);
+        drop(output);
+        Ok(started.elapsed().as_secs_f64() * 1000.0)
+    }
+
     fn execute_internal(
         &self,
         projections: [&ValidatedMappedFp8<'_>; 3],
         input: &[f32],
         identity: Option<(usize, u32)>,
+    ) -> Result<BoundedMetalExpertOutput, String> {
+        self.execute_internal_with_modes(
+            projections,
+            input,
+            identity,
+            [SourceBufferMode::Copied; 3],
+        )
+    }
+
+    fn execute_internal_with_modes(
+        &self,
+        projections: [&ValidatedMappedFp8<'_>; 3],
+        input: &[f32],
+        identity: Option<(usize, u32)>,
+        source_modes: [SourceBufferMode; 3],
     ) -> Result<BoundedMetalExpertOutput, String> {
         let execution = execute_staged_expert(
             &self.device,
@@ -165,6 +292,7 @@ impl BoundedMetalExpertRuntime {
             projections,
             input,
             identity,
+            source_modes,
         )?;
         let installed_source_bytes = projections.iter().try_fold(0_u64, |total, tensor| {
             total
@@ -446,6 +574,7 @@ fn metal_project(
     activation: &[f32],
     projection: &'static str,
     tomography_enabled: bool,
+    source_mode: SourceBufferMode,
 ) -> Result<(Vec<f32>, Option<ProjectionTomography>), String> {
     #[repr(C)]
     struct Shape {
@@ -466,13 +595,55 @@ fn metal_project(
     let wall_started = Instant::now();
     let activity_started = tomography_enabled.then(process_activity).transpose()?;
     let shared = MTLResourceOptions::StorageModeShared;
-    let buffer = |bytes: &[u8]| {
-        device.new_buffer_with_data(bytes.as_ptr().cast(), bytes.len() as u64, shared)
-    };
     let source_install_started = Instant::now();
     let source_activity_started = tomography_enabled.then(process_activity).transpose()?;
-    let weight = buffer(tensor.weight.bytes);
-    let scale = buffer(tensor.scale.bytes);
+    let (weight, scale) = match source_mode {
+        SourceBufferMode::Copied => (
+            device.new_buffer_with_data(
+                tensor.weight.bytes.as_ptr().cast(),
+                tensor.weight.bytes.len() as u64,
+                shared,
+            ),
+            device.new_buffer_with_data(
+                tensor.scale.bytes.as_ptr().cast(),
+                tensor.scale.bytes.len() as u64,
+                shared,
+            ),
+        ),
+        SourceBufferMode::NoCopy(backing) => {
+            if backing.page_bytes == 0
+                || !backing.page_bytes.is_power_of_two()
+                || !(tensor.weight.bytes.as_ptr() as usize).is_multiple_of(backing.page_bytes)
+                || !(tensor.scale.bytes.as_ptr() as usize).is_multiple_of(backing.page_bytes)
+                || !backing
+                    .weight_region_bytes
+                    .is_multiple_of(backing.page_bytes)
+                || !backing
+                    .scale_region_bytes
+                    .is_multiple_of(backing.page_bytes)
+                || backing.weight_region_bytes < tensor.weight.bytes.len()
+                || backing.scale_region_bytes < tensor.scale.bytes.len()
+            {
+                return Err(format!(
+                    "{projection}: no-copy source mapping is not page aligned or is undersized"
+                ));
+            }
+            (
+                device.new_buffer_with_bytes_no_copy(
+                    tensor.weight.bytes.as_ptr().cast(),
+                    backing.weight_region_bytes as u64,
+                    shared,
+                    None,
+                ),
+                device.new_buffer_with_bytes_no_copy(
+                    tensor.scale.bytes.as_ptr().cast(),
+                    backing.scale_region_bytes as u64,
+                    shared,
+                    None,
+                ),
+            )
+        }
+    };
     let source_buffer_install_ms = source_install_started.elapsed().as_secs_f64() * 1000.0;
     let source_install_activity = if let Some(before) = source_activity_started {
         process_activity()?.checked_delta(before)?
@@ -574,6 +745,7 @@ fn metal_project(
     Ok((output, tomography))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_staged_expert(
     device: &metal::DeviceRef,
     queue: &metal::CommandQueueRef,
@@ -582,6 +754,7 @@ fn execute_staged_expert(
     projections: [&ValidatedMappedFp8<'_>; 3],
     input: &[f32],
     identity: Option<(usize, u32)>,
+    source_modes: [SourceBufferMode; 3],
 ) -> Result<StagedExpertExecution, String> {
     let wall_started = Instant::now();
     let activity_started = identity.map(|_| process_activity()).transpose()?;
@@ -599,6 +772,7 @@ fn execute_staged_expert(
         &staged_input,
         "gate",
         profiling,
+        source_modes[0],
     )?;
     let (up_pre_round, up_tomography) = metal_project(
         device,
@@ -609,6 +783,7 @@ fn execute_staged_expert(
         &staged_input,
         "up",
         profiling,
+        source_modes[1],
     )?;
     let mut gate_output = gate_pre_round.clone();
     let mut up_output = up_pre_round.clone();
@@ -640,6 +815,7 @@ fn execute_staged_expert(
         &staged_hidden,
         "down",
         profiling,
+        source_modes[2],
     )?;
     let mut output = down_pre_round.clone();
     let down_round_started = Instant::now();
@@ -787,6 +963,7 @@ pub fn run_staged_metal_fp8_expert(
             [&gate, &up, &down],
             &input,
             None,
+            [SourceBufferMode::Copied; 3],
         )?;
         Ok((
             execution.down,
@@ -1140,6 +1317,7 @@ pub fn run_bounded_metal_routed_row(
                 [gate, up, down],
                 &input,
                 None,
+                [SourceBufferMode::Copied; 3],
             )?;
             for (destination, value) in output.iter_mut().zip(&expert_execution.down) {
                 *destination += *value * route_weight;
