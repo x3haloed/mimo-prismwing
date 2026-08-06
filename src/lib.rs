@@ -11,7 +11,11 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 #[cfg(target_os = "macos")]
+mod staged_metal_expert;
+#[cfg(target_os = "macos")]
 mod text_endpoint;
+#[cfg(target_os = "macos")]
+pub use staged_metal_expert::{StagedMetalExpertReport, run_staged_metal_fp8_expert};
 #[cfg(target_os = "macos")]
 pub use text_endpoint::{
     FullPrefixTraceReport, Layer0TraceReport, Layer1ExpertTraceReport, Layer1RoutingTraceReport,
@@ -5384,7 +5388,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn sha256_reader(reader: &mut File) -> Result<String, String> {
+pub(crate) fn sha256_reader(reader: &mut File) -> Result<String, String> {
     reader
         .seek(SeekFrom::Start(0))
         .map_err(|error| error.to_string())?;

@@ -362,6 +362,37 @@ struct SafetyMonitor {
     snapshots: Vec<SafetySnapshot>,
 }
 
+pub(crate) struct ComponentSafetyMonitor(SafetyMonitor);
+
+impl ComponentSafetyMonitor {
+    pub(crate) fn start_normative() -> Result<Self, String> {
+        SafetyMonitor::start(SafetyFixture {
+            minimum_system_memory_free_percent: 20,
+            maximum_process_physical_footprint_bytes: 8 * 1024 * 1024 * 1024,
+            maximum_post_phase_physical_footprint_bytes: 4 * 1024 * 1024 * 1024,
+            maximum_swap_growth_bytes: 512 * 1024 * 1024,
+            maximum_new_throttled_pages: 0,
+            require_malloc_pressure_relief: true,
+            protect_resident_services: vec![
+                "ChatGPT".to_owned(),
+                "WindowServer".to_owned(),
+                "nxnode".to_owned(),
+                "syncthing".to_owned(),
+            ],
+        })
+        .map(Self)
+    }
+
+    pub(crate) fn checkpoint(&mut self, phase: &str) -> Result<(), String> {
+        self.0.checkpoint(phase, false)
+    }
+
+    pub(crate) fn released(mut self) -> Result<Vec<SafetySnapshot>, String> {
+        self.0.checkpoint("buffer_release", true)?;
+        Ok(self.0.snapshots)
+    }
+}
+
 struct RoutedMlpOutput {
     output: Vec<f32>,
     logits: Vec<f32>,

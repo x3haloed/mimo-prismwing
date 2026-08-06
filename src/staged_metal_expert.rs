@@ -1,0 +1,438 @@
+use super::{
+    MappedSafetensors, MappedTensorMetadata, ValidatedMappedFp8, decode_f8_e4m3fn, read_f32_file,
+    sha256_hex, sha256_reader, validate_mapped_fp8, write_create_new,
+};
+use crate::text_endpoint::{ComponentSafetyMonitor, SafetySnapshot};
+use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize};
+use serde::Serialize;
+use std::fs::{self, File};
+use std::path::Path;
+use std::time::Instant;
+
+const GATE: &str = "model.layers.43.mlp.experts.32.gate_proj.weight";
+const UP: &str = "model.layers.43.mlp.experts.32.up_proj.weight";
+const DOWN: &str = "model.layers.43.mlp.experts.32.down_proj.weight";
+const KERNEL: &str = "block_fp8_gemv_parallel_lut_blocked";
+const LANES: u64 = 64;
+const WARMUPS: usize = 5;
+const MEASUREMENTS: usize = 30;
+
+#[derive(Debug, Serialize)]
+pub struct StagedMetalExpertReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub gate_up_source_file: String,
+    pub gate_up_source_sha256: String,
+    pub down_source_file: String,
+    pub down_source_sha256: String,
+    pub gate: MappedTensorMetadata,
+    pub up: MappedTensorMetadata,
+    pub down: MappedTensorMetadata,
+    pub kernel_sha256: String,
+    pub kernel_function: &'static str,
+    pub device: String,
+    pub input_sha256: String,
+    pub reference_sha256: String,
+    pub output_sha256: String,
+    pub output_first8: Vec<f32>,
+    pub relative_l2: f64,
+    pub maximum_absolute_error: f32,
+    pub bf16_equal_values: usize,
+    pub bf16_total_values: usize,
+    pub bf16_equality_fraction: f64,
+    pub compile_ms: f64,
+    pub cold_wall_ms: f64,
+    pub warmups: usize,
+    pub measurements: usize,
+    pub wall_ms: Vec<f64>,
+    pub wall_p10_ms: f64,
+    pub wall_median_ms: f64,
+    pub wall_p90_ms: f64,
+    pub timing_gate_passed: bool,
+    pub speedup_vs_pw0096_mean_expert: f64,
+    pub speedup_gate_passed: bool,
+    pub logical_source_bytes_per_execution: u64,
+    pub maximum_resident_tensor_buffer_bytes: u64,
+    pub batch_size: u32,
+    pub concurrency: u32,
+    pub accepted_tokens: u32,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: u32,
+    #[serde(rename = "U")]
+    pub unique_expert_sets: u32,
+    pub cache_state: &'static str,
+    pub timed_scope: &'static str,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub performance_claim: Option<String>,
+    pub implementation: &'static str,
+}
+
+fn round_bf16(value: f32) -> f32 {
+    let bits = value.to_bits();
+    if bits & 0x7f80_0000 == 0x7f80_0000 {
+        if bits & 0x007f_ffff == 0 {
+            return value;
+        }
+        return f32::from_bits(u32::from(((bits >> 16) as u16) | 0x0040) << 16);
+    }
+    let bias = 0x7fff + ((bits >> 16) & 1);
+    f32::from_bits(bits.wrapping_add(bias) & 0xffff_0000)
+}
+
+fn round_bf16_values(values: &mut [f32]) {
+    values
+        .iter_mut()
+        .for_each(|value| *value = round_bf16(*value));
+}
+
+fn encode_f8_e4m3fn(value: f32) -> Result<u8, String> {
+    if !value.is_finite() || value.abs() > 448.0 {
+        return Err("E4M3FN encoder requires a finite value in [-448,448]".to_owned());
+    }
+    if value == 0.0 {
+        return Ok(if value.is_sign_negative() { 0x80 } else { 0 });
+    }
+    let magnitude = value.abs();
+    let mut best = 0_u8;
+    let mut distance = f32::INFINITY;
+    for candidate in 0_u8..=0x7e {
+        let candidate_distance = (magnitude - decode_f8_e4m3fn(candidate)).abs();
+        if candidate_distance < distance
+            || (candidate_distance == distance && candidate & 1 == 0 && best & 1 != 0)
+        {
+            best = candidate;
+            distance = candidate_distance;
+        }
+    }
+    Ok(best | if value.is_sign_negative() { 0x80 } else { 0 })
+}
+
+fn dynamic_fp8_dequantized(input: &[f32]) -> Result<Vec<f32>, String> {
+    if input.is_empty() || !input.len().is_multiple_of(128) || input.iter().any(|x| !x.is_finite())
+    {
+        return Err("dynamic FP8 input shape or value mismatch".to_owned());
+    }
+    let mut output = Vec::with_capacity(input.len());
+    for group in input.chunks_exact(128) {
+        let absmax = group
+            .iter()
+            .map(|x| x.abs())
+            .fold(0.0_f32, f32::max)
+            .max(1.0e-10);
+        let scale = absmax / 448.0;
+        for &value in group {
+            let bits = encode_f8_e4m3fn((value / scale).clamp(-448.0, 448.0))?;
+            output.push(decode_f8_e4m3fn(bits) * scale);
+        }
+    }
+    Ok(output)
+}
+
+pub fn run_staged_metal_fp8_expert(
+    gate_up_source: &Path,
+    down_source: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<StagedMetalExpertReport, String> {
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    let mut safety = ComponentSafetyMonitor::start_normative()?;
+    let gate_up_source_sha256 = sha256_reader(
+        &mut File::open(gate_up_source)
+            .map_err(|e| format!("{}: {e}", gate_up_source.display()))?,
+    )?;
+    let down_source_sha256 = sha256_reader(
+        &mut File::open(down_source).map_err(|e| format!("{}: {e}", down_source.display()))?,
+    )?;
+    let gate_up_mapping = MappedSafetensors::open(gate_up_source)?;
+    let down_mapping = MappedSafetensors::open(down_source)?;
+    let (input_bytes, mut input) = read_f32_file(input_path, Some(4096))?;
+    round_bf16_values(&mut input);
+    let gate = validate_mapped_fp8(&gate_up_mapping, GATE, &format!("{GATE}_scale_inv"), &input)?;
+    let up = validate_mapped_fp8(&gate_up_mapping, UP, &format!("{UP}_scale_inv"), &input)?;
+    let down_shape = vec![0.0_f32; 2048];
+    let down = validate_mapped_fp8(
+        &down_mapping,
+        DOWN,
+        &format!("{DOWN}_scale_inv"),
+        &down_shape,
+    )?;
+    if (gate.rows, gate.columns) != (2048, 4096)
+        || (up.rows, up.columns) != (2048, 4096)
+        || (down.rows, down.columns) != (4096, 2048)
+    {
+        return Err("layer-43/expert-32 projection shape mismatch".to_owned());
+    }
+    let (reference_bytes, reference) = read_f32_file(reference_path, Some(4096))?;
+    let kernel_source =
+        fs::read_to_string(kernel_path).map_err(|e| format!("{}: {e}", kernel_path.display()))?;
+    if !kernel_source.contains(&format!("kernel void {KERNEL}")) {
+        return Err(format!("kernel source lacks {KERNEL}"));
+    }
+    let device = Device::system_default().ok_or("no Metal device is available")?;
+    let options = CompileOptions::new();
+    options.set_fast_math_enabled(false);
+    let compile_start = Instant::now();
+    let library = device
+        .new_library_with_source(&kernel_source, &options)
+        .map_err(|e| format!("Metal compilation failed: {e}"))?;
+    let function = library
+        .get_function(KERNEL, None)
+        .map_err(|e| format!("Metal kernel lookup failed: {e}"))?;
+    let pipeline = device
+        .new_compute_pipeline_state_with_function(&function)
+        .map_err(|e| format!("Metal pipeline creation failed: {e}"))?;
+    let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
+    if pipeline.max_total_threads_per_threadgroup() < LANES {
+        return Err("Metal pipeline cannot dispatch 64 lanes".to_owned());
+    }
+    let queue = device.new_command_queue();
+    let lut = (0_u16..=255)
+        .map(|x| decode_f8_e4m3fn(x as u8))
+        .collect::<Vec<_>>();
+    safety.checkpoint("after_compile")?;
+
+    let project = |tensor: &ValidatedMappedFp8<'_>,
+                   activation: &[f32]|
+     -> Result<Vec<f32>, String> {
+        #[repr(C)]
+        struct Shape {
+            rows: u32,
+            columns: u32,
+            block_rows: u32,
+            block_columns: u32,
+        }
+        if activation.len() != tensor.columns || activation.iter().any(|x| !x.is_finite()) {
+            return Err("Metal projection input mismatch".to_owned());
+        }
+        let shape = Shape {
+            rows: tensor.rows as u32,
+            columns: tensor.columns as u32,
+            block_rows: 128,
+            block_columns: 128,
+        };
+        let shared = MTLResourceOptions::StorageModeShared;
+        let buffer = |bytes: &[u8]| {
+            device.new_buffer_with_data(bytes.as_ptr().cast(), bytes.len() as u64, shared)
+        };
+        let weight = buffer(tensor.weight.bytes);
+        let scale = buffer(tensor.scale.bytes);
+        let input_buffer = device.new_buffer_with_data(
+            activation.as_ptr().cast(),
+            std::mem::size_of_val(activation) as u64,
+            shared,
+        );
+        let output_buffer = device.new_buffer((tensor.rows * 4) as u64, shared);
+        let shape_buffer = device.new_buffer_with_data(
+            (&shape as *const Shape).cast(),
+            std::mem::size_of::<Shape>() as u64,
+            shared,
+        );
+        let lut_buffer = device.new_buffer_with_data(
+            lut.as_ptr().cast(),
+            std::mem::size_of_val(lut.as_slice()) as u64,
+            shared,
+        );
+        let command = queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&weight), 0);
+        encoder.set_buffer(1, Some(&scale), 0);
+        encoder.set_buffer(2, Some(&input_buffer), 0);
+        encoder.set_buffer(3, Some(&output_buffer), 0);
+        encoder.set_buffer(4, Some(&shape_buffer), 0);
+        encoder.set_buffer(5, Some(&lut_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, LANES * 4);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: tensor.rows as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+        if command.status() != MTLCommandBufferStatus::Completed {
+            return Err(format!("Metal projection failed: {:?}", command.status()));
+        }
+        // SAFETY: command completion precedes reading the exactly rows-long shared F32 buffer.
+        Ok(unsafe {
+            std::slice::from_raw_parts(output_buffer.contents().cast::<f32>(), tensor.rows).to_vec()
+        })
+    };
+
+    let execute = || -> Result<(Vec<f32>, f64), String> {
+        let start = Instant::now();
+        let staged_input = dynamic_fp8_dequantized(&input)?;
+        let mut gate_output = project(&gate, &staged_input)?;
+        let mut up_output = project(&up, &staged_input)?;
+        round_bf16_values(&mut gate_output);
+        round_bf16_values(&mut up_output);
+        let mut hidden = gate_output
+            .iter()
+            .zip(&up_output)
+            .map(|(&g, &u)| (g / (1.0 + (-g).exp())) * u)
+            .collect::<Vec<_>>();
+        round_bf16_values(&mut hidden);
+        let staged_hidden = dynamic_fp8_dequantized(&hidden)?;
+        let mut output = project(&down, &staged_hidden)?;
+        round_bf16_values(&mut output);
+        if output.iter().any(|x| !x.is_finite()) {
+            return Err("staged Metal expert produced non-finite output".to_owned());
+        }
+        Ok((output, start.elapsed().as_secs_f64() * 1000.0))
+    };
+
+    let (_, cold_wall_ms) = execute()?;
+    for _ in 0..WARMUPS {
+        execute()?;
+    }
+    safety.checkpoint("after_warmups")?;
+    let mut wall_ms = Vec::with_capacity(MEASUREMENTS);
+    let mut output = Vec::new();
+    for _ in 0..MEASUREMENTS {
+        let (candidate, elapsed) = execute()?;
+        output = candidate;
+        wall_ms.push(elapsed);
+    }
+    safety.checkpoint("after_timed_series")?;
+    let mut squared_error = 0.0_f64;
+    let mut squared_reference = 0.0_f64;
+    let mut maximum_absolute_error = 0.0_f32;
+    let mut bf16_equal_values = 0;
+    for (&candidate, &expected) in output.iter().zip(&reference) {
+        let difference = candidate - expected;
+        squared_error += f64::from(difference).powi(2);
+        squared_reference += f64::from(expected).powi(2);
+        maximum_absolute_error = maximum_absolute_error.max(difference.abs());
+        bf16_equal_values += usize::from(candidate.to_bits() == expected.to_bits());
+    }
+    if squared_reference == 0.0 {
+        return Err("expert reference has zero L2 norm".to_owned());
+    }
+    let relative_l2 = (squared_error / squared_reference).sqrt();
+    let bf16_equality_fraction = bf16_equal_values as f64 / output.len() as f64;
+    if relative_l2 > 5.0e-4 || maximum_absolute_error > 2.0e-2 || bf16_equality_fraction < 0.99 {
+        return Err(format!(
+            "staged expert parity failed: rel L2 {relative_l2}, max abs {maximum_absolute_error}, BF16 equality {bf16_equality_fraction}"
+        ));
+    }
+    let output_bytes = output
+        .iter()
+        .flat_map(|x| x.to_le_bytes())
+        .collect::<Vec<_>>();
+    write_create_new(output_path, &output_bytes)?;
+    let mut ordered = wall_ms.clone();
+    ordered.sort_by(f64::total_cmp);
+    let percentile =
+        |fraction: f64| ordered[((ordered.len() - 1) as f64 * fraction).round() as usize];
+    let wall_p10_ms = percentile(0.10);
+    let wall_median_ms = percentile(0.50);
+    let wall_p90_ms = percentile(0.90);
+    let speedup = 397.5 / wall_median_ms;
+    let safety_snapshots = safety.released()?;
+    let logical_source_bytes_per_execution = gate.weight.metadata.data_bytes
+        + gate.scale.metadata.data_bytes
+        + up.weight.metadata.data_bytes
+        + up.scale.metadata.data_bytes
+        + down.weight.metadata.data_bytes
+        + down.scale.metadata.data_bytes
+        + input_bytes.len() as u64
+        + output_bytes.len() as u64;
+    let maximum_resident_tensor_buffer_bytes = (gate.weight.metadata.data_bytes
+        + gate.scale.metadata.data_bytes)
+        .max(up.weight.metadata.data_bytes + up.scale.metadata.data_bytes)
+        .max(down.weight.metadata.data_bytes + down.scale.metadata.data_bytes);
+    Ok(StagedMetalExpertReport {
+        schema_version: 1,
+        semantic: "mimo_layer43_expert32_dynamic_fp8_bf16_staged_source_fp8_metal",
+        gate_up_source_file: gate_up_source.display().to_string(),
+        gate_up_source_sha256,
+        down_source_file: down_source.display().to_string(),
+        down_source_sha256,
+        gate: gate.weight.metadata.clone(),
+        up: up.weight.metadata.clone(),
+        down: down.weight.metadata.clone(),
+        kernel_sha256: sha256_hex(kernel_source.as_bytes()),
+        kernel_function: KERNEL,
+        device: device.name().to_owned(),
+        input_sha256: sha256_hex(&input_bytes),
+        reference_sha256: sha256_hex(&reference_bytes),
+        output_sha256: sha256_hex(&output_bytes),
+        output_first8: output.iter().copied().take(8).collect(),
+        relative_l2,
+        maximum_absolute_error,
+        bf16_equal_values,
+        bf16_total_values: output.len(),
+        bf16_equality_fraction,
+        compile_ms,
+        cold_wall_ms,
+        warmups: WARMUPS,
+        measurements: MEASUREMENTS,
+        wall_ms,
+        wall_p10_ms,
+        wall_median_ms,
+        wall_p90_ms,
+        timing_gate_passed: wall_median_ms <= 100.0,
+        speedup_vs_pw0096_mean_expert: speedup,
+        speedup_gate_passed: speedup >= 10.0,
+        logical_source_bytes_per_execution,
+        maximum_resident_tensor_buffer_bytes,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        accepted_per_verification: 0,
+        unique_expert_sets: 1,
+        cache_state: "pipeline and LUT resident; every timed execution installs and releases real expert tensor buffers",
+        timed_scope: "dynamic FP8 activation staging, gate/up/down tensor installation and Metal dispatch, BF16 boundaries, CPU SwiGLU, waits, readback",
+        safety_snapshots,
+        performance_claim: None,
+        implementation: "rust_owned_metal_source_fp8_dynamic_activation_bf16_staged_one_row_expert",
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bf16_rounding_is_ties_to_even() {
+        assert_eq!(
+            round_bf16(f32::from_bits(0x3f80_8000)).to_bits(),
+            0x3f80_0000
+        );
+        assert_eq!(
+            round_bf16(f32::from_bits(0x3f81_8000)).to_bits(),
+            0x3f82_0000
+        );
+    }
+
+    #[test]
+    fn dynamic_fp8_rejects_bad_inputs() {
+        assert!(dynamic_fp8_dequantized(&[]).is_err());
+        assert!(dynamic_fp8_dequantized(&[0.0; 127]).is_err());
+        let mut values = vec![0.0; 128];
+        values[9] = f32::NAN;
+        assert!(dynamic_fp8_dequantized(&values).is_err());
+    }
+
+    #[test]
+    fn dynamic_fp8_is_deterministic_and_finite() {
+        let input = (0..256)
+            .map(|x| (x as f32 - 127.0) / 31.0)
+            .collect::<Vec<_>>();
+        let first = dynamic_fp8_dequantized(&input).expect("valid input");
+        let second = dynamic_fp8_dequantized(&input).expect("valid input");
+        assert_eq!(first, second);
+        assert!(first.iter().all(|x| x.is_finite()));
+    }
+}

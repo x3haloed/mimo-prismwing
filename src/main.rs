@@ -5,7 +5,7 @@ use prismwing::{
     run_metal_fp8_expert, run_metal_fp8_expert_batch8, run_metal_fp8_expert_batch8_shared_weight,
     run_metal_fp8_moe_block, run_metal_fused_gate_up_fp8_moe_block, run_metal_mapped_fp8_gemv,
     run_metal_noaux_tc_router, run_metal_real_base_layer, run_metal_simdgroup_matrix_fp8_moe_block,
-    run_metal_union_parallel_fp8_moe_block,
+    run_metal_union_parallel_fp8_moe_block, run_staged_metal_fp8_expert,
 };
 use prismwing::{
     build_census, inspect_mapped_tensor, repack_expert_container, run_mapped_fp8_gemv,
@@ -41,6 +41,10 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing metal-fp8-expert <gate-up.safetensors> <down.safetensors> <kernel.metal> <input.f32> <reference.f32> <output.f32>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing staged-metal-fp8-expert <gate-up.safetensors> <down.safetensors> <kernel.metal> <input.f32> <reference.f32> <output.f32>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -412,6 +416,22 @@ fn main() {
                 let reference = PathBuf::from(&arguments[6]);
                 let output = PathBuf::from(&arguments[7]);
                 run_metal_fp8_expert(&gate_up, &down, &kernel, &input, &reference, &output)
+                    .and_then(|report| {
+                        serde_json::to_writer(std::io::stdout(), &report)
+                            .map_err(|error| error.to_string())?;
+                        println!();
+                        Ok(None)
+                    })
+            }
+            #[cfg(target_os = "macos")]
+            Some("staged-metal-fp8-expert") if arguments.len() == 8 => {
+                let gate_up = PathBuf::from(&arguments[2]);
+                let down = PathBuf::from(&arguments[3]);
+                let kernel = PathBuf::from(&arguments[4]);
+                let input = PathBuf::from(&arguments[5]);
+                let reference = PathBuf::from(&arguments[6]);
+                let output = PathBuf::from(&arguments[7]);
+                run_staged_metal_fp8_expert(&gate_up, &down, &kernel, &input, &reference, &output)
                     .and_then(|report| {
                         serde_json::to_writer(std::io::stdout(), &report)
                             .map_err(|error| error.to_string())?;
