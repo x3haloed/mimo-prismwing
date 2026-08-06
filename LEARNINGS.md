@@ -1184,3 +1184,13 @@ pairwise reduction tree, whereas the PW-0070 repair models the simpler
 four-lane fallback. The one score reproduces all five layer-final differences.
 Gate the specialized vector reduction on this pair before another arithmetic
 change or full walk.
+
+PW-0073 promotes PyTorch's specialized global-attention BF16 vector dot. Eight
+four-element F32 accumulators, pairwise reduction, ARM horizontal addition,
+and the source's vector/scalar tails clear every layer-11 capture exactly; route
+serialization differs only `7.57e-9`. A focused width-192 fixture alone was not
+enough: the full suite caught the omitted tail path on a tiny global-attention
+case before any real replay, and the repair was withheld until that path also
+matched. The final 180.887-second trace peaked at 749 MB RSS, retained 81% free
+memory, and caused no swap growth, throttling, or service loss. The exact
+accumulated frontier is now through layer 11.
