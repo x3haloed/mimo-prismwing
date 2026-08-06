@@ -1165,8 +1165,12 @@ fn apply_rope(values: &mut [f32], heads: usize, position: usize, theta: f64) {
             let sine = round_bf16(angle.sin() as f32);
             let first = values[offset + pair];
             let second = values[offset + pair + ROPE_DIM / 2];
-            values[offset + pair] = round_bf16(first * cosine - second * sine);
-            values[offset + pair + ROPE_DIM / 2] = round_bf16(second * cosine + first * sine);
+            let first_cosine = round_bf16(first * cosine);
+            let second_sine = round_bf16(second * sine);
+            let second_cosine = round_bf16(second * cosine);
+            let first_sine = round_bf16(first * sine);
+            values[offset + pair] = round_bf16(first_cosine - second_sine);
+            values[offset + pair + ROPE_DIM / 2] = round_bf16(second_cosine + first_sine);
         }
     }
 }
@@ -2074,6 +2078,58 @@ mod tests {
                 assert_eq!(
                     (actual.to_bits() >> 16) as u16,
                     expected.as_u64().expect("BF16 payload") as u16
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn bf16_text_rope_matches_pytorch_operation_staging() {
+        fn flatten_u16(value: &Value, output: &mut Vec<u16>) {
+            if let Some(values) = value.as_array() {
+                for value in values {
+                    flatten_u16(value, output);
+                }
+            } else {
+                output.push(value.as_u64().expect("BF16 payload") as u16);
+            }
+        }
+
+        let fixture: Value =
+            serde_json::from_str(include_str!("../evals/fixtures/tiny/pw0055-bf16-rope.json"))
+                .expect("valid BF16 RoPE fixture");
+        assert_eq!(fixture["semantic"], "mimo_text_rope_bf16_operation_staging");
+        for case in fixture["cases"].as_array().expect("RoPE cases") {
+            assert_eq!(case["heads"], 2);
+            assert_eq!(case["head_dim"], QK_HEAD_DIM);
+            assert_eq!(case["rope_dim"], ROPE_DIM);
+            let mut input_bits = Vec::new();
+            flatten_u16(&case["input_bf16_u16"], &mut input_bits);
+            let mut values = input_bits
+                .iter()
+                .map(|bits| f32::from_bits(u32::from(*bits) << 16))
+                .collect::<Vec<_>>();
+            let original = values.clone();
+            apply_rope(
+                &mut values,
+                2,
+                case["position"].as_u64().expect("position") as usize,
+                case["theta"].as_f64().expect("theta"),
+            );
+            let mut expected = Vec::new();
+            flatten_u16(&case["output_bf16_u16"], &mut expected);
+            assert_eq!(values.len(), expected.len());
+            assert_eq!(
+                values
+                    .iter()
+                    .map(|value| (value.to_bits() >> 16) as u16)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            for head in 0..2 {
+                assert_eq!(
+                    &values[head * QK_HEAD_DIM + ROPE_DIM..(head + 1) * QK_HEAD_DIM],
+                    &original[head * QK_HEAD_DIM + ROPE_DIM..(head + 1) * QK_HEAD_DIM]
                 );
             }
         }
