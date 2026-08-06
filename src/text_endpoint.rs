@@ -562,6 +562,8 @@ pub struct MetalNativeRoutedLayerTrial {
     pub mapping_open_ms: f64,
     pub trusted_tensor_bind_ms: f64,
     pub initial_invalidation_ms: f64,
+    pub raw_layer_wall_ms: f64,
+    pub safety_observation_ms: f64,
     pub layer_wall_ms: f64,
     pub final_release_ms: f64,
     pub activity: ProcessActivityDelta,
@@ -4754,7 +4756,9 @@ fn run_layer4_metal_native_trial(
         });
     }
     let trusted_tensor_bind_ms = bind_started.elapsed().as_secs_f64() * 1000.0;
+    let safety_started = Instant::now();
     safety.checkpoint("pw0111_artifact_bound", true)?;
+    let mut safety_observation_ms = safety_started.elapsed().as_secs_f64() * 1000.0;
     let transaction_inputs = bindings
         .iter()
         .map(|binding| RoutedNoCopyExpert {
@@ -4799,6 +4803,7 @@ fn run_layer4_metal_native_trial(
         .collect::<Result<Vec<_>, _>>()?;
     let routed = transaction.routed;
     let transaction_tomography = transaction.tomography;
+    safety_observation_ms += transaction_tomography.safety_observation_ms;
     drop(bindings);
     let release_started = Instant::now();
     if cache_state == "cold" {
@@ -4807,13 +4812,17 @@ fn run_layer4_metal_native_trial(
     drop(artifact);
     pressure_relief();
     let final_release_ms = release_started.elapsed().as_secs_f64() * 1000.0;
+    let safety_started = Instant::now();
     safety.checkpoint("pw0111_artifact_released", true)?;
+    safety_observation_ms += safety_started.elapsed().as_secs_f64() * 1000.0;
     let mut final_residual = post_attention
         .iter()
         .zip(&routed)
         .map(|(&residual, &projected)| residual + projected)
         .collect::<Vec<_>>();
     round_bf16_values(&mut final_residual);
+    let raw_layer_wall_ms = layer_started.elapsed().as_secs_f64() * 1000.0;
+    let layer_wall_ms = raw_layer_wall_ms - safety_observation_ms;
     Ok(MetalNativeRoutedLayerTrial {
         repetition,
         cache_state,
@@ -4821,7 +4830,9 @@ fn run_layer4_metal_native_trial(
         mapping_open_ms,
         trusted_tensor_bind_ms,
         initial_invalidation_ms,
-        layer_wall_ms: layer_started.elapsed().as_secs_f64() * 1000.0,
+        raw_layer_wall_ms,
+        safety_observation_ms,
+        layer_wall_ms,
         final_release_ms,
         activity: process_activity()?.checked_delta(activity_before)?,
         installed_source_bytes,

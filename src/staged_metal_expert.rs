@@ -138,6 +138,8 @@ pub struct MetalNativeRoutedLayerTomography {
     pub total_metal_resource_bytes: u64,
     pub recommended_max_working_set_size: u64,
     pub error_flags: u32,
+    pub raw_wall_ms: f64,
+    pub safety_observation_ms: f64,
     pub wall_ms: f64,
     pub activity: ProcessActivityDelta,
 }
@@ -586,6 +588,7 @@ impl BoundedMetalExpertRuntime {
 
         let wall_started = Instant::now();
         let activity_before = process_activity()?;
+        let mut safety_observation_ms = 0.0;
         let shared = MTLResourceOptions::StorageModeShared;
         let source_started = Instant::now();
         let sources = experts
@@ -717,7 +720,9 @@ impl BoundedMetalExpertRuntime {
             ));
         }
         let scratch_allocation_ms = scratch_started.elapsed().as_secs_f64() * 1000.0;
+        let safety_started = Instant::now();
         safety.checkpoint("pw0111_scratch_allocated", false)?;
+        safety_observation_ms += safety_started.elapsed().as_secs_f64() * 1000.0;
 
         let encode_started = Instant::now();
         let command = self.queue.new_command_buffer();
@@ -871,7 +876,9 @@ impl BoundedMetalExpertRuntime {
         );
         reduction_encoder.end_encoding();
         let command_encode_ms = encode_started.elapsed().as_secs_f64() * 1000.0;
+        let safety_started = Instant::now();
         safety.checkpoint("pw0111_precommit", false)?;
+        safety_observation_ms += safety_started.elapsed().as_secs_f64() * 1000.0;
         let commit_started = Instant::now();
         command.commit();
         let commit_call_ms = commit_started.elapsed().as_secs_f64() * 1000.0;
@@ -884,7 +891,9 @@ impl BoundedMetalExpertRuntime {
             completed_gpu_interval_ms(command),
             synchronous_wait_ms,
         )?;
+        let safety_started = Instant::now();
         safety.checkpoint("pw0111_command_completed", false)?;
+        safety_observation_ms += safety_started.elapsed().as_secs_f64() * 1000.0;
         // SAFETY: the one command has completed all shared-buffer writes.
         let error_flags = unsafe { *error_buffer.contents().cast::<u32>() };
         if error_flags != 0 {
@@ -904,7 +913,9 @@ impl BoundedMetalExpertRuntime {
         let down = read(&down_buffer, EXPERTS * HIDDEN);
         let routed = read(&routed_buffer, HIDDEN);
         let diagnostic_and_final_readback_ms = readback_started.elapsed().as_secs_f64() * 1000.0;
+        let safety_started = Instant::now();
         safety.checkpoint("pw0111_readback_complete", false)?;
+        safety_observation_ms += safety_started.elapsed().as_secs_f64() * 1000.0;
         if routed.iter().any(|value| !value.is_finite()) {
             return Err("Metal-native routed residual is non-finite".to_owned());
         }
@@ -958,7 +969,11 @@ impl BoundedMetalExpertRuntime {
         drop(swiglu_count_buffer);
         drop(reduction_shape_buffer);
         let explicit_release_ms = release_started.elapsed().as_secs_f64() * 1000.0;
+        let safety_started = Instant::now();
         safety.checkpoint("pw0111_buffers_released", true)?;
+        safety_observation_ms += safety_started.elapsed().as_secs_f64() * 1000.0;
+        let raw_wall_ms = wall_started.elapsed().as_secs_f64() * 1000.0;
+        let wall_ms = raw_wall_ms - safety_observation_ms;
         Ok(MetalNativeRoutedLayerOutput {
             routed,
             experts: outputs,
@@ -983,7 +998,9 @@ impl BoundedMetalExpertRuntime {
                 total_metal_resource_bytes,
                 recommended_max_working_set_size,
                 error_flags,
-                wall_ms: wall_started.elapsed().as_secs_f64() * 1000.0,
+                raw_wall_ms,
+                safety_observation_ms,
+                wall_ms,
                 activity: process_activity()?.checked_delta(activity_before)?,
             },
         })
