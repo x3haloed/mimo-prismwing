@@ -76,8 +76,12 @@ unless measured. This is walking-slice token latency, not the 8K/512-token
 accepted-TPS gate.
 
 Enforce normative Gate 8 at process start, checkpoint open, Metal compile,
-every prefill and incremental layer, every declared expert-buffer release, LM
-head completion, accepted-token commit, and final release. Stop if free memory
+every prefill and incremental layer, and each routed-layer buffer-release phase
+after all eight sequential expert buffers have been released, plus LM head
+completion, accepted-token commit, and final release. Assert and account for
+each individual expert release in-process; perform the full host/service scan
+at the layer phase so safety instrumentation does not dominate the token timer.
+Stop if free memory
 falls below 20%, process current or peak exceeds 8 GiB, post-release footprint
 exceeds 4 GiB, swap grows more than 512 MiB, any new throttled page appears, or
 ChatGPT, WindowServer, nxnode, or syncthing disappears. Record allocator relief
