@@ -88,6 +88,17 @@ Pass only if:
    resident memory, SSD state, concurrency one, hardware, compiler, commit,
    and output inspection. These are endpoint measurements at batch one but do
    not become a performance default without a later interleaved full-path gain.
+9. before the first full walk, enforce shared-host safety at checkpoint-open,
+   every completed decoder layer, final head, and token boundaries. Abort
+   without writing a passing report if system memory-free pressure falls below
+   20%, process physical footprint exceeds 8 GiB, post-relief phase footprint
+   exceeds 4 GiB, encrypted swap grows more than 512 MiB from the process
+   baseline, any new throttled VM page appears, or a protected resident service
+   present at baseline disappears. Protected baseline names are `ChatGPT`,
+   `WindowServer`, `nxnode`, and `syncthing`. Call Darwin malloc pressure relief
+   after each large phase and record pre/post footprint, relief bytes, memory
+   pressure, swap, throttled pages, and service liveness. These are safety stops,
+   not benchmark exclusions; an aborted run is preserved as evidence.
 
 The walking slice is killed or split only on a precisely preserved failing
 boundary. Inability to fit through sequential source views is a physical
@@ -106,6 +117,12 @@ materialization and explicit K/V retention.
 Raw evidence will be written outside Git under
 `/Users/chad/Models/mimo-prismwing/evidence/PW-0050`; only schemas, hashes,
 small fixtures, and summarized measurements enter Git.
+
+The initial 2026-08-05 preflight observed 85% system memory free by
+`memory_pressure -Q`, 2,005.44 MiB of pre-existing encrypted swap use, zero
+throttled pages, and the four declared resident service classes. Swap is
+therefore governed by growth from the run baseline rather than an absolute-zero
+rule. No full walk was started before adding this gate.
 
 ## Isolated attribution
 

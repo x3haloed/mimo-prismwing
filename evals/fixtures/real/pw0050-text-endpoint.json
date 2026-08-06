@@ -16,5 +16,19 @@
     "batch_size": 1,
     "concurrency": 1,
     "use_kv_cache": true
+  },
+  "safety": {
+    "minimum_system_memory_free_percent": 20,
+    "maximum_process_physical_footprint_bytes": 8589934592,
+    "maximum_post_phase_physical_footprint_bytes": 4294967296,
+    "maximum_swap_growth_bytes": 536870912,
+    "maximum_new_throttled_pages": 0,
+    "require_malloc_pressure_relief": true,
+    "protect_resident_services": [
+      "ChatGPT",
+      "WindowServer",
+      "nxnode",
+      "syncthing"
+    ]
   }
 }

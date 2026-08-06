@@ -22,6 +22,22 @@ class TextEndpointFixtureTests(unittest.TestCase):
         self.assertTrue(fixture["decode"]["use_kv_cache"])
         self.assertEqual(fixture["decode"]["batch_size"], 1)
         self.assertEqual(fixture["decode"]["concurrency"], 1)
+        self.assertEqual(fixture["safety"]["minimum_system_memory_free_percent"], 20)
+        self.assertEqual(
+            fixture["safety"]["maximum_process_physical_footprint_bytes"],
+            8 * 1024**3,
+        )
+        self.assertEqual(
+            fixture["safety"]["maximum_post_phase_physical_footprint_bytes"],
+            4 * 1024**3,
+        )
+        self.assertEqual(fixture["safety"]["maximum_swap_growth_bytes"], 512 * 1024**2)
+        self.assertEqual(fixture["safety"]["maximum_new_throttled_pages"], 0)
+        self.assertTrue(fixture["safety"]["require_malloc_pressure_relief"])
+        self.assertEqual(
+            fixture["safety"]["protect_resident_services"],
+            ["ChatGPT", "WindowServer", "nxnode", "syncthing"],
+        )
 
 
 if __name__ == "__main__":
