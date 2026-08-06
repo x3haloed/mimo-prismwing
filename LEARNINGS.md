@@ -1006,3 +1006,14 @@ BF16 boundary omission is therefore superseded as the primary explanation,
 while the source-authorized casts remain a correctness repair. Further full
 walks now require a line-by-line source/runtime semantic discrepancy, not an
 untethered numerical tweak.
+
+PW-0055 corrects another pinned-source detail: text RoPE performs two BF16
+multiplications and a BF16 addition, rather than one combined F32 expression
+followed by a cast. Exact PyTorch fixtures pass and the chat output changes
+materially to ` a.`, but hosted movement is again mixed: first-token error
+improves from 12.8016 to 12.5231 nats while second-token error worsens from
+7.8176 to 9.5774. The staging remains a correctness repair and is rejected as
+the primary mismatch. Whole-model output sensitivity now makes further blind
+full walks low-value; the next gate must localize the first real layer-0
+intermediate divergence against independent PyTorch BF16/dynamic-FP8
+semantics.

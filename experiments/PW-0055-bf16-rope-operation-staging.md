@@ -1,10 +1,10 @@
 # PW-0055 — BF16 text-RoPE operation staging
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness-repair
 - Date: 2026-08-05
 - Owner: Codex with project owner authorization
-- Commit and dirty state: contract and fixture generator precede runtime change
+- Commit and dirty state: clean `45cf257bd3fd11afbc9c44f3e2b93049aa047e9c`
 - Checkpoint/processor/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; pinned
   `modeling_mimo_v2.py` SHA-256
@@ -50,8 +50,32 @@ and 0/2 top-1 agreement.
 
 ## Result
 
-Unexecuted.
+All eight PyTorch RoPE cases match every BF16 payload bit and preserve the
+unrotated tail. All 28 Rust tests, 35 Python tests, strict Clippy, and the
+release build pass.
+
+Raw run 001 completed safely in 290.812 seconds and retained `[122046,13]`
+(`瀛.`), but its second-token routes changed and its top logits moved by as
+much as 0.0625 versus PW-0054. Its report hashes to
+`350e9fb298356d8a149617018809d9be593a779f993846e4ee97f70368a7ae5f`.
+
+Frozen chat run 001 completed in 935.040 seconds and changed the local output
+to `[264,13]` (` a.`). Hosted token 9707 error improved from 12.8016 to
+12.5231 nats, while hosted token 0 error worsened from 7.8176 to 9.5774 nats.
+Top-1 agreement remained 0/2. The chat report is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0055/chat-001/endpoint.json`,
+SHA-256 `ddd72e5110112ecbc77aa446381cf243dc5d33c78f85e1b3aa5f93976584682a`.
+
+The chat walk moved 84,281,691,904 logical source bytes and measured
+85,559,504,896 process disk-read bytes. Minimum system free memory was 82%,
+peak process residency was 4,327,292,928 bytes, swap did not grow, no new
+throttled pages appeared, and every protected service remained alive.
 
 ## Decision
 
-Unexecuted.
+Keep exact BF16 text-RoPE staging as a correctness repair. Reject it as the
+primary hosted mismatch: movement was mixed and the second position regressed
+substantially. Move down the correctness ladder to an independent real
+layer-0 PyTorch trace with BF16 and dynamic-FP8 semantics before another full
+walk. That layer-local oracle must identify the first divergent intermediate;
+do not infer a new whole-model repair from output text alone.
