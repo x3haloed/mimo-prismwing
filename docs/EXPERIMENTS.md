@@ -152,9 +152,13 @@ matrix-SVD fitting. This supersedes the assumption that the smallest
 weight-MSE shape should be trained first and makes activation-weighted fitting
 the cheapest remaining falsification. PW-0120 therefore preflights the
 6,643,793,920-byte semantic parameter/gradient/Adam lower bound for `(768,4)`
-under phase-level Gate 8 stops before any rank-heavy fit. A pass authorizes only
-a bounded activation-weighted pilot; a failure routes training to a separately
-contracted block-coordinate, offloaded, or external path.
+under phase-level Gate 8 stops before any rank-heavy fit. It rejects direct
+full-state MPS Adam: after parameters and dense backward, the first Adam step
+hits the 7.10-GiB allocator ceiling while requesting another 1.50 GiB, and the
+immediate release footprint also misses the 4-GiB gate. Do not disable the
+watermark or retry this topology. Continue only through a separately frozen
+block-coordinate, offloaded, factored-state, or external optimizer path that
+preserves the rank-768 representation and held-out objective.
 
 ## E6 — MTP and DFlash verification
 

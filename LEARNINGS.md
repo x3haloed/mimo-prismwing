@@ -1960,3 +1960,24 @@ analysis hashes to
 Gate 8 passes with 81% minimum free memory, 1,036,451,840-byte peak RSS, zero
 swap growth/throttling, and stable services. No throughput-model constant or
 endpoint TPS changes in PW-0119.
+
+PW-0120 rejects direct full-state MPS Adam for the rank-heavy `(r=768,m=4)`
+identity-basis shape. Its 415,237,120 F32 parameters occupy 1,660,948,480 bytes;
+after a real forward and dense backward, MPS current allocation reaches
+3,321,909,504 bytes and driver allocation 4,306,124,800 bytes. The first Adam
+step then reaches 7.01 GiB and is refused while requesting another 1.50 GiB
+against the safety-capped 7.10-GiB maximum. Disabling the watermark is not an
+eligible continuation.
+
+The bounded rejection preserves live host safety—42% minimum free memory,
+zero swap growth/throttling, and stable services—but immediate post-cleanup
+physical footprint remains 5,502,110,784 bytes and independently fails the
+below-4-GiB release gate even though MPS current allocation returns to zero.
+This kills the allocation topology, not activation-weighted rank-768 fitting.
+The next optimizer must keep inactive blocks gradient-free and explicitly
+bound state through block-coordinate, offload, factored-state, or external
+training. Raw evidence hashes to
+`8e1a597fc5f15e98fffe2afb0e14964777b7fc5251e5bcb8bf60ae8923d5b2db`;
+analysis hashes to
+`4fce122f9887f7c103c635337c235767fe66de63372c80219f8b745a191c4a50`.
+No throughput-model constant or endpoint TPS changes in PW-0120.

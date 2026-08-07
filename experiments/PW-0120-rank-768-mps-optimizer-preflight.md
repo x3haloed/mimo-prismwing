@@ -1,7 +1,7 @@
 # PW-0120 — Rank-768 MPS optimizer preflight
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Commit and dirty state: preimplementation contract; clean tree
@@ -90,8 +90,48 @@ under a separately frozen contract. Do not relax host safety to make it pass.
 
 ## Result
 
-Unexecuted.
+The clean implementation at `e32f62a1cd55986a22c26ae374a1f0857d613ffa`
+completed source loading, all production parameter allocation, forward/loss,
+and dense backward under the 0.60 MPS memory fraction. Exact phase memory was:
+
+| Phase | MPS current bytes | MPS driver bytes | Physical footprint bytes |
+| --- | ---: | ---: | ---: |
+| Parameters | 1,660,948,480 | 2,693,152,768 | 2,855,045,952 |
+| Forward | 1,662,951,936 | 2,693,152,768 | 2,925,530,176 |
+| Backward | 3,321,909,504 | 4,306,124,800 | 4,547,529,792 |
+
+The first Adam step then failed closed while creating optimizer state. MPS
+reported 7.01 GiB already allocated, a 7.10 GiB maximum, and refused the next
+1.50 GiB shared-pool allocation. Disabling the high-watermark limit would
+violate this experiment's safety purpose and was not attempted.
+
+Cleanup returned MPS current allocation to zero and driver allocation to
+2,752,512 bytes. The immediate release-boundary process footprint nevertheless
+remained 5,502,110,784 bytes, failing the frozen below-4-GiB release gate. The
+process then exited, and an external post-process read found 73% system-free
+memory. During the recorded process, free memory never fell below 42%; swap
+growth and new throttled pages remained zero and protected services stayed
+stable. The allocator cap therefore preserved live host safety while producing
+a decisive rejection.
+
+The raw report at
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0120/run-001.json` hashes to
+`8e1a597fc5f15e98fffe2afb0e14964777b7fc5251e5bcb8bf60ae8923d5b2db`.
+Independent rejection analysis at
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0120/analysis-001/manifest.json`
+hashes to
+`4fce122f9887f7c103c635337c235767fe66de63372c80219f8b745a191c4a50`.
+There are zero accepted tokens and no TPS claim.
 
 ## Decision
 
-Unexecuted.
+Reject direct full-state MPS Adam for the production `(r=768,m=4)` identity-
+basis shape on the shared 16 GiB host. Do not disable MPS's high-watermark
+limit, raise Gate 8, or retry the same allocation topology.
+
+This does not reject rank-768 activation-weighted fitting. Freeze a lower-
+memory optimizer experiment that updates one expert-factor block or one shared
+basis block at a time, keeps inactive parameters frozen without dense
+gradients, bounds optimizer state explicitly, and proves that its objective and
+holdout evaluation remain those of the same rank-768 representation. Compare
+any fit against PW-0119 before constructing a full shared bank.
