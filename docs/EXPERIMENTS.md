@@ -266,6 +266,15 @@ Do not build the naive INT4 bank or compose it with cache/speculation. A next
 quantized branch must change calibration, outlier treatment, training, or the
 representation itself.
 
+PW-0130 gives the cheapest calibration branch an intentionally generous
+capacity test. Recompute PW-0129's real INT4 outputs, then fit F16 per-expert,
+per-output-channel bias-only and affine repairs on the same validation rows
+they are evaluated on. The full repair costs only 4 MiB per layer. Kill this
+diagonal output-calibration family if even the same-validation affine oracle
+cannot reach 1% aggregate, 2% per layer, and 5% per row while monotonically
+improving the nested controls. Holdout remains sealed; a capacity pass would
+authorize a separately frozen train-only calibration test, not deployment.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
