@@ -451,6 +451,15 @@ not build the bank or runtime. A cheap successor may test pooled-Hessian
 shrinkage on the deeper low-calibration-count failures before moving to
 rotation or recovery training.
 
+PW-0140 tests that lead on the three deepest low-count failures: layer
+24/experts 39 and 128 and layer 46/expert 140. Replace their sparse routed
+calibration inputs with all 112 layer train inputs while holding the full-
+Hessian algorithm, affine grids, damping, ordering, bytes, and MACs fixed.
+Continue only if every pooled candidate improves PW-0139, reaches 8% validation
+L2 and 12% worst-row error, and improves every pooled projection control. A
+pass authorizes only a train-only shrinkage-policy experiment; holdout and
+runtime remain closed.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
