@@ -217,6 +217,14 @@ generalization rather than implementation or optimization. Holdout remains
 sealed. Reject the fixed linear dictionary before coefficient-network or
 runtime work; nonlinear/input-conditioned direct compilation remains distinct.
 
+PW-0127 returns to PW-0048 with the reduced $500 cap. A historical used R720
+with two E5-2680-v2 CPUs and 512 GiB shows that source-backbone capacity can
+fit the budget, but capacity is not throughput. Authenticate every mandatory
+checkpoint matrix MAC and compare it with an intentionally impossible CPU peak
+that grants all twenty cores 3.60-GHz turbo and full AVX issue. A failed peak
+bound rejects this CPU-only class for Prismwing 50 before borrowed-node or
+purchase work; any lower-rate arithmetic pass remains measurement-only.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

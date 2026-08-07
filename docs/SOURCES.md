@@ -200,3 +200,37 @@ step is relevant to reconstruction quality but prevents basis evaluations from
 being linearly shared across selected experts. PW-0117 separates the published
 activated representation from Prismwing's prospective identity-activation
 all-projection transaction form instead of conflating their compute claims.
+
+## Under-$500 companion candidate authorities
+
+- Intel, Xeon E5-2680 v2 specifications (accessed 2026-08-06):
+  <https://www.intel.com/content/www/us/en/products/sku/75277/intel-xeon-processor-e52680-v2-25m-cache-2-80-ghz/specifications.html>.
+- Dell, PowerEdge R720/R720xd owner's manual, technical specifications
+  (accessed 2026-08-06):
+  <https://www.dell.com/support/manuals/en-us/poweredge-r720/720720xdom-v3/technical-specifications>.
+- Intel, *Intel 64 and IA-32 Architectures Optimization Reference Manual*,
+  including the earlier-generation throughput volume (accessed 2026-08-06):
+  <https://www.intel.com/content/www/us/en/developer/articles/technical/intel64-and-ia32-architectures-optimization.html>.
+- NASA Advanced Supercomputing, *How to Use Sandy Bridge Processors*, AVX peak
+  of 16 single-precision operations/cycle/core (accessed 2026-08-06):
+  <https://www.nas.nasa.gov/hecc/assets/pdf/training/How_to_Use_Sandy_Bridge_062712.pdf>.
+- eBay sold listing `168220564406`, Dell R720, dual E5-2680 v2, 512 GB RAM,
+  no disk, observed sold at `$303.75` on 2026-08-06. This is a market
+  feasibility observation, not an active BOM or purchase authority:
+  <https://www.ebay.com/itm/168220564406>.
+- NVIDIA, Tesla P40 data sheet (accessed 2026-08-06):
+  <https://www.nvidia.com/content/pdf/tesla/184427-Tesla-P40-Datasheet-NV-Final-Letter-Web.pdf>.
+- eBay listing `116590232547`, used Tesla P40 card-only, observed at `$249.99`
+  with three available on 2026-08-06; accessories are excluded:
+  <https://www.ebay.com/itm/116590232547>.
+
+Decision: source authority for PW-0127's pre-purchase ceiling, not evidence of
+measured MiMo performance or a complete purchasable BOM. Intel specifies ten
+cores, 3.60-GHz maximum turbo, AVX, 115-W TDP, and 59.7 GB/s maximum memory
+bandwidth per E5-2680 v2. Dell supports two E5-2600-v2 CPUs and up to 512 GB
+RDIMM in the R720. The sold server example shows that capacity has appeared
+below the project cap; it cannot satisfy PW-0048's dated active-BOM or measured
+stage gates. NVIDIA specifies 24 GB, 12 FP32 TFLOP/s, 47 INT8 TOPS, 346 GB/s,
+PCIe 3.0 x16, and 250 W for the P40. The representative server-plus-current-
+P40 prices already total `$553.74` before storage, adapters, or cooling, so
+that pair is not an eligible BOM.
