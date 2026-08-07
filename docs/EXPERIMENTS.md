@@ -359,6 +359,17 @@ but quality misses even the near-miss gate. Keep holdout sealed and do not
 compose exceptions. Proceed to a mechanism that propagates correlated error,
 changes outlier geometry, or trains recovery weights.
 
+PW-0135 tests correlated quantization-error propagation before paying for all
+validation experts. On the highest-coverage experts at layers 4/24/46, apply
+group-local GPTQ on the fixed MLX affine-INT4 grid, sweeping 0.1%/1%/10%
+damping and natural/activation order per projection using only train
+activations. Execute the chosen grid values through an unpacked dense oracle,
+prove grid membership, compare the identical unpacked RTN control with
+PW-0129's packed control, and keep holdout sealed. Continue to a full-layer
+audit only if every expert halves validation error, reaches at most 8% L2 and
+12% worst-row error, and improves train without changing INT4 bytes or runtime
+MACs. Otherwise move beyond this block-local fixed-grid form.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
