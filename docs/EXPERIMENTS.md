@@ -418,6 +418,14 @@ cross-group Hessian coupling—not a relaxed gate—contains the missing local
 capacity. Keep holdout sealed and run the separately frozen three-expert
 confirmation before expanding to a layer or executable artifact.
 
+PW-0138 applies the exact PW-0137 mechanism without tuning to PW-0135's
+original layer 4/24/46 experts. Every expert must halve validation error, reach
+at most 8% L2 and 12% worst-row error, improve train, and be no worse than its
+group-local candidate under the unchanged 13,369,344-byte/no-extra-MAC ledger.
+The layer-46 rerun must reproduce PW-0137's metrics and assignment hashes
+exactly. A pass authorizes only a separately frozen all-validation-expert
+audit; holdout and runtime construction remain closed.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
