@@ -283,6 +283,15 @@ error remains 2.992% and the worst row 6.913%. Its 4-MiB-per-layer cost is only
 remaining error requires input-conditioned and/or cross-channel correction.
 Holdout remains sealed.
 
+PW-0131 grants the remaining input-dependent/cross-channel error a compact
+two-factor repair on each expert's real MoE input. Stack ranks 8, 16, 32, and
+56 on PW-0130's same-validation affine oracle, store all factors as F16, and
+charge a full 256-expert bank. Select the smallest rank reaching 1% aggregate,
+2% per layer, and 5% per row while the combined representation stays below
+60% of source bytes and repair arithmetic below 5% of source expert MACs.
+Holdout remains sealed. A same-validation pass only authorizes train-only
+generalization; rank-56 failure kills this low-rank output-repair family.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
