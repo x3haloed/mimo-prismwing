@@ -72,7 +72,7 @@ PW0135_VALIDATION_RELATIVE_L2 = 0.080659
 
 
 def calibration_positions(positions: list[int]) -> tuple[list[int], list[int]]:
-    if any(not isinstance(position, int) or not 0 <= position < 168 for position in positions):
+    if any(not isinstance(position, int) or not 0 <= position < 224 for position in positions):
         raise ValueError("PW-0137 partition positions are invalid")
     return (
         [index for index, position in enumerate(positions) if position < 112],

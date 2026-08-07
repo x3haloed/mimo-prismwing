@@ -59,11 +59,11 @@ class GlobalHessianGptqTests(unittest.TestCase):
         self.assertEqual(diagnostics["dead_activation_columns"], 128)
 
     def test_partition_isolation(self):
-        train, validation = calibration_positions([0, 111, 112, 167])
+        train, validation = calibration_positions([0, 111, 112, 167, 168, 223])
         self.assertEqual(train, [0, 1])
         self.assertEqual(validation, [2, 3])
         with self.assertRaises(ValueError):
-            calibration_positions([168])
+            calibration_positions([224])
 
     def test_projected_workspace_is_conservative_and_shape_checked(self):
         weight = np.zeros((8, 256), dtype=np.float16)
