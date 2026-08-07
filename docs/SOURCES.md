@@ -292,3 +292,40 @@ source-FP8 exceptions selected by a train-only diagonal activation-weighted
 error proxy. None of the published quality or speed results transfer to MiMo's
 dynamic source-FP8 MoE without the repository's routed-activation and endpoint
 gates.
+
+## Explicit routed-expert I/O and slot-ownership authorities
+
+- TurboFieldfare commit `3249be40a33ea6560b35531c184609d7be67ac1a`,
+  `VerifiedInstallReceipt.swift`, `PreadExpertStreamer.swift`, system design,
+  expert-I/O summary, and optimization journey; accessed 2026-08-07:
+  <https://github.com/drumih/turbo-fieldfare/tree/3249be40a33ea6560b35531c184609d7be67ac1a>.
+- Swiftlet commit `02f8101e1a9671f93f1f3d3a31926344d751a6e2`,
+  `Qpack.swift`, `ExpertCache.swift`, `QwenMetalModel.swift`, and
+  `SwiftletSession.swift`; accessed 2026-08-07:
+  <https://github.com/leonickson1/Swiftlet/tree/02f8101e1a9671f93f1f3d3a31926344d751a6e2>.
+
+Decision: primary implementation and measurement authorities for PW-0136 and
+any conditional successor, not transferred MiMo performance evidence.
+TurboFieldfare binds a trusted installation receipt to manifest, source
+revision, sizes, and hashes; maps common weights read-only; and fills bounded,
+page-aligned, Metal-wrapped routed slots through explicit `pread`. Its current
+planner reserves hit and avoided slots, marks a miss slot invalid before I/O,
+and publishes its expert identity only after all concurrent reads succeed.
+Swiftlet independently stores all projection material at fixed offsets within
+one fixed-stride expert blob and performs one `pread` per miss.
+
+TurboFieldfare's measured cold expert read is 9.88 ms through mmap versus 2.79
+ms through `pread`; its simulator reports about 0.50 versus 3.97 tok/s. Its
+coarse resident/hit/read-miss/join schedule outperformed per-completion expert
+launching, and persistent independent row-claiming workgroups outperformed an
+eight-task cooperative kernel. Swiftlet defers memory-pressure cache shrink
+until between tokens and carries a completed layer's MoE as pending work into
+the next command buffer. These mechanisms motivate explicit slot ownership and
+pending-MoE orchestration only after PW-0136 clears the real MiMo acquisition
+bound.
+
+Both repositories also preserve important negative evidence: increased cache
+hit rate need not improve decode, argument-buffer reuse can reduce allocations
+while slowing the workload, and monolithic fusion can reduce throughput.
+Prismwing therefore retains end-to-end promotion gates and does not infer that
+fewer reads, buffers, or dispatches are sufficient.

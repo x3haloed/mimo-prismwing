@@ -380,6 +380,16 @@ useful premise, but the next contract must change the mechanism—global-Hessian
 coupling, a function-preserving rotation, or recovery training—rather than
 retroactively relaxing PW-0135's threshold.
 
+PW-0136 reopens cold routed-layer acquisition under a mechanism PW-0106 and
+PW-0108 did not test. Derive eight fixed-stride extents from PW-0106's exact
+source-FP8 artifact, `pread` them into eight reusable page-aligned allocations
+already wrapped by Metal, and sweep 1/2/4/8 bounded workers under interleaved
+cold and warm trials. Require exact full-artifact hashes and real physical-read
+evidence. Continue to a slot-owned I/O/Metal scheduler only if cold acquisition
+clears PW-0108's unchanged 47.7 ms bound with no trial above 57.723 ms. Failure
+kills this I/O embodiment for source FP8, not for a later fidelity-qualified
+INT4 artifact whose selected bytes are roughly halved.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
