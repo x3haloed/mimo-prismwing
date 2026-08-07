@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import gc
 import hashlib
 import json
@@ -66,22 +67,12 @@ except ModuleNotFoundError:
     )
 
 
-EXPERIMENT_ID = "PW-0123"
 REVISION = "63651580ca774f8504f676040460aed3e1244ac1"
 VERIFICATION_SHA256 = "9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03"
 CORPUS_SHA256 = "b9df976876d63c1ffbbe0c70507aea8b939a749ce5b1db27cbca0b5d82cf802e"
-PW0122_ANALYSIS_SHA256 = "5b5a21be9438e81e9b05a155ca365cd0dc4180be1b06a18a873362e88f60e0eb"
 LAYER = 46
 EXPERTS = [28, 249, 213, 125, 57]
 BASES = 4
-EXPECTED_COUNTS = {
-    28: {"train": 100, "validation": 56, "pilot_holdout": 56},
-    249: {"train": 90, "validation": 56, "pilot_holdout": 56},
-    213: {"train": 94, "validation": 48, "pilot_holdout": 46},
-    125: {"train": 57, "validation": 48, "pilot_holdout": 56},
-    57: {"train": 17, "validation": 56, "pilot_holdout": 56},
-}
-SEED = 260123
 SHARED_LEARNING_RATE = 0.0005
 SHARED_MAX_STEPS = 150
 SHARED_VALIDATE_EVERY = 5
@@ -92,6 +83,90 @@ PW0122_EXPERT28 = {
     "validation": 0.19566708093351987,
     "pilot_holdout": 0.2881280111180422,
 }
+
+
+@dataclass(frozen=True)
+class SharingSpec:
+    experiment_id: str
+    evidence_class: str
+    parent_analysis_sha256: str
+    seed: int
+    partition_mode: str
+    expected_counts: dict[int, dict[str, int]]
+    pass_decision: str
+    fail_decision: str
+    limitations: str
+
+
+PW0123_SPEC = SharingSpec(
+    experiment_id="PW-0123",
+    evidence_class="pw0123_five_expert_four_basis_sharing_pilot",
+    parent_analysis_sha256="5b5a21be9438e81e9b05a155ca365cd0dc4180be1b06a18a873362e88f60e0eb",
+    seed=260123,
+    partition_mode="contiguous_pw0116",
+    expected_counts={
+        28: {"train": 100, "validation": 56, "pilot_holdout": 56},
+        249: {"train": 90, "validation": 56, "pilot_holdout": 56},
+        213: {"train": 94, "validation": 48, "pilot_holdout": 46},
+        125: {"train": 57, "validation": 48, "pilot_holdout": 56},
+        57: {"train": 17, "validation": 56, "pilot_holdout": 56},
+    },
+    pass_decision="authorize_broader_same_layer_shared_basis_fit_contract",
+    fail_decision="reject_rank768_four_basis_sharing_under_current_objective",
+    limitations="five well-covered layer-46 experts on one English sequential corpus; no other experts, rare identities, broader modalities, persisted artifact, quantized factor evaluation, kernel, endpoint, or TPS",
+)
+
+
+PW0124_SPEC = SharingSpec(
+    experiment_id="PW-0124",
+    evidence_class="pw0124_coverage_rebalanced_sharing_control",
+    parent_analysis_sha256="4d4469184eda8717a12643a58b111d0a4fd6ac72585eb6aaabcfc6c187ab6438",
+    seed=260124,
+    partition_mode="development_occurrence_mod5",
+    expected_counts={
+        28: {"train": 124, "validation": 32, "pilot_holdout": 56},
+        249: {"train": 116, "validation": 30, "pilot_holdout": 56},
+        213: {"train": 113, "validation": 29, "pilot_holdout": 46},
+        125: {"train": 84, "validation": 21, "pilot_holdout": 56},
+        57: {"train": 58, "validation": 15, "pilot_holdout": 56},
+    },
+    pass_decision="authorize_broader_corpus_for_four_basis_sharing",
+    fail_decision="reject_coverage_scarcity_as_four_basis_failure_explanation",
+    limitations="coverage-rebalanced development control on the same English sequential corpus; unchanged original holdout, but no new language/modality/expert evidence, persisted artifact, quantized factor evaluation, kernel, endpoint, or TPS",
+)
+
+
+def build_partitions(positions: list[int], spec: SharingSpec) -> dict[str, list[int]]:
+    if spec.partition_mode == "contiguous_pw0116":
+        return {
+            "train": [index for index, position in enumerate(positions) if position < 112],
+            "validation": [
+                index for index, position in enumerate(positions) if 112 <= position < 168
+            ],
+            "pilot_holdout": [
+                index for index, position in enumerate(positions) if position >= 168
+            ],
+        }
+    if spec.partition_mode == "development_occurrence_mod5":
+        development = [
+            index for index, position in enumerate(positions) if position < 168
+        ]
+        return {
+            "train": [
+                local_index
+                for occurrence, local_index in enumerate(development)
+                if occurrence % 5 != 0
+            ],
+            "validation": [
+                local_index
+                for occurrence, local_index in enumerate(development)
+                if occurrence % 5 == 0
+            ],
+            "pilot_holdout": [
+                index for index, position in enumerate(positions) if position >= 168
+            ],
+        }
+    raise ValueError(f"unknown sharing partition mode {spec.partition_mode}")
 
 
 def _mps_memory() -> dict:
@@ -160,6 +235,7 @@ def _select_fifth_basis_from_train(
 
 
 def _train_shared_projection(
+    experiment_id: str,
     projection: str,
     independent: list[tuple[np.ndarray, np.ndarray]],
     inputs: list[torch.Tensor],
@@ -168,7 +244,7 @@ def _train_shared_projection(
     safety: HostSafetyMonitor,
 ) -> tuple[tuple[np.ndarray, np.ndarray, np.ndarray], dict]:
     if len(independent) != len(EXPERTS) or len(EXPERTS) <= BASES:
-        raise ValueError("PW-0123 topology does not force sharing")
+        raise ValueError(f"{experiment_id} topology does not force sharing")
     a_initial = np.stack([factors[0] for factors in independent]).astype(np.float32)
     b_initial = np.stack([independent[index][1] for index in range(BASES)]).astype(np.float32)
     coefficients_initial = np.zeros((len(EXPERTS), BASES), dtype=np.float32)
@@ -227,7 +303,7 @@ def _train_shared_projection(
                 ]
                 validation_loss = float(np.mean(per_expert))
             if not np.isfinite(validation_loss) or not np.isfinite(per_expert).all():
-                raise ValueError(f"PW-0123 shared {projection} validation is non-finite")
+                raise ValueError(f"{experiment_id} shared {projection} validation is non-finite")
             improved = validation_loss < best_loss
             history.append(
                 {
@@ -260,12 +336,12 @@ def _train_shared_projection(
         optimizer.zero_grad(set_to_none=True)
         loss = _equal_expert_loss(predictions(train_inputs), train_targets)
         if not bool(torch.isfinite(loss).item()):
-            raise ValueError(f"PW-0123 shared {projection} train loss is non-finite")
+            raise ValueError(f"{experiment_id} shared {projection} train loss is non-finite")
         loss.backward()
         if step == 0:
             coefficient_gradient_norm = float(torch.linalg.vector_norm(coefficients.grad).cpu())
             if not np.isfinite(coefficient_gradient_norm) or coefficient_gradient_norm <= 0:
-                raise ValueError(f"PW-0123 shared {projection} coefficient gradient is invalid")
+                raise ValueError(f"{experiment_id} shared {projection} coefficient gradient is invalid")
             torch.mps.synchronize()
             safety.checkpoint(f"shared_{projection}_first_backward_complete")
             memory.append({"phase": "first_backward", **_mps_memory()})
@@ -274,7 +350,7 @@ def _train_shared_projection(
         "equal_expert_validation_normalized_mse"
     ]
     if best is None or best_step is None:
-        raise ValueError(f"PW-0123 shared {projection} lacks a finite checkpoint")
+        raise ValueError(f"{experiment_id} shared {projection} lacks a finite checkpoint")
 
     with torch.no_grad():
         a.copy_(torch.from_numpy(best[0]).to(device))
@@ -307,7 +383,7 @@ def _train_shared_projection(
         ],
     )
     if release["current_allocated_bytes"] != 0:
-        raise ValueError(f"PW-0123 shared {projection} MPS allocation did not release")
+        raise ValueError(f"{experiment_id} shared {projection} MPS allocation did not release")
     return best, {
         "initial_equal_expert_validation_normalized_mse": history[0][
             "equal_expert_validation_normalized_mse"
@@ -386,22 +462,23 @@ def run(
     checkpoint_root: Path,
     verification_path: Path,
     corpus_manifest_path: Path,
-    pw0122_analysis_path: Path,
+    parent_analysis_path: Path,
     output_path: Path,
     commit: str,
+    spec: SharingSpec = PW0123_SPEC,
 ) -> dict:
     if output_path.exists():
         raise ValueError(f"refusing to overwrite {output_path}")
     if len(commit) != 40 or any(character not in "0123456789abcdef" for character in commit):
         raise ValueError("implementation commit must be lowercase 40-hex")
     if sha256_file(verification_path) != VERIFICATION_SHA256:
-        raise ValueError("PW-0123 checkpoint verification hash mismatch")
+        raise ValueError(f"{spec.experiment_id} checkpoint verification hash mismatch")
     if sha256_file(corpus_manifest_path) != CORPUS_SHA256:
-        raise ValueError("PW-0123 corpus manifest hash mismatch")
-    if sha256_file(pw0122_analysis_path) != PW0122_ANALYSIS_SHA256:
-        raise ValueError("PW-0123 PW-0122 analysis hash mismatch")
+        raise ValueError(f"{spec.experiment_id} corpus manifest hash mismatch")
+    if sha256_file(parent_analysis_path) != spec.parent_analysis_sha256:
+        raise ValueError(f"{spec.experiment_id} parent analysis hash mismatch")
     if not torch.backends.mps.is_built() or not torch.backends.mps.is_available():
-        raise ValueError("PW-0123 requires an available PyTorch MPS backend")
+        raise ValueError(f"{spec.experiment_id} requires an available PyTorch MPS backend")
 
     complete_started = time.perf_counter()
     safety = HostSafetyMonitor()
@@ -424,20 +501,12 @@ def run(
     independent_factors = []
     independent_reports = []
     svd_reports = []
-    torch.manual_seed(SEED)
+    torch.manual_seed(spec.seed)
     for expert in EXPERTS:
         row_offset, positions = schedule_by_expert[expert]
-        partitions = {
-            "train": [index for index, position in enumerate(positions) if position < 112],
-            "validation": [
-                index for index, position in enumerate(positions) if 112 <= position < 168
-            ],
-            "pilot_holdout": [
-                index for index, position in enumerate(positions) if position >= 168
-            ],
-        }
-        if {name: len(rows) for name, rows in partitions.items()} != EXPECTED_COUNTS[expert]:
-            raise ValueError(f"PW-0123 expert {expert} partition mismatch")
+        partitions = build_partitions(positions, spec)
+        if {name: len(rows) for name, rows in partitions.items()} != spec.expected_counts[expert]:
+            raise ValueError(f"{spec.experiment_id} expert {expert} partition mismatch")
         inputs = torch.from_numpy(np.asarray(moe_input[positions]).copy()).to(torch.bfloat16)
         expected = torch.from_numpy(
             np.asarray(expert_down[row_offset : row_offset + len(positions)]).copy()
@@ -453,7 +522,7 @@ def run(
         source_output = source_linear(weights["down"], source_hidden)
         source_parity = parity(source_output, expected)
         if source_parity["equality_fraction"] != 1.0:
-            raise ValueError(f"PW-0123 expert {expert} source oracle is not bit exact")
+            raise ValueError(f"{spec.experiment_id} expert {expert} source oracle is not bit exact")
         projection_inputs = {
             "gate": dynamic_input(inputs).float(),
             "up": dynamic_input(inputs).float(),
@@ -480,7 +549,7 @@ def run(
             decompositions[projection] = decomposition
             initial[projection] = balanced_factors(decomposition, RANK)
             fitted, training_report = train_projection(
-                EXPERIMENT_ID,
+                spec.experiment_id,
                 projection,
                 initial[projection],
                 projection_inputs[projection],
@@ -508,10 +577,10 @@ def run(
             "partitions": partition_metrics(baseline_output, expected, positions),
         }
         independent_metrics = _factor_metrics(selected, inputs, expected, positions)
-        if expert == 28:
+        if expert == 28 and spec == PW0123_SPEC:
             for name, frozen in PW0122_EXPERT28.items():
                 if abs(_relative_l2(independent_metrics, name) - frozen) > 1e-6:
-                    raise ValueError(f"PW-0123 expert-28 independent {name} mismatch")
+                    raise ValueError(f"{spec.experiment_id} expert-28 independent {name} mismatch")
         expert_data.append(
             {
                 "expert": expert,
@@ -562,6 +631,7 @@ def run(
     projection_gates = {}
     for projection in ("gate", "up", "down"):
         factors, report = _train_shared_projection(
+            spec.experiment_id,
             projection,
             [row[projection] for row in independent_factors],
             [row["projection_inputs"][projection] for row in expert_data],
@@ -685,25 +755,26 @@ def run(
     )
     safety.checkpoint("final_service_health")
     if final_mps_memory["current_allocated_bytes"] != 0:
-        raise ValueError("PW-0123 final MPS allocation did not release")
+        raise ValueError(f"{spec.experiment_id} final MPS allocation did not release")
 
     report = {
         "schema_version": 1,
-        "evidence_class": "pw0123_five_expert_four_basis_sharing_pilot",
+        "evidence_class": spec.evidence_class,
         "revision": REVISION,
         "commit": commit,
         "checkpoint_verification_sha256": VERIFICATION_SHA256,
         "corpus_manifest_sha256": CORPUS_SHA256,
-        "pw0122_analysis_sha256": PW0122_ANALYSIS_SHA256,
+        "parent_analysis_sha256": spec.parent_analysis_sha256,
         "layer": LAYER,
         "experts": EXPERTS,
         "basis_count": BASES,
         "rank": RANK,
         "expected_partition_counts": {
-            str(expert): counts for expert, counts in EXPECTED_COUNTS.items()
+            str(expert): counts for expert, counts in spec.expected_counts.items()
         },
         "configuration": {
-            "seed": SEED,
+            "seed": spec.seed,
+            "partition_mode": spec.partition_mode,
             "shared_optimizer": "Adam",
             "shared_learning_rate": SHARED_LEARNING_RATE,
             "shared_maximum_steps": SHARED_MAX_STEPS,
@@ -738,12 +809,8 @@ def run(
         "concurrency": 1,
         "accepted_tokens": 0,
         "A": 0,
-        "decision": (
-            "authorize_broader_same_layer_shared_basis_fit_contract"
-            if passed
-            else "reject_rank768_four_basis_sharing_under_current_objective"
-        ),
-        "limitations": "five well-covered layer-46 experts on one English sequential corpus; no other experts, rare identities, broader modalities, persisted artifact, quantized factor evaluation, kernel, endpoint, or TPS",
+        "decision": spec.pass_decision if passed else spec.fail_decision,
+        "limitations": spec.limitations,
         "performance_claim": None,
         "platform": platform.platform(),
         "torch_version": torch.__version__,
