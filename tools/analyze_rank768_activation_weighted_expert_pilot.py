@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import json
 from pathlib import Path
 
@@ -15,22 +16,53 @@ except ModuleNotFoundError:
     from openrouter_reference import atomic_write_new, canonical_json
 
 
-SOURCE_SHA256 = "04388f2704607657fecd5304d2533585e7ee6389080f3e77e5658a9875da05fb"
+@dataclass(frozen=True)
+class PilotAnalysisSpec:
+    source_sha256: str
+    source_evidence_class: str
+    analysis_evidence_class: str
+    layer: int
+    expert: int
+    partition_counts: dict[str, int]
+    decision: str
 
 
-def analyze(source_path: Path) -> dict:
-    if sha256_file(source_path) != SOURCE_SHA256:
-        raise ValueError("PW-0121 source report hash mismatch")
+PW0121_ANALYSIS_SPEC = PilotAnalysisSpec(
+    source_sha256="04388f2704607657fecd5304d2533585e7ee6389080f3e77e5658a9875da05fb",
+    source_evidence_class="pw0121_rank768_activation_weighted_expert_pilot",
+    analysis_evidence_class="pw0121_validated_rank768_activation_weighted_expert_pilot",
+    layer=24,
+    expert=23,
+    partition_counts={"train": 65, "validation": 46, "pilot_holdout": 56},
+    decision="authorize_layer46_activation_weighted_rank768_pilot",
+)
+
+
+PW0122_ANALYSIS_SPEC = PilotAnalysisSpec(
+    source_sha256="e05a6a5551e1ef8cb2f5593e0aa44f05a16d1c667dc531a3942e56b20196b50d",
+    source_evidence_class="pw0122_layer46_rank768_activation_weighted_expert_pilot",
+    analysis_evidence_class="pw0122_validated_layer46_rank768_activation_weighted_pilot",
+    layer=46,
+    expert=28,
+    partition_counts={"train": 100, "validation": 56, "pilot_holdout": 56},
+    decision="authorize_multi_expert_shared_basis_pilot_contract",
+)
+
+
+def analyze(
+    source_path: Path, spec: PilotAnalysisSpec = PW0121_ANALYSIS_SPEC
+) -> dict:
+    if sha256_file(source_path) != spec.source_sha256:
+        raise ValueError("activation-weighted pilot source report hash mismatch")
     source = json.loads(source_path.read_text())
     configuration = source.get("configuration", {})
     if (
         source.get("schema_version") != 1
         or source.get("evidence_class")
-        != "pw0121_rank768_activation_weighted_expert_pilot"
-        or source.get("layer") != 24
-        or source.get("expert") != 23
-        or source.get("partition_counts")
-        != {"train": 65, "validation": 46, "pilot_holdout": 56}
+        != spec.source_evidence_class
+        or source.get("layer") != spec.layer
+        or source.get("expert") != spec.expert
+        or source.get("partition_counts") != spec.partition_counts
         or configuration.get("rank") != 768
         or configuration.get("active_projection_parameter_values") != 4_718_592
         or configuration.get("active_projection_semantic_adam_bytes") != 75_497_472
@@ -38,13 +70,13 @@ def analyze(source_path: Path) -> dict:
         or source.get("A") != 0
         or source.get("performance_claim") is not None
     ):
-        raise ValueError("PW-0121 source report authority mismatch")
+        raise ValueError("activation-weighted pilot source report authority mismatch")
     if source["source_oracle_parity"] != {
         "equality_fraction": 1.0,
         "maximum_absolute_error": 0.0,
         "relative_l2": 0.0,
     }:
-        raise ValueError("PW-0121 source oracle gate failed")
+        raise ValueError("activation-weighted pilot source oracle gate failed")
 
     projection_summary = {}
     for projection in ("gate", "up", "down"):
@@ -59,7 +91,7 @@ def analyze(source_path: Path) -> dict:
             or len(report["selected_factor_sha256"]) != 64
             or report["release_memory"]["current_allocated_bytes"] != 0
         ):
-            raise ValueError(f"PW-0121 {projection} training/release gate failed")
+            raise ValueError(f"activation-weighted {projection} training/release gate failed")
         projection_summary[projection] = {
             "initial_validation_normalized_mse": initial,
             "selected_validation_normalized_mse": selected,
@@ -98,7 +130,7 @@ def analyze(source_path: Path) -> dict:
         or not source["pilot_holdout_relative_l2_gate"]["passed"]
         or not source["gates_passed"]
     ):
-        raise ValueError("PW-0121 activation-weighted fidelity gate failed")
+        raise ValueError("activation-weighted pilot fidelity gate failed")
 
     snapshots = source["safety_snapshots"]
     services = snapshots[0]["protected_service_pids"]
@@ -138,17 +170,17 @@ def analyze(source_path: Path) -> dict:
         or not safety["protected_services_stable"]
         or source["final_mps_memory"]["current_allocated_bytes"] != 0
     ):
-        raise ValueError("PW-0121 Gate 8 gate failed")
+        raise ValueError("activation-weighted pilot Gate 8 gate failed")
     return {
         "schema_version": 1,
-        "evidence_class": "pw0121_validated_rank768_activation_weighted_expert_pilot",
-        "source_report_sha256": SOURCE_SHA256,
+        "evidence_class": spec.analysis_evidence_class,
+        "source_report_sha256": spec.source_sha256,
         "projection_summary": projection_summary,
         "expert_output_comparisons": comparisons,
         "source_oracle_bit_exact": True,
         "safety": safety,
         "gates_passed": True,
-        "decision": "authorize_layer46_activation_weighted_rank768_pilot",
+        "decision": spec.decision,
         "limitations": source["limitations"],
         "performance_claim": None,
     }
