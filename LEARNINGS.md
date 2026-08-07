@@ -1752,3 +1752,28 @@ not the rejected supplied DFlash or native MTP. This is necessary evidence, not
 proof that `q=137` is memory-fit, accurate, or fast. The immutable analysis
 hashes to
 `844047de4d009d0d7bd6f803e56e097ee6efce66e6a0c2c7d96315962a5cd8b6`.
+
+PW-0111 resolves the deferred one-barrier Metal-native routed-layer premise.
+The real M1 candidate keeps dynamic FP8, BF16 staging, SwiGLU, all 24 source-
+FP8 projections, route weighting, deterministic reduction, and scatter inside
+one command buffer with one wait and one final residual readback. Despite
+omitting C2's 13 sparse repairs, it reproduces C2's exact routed and final-
+residual hashes on the authenticated layer-4 row. This supersedes the belief
+that the CPU sparse-repair topology is required to preserve the current L3
+result on that row, but it does not repair the shared source-derived layer
+failure or establish accumulated/hosted parity.
+
+The warm median falls from 41.081 ms to 15.206 ms (2.702x), proving that a
+routed layer is the correct CPU-visible compute transaction once weights are
+resident. Cold falls only from 131.506 ms to 109.801 ms (1.198x); the median
+one-wait interval is still 100.584 ms around 8.383 ms of GPU activity. Thus the
+stronger transaction topology does not invalidate PW-0108's cold acquisition
+bound. Reject full-bank construction and another token walk on the unchanged
+internal SSD/source-FP8 premise; retain C4 for a future wide verifier, exact
+byte-reduced artifact, or named faster storage condition. Gate 8 passed with
+77% minimum free memory, 538,050,560-byte peak RSS, 68,915,200-byte final
+footprint, zero swap growth or throttling, and stable services. Raw evidence
+hashes to
+`47f764370172dff489629bb171d9dad7345f39e37f21622244a63b6f4edfcb14`;
+clean analysis hashes to
+`1940aa4554eedc586ff567c041f62f91d757d5afc88244ef895e71ca22488fc0`.

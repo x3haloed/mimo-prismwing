@@ -281,6 +281,12 @@ experts' activation staging, projections, SwiGLU, route weighting, reduction,
 and scatter inside one named L3 Metal transaction, then wait and read back once.
 Its source-derived oracle, existing L3 control, and external target thresholds
 remain unchanged.
+The completed experiment reproduces C2's exact routed and final-residual bytes
+without sparse repair and improves the warm median 2.702x, but cold improves
+only 1.198x because 100.584 ms remains in the one wait around 8.383 ms of GPU
+work. The unchanged internal-SSD full-bank and token-walk branches therefore
+remain rejected; retain the one-barrier mechanism only for a future resident
+or wide-amortized transaction.
 
 Do not build an internal-SSD Metal-I/O/compute arena over the unchanged
 payload. Reopen this mechanism only for a named faster storage configuration

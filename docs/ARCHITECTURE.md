@@ -119,6 +119,13 @@ The construction order follows the least-proven boundaries:
   perfect acceptance, minimum expert union, and every nonexpert cost removed.
   Width 32 is also below the 34.3-TPS horizon. Any active proposer/verifier must
   bind its measured `A/U` to this cold acquisition floor.
+- PW-0111 proves the deferred one-barrier Metal-native layer is a valid warm
+  mechanism, not a cold storage solution. It removes CPU-visible dynamic-FP8,
+  SwiGLU, repair, reduction, and scatter boundaries, reproduces the current L3
+  control's exact routed bytes, and reaches 2.702x warm speedup. Its 1.198x cold
+  gain fails the frozen continuation gate because page acquisition still owns
+  roughly 92 ms beyond GPU-active time. Do not expand the 303 GB bank under the
+  unchanged storage premise.
 - The PW-0049 correctness baseline owns one complete real base layer from
   source-FP8 QKV through SWA, residual/norm, dynamic routing, 56 selected
   experts, weighted scatter, and the final residual. Rust uses Accelerate

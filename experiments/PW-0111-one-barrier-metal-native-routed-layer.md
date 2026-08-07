@@ -1,7 +1,7 @@
 # PW-0111 — One-barrier Metal-native routed layer
 
-- Status: planned
-- Disposition: pending
+- Status: completed
+- Disposition: rejected cold architecture; retained warm mechanism
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Contract commit: `69f9cd51b21d069a6bc827b92c3f2324811d1906`
@@ -189,3 +189,81 @@ bank or hide the result behind a warm claim; use the measured ledger to decide
 whether exact executable-byte reduction, faster named storage under the $500
 cap, or a wider multi-position transaction is the next cheapest falsification.
 If all gates pass, freeze the whole-prefix L3 experiment before executing it.
+
+## Result
+
+The runtime at `22c5e1a161a3eae80e6320ed63294855454caeec` added three
+production Metal kernels and a single-command layer executor. A subsequent
+measurement repair at `1334876bce437816dd4502b0486c39852f207226`
+separated the Gate 8 observation harness from the performance interval while
+retaining every required safety snapshot. The 55-test Rust/device suite,
+including the real M1 one-command primitive fixture, and strict Clippy pass.
+The standalone `xcrun metal` compiler was unavailable during this run, but
+Metal's runtime compiler accepted and executed every kernel on the Apple M1.
+
+C4 issues exactly one command buffer, six ordered encoders, one commit, one
+wait, 24 source-FP8 projection dispatches, four staging/reduction dispatches,
+and one final residual readback in every trial. No CPU-visible intermediate
+selects a later dispatch. Its scratch high-water mark is 427,088 bytes and its
+complete Metal resource ledger is 202,146,896 bytes, below both 1 GiB and the
+device's reported recommended working-set size. All error flags remain zero.
+
+The canonical interleaved measurements are:
+
+| State and variant | Trial walls (ms) | Median (ms) | C4 speedup |
+| --- | --- | ---: | ---: |
+| Cold C2, 24 waits | 134.667, 105.877, 131.506 | 131.506 | control |
+| Cold C4, one wait | 109.990, 81.451, 109.801 | 109.801 | 1.198x |
+| Warm C2, 24 waits | 41.081, 39.942, 41.545 | 41.081 | control |
+| Warm C4, one wait | 15.206, 14.428, 15.452 | 15.206 | 2.702x |
+
+Every paired cold C4 trial improves on its C2 control, but the median misses
+the frozen 2x continuation gate by a wide margin. The cold C4 wait remains
+100.584 ms at median around only 8.383 ms of GPU activity. Warm C4 proves the
+intended command and staging topology: once pages are resident, the entire
+routed transaction is roughly 2.7x faster than projection-at-a-time C2.
+
+C4 deliberately performs zero sparse repairs versus C2's `[6, 4, 3]`, yet all
+six candidate trials produce C2's exact routed hash
+`6577967c5c847228ca900a03e39279c63359fbaf3102dc1472612b5301c84ace`
+and final-residual hash
+`112757cb90f05804fd887e7fc4c10563321ba49ed2e9eda792d32f4abfbdd8c3`.
+This is strong layer-local evidence that the Metal-native numerical branch does
+not regress the current L3 control on this row. It does not repair the shared
+source-derived failure: routed relative L2 remains `0.00172562` with maximum
+absolute error `1.0`, and final-residual relative L2 remains `0.00163510` with
+maximum absolute error `1.0`. No whole-prefix or hosted parity claim follows.
+
+Gate 8 passes at every required phase with 77% minimum free memory,
+538,050,560-byte peak RSS, 68,915,200-byte final physical footprint, zero swap
+growth, zero new throttled pages, and stable protected services. The harness
+cost 219--220 ms per candidate trial and is recorded separately from the
+monotonic layer interval; the first two reports are preserved as noncanonical
+because they charged that harness asymmetrically or used the pre-repair binary.
+
+The canonical raw report is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0111/trials-003/report.json`,
+hash
+`47f764370172dff489629bb171d9dad7345f39e37f21622244a63b6f4edfcb14`.
+The clean analyzer at
+`9013194b632424fbe296fb5edfa8adc7f9f28b98` emitted `analysis-001.json`,
+hash
+`1940aa4554eedc586ff567c041f62f91d757d5afc88244ef895e71ca22488fc0`.
+The updated throughput model hashes to
+`cae9784cf9005596c54ab55ba48e51b138bead17b0767cec405bc6998e51e918`.
+
+## Decision
+
+Reject the one-barrier transaction as the promoted cold architecture on the
+unchanged internal-SSD source-FP8 representation. Do not construct the full
+303 GB expert bank, run another complete token, or advance C4 to a whole-prefix
+L3 experiment under this premise. The experiment confirms rather than removes
+the cold acquisition floor already bounded by PW-0108.
+
+Retain C4 as the preferred warm/resident routed-layer mechanism and as a
+necessary building block for any future verifier that amortizes one acquired
+expert union across many positions. Reopen it only after a changed premise—an
+exact executable-byte reduction, a named faster storage configuration under
+the $500 cap, or a sufficiently wide measured route-coherent transaction—can
+clear the cold bound. Argument buffers and indirect command buffers remain
+deprioritized because measured encoding is not the limiting category.
