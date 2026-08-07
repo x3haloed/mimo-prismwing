@@ -299,6 +299,14 @@ arithmetic is 1.0417% of source expert MACs. Rank 56 nearly memorizes the
 same-validation slice, underscoring that this is capacity—not generalization.
 Proceed to a frozen train-only rank-32 fit; keep holdout sealed.
 
+PW-0132 fits the exact rank-32 affine-plus-low-rank form only on positions
+`0..111` and scores frozen parameters on `112..167`. Validation experts absent
+from train use visible identity fallback; strict passage requires complete
+coverage plus 1% aggregate, 2% per layer, and 5% per row. A bounded near miss
+(2%/4%/8%, complete coverage) may justify broader training-corpus acquisition.
+Any larger failure rejects this pilot form. Positions `168..223` remain sealed
+regardless; only a validation pass can open a separate holdout record.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
