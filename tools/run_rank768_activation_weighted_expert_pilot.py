@@ -60,6 +60,7 @@ class PilotSpec:
     evidence_class: str
     layer: int
     expert: int
+    rank: int
     seed: int
     partition_counts: dict[str, int]
     pw0119_baseline: dict[str, float]
@@ -75,6 +76,7 @@ PW0121_SPEC = PilotSpec(
     evidence_class="pw0121_rank768_activation_weighted_expert_pilot",
     layer=24,
     expert=23,
+    rank=768,
     seed=260121,
     partition_counts={"train": 65, "validation": 46, "pilot_holdout": 56},
     pw0119_baseline={
@@ -96,6 +98,7 @@ PW0122_SPEC = PilotSpec(
     evidence_class="pw0122_layer46_rank768_activation_weighted_expert_pilot",
     layer=46,
     expert=28,
+    rank=768,
     seed=260122,
     partition_counts={"train": 100, "validation": 56, "pilot_holdout": 56},
     pw0119_baseline={
@@ -109,6 +112,28 @@ PW0122_SPEC = PilotSpec(
     pass_decision="authorize_multi_expert_shared_basis_pilot_contract",
     fail_decision="reject_depth_general_activation_weighted_rank768_factor_fit",
     limitations="one hot late-layer expert on one English sequential corpus; independent factors only, no shared bases, broad corpus, kernel, endpoint, or TPS",
+)
+
+
+PW0125_SPEC = PilotSpec(
+    experiment_id="PW-0125",
+    evidence_class="pw0125_rank512_activation_weighted_capacity_control",
+    layer=46,
+    expert=28,
+    rank=512,
+    seed=260125,
+    partition_counts={"train": 100, "validation": 56, "pilot_holdout": 56},
+    pw0119_baseline={
+        "overall": 0.6747763876584113,
+        "train": 0.6822727543140975,
+        "validation": 0.6730991256068856,
+        "pilot_holdout": 0.6568507915821798,
+    },
+    validation_maximum=0.24458385116689985,
+    holdout_maximum=0.36016001389755276,
+    pass_decision="authorize_rank512_eight_basis_forced_sharing_contract",
+    fail_decision="reject_rank512_eight_basis_branch_on_independent_capacity",
+    limitations="one hot late-layer expert on one English sequential corpus; independent rank-512 factors only, no shared bases, broad corpus, kernel, endpoint, or TPS",
 )
 
 
@@ -305,6 +330,8 @@ def run(
         raise ValueError(f"refusing to overwrite {output_path}")
     if len(commit) != 40 or any(character not in "0123456789abcdef" for character in commit):
         raise ValueError("implementation commit must be lowercase 40-hex")
+    if spec.rank not in {128, 512, 768}:
+        raise ValueError(f"{spec.experiment_id} unsupported rank")
     if sha256_file(verification_path) != VERIFICATION_SHA256:
         raise ValueError(f"{spec.experiment_id} checkpoint verification hash mismatch")
     if sha256_file(corpus_manifest_path) != CORPUS_SHA256:
@@ -392,7 +419,7 @@ def run(
         decomposition = np.linalg.svd(canonical, full_matrices=False)
         svd_wall_ms = (time.perf_counter() - started) * 1000.0
         safety.checkpoint(f"{projection}_svd_complete")
-        initial = balanced_factors(decomposition, RANK)
+        initial = balanced_factors(decomposition, spec.rank)
         svd_decompositions[projection] = decomposition
         initial_factors[projection] = initial
         selected, training_report = train_projection(
@@ -413,13 +440,13 @@ def run(
         del canonical
         gc.collect()
 
-    baseline_gate = svd_control(svd_decompositions["gate"], inputs, RANK, down=False)
-    baseline_up = svd_control(svd_decompositions["up"], inputs, RANK, down=False)
+    baseline_gate = svd_control(svd_decompositions["gate"], inputs, spec.rank, down=False)
+    baseline_up = svd_control(svd_decompositions["up"], inputs, spec.rank, down=False)
     baseline_hidden = (
         torch.nn.functional.silu(baseline_gate) * baseline_up
     ).to(torch.bfloat16)
     baseline_output = svd_control(
-        svd_decompositions["down"], baseline_hidden, RANK, down=True
+        svd_decompositions["down"], baseline_hidden, spec.rank, down=True
     )
     baseline = {
         "overall": parity(baseline_output, expected),
@@ -432,7 +459,7 @@ def run(
             else baseline["partitions"][name]["metrics"]["relative_l2"]
         )
         if abs(actual - expected_relative_l2) > 1e-6:
-            raise ValueError(f"{spec.experiment_id} rank-768 baseline mismatch for {name}")
+            raise ValueError(f"{spec.experiment_id} rank-{spec.rank} baseline mismatch for {name}")
     balanced_output = factor_expert(initial_factors, inputs)
     balanced_baseline = {
         "overall": parity(balanced_output, expected),
@@ -488,7 +515,7 @@ def run(
         "positions": positions,
         "partition_counts": {name: len(rows) for name, rows in partition_indices.items()},
         "configuration": {
-            "rank": RANK,
+            "rank": spec.rank,
             "seed": spec.seed,
             "optimizer": "Adam",
             "learning_rate": LEARNING_RATE,
@@ -496,14 +523,14 @@ def run(
             "validate_every": VALIDATE_EVERY,
             "patience_checks": PATIENCE_CHECKS,
             "mps_memory_fraction": MPS_MEMORY_FRACTION,
-            "active_projection_parameter_values": P * RANK + RANK * D,
-            "active_projection_semantic_adam_bytes": (P * RANK + RANK * D) * 4 * 4,
+            "active_projection_parameter_values": P * spec.rank + spec.rank * D,
+            "active_projection_semantic_adam_bytes": (P * spec.rank + spec.rank * D) * 4 * 4,
         },
         "source_oracle_parity": source_parity,
         "projection_training_tensor_sha256": training_tensor_hashes,
         "projection_training": projection_reports,
-        "rank768_svd_control": baseline,
-        "balanced_rank768_initialization_control": balanced_baseline,
+        f"rank{spec.rank}_svd_control": baseline,
+        f"balanced_rank{spec.rank}_initialization_control": balanced_baseline,
         "activation_weighted_candidate": candidate,
         "validation_relative_l2_gate": {"maximum": spec.validation_maximum, "passed": validation_gate},
         "pilot_holdout_relative_l2_gate": {"maximum": spec.holdout_maximum, "passed": holdout_gate},
