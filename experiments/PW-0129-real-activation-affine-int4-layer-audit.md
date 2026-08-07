@@ -35,10 +35,13 @@ authorizes an accumulated probe.
 
 Authenticate the checkpoint and corpus hashes, every capture hash and shape,
 all 224 positions, all 1,792 placements per layer, unique expert IDs, and route
-weights. Reconstruct the captured source routed output bit-for-bit before
-testing a candidate. Independently replay one multi-placement source expert at
-each layer through dynamic-FP8/BF16 source semantics and require the established
-source tolerance.
+weights. Authenticate PW-0116's committed full-corpus reconstruction hash, but
+reconstruct only the in-scope `0..167` source prefix bit-for-bit before testing
+a candidate. Independently replay one multi-placement source expert at each
+layer through dynamic-FP8/BF16 source semantics and require the established
+source tolerance. This prefix restriction resolves the preimplementation
+conflict between full reconstruction and the holdout seal; it changes no
+candidate threshold or observed result.
 
 Evaluate affine group-128 INT4 as the candidate and affine group-128 INT8 as a
 quality-oriented control. For every source-selected expert:
