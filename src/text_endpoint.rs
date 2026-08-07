@@ -64,7 +64,19 @@ struct EndpointFixture {
 struct HostedReferenceFixture {
     provider: String,
     manifest_sha256: String,
+    #[serde(default)]
+    request_sha256: Option<String>,
     response_sha256: String,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    finish_reason: Option<String>,
+    #[serde(default)]
+    prompt_tokens: Option<usize>,
+    #[serde(default)]
+    completion_tokens: Option<usize>,
+    #[serde(default)]
+    selected_token_bytes_sha256: Option<String>,
     generated_token_ids: Vec<u32>,
     generated_text: String,
 }
@@ -718,6 +730,32 @@ pub struct FullPrefixTraceReport {
 }
 
 #[derive(Debug, Serialize)]
+pub struct RouteOnlyTraceReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub fixture_sha256: String,
+    pub checkpoint_verification_sha256: String,
+    pub prompt_token_ids: Vec<u32>,
+    pub teacher_forced_token_ids: Vec<u32>,
+    pub input_token_ids_sha256: String,
+    pub layer_routes_sha256: String,
+    pub numerics: &'static str,
+    pub layer_traces: Vec<LayerRouteTrace>,
+    pub ledger: EndpointLedger,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub complete_wall_ms: f64,
+    pub batch_size: usize,
+    pub prompt_positions: usize,
+    pub teacher_forced_positions: usize,
+    pub total_positions: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    pub performance_claim: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct SafetySnapshot {
     pub phase: String,
     pub system_memory_free_percent: u64,
@@ -807,6 +845,12 @@ struct NativeDecodeStep {
     full_logits: Vec<f32>,
     traces: Vec<LayerRouteTrace>,
     wall_ms: f64,
+}
+
+#[derive(Clone, Copy)]
+enum DecodeOutput {
+    Logits,
+    RoutesOnly,
 }
 
 struct EndpointAuthority {
@@ -1444,7 +1488,39 @@ fn validate_fixture(fixture: &EndpointFixture) -> Result<(), String> {
         && fixture.expected_prompt_token_ids == CHAT_PROMPT_IDS
         && fixture.full_prefix_trace_append_token_ids.as_deref() == Some(&[264])
         && hosted_identity;
-    if (!raw_identity && !chat_identity && !trace_identity)
+    let wide_trace_identity = fixture.schema_version == 4
+        && fixture.semantic == "mimo_v2_5_target_faithful_teacher_forced_route_trace"
+        && sha256_hex(fixture.prompt_utf8.as_bytes())
+            == "f0548293456d9c634aa895d44e2af1d737c77c01b9d0d72e7ed24a6e0d343e35"
+        && fixture.expected_prompt_token_ids.len() == 87
+        && serde_json::to_vec(&fixture.expected_prompt_token_ids).is_ok_and(|bytes| {
+            sha256_hex(&bytes) == "6424415daed4ee457de12b83ebded6adbbb993679c2b3a8b4eab5975e4746297"
+        })
+        && fixture.hosted_reference.as_ref().is_some_and(|hosted| {
+            hosted.provider == "Parasail"
+                && hosted.manifest_sha256
+                    == "9d0369870e5784324efaab5af710143b34a0b18e67e36d5b68f6299f2b8cee69"
+                && hosted.request_sha256.as_deref()
+                    == Some("1fb4e9710958f352999b2301710c55eee8206e6f29d10f2707dbd8ee72285ad0")
+                && hosted.response_sha256
+                    == "9398c1f46f74d6e50be00c80746633ce74fb3cfc0f551659c8f011bb87326ae6"
+                && hosted.model.as_deref() == Some("xiaomi/mimo-v2.5")
+                && hosted.finish_reason.as_deref() == Some("length")
+                && hosted.prompt_tokens == Some(87)
+                && hosted.completion_tokens == Some(192)
+                && hosted.selected_token_bytes_sha256.as_deref()
+                    == Some("e234b305b78c63ae67480fb75c4cf29c1f7fbab2e067cf22e654aae2d1f40ac4")
+                && hosted.generated_token_ids.len() == 192
+                && serde_json::to_vec(&hosted.generated_token_ids).is_ok_and(|bytes| {
+                    sha256_hex(&bytes)
+                        == "7d04c0ad67ad559cfdbf2e456af93ec2aab92e1b26d1d6bc988082302a099b30"
+                })
+                && sha256_hex(hosted.generated_text.as_bytes())
+                    == "f23239116aca266d1b8f67a4dcecb0090155c50f930636e2563681f90917416c"
+                && fixture.full_prefix_trace_append_token_ids.as_ref()
+                    == Some(&hosted.generated_token_ids)
+        });
+    if (!raw_identity && !chat_identity && !trace_identity && !wide_trace_identity)
         || fixture.revision != REVISION
         || fixture.add_special_tokens
         || fixture.full_attention_qkv_scale_layout.weight_shape != [13_568, 4096]
@@ -1494,7 +1570,20 @@ fn full_prefix_trace_tokens(
     fixture: &EndpointFixture,
     prompt_token_ids: &[u32],
 ) -> Result<Vec<u32>, String> {
-    if !matches!(fixture.schema_version, 2 | 3) || prompt_token_ids != CHAT_PROMPT_IDS {
+    let known_chat = matches!(fixture.schema_version, 2 | 3) && prompt_token_ids == CHAT_PROMPT_IDS;
+    let known_wide_trace = fixture.schema_version == 4
+        && prompt_token_ids == fixture.expected_prompt_token_ids
+        && fixture
+            .full_prefix_trace_append_token_ids
+            .as_ref()
+            .is_some_and(|tokens| {
+                tokens.len() == 192
+                    && serde_json::to_vec(tokens).is_ok_and(|bytes| {
+                        sha256_hex(&bytes)
+                            == "7d04c0ad67ad559cfdbf2e456af93ec2aab92e1b26d1d6bc988082302a099b30"
+                    })
+            });
+    if !known_chat && !known_wide_trace {
         return Err("full-prefix trace requires the frozen chat fixture".to_owned());
     }
     let mut tokens = prompt_token_ids.to_vec();
@@ -2920,6 +3009,7 @@ fn decode_step(
     safety: &mut SafetyMonitor,
     mut full_captures: Option<&mut FullPrefixCaptures>,
     mut metal: Option<(&BoundedMetalExpertRuntime, &mut MetalExpertLedger)>,
+    output: DecodeOutput,
 ) -> Result<NativeDecodeStep, String> {
     let started = Instant::now();
     if token_ids.is_empty() {
@@ -3020,6 +3110,15 @@ fn decode_step(
         });
         checkpoint.release_file_pages()?;
         safety.checkpoint(&format!("layer_{layer}_complete"), true)?;
+    }
+    if matches!(output, DecodeOutput::RoutesOnly) {
+        return Ok(NativeDecodeStep {
+            output_token: 0,
+            top_logits: Vec::new(),
+            full_logits: Vec::new(),
+            traces,
+            wall_ms: started.elapsed().as_secs_f64() * 1000.0,
+        });
     }
     let final_norm = bf16_vector(checkpoint, "model.norm.weight", HIDDEN, ledger)?;
     let normalized = rms_norm(&hidden, rows, &final_norm, config.layernorm_epsilon)?;
@@ -3177,6 +3276,7 @@ pub fn run_slow_text_endpoint(
             &mut safety,
             None,
             None,
+            DecodeOutput::Logits,
         )?;
         let output_token_text = tokenizer
             .decode(&[step.output_token], false)
@@ -3489,6 +3589,7 @@ fn run_metal_incremental(
         &mut safety,
         None,
         None,
+        DecodeOutput::Logits,
     )?;
     let prefill_bytes = prefill
         .full_logits
@@ -3516,6 +3617,7 @@ fn run_metal_incremental(
         &mut safety,
         Some(&mut captures),
         Some((&runtime, &mut metal_ledger)),
+        DecodeOutput::Logits,
     )?;
     if caches
         .iter()
@@ -6696,6 +6798,141 @@ pub fn run_real_routed_layer_trace(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn run_route_only_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    output_dir: &Path,
+    commit: &str,
+) -> Result<RouteOnlyTraceReport, String> {
+    if output_dir.exists() {
+        return Err(format!("refusing to overwrite {}", output_dir.display()));
+    }
+    let complete_started = Instant::now();
+    let disk_bytes_read_before = process_disk_bytes_read()?;
+    let EndpointAuthority {
+        fixture_bytes,
+        fixture,
+        mut safety,
+        config,
+        tokenizer,
+        prompt_token_ids,
+        checkpoint,
+        verification_sha256,
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    if fixture.schema_version != 4 {
+        return Err("route-only trace requires the frozen schema-4 fixture".to_owned());
+    }
+    let hosted = fixture
+        .hosted_reference
+        .as_ref()
+        .ok_or("route-only trace requires a hosted reference")?;
+    let teacher_forced_token_ids = fixture
+        .full_prefix_trace_append_token_ids
+        .clone()
+        .ok_or("route-only trace requires teacher-forced token IDs")?;
+    let decoded = tokenizer
+        .decode(&teacher_forced_token_ids, false)
+        .map_err(|error| format!("teacher-forced tokenizer decode: {error}"))?;
+    if decoded != hosted.generated_text
+        || teacher_forced_token_ids != hosted.generated_token_ids
+        || teacher_forced_token_ids.len() != 192
+    {
+        return Err("teacher-forced hosted token identity mismatch".to_owned());
+    }
+    let input_token_ids = full_prefix_trace_tokens(&fixture, &prompt_token_ids)?;
+    if input_token_ids.len() != 279 {
+        return Err("route-only trace requires exactly 279 input positions".to_owned());
+    }
+    let input_token_ids_bytes =
+        serde_json::to_vec(&input_token_ids).map_err(|error| error.to_string())?;
+    let rows = input_token_ids.len();
+    let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
+    let mut ledger = EndpointLedger::default();
+    let step = decode_step(
+        &checkpoint,
+        &config,
+        &input_token_ids,
+        &mut caches,
+        &mut ledger,
+        &mut safety,
+        None,
+        None,
+        DecodeOutput::RoutesOnly,
+    )?;
+    if step.output_token != 0
+        || !step.top_logits.is_empty()
+        || !step.full_logits.is_empty()
+        || step.traces.len() != 48
+        || !step.traces[0].selected_experts_by_position.is_empty()
+        || step.traces[1..].iter().any(|trace| {
+            trace.selected_experts_by_position.len() != rows
+                || trace.route_weights_by_position.len() != rows
+                || trace
+                    .selected_experts_by_position
+                    .iter()
+                    .zip(&trace.route_weights_by_position)
+                    .any(|(experts, weights)| {
+                        experts.len() != TOP_K
+                            || weights.len() != TOP_K
+                            || experts.iter().copied().collect::<BTreeSet<_>>().len() != TOP_K
+                            || experts
+                                .iter()
+                                .any(|&expert| expert as usize >= ROUTED_EXPERTS)
+                            || weights.iter().any(|weight| !weight.is_finite())
+                    })
+        })
+    {
+        return Err("route-only trace shape or value validation failed".to_owned());
+    }
+    let route_bytes = serde_json::to_vec(&step.traces).map_err(|error| error.to_string())?;
+    safety.checkpoint("route_evidence_serialized", true)?;
+    ledger.actual_process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_bytes_read_before)
+        .ok_or("process disk byte counter moved backwards")?;
+    ledger.peak_resident_bytes = peak_resident_bytes()?;
+    drop(caches);
+    checkpoint.release_file_pages()?;
+    drop(checkpoint);
+    safety.checkpoint("checkpoint_released", true)?;
+    safety.checkpoint("final_service_health", true)?;
+    let report = RouteOnlyTraceReport {
+        schema_version: 1,
+        semantic: "mimo_teacher_forced_route_only_rust_trace",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        fixture_sha256: sha256_hex(&fixture_bytes),
+        checkpoint_verification_sha256: verification_sha256,
+        prompt_token_ids,
+        teacher_forced_token_ids,
+        input_token_ids_sha256: sha256_hex(&input_token_ids_bytes),
+        layer_routes_sha256: sha256_hex(&route_bytes),
+        numerics: "dynamic_fp8_e4m3fn_per_token_group_128_bf16_boundaries",
+        layer_traces: step.traces,
+        ledger,
+        safety_snapshots: safety.snapshots,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 1,
+        prompt_positions: 87,
+        teacher_forced_positions: 192,
+        total_positions: rows,
+        concurrency: 1,
+        accepted_tokens: 0,
+        performance_claim: None,
+    };
+    fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
+    let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(&output_dir.join("manifest.json"), &bytes)?;
+    Ok(report)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn run_full_prefix_trace(
     checkpoint_root: &Path,
     model_lock_path: &Path,
@@ -6739,6 +6976,7 @@ pub fn run_full_prefix_trace(
         &mut safety,
         Some(&mut internal),
         None,
+        DecodeOutput::Logits,
     )?;
     if internal.embedding.len() != rows * HIDDEN
         || internal.layer_finals.len() != 48
@@ -6903,6 +7141,36 @@ mod tests {
         assert_eq!(
             full_prefix_trace_tokens(&fixture, &CHAT_PROMPT_IDS).expect("trace tokens"),
             [CHAT_PROMPT_IDS.as_slice(), &[264]].concat()
+        );
+        assert!(validate_slow_endpoint_fixture(&fixture).is_err());
+    }
+
+    #[test]
+    fn wide_route_trace_fixture_is_hash_pinned_and_bounded() {
+        let fixture: EndpointFixture = serde_json::from_str(include_str!(
+            "../evals/fixtures/real/pw0112-wide-route-trace.json"
+        ))
+        .expect("valid wide route fixture");
+        assert!(validate_fixture(&fixture).is_ok());
+        assert_eq!(fixture.expected_prompt_token_ids.len(), 87);
+        let suffix = fixture
+            .full_prefix_trace_append_token_ids
+            .as_ref()
+            .expect("teacher-forced suffix");
+        assert_eq!(suffix.len(), 192);
+        assert_eq!(
+            fixture
+                .hosted_reference
+                .as_ref()
+                .expect("hosted reference")
+                .generated_token_ids,
+            *suffix
+        );
+        assert_eq!(
+            full_prefix_trace_tokens(&fixture, &fixture.expected_prompt_token_ids)
+                .expect("wide trace tokens")
+                .len(),
+            279
         );
         assert!(validate_slow_endpoint_fixture(&fixture).is_err());
     }

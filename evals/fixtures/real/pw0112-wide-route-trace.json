@@ -1,0 +1,56 @@
+{
+  "schema_version": 4,
+  "semantic": "mimo_v2_5_target_faithful_teacher_forced_route_trace",
+  "revision": "63651580ca774f8504f676040460aed3e1244ac1",
+  "config_sha256": "292a60e74ae9a6d53422b31b21468ce2111c0ab3f7f7a4f4e9c7cd5133b96587",
+  "index_sha256": "f2e1774c9acf9a62338b68c144e6fc7a66495e59f2e64b3078c1b7ef5a196816",
+  "tokenizer_sha256": "633518aad78f9f61bae2ae420d621215754a4424c918b052cd8c22a3b59e99d2",
+  "tokenizer_config_sha256": "fd34b805f75a890a5c123d79a2982bbe240b3b6efb156d22401bd619484d9bd2",
+  "checkpoint_verification_sha256": "9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03",
+  "prompt_utf8": "<|im_start|>system\nYou are MiMo, a helpful AI assistant engineered by Xiaomi.<|im_end|><|im_start|>user\nExplain in one continuous response of at least 300 words how and why deciduous leaves change color in autumn. Include chlorophyll, carotenoids, anthocyanins, weather, and why different species show different colors. Do not use a title, bullets, or numbered sections.<|im_end|><|im_start|>assistant\n<think></think>",
+  "add_special_tokens": false,
+  "expected_prompt_token_ids": [151644, 8948, 198, 2610, 525, 20740, 25612, 11, 264, 10950, 15235, 17847, 44936, 553, 71449, 13, 151645, 151644, 872, 198, 840, 20772, 304, 825, 19259, 2033, 315, 518, 3245, 220, 18, 15, 15, 4244, 1246, 323, 3170, 69393, 9193, 10901, 2297, 1894, 304, 41674, 13, 29734, 36733, 5127, 24705, 11, 1803, 65628, 16960, 11, 22268, 509, 8339, 1330, 11, 9104, 11, 323, 3170, 2155, 9419, 1473, 2155, 7987, 13, 3155, 537, 990, 264, 2265, 11, 33064, 11, 476, 48826, 14158, 13, 151645, 151644, 77091, 198, 151667, 151668],
+  "full_prefix_trace_append_token_ids": [785, 17991, 315, 69393, 9193, 10901, 504, 32976, 6176, 311, 264, 19745, 315, 64313, 4241, 11, 84038, 11, 323, 2518, 82, 374, 264, 6351, 92432, 1882, 22119, 553, 12158, 55916, 11, 15503, 279, 2805, 6019, 315, 52021, 4115, 323, 35821, 19879, 304, 41674, 13, 45882, 279, 10464, 323, 7324, 11, 10901, 525, 6176, 1576, 807, 525, 10199, 448, 36733, 5127, 24705, 11, 279, 76578, 7565, 369, 7249, 73667, 13, 91379, 5127, 24705, 90011, 39020, 323, 32722, 432, 1119, 4802, 369, 279, 4916, 11, 323, 1181, 18894, 6176, 1894, 26135, 1008, 23694, 1368, 3042, 304, 279, 15933, 13, 1634, 41674, 19827, 11, 279, 4916, 47442, 369, 12406, 29109, 6572, 13, 576, 43549, 52021, 17289, 279, 4916, 311, 2936, 17387, 36733, 5127, 24705, 323, 311, 1352, 458, 668, 2388, 7558, 6193, 27996, 89324, 88, 22103, 98463, 279, 2331, 315, 1817, 15933, 594, 19101, 13, 1096, 6193, 26024, 15104, 1007, 279, 6396, 315, 3015, 323, 36393, 311, 279, 15933, 11, 13444, 65834, 432, 1007, 504, 279, 4916, 382, 2121, 279, 36733, 5127, 24705, 18303, 1495, 323, 374, 537, 12575, 11, 1181, 6176, 1894, 86409, 11, 30620, 279, 16533, 23694, 1368, 429, 1033, 3042, 678, 3156],
+  "hosted_reference": {
+    "provider": "Parasail",
+    "manifest_sha256": "9d0369870e5784324efaab5af710143b34a0b18e67e36d5b68f6299f2b8cee69",
+    "request_sha256": "1fb4e9710958f352999b2301710c55eee8206e6f29d10f2707dbd8ee72285ad0",
+    "response_sha256": "9398c1f46f74d6e50be00c80746633ce74fb3cfc0f551659c8f011bb87326ae6",
+    "model": "xiaomi/mimo-v2.5",
+    "finish_reason": "length",
+    "prompt_tokens": 87,
+    "completion_tokens": 192,
+    "selected_token_bytes_sha256": "e234b305b78c63ae67480fb75c4cf29c1f7fbab2e067cf22e654aae2d1f40ac4",
+    "generated_token_ids": [785, 17991, 315, 69393, 9193, 10901, 504, 32976, 6176, 311, 264, 19745, 315, 64313, 4241, 11, 84038, 11, 323, 2518, 82, 374, 264, 6351, 92432, 1882, 22119, 553, 12158, 55916, 11, 15503, 279, 2805, 6019, 315, 52021, 4115, 323, 35821, 19879, 304, 41674, 13, 45882, 279, 10464, 323, 7324, 11, 10901, 525, 6176, 1576, 807, 525, 10199, 448, 36733, 5127, 24705, 11, 279, 76578, 7565, 369, 7249, 73667, 13, 91379, 5127, 24705, 90011, 39020, 323, 32722, 432, 1119, 4802, 369, 279, 4916, 11, 323, 1181, 18894, 6176, 1894, 26135, 1008, 23694, 1368, 3042, 304, 279, 15933, 13, 1634, 41674, 19827, 11, 279, 4916, 47442, 369, 12406, 29109, 6572, 13, 576, 43549, 52021, 17289, 279, 4916, 311, 2936, 17387, 36733, 5127, 24705, 323, 311, 1352, 458, 668, 2388, 7558, 6193, 27996, 89324, 88, 22103, 98463, 279, 2331, 315, 1817, 15933, 594, 19101, 13, 1096, 6193, 26024, 15104, 1007, 279, 6396, 315, 3015, 323, 36393, 311, 279, 15933, 11, 13444, 65834, 432, 1007, 504, 279, 4916, 382, 2121, 279, 36733, 5127, 24705, 18303, 1495, 323, 374, 537, 12575, 11, 1181, 6176, 1894, 86409, 11, 30620, 279, 16533, 23694, 1368, 429, 1033, 3042, 678, 3156],
+    "generated_text": "The transformation of deciduous leaves from vibrant green to a spectrum of yellows, oranges, and reds is a complex biochemical process triggered by environmental cues, primarily the shortening of daylight hours and cooler temperatures in autumn. Throughout the spring and summer, leaves are green because they are filled with chlorophyll, the pigment essential for photosynthesis. Chlorophyll absorbs sunlight and converts it into energy for the tree, and its intense green color masks other pigments present in the leaf. As autumn approaches, the tree prepares for winter dormancy. The decreasing daylight signals the tree to stop producing chlorophyll and to form an abscission layer—a corky barrier—at the base of each leaf's stem. This layer gradually cuts off the flow of water and nutrients to the leaf, effectively sealing it off from the tree.\n\nAs the chlorophyll breaks down and is not replaced, its green color fades, revealing the underlying pigments that were present all along"
+  },
+  "full_attention_qkv_scale_layout": {
+    "weight_shape": [13568, 4096],
+    "scale_shape": [108, 32],
+    "query_rows": 12288,
+    "query_scale_rows": 96,
+    "key_heads": 4,
+    "key_rows_per_head": 192,
+    "key_scale_rows_per_head": 2,
+    "key_scale_row_start": 96,
+    "value_heads": 4,
+    "value_rows_per_head": 128,
+    "value_scale_row_start": 104
+  },
+  "decode": {
+    "sampling": "greedy",
+    "new_tokens": 2,
+    "batch_size": 1,
+    "concurrency": 1,
+    "use_kv_cache": true
+  },
+  "safety": {
+    "minimum_system_memory_free_percent": 20,
+    "maximum_process_physical_footprint_bytes": 8589934592,
+    "maximum_post_phase_physical_footprint_bytes": 4294967296,
+    "maximum_swap_growth_bytes": 536870912,
+    "maximum_new_throttled_pages": 0,
+    "require_malloc_pressure_relief": true,
+    "protect_resident_services": ["ChatGPT", "WindowServer", "nxnode", "syncthing"]
+  }
+}
