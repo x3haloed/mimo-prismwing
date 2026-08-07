@@ -169,10 +169,12 @@ zero MPS current allocation. This authorizes replication on layer-46 hot
 expert 28, not shared-bank construction; depth dependence and the thin English
 corpus remain unresolved.
 
-PW-0122 freezes the authorized depth replication on layer-46 hot expert 28.
-It reuses one parameterized executor and requires the same 25% validation and
-untouched-holdout improvement against that expert's independent rank-768 SVD
-control before any multi-expert shared-basis fit.
+PW-0122 completes the authorized depth replication on layer-46 hot expert 28.
+Validation relative L2 falls 65.81% and untouched holdout falls 47.21% against
+the independent rank-768 SVD control, with the same bounded release behavior.
+This authorizes only a multi-expert shared-basis pilot within one layer. That
+pilot must compare against activation-weighted independent controls and retain
+at least two experts with non-empty train, validation, and holdout coverage.
 
 ## E6 — MTP and DFlash verification
 

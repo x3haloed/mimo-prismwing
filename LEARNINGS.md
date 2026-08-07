@@ -2002,3 +2002,22 @@ fit. Raw evidence hashes to
 analysis hashes to
 `6f3c7e8d9ddd25db65dc35cb888a98349bfa89b538cc33be7a2e0ffe5e3c6d17`.
 No throughput-model constant or endpoint TPS changes in PW-0121.
+
+PW-0122 replicates PW-0121's activation-weighted rank-768 result at layer 46,
+where PW-0119 had different spectra and output scale. For hot expert 28,
+complete expert relative L2 falls from `0.572330` to `0.195667` on validation
+(65.81%) and from `0.545815` to `0.288128` on untouched holdout (47.21%). Train
+error falls 87.17%. All three projection validation objectives improve by
+84.02--93.00% without holdout selection.
+
+The result makes the next uncertainty sharing, not depth-general independent
+fitting. Any shared-basis pilot must beat or approach these activation-weighted
+independent controls rather than compare only with global SVD, and it needs at
+least two experts with non-empty train/validation/holdout coverage in the same
+layer. Gate 8 passes at 69% minimum free memory, 1,696,583,680-byte maximum
+physical footprint, zero swap growth/throttling, stable services, and a
+312,348,032-byte final footprint. Raw evidence hashes to
+`e05a6a5551e1ef8cb2f5593e0aa44f05a16d1c667dc531a3942e56b20196b50d`;
+analysis hashes to
+`5b5a21be9438e81e9b05a155ca365cd0dc4180be1b06a18a873362e88f60e0eb`.
+No throughput-model constant or endpoint TPS changes in PW-0122.
