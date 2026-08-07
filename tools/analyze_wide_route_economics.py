@@ -22,8 +22,8 @@ except ModuleNotFoundError:
 
 
 REVISION = "63651580ca774f8504f676040460aed3e1244ac1"
-TRACE_COMMIT = "64be9a2db15b2cd2479cf146a44050bcff98f959"
-TRACE_MANIFEST_SHA256 = "PENDING"
+TRACE_COMMIT = "9647b740f8f19c075ec752ed044795fa20c1102a"
+TRACE_MANIFEST_SHA256 = "584d3a8b1b09b12d4f83908be1fa5471b9fd66373500cc56332213928cd0bc3e"
 FIXTURE_SHA256 = "8f3da9f077df42c25490e71bf0a472194a365cb3dfc2a17d5047fe9c2186e1e5"
 CHECKPOINT_VERIFICATION_SHA256 = (
     "9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03"
@@ -351,6 +351,8 @@ def analyze(manifest_path: Path) -> dict:
         or manifest.get("checkpoint_verification_sha256") != CHECKPOINT_VERIFICATION_SHA256
         or manifest.get("prompt_positions") != PROMPT_POSITIONS
         or manifest.get("hosted_suffix_positions") != HOSTED_SUFFIX_POSITIONS
+        or manifest.get("hosted_suffix_token_ids_sha256")
+        != "7d04c0ad67ad559cfdbf2e456af93ec2aab92e1b26d1d6bc988082302a099b30"
         or manifest.get("teacher_forced_positions") != SUFFIX_POSITIONS
         or manifest.get("total_positions") != TOTAL_POSITIONS
         or manifest.get("accepted_tokens") != 0
