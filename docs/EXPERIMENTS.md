@@ -171,6 +171,14 @@ positions, while global LRU remains zero. Any physical follow-up must freeze a
 cold end-to-end gain and explain why the remaining 5.232 GB/token of oracle
 misses fits the combined branch; it is not a standalone 34.3/50 mechanism.
 
+PW-0113 rejects the deeper exact neuron-canonicalization follow-up to PW-0109.
+Expanded per-neuron scale association adds only 3.116%, but aligned residuals
+save just 0.340% versus original source bytes and make the optimistic physical
+bound 266.790 ms rather than 47.7 ms. Do not expand exact permutation work to
+all experts or build a decoder. A learned/common basis, sign symmetry, or
+approximate routed-mixture compiler is a distinct experiment and exactness
+class.
+
 **Go:** use speculation as expert-byte leverage only when `A/U > 1`; otherwise
 retain it for dense-weight reuse or discard it if total wall time loses.
 

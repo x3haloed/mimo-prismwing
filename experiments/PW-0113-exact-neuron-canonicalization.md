@@ -1,7 +1,7 @@
 # PW-0113 — Exact fine-grained neuron canonicalization
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Contract commit: `e6cd914bee4b448d04864e2473e4e573698756d3`
@@ -126,3 +126,68 @@ pass, freeze a separate full-layer/holdout and inline Metal decoder contract
 before promotion. A pass does not reopen source-FP8 speculation: PW-0110 and
 PW-0112 must be recomputed using the measured transformed bytes and decode
 cost.
+
+## Result
+
+Phase A passes exactly. Each 12,672-byte neuron record carries 12,288 source
+FP8 codes and 384 bytes of replicated F32 scales. The expanded representation
+is 25,952,256 bytes per expert, 780,288 bytes above the 25,171,968-byte source;
+including a 4,096-byte U16 inverse permutation yields 3.1161% overhead, below
+the frozen 10% stop. A real expert-9 preflight collapsed all 2,048 records and
+reproduced every source tensor hash.
+
+The clean implementation at
+`a0ef5c4c6b95197d921cae52db5a474637f6550b` then completed all eight
+authenticated experts. Every one of the seven 2,048-by-2,048 assignments is a
+bijective deterministic mapping over the frozen 384-feature schema. Inverse
+permutation and scale-replica collapse reproduce all 48 source tensor hashes.
+Peak declared assignment-matrix storage is 100,663,296 bytes.
+
+The expanded streams contain 207,618,048 logical bytes versus 201,375,744
+original source bytes:
+
+| Stream | zstd 1 bytes / ratio to source | zstd 19 bytes / ratio to source |
+| --- | ---: | ---: |
+| Expanded expert-major | 180,730,241 / 89.748% | 179,145,903 / 88.961% |
+| Identity reference/XOR | 199,487,324 / 99.062% | 197,253,314 / 97.953% |
+| Aligned reference/XOR | 200,691,292 / 99.660% | 194,002,317 / 96.338% |
+
+At the fast setting, alignment is 11.045% larger than the expanded unmodified
+control and 0.604% larger than identity-delta. It reduces original source bytes
+by only 0.340%, not 25%. Measured decompression is 208.953 ms, so the optimistic
+acquisition-plus-decode bound is 266.790 ms rather than 47.7 ms. High-level
+analysis improves aligned residuals modestly relative to identity-delta but
+still remains 8.29% larger than the unmodified high-level control and is not a
+runtime path.
+
+The immutable raw result at
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0113/run-001.json` hashes to
+`f6cb7d8510d2076b35db074a5c6a0511fff7c047effa0dcbb6fe7a146f7aea6a`.
+The clean analyzer at `b90d05feb53048382712196d22932e6d9084cb30`
+emitted
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0113/analysis-001.json`, hash
+`5dfb78f1e32b206050e98754cbcfdfbbf4be2960715954e47465bb882aa51a21`.
+The updated throughput model hashes to
+`39f3de7d3ebdd774d7c827c19d7bc00aaef8c6acde498798113d0fba4f1669f3`.
+
+Gate 8 passes all 13 boundaries with 78% minimum free memory,
+666,550,272-byte peak RSS, 345,950,528-byte maximum physical footprint,
+84,297,664-byte released footprint, zero swap growth, zero throttled pages,
+and stable protected services. Temporary expanded and codec streams were
+removed and never entered Git.
+
+## Decision
+
+Reject arbitrary-neuron permutation with exact per-neuron scale association as
+the executable-byte mechanism on this selected real route. It exposes less
+shared compressible structure than leaving each expert unmodified, while scale
+association consumes most of the tiny gross byte reduction. Together with
+PW-0109, both the source-scale-preserving 128-neuron symmetry and the full
+2,048-neuron permutation symmetry fail their frozen mechanism and physical
+gates.
+
+Do not expand to all experts or build a decoder. Sign symmetry, a common basis,
+learned residuals, and modified expert weights remain different mechanisms;
+none is implied by this failure. Exact permutation canonicalization no longer
+justifies work ahead of a named approximate representation or different
+physical embodiment.

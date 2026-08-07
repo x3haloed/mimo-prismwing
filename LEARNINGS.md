@@ -1802,3 +1802,22 @@ itself. The raw route manifest hashes to
 `584d3a8b1b09b12d4f83908be1fa5471b9fd66373500cc56332213928cd0bc3e`;
 analysis hashes to
 `e93d930549ee9fe761d7fc98bf59642088b3eb9f41c712968f8df26d5b2c8b98`.
+
+PW-0113 closes the deeper exact neuron-permutation premise left open by
+PW-0109. Replicating source scales per neuron and carrying a U16 inverse
+permutation costs only 3.1161%, and all eight selected real experts reconstruct
+every source tensor byte. Nevertheless, deterministic 2,048-neuron similarity
+assignment makes fast aligned residuals 11.0447% larger than the expanded
+unmodified control and 0.6035% larger than identity-delta. The result is only
+0.3399% smaller than original source bytes, and its optimistic
+acquisition-plus-decode bound is 266.790 ms rather than 47.7 ms.
+
+Reject both block-level and individual-neuron exact canonicalization as the
+selected-route executable-byte mechanism. Independently trained experts do not
+expose useful shared residual structure under these function-preserving
+permutations. Do not expand to all experts or a runtime decoder; a sign
+symmetry, learned/common basis, approximate representation, or modified expert
+compiler is a separately named premise. Raw evidence hashes to
+`f6cb7d8510d2076b35db074a5c6a0511fff7c047effa0dcbb6fe7a146f7aea6a`;
+analysis hashes to
+`5dfb78f1e32b206050e98754cbcfdfbbf4be2960715954e47465bb882aa51a21`.

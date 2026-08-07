@@ -135,6 +135,13 @@ The construction order follows the least-proven boundaries:
   policy reaches 29.951%, and even the oracle leaves 5.232 GB/token. No cache
   or proposer is an active endpoint authority under the unchanged storage
   premise.
+- PW-0113 rejects the remaining exact fine-grained neuron-permutation storage
+  branch. Per-neuron exact scale association is affordable at 3.116% overhead
+  and reconstructs every byte, but aligned fast residuals are larger than both
+  unmodified and identity-delta controls and save only 0.340% versus source.
+  Neither coarse nor arbitrary-neuron exact canonicalization is an active
+  artifact/decoder authority. Learned bases or approximate expert
+  representations require an explicitly deeper named branch.
 - The PW-0049 correctness baseline owns one complete real base layer from
   source-FP8 QKV through SWA, residual/norm, dynamic routing, 56 selected
   experts, weighted scatter, and the final residual. Rust uses Accelerate
