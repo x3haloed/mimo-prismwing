@@ -49,6 +49,14 @@ selected IDs, and route weights exact. This admits only JSON round-trip noise
 in a redundant statistic, not route or model divergence. The runtime now
 checks this authority after every layer so future mismatches stop early.
 
+The next clean walk passed all 48 per-layer route checks and the complete
+deterministic source-work ledger, then failed before reconstruction or evidence
+creation because the experiment parent directory did not exist and the sink
+used single-level directory creation. Use recursive creation only after all
+route/ledger authority checks pass. This operational correction changes no
+model execution, capture, reconstruction, or acceptance semantics; the failed
+walk left no partial evidence directory.
+
 At routed layers 4, 24, and 46, capture the causal source-derived mapping from
 the layer's real MoE input and actual route to its expert outputs, weighted
 mixture residual, and final residual. These are early, middle, and late pilot

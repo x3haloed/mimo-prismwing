@@ -7493,7 +7493,7 @@ pub fn run_routed_mixture_activation_corpus(
         &ledger,
     )?;
     safety.checkpoint("pw0112_route_authority_reproduced", true)?;
-    fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
+    fs::create_dir_all(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
     let mut layers = Vec::with_capacity(TARGET_LAYERS.len());
     for layer in TARGET_LAYERS {
         let capture = internal
