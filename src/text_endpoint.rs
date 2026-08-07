@@ -768,6 +768,100 @@ pub struct RouteOnlyTraceReport {
 }
 
 #[derive(Debug, Serialize)]
+pub struct CorpusCaptureRecord {
+    pub file: String,
+    pub shape: Vec<usize>,
+    pub dtype: &'static str,
+    pub bytes: usize,
+    pub sha256: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CorpusPartitionCoverage {
+    pub partition: &'static str,
+    pub start_position: usize,
+    pub end_position_exclusive: usize,
+    pub positions: usize,
+    pub placements: usize,
+    pub distinct_experts: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RoutedMixtureLayerCorpus {
+    pub layer: usize,
+    pub captures: BTreeMap<String, CorpusCaptureRecord>,
+    pub selected_experts_by_position: Vec<Vec<u32>>,
+    pub route_weights_by_position: Vec<Vec<f32>>,
+    pub expert_schedule: Vec<ExpertScheduleEntry>,
+    pub distinct_experts: usize,
+    pub expert_access_counts: BTreeMap<u32, usize>,
+    pub experts_with_at_most_two_placements: Vec<u32>,
+    pub top_quartile_frequency_experts: Vec<u32>,
+    pub partition_coverage: Vec<CorpusPartitionCoverage>,
+    pub routed_reconstruction_sha256: String,
+    pub final_reconstruction_sha256: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RoutedMixtureActivationCorpusReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub fixture_sha256: String,
+    pub checkpoint_verification_sha256: String,
+    pub pw0112_manifest_sha256: &'static str,
+    pub input_token_ids_sha256: String,
+    pub route_semantics_sha256: String,
+    pub target_layers: Vec<usize>,
+    pub layers: Vec<RoutedMixtureLayerCorpus>,
+    pub layer_traces: Vec<LayerRouteTrace>,
+    pub ledger: EndpointLedger,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub complete_wall_ms: f64,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: usize,
+    pub performance_claim: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RouteAuthorityManifest {
+    schema_version: u32,
+    semantic: String,
+    revision: String,
+    fixture_sha256: String,
+    checkpoint_verification_sha256: String,
+    input_token_ids_sha256: String,
+    total_positions: usize,
+    layer_traces: Vec<RouteAuthorityLayer>,
+    ledger: RouteAuthorityLedger,
+}
+
+#[derive(Debug, Deserialize)]
+struct RouteAuthorityLayer {
+    layer: usize,
+    attention: String,
+    cache_length: usize,
+    selected_experts_by_position: Vec<Vec<u32>>,
+    route_weights_by_position: Vec<Vec<f32>>,
+    #[serde(rename = "U")]
+    expert_union_factor: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct RouteAuthorityLedger {
+    logical_source_bytes: u64,
+    fp8_matrices_expanded: u64,
+    bf16_matrices_expanded: u64,
+    routed_expert_executions: u64,
+    dynamic_activation_groups: u64,
+    dynamic_activation_values: u64,
+}
+
+#[derive(Debug, Serialize)]
 pub struct SafetySnapshot {
     pub phase: String,
     pub system_memory_free_percent: u64,
@@ -837,6 +931,7 @@ struct RoutingTrace {
 
 #[derive(Default)]
 struct ExpertCaptures {
+    down_only: bool,
     schedule: Vec<ExpertScheduleEntry>,
     gate: Vec<f32>,
     up: Vec<f32>,
@@ -849,6 +944,19 @@ struct FullPrefixCaptures {
     embedding: Vec<f32>,
     layer_finals: Vec<Vec<f32>>,
     final_norm: Vec<f32>,
+    mixture_target_layers: BTreeSet<usize>,
+    mixture_layers: BTreeMap<usize, MixtureLayerInternalCapture>,
+}
+
+struct MixtureLayerInternalCapture {
+    moe_input: Vec<f32>,
+    expert_down: Vec<f32>,
+    post_attention: Vec<f32>,
+    routed_output: Vec<f32>,
+    final_hidden: Vec<f32>,
+    expert_schedule: Vec<ExpertScheduleEntry>,
+    selected: Vec<Vec<u32>>,
+    weights: Vec<Vec<f32>>,
 }
 
 struct NativeDecodeStep {
@@ -2940,9 +3048,11 @@ fn routed_mlp_traced(
                 expert,
                 positions: placements.iter().map(|(position, _)| *position).collect(),
             });
-            captures.gate.extend_from_slice(&gate);
-            captures.up.extend_from_slice(&up);
-            captures.swiglu.extend_from_slice(&activated);
+            if !captures.down_only {
+                captures.gate.extend_from_slice(&gate);
+                captures.up.extend_from_slice(&up);
+                captures.swiglu.extend_from_slice(&activated);
+            }
             captures.down.extend_from_slice(&projected);
         }
         for (local, &(position, weight)) in placements.iter().enumerate() {
@@ -3079,6 +3189,10 @@ fn decode_step(
             ledger,
         )?;
         let moe_input = rms_norm(&post_attention, rows, &post_norm, config.layernorm_epsilon)?;
+        let capture_mixture_layer = full_captures
+            .as_deref()
+            .is_some_and(|captures| captures.mixture_target_layers.contains(&layer));
+        let mut mixture_experts = None;
         let (mlp, selected, weights) = if layer == 0 {
             (
                 dense_mlp(checkpoint, &moe_input, rows, ledger, None)?,
@@ -3099,15 +3213,67 @@ fn decode_step(
                         *sparse_repair_enabled,
                     )?
                 } else {
-                    routed_mlp(checkpoint, layer, &moe_input, rows, ledger)?
+                    if capture_mixture_layer {
+                        let mut captures = ExpertCaptures {
+                            down_only: true,
+                            ..ExpertCaptures::default()
+                        };
+                        let mut completed = |_| Ok(());
+                        let routed = routed_mlp_traced(
+                            checkpoint,
+                            layer,
+                            &moe_input,
+                            rows,
+                            ledger,
+                            Some(&mut captures),
+                            &mut completed,
+                        )?;
+                        mixture_experts = Some(captures);
+                        routed
+                    } else {
+                        routed_mlp(checkpoint, layer, &moe_input, rows, ledger)?
+                    }
                 };
             (routed.output, routed.selected, routed.weights)
         };
-        hidden = post_attention
+        let final_hidden = post_attention
             .iter()
-            .zip(mlp)
+            .zip(&mlp)
             .map(|(&residual, projected)| round_bf16(residual + projected))
-            .collect();
+            .collect::<Vec<_>>();
+        if capture_mixture_layer {
+            let expert = mixture_experts.ok_or("targeted mixture capture lacks expert outputs")?;
+            if expert.down.len() != rows * TOP_K * HIDDEN
+                || expert
+                    .schedule
+                    .iter()
+                    .map(|row| row.positions.len())
+                    .sum::<usize>()
+                    != rows * TOP_K
+            {
+                return Err(format!(
+                    "layer {layer}: targeted mixture capture shape mismatch"
+                ));
+            }
+            full_captures
+                .as_deref_mut()
+                .ok_or("targeted mixture capture authority disappeared")?
+                .mixture_layers
+                .insert(
+                    layer,
+                    MixtureLayerInternalCapture {
+                        moe_input: moe_input.clone(),
+                        expert_down: expert.down,
+                        post_attention: post_attention.clone(),
+                        routed_output: mlp.clone(),
+                        final_hidden: final_hidden.clone(),
+                        expert_schedule: expert.schedule,
+                        selected: selected.clone(),
+                        weights: weights.clone(),
+                    },
+                );
+        }
+        hidden = final_hidden;
         if let Some(captures) = full_captures.as_deref_mut() {
             captures.layer_finals.push(hidden.clone());
         }
@@ -5981,6 +6147,155 @@ fn write_capture_typed(
     })
 }
 
+fn f32_le_bytes(values: &[f32]) -> Vec<u8> {
+    values
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect()
+}
+
+fn write_corpus_capture(
+    output_dir: &Path,
+    name: &str,
+    shape: &[usize],
+    values: &[f32],
+) -> Result<CorpusCaptureRecord, String> {
+    let expected = shape
+        .iter()
+        .try_fold(1_usize, |product, value| product.checked_mul(*value))
+        .ok_or("corpus capture shape overflow")?;
+    if expected != values.len() || values.iter().any(|value| !value.is_finite()) {
+        return Err(format!("{name}: corpus capture shape or value mismatch"));
+    }
+    let bytes = f32_le_bytes(values);
+    let file = format!("{name}.f32");
+    write_create_new(&output_dir.join(&file), &bytes)?;
+    Ok(CorpusCaptureRecord {
+        file,
+        shape: shape.to_vec(),
+        dtype: "BF16_widened_F32",
+        bytes: bytes.len(),
+        sha256: sha256_hex(&bytes),
+    })
+}
+
+fn reconstruct_routed_from_schedule(
+    rows: usize,
+    schedule: &[ExpertScheduleEntry],
+    expert_down: &[f32],
+    selected: &[Vec<u32>],
+    weights: &[Vec<f32>],
+) -> Result<Vec<f32>, String> {
+    if rows == 0
+        || selected.len() != rows
+        || weights.len() != rows
+        || expert_down.len() != rows * TOP_K * HIDDEN
+    {
+        return Err("routed reconstruction top-level shape mismatch".to_owned());
+    }
+    let mut output = vec![0.0_f32; rows * HIDDEN];
+    let mut visits = vec![0_usize; rows];
+    let mut source_row = 0_usize;
+    let mut scheduled_experts = BTreeSet::new();
+    let mut scheduled_placements = BTreeSet::new();
+    for entry in schedule {
+        if entry.expert as usize >= ROUTED_EXPERTS || !scheduled_experts.insert(entry.expert) {
+            return Err("routed reconstruction schedule expert mismatch".to_owned());
+        }
+        for &position in &entry.positions {
+            if position >= rows || !scheduled_placements.insert((position, entry.expert)) {
+                return Err("routed reconstruction schedule position mismatch".to_owned());
+            }
+            let matches = selected[position]
+                .iter()
+                .enumerate()
+                .filter(|(_, expert)| **expert == entry.expert)
+                .collect::<Vec<_>>();
+            if selected[position].len() != TOP_K
+                || weights[position].len() != TOP_K
+                || matches.len() != 1
+                || source_row >= rows * TOP_K
+            {
+                return Err("routed reconstruction placement mismatch".to_owned());
+            }
+            let weight = weights[position][matches[0].0];
+            if !weight.is_finite() {
+                return Err("routed reconstruction non-finite weight".to_owned());
+            }
+            for column in 0..HIDDEN {
+                output[position * HIDDEN + column] +=
+                    expert_down[source_row * HIDDEN + column] * weight;
+            }
+            visits[position] += 1;
+            source_row += 1;
+        }
+    }
+    if source_row != rows * TOP_K || visits.iter().any(|&count| count != TOP_K) {
+        return Err("routed reconstruction schedule is not a placement bijection".to_owned());
+    }
+    round_bf16_values(&mut output);
+    Ok(output)
+}
+
+fn reconstruct_final(post_attention: &[f32], routed: &[f32]) -> Result<Vec<f32>, String> {
+    if post_attention.len() != routed.len()
+        || post_attention.is_empty()
+        || post_attention
+            .iter()
+            .chain(routed)
+            .any(|value| !value.is_finite())
+    {
+        return Err("final reconstruction shape or value mismatch".to_owned());
+    }
+    Ok(post_attention
+        .iter()
+        .zip(routed)
+        .map(|(&residual, &projected)| round_bf16(residual + projected))
+        .collect())
+}
+
+fn validate_route_authority(
+    authority: &RouteAuthorityManifest,
+    fixture_sha256: &str,
+    verification_sha256: &str,
+    input_sha256: &str,
+    traces: &[LayerRouteTrace],
+    ledger: &EndpointLedger,
+) -> Result<(), String> {
+    if authority.schema_version != 1
+        || authority.semantic != "mimo_teacher_forced_route_only_rust_trace"
+        || authority.revision != REVISION
+        || authority.fixture_sha256 != fixture_sha256
+        || authority.checkpoint_verification_sha256 != verification_sha256
+        || authority.input_token_ids_sha256 != input_sha256
+        || authority.total_positions != 224
+        || authority.layer_traces.len() != traces.len()
+        || authority.ledger.logical_source_bytes != ledger.logical_source_bytes
+        || authority.ledger.fp8_matrices_expanded != ledger.fp8_matrices_expanded
+        || authority.ledger.bf16_matrices_expanded != ledger.bf16_matrices_expanded
+        || authority.ledger.routed_expert_executions != ledger.routed_expert_executions
+        || authority.ledger.dynamic_activation_groups != ledger.dynamic_activation_groups
+        || authority.ledger.dynamic_activation_values != ledger.dynamic_activation_values
+    {
+        return Err("PW-0112 route authority identity mismatch".to_owned());
+    }
+    for (expected, actual) in authority.layer_traces.iter().zip(traces) {
+        if expected.layer != actual.layer
+            || expected.attention != actual.attention
+            || expected.cache_length != actual.cache_length
+            || expected.selected_experts_by_position != actual.selected_experts_by_position
+            || expected.route_weights_by_position != actual.route_weights_by_position
+            || expected.expert_union_factor.to_bits() != actual.expert_union_factor.to_bits()
+        {
+            return Err(format!(
+                "layer {}: PW-0112 route semantics mismatch",
+                actual.layer
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn execute_dense_layer0(
     checkpoint: &Checkpoint,
     config: &ModelConfig,
@@ -6991,6 +7306,265 @@ pub fn run_real_routed_layer_trace(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn run_routed_mixture_activation_corpus(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    pw0112_manifest_path: &Path,
+    output_dir: &Path,
+    commit: &str,
+) -> Result<RoutedMixtureActivationCorpusReport, String> {
+    const PW0112_MANIFEST_SHA256: &str =
+        "584d3a8b1b09b12d4f83908be1fa5471b9fd66373500cc56332213928cd0bc3e";
+    const ROUTE_SEMANTICS_SHA256: &str =
+        "5063ff60b4cc6adb3677f08acae05f17954c00768fa3e9b60f4993cd44877218";
+    const INPUT_TOKEN_IDS_SHA256: &str =
+        "ec757454956b42c085e5402ded86975176b987deba3d9b5a94c739fa49e459ad";
+    const TARGET_LAYERS: [usize; 3] = [4, 24, 46];
+    if output_dir.exists() {
+        return Err(format!("refusing to overwrite {}", output_dir.display()));
+    }
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("implementation commit must be a lowercase 40-hex Git object".to_owned());
+    }
+    let authority_bytes = fs::read(pw0112_manifest_path)
+        .map_err(|error| format!("{}: {error}", pw0112_manifest_path.display()))?;
+    if sha256_hex(&authority_bytes) != PW0112_MANIFEST_SHA256 {
+        return Err("PW-0112 route manifest SHA-256 mismatch".to_owned());
+    }
+    let route_authority: RouteAuthorityManifest = serde_json::from_slice(&authority_bytes)
+        .map_err(|error| format!("PW-0112 route manifest: {error}"))?;
+    let complete_started = Instant::now();
+    let disk_bytes_read_before = process_disk_bytes_read()?;
+    let EndpointAuthority {
+        fixture_bytes,
+        fixture,
+        mut safety,
+        config,
+        tokenizer,
+        prompt_token_ids,
+        checkpoint,
+        verification_sha256,
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    if fixture.schema_version != 4 {
+        return Err("PW-0116 requires the frozen schema-4 fixture".to_owned());
+    }
+    let hosted = fixture
+        .hosted_reference
+        .as_ref()
+        .ok_or("PW-0116 requires a hosted reference")?;
+    let hosted_suffix = fixture
+        .full_prefix_trace_append_token_ids
+        .as_ref()
+        .ok_or("PW-0116 requires teacher-forced token IDs")?;
+    if hosted_suffix.len() != 192
+        || hosted_suffix != &hosted.generated_token_ids
+        || tokenizer
+            .decode(hosted_suffix, false)
+            .map_err(|error| format!("teacher-forced tokenizer decode: {error}"))?
+            != hosted.generated_text
+        || fixture.route_trace_positions != Some(137)
+    {
+        return Err("PW-0116 hosted suffix authority mismatch".to_owned());
+    }
+    let input_token_ids = full_prefix_trace_tokens(&fixture, &prompt_token_ids)?;
+    let input_sha256 =
+        sha256_hex(&serde_json::to_vec(&input_token_ids).map_err(|error| error.to_string())?);
+    if input_token_ids.len() != 224 || input_sha256 != INPUT_TOKEN_IDS_SHA256 {
+        return Err("PW-0116 input-token identity mismatch".to_owned());
+    }
+    let rows = input_token_ids.len();
+    let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
+    let mut ledger = EndpointLedger::default();
+    let mut internal = FullPrefixCaptures {
+        mixture_target_layers: TARGET_LAYERS.into_iter().collect(),
+        ..FullPrefixCaptures::default()
+    };
+    let step = decode_step(
+        &checkpoint,
+        &config,
+        &input_token_ids,
+        &mut caches,
+        &mut ledger,
+        &mut safety,
+        Some(&mut internal),
+        None,
+        DecodeOutput::RoutesOnly,
+    )?;
+    if step.output_token != 0
+        || !step.top_logits.is_empty()
+        || !step.full_logits.is_empty()
+        || step.traces.len() != 48
+        || internal.mixture_layers.len() != TARGET_LAYERS.len()
+    {
+        return Err("PW-0116 execution or capture accounting mismatch".to_owned());
+    }
+    let fixture_sha256 = sha256_hex(&fixture_bytes);
+    validate_route_authority(
+        &route_authority,
+        &fixture_sha256,
+        &verification_sha256,
+        &input_sha256,
+        &step.traces,
+        &ledger,
+    )?;
+    safety.checkpoint("pw0112_route_authority_reproduced", true)?;
+    fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
+    let mut layers = Vec::with_capacity(TARGET_LAYERS.len());
+    for layer in TARGET_LAYERS {
+        let capture = internal
+            .mixture_layers
+            .remove(&layer)
+            .ok_or_else(|| format!("layer {layer}: missing targeted mixture capture"))?;
+        let routed = reconstruct_routed_from_schedule(
+            rows,
+            &capture.expert_schedule,
+            &capture.expert_down,
+            &capture.selected,
+            &capture.weights,
+        )?;
+        let final_hidden = reconstruct_final(&capture.post_attention, &routed)?;
+        if f32_le_bytes(&routed) != f32_le_bytes(&capture.routed_output)
+            || f32_le_bytes(&final_hidden) != f32_le_bytes(&capture.final_hidden)
+        {
+            return Err(format!("layer {layer}: exact reconstruction mismatch"));
+        }
+        let mut captures = BTreeMap::new();
+        for (name, shape, values) in [
+            (
+                "moe_input",
+                vec![rows, HIDDEN],
+                capture.moe_input.as_slice(),
+            ),
+            (
+                "expert_down",
+                vec![rows * TOP_K, HIDDEN],
+                capture.expert_down.as_slice(),
+            ),
+            (
+                "routed_output",
+                vec![rows, HIDDEN],
+                capture.routed_output.as_slice(),
+            ),
+            (
+                "post_attention",
+                vec![rows, HIDDEN],
+                capture.post_attention.as_slice(),
+            ),
+            ("final", vec![rows, HIDDEN], capture.final_hidden.as_slice()),
+        ] {
+            let file_name = format!("layer_{layer:02}_{name}");
+            captures.insert(
+                name.to_owned(),
+                write_corpus_capture(output_dir, &file_name, &shape, values)?,
+            );
+        }
+        let mut access_counts = BTreeMap::<u32, usize>::new();
+        for expert in capture.selected.iter().flatten() {
+            *access_counts.entry(*expert).or_default() += 1;
+        }
+        if access_counts.values().sum::<usize>() != rows * TOP_K {
+            return Err(format!("layer {layer}: expert access accounting mismatch"));
+        }
+        let rare = access_counts
+            .iter()
+            .filter_map(|(&expert, &count)| (count <= 2).then_some(expert))
+            .collect::<Vec<_>>();
+        let mut frequency = access_counts
+            .iter()
+            .map(|(&expert, &count)| (expert, count))
+            .collect::<Vec<_>>();
+        frequency.sort_by(|left, right| right.1.cmp(&left.1).then(left.0.cmp(&right.0)));
+        let quartile_count = frequency.len().div_ceil(4);
+        let top_quartile = frequency[..quartile_count]
+            .iter()
+            .map(|&(expert, _)| expert)
+            .collect::<Vec<_>>();
+        let partition_coverage = [
+            ("train", 0_usize, 112_usize),
+            ("validation", 112, 168),
+            ("pilot_holdout", 168, 224),
+        ]
+        .into_iter()
+        .map(|(partition, start, end)| CorpusPartitionCoverage {
+            partition,
+            start_position: start,
+            end_position_exclusive: end,
+            positions: end - start,
+            placements: (end - start) * TOP_K,
+            distinct_experts: capture.selected[start..end]
+                .iter()
+                .flatten()
+                .copied()
+                .collect::<BTreeSet<_>>()
+                .len(),
+        })
+        .collect::<Vec<_>>();
+        layers.push(RoutedMixtureLayerCorpus {
+            layer,
+            captures,
+            selected_experts_by_position: capture.selected,
+            route_weights_by_position: capture.weights,
+            expert_schedule: capture.expert_schedule,
+            distinct_experts: access_counts.len(),
+            expert_access_counts: access_counts,
+            experts_with_at_most_two_placements: rare,
+            top_quartile_frequency_experts: top_quartile,
+            partition_coverage,
+            routed_reconstruction_sha256: sha256_hex(&f32_le_bytes(&routed)),
+            final_reconstruction_sha256: sha256_hex(&f32_le_bytes(&final_hidden)),
+        });
+        safety.checkpoint(&format!("layer_{layer}_captures_written"), true)?;
+    }
+    ledger.actual_process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_bytes_read_before)
+        .ok_or("process disk byte counter moved backwards")?;
+    ledger.peak_resident_bytes = peak_resident_bytes()?;
+    drop(caches);
+    checkpoint.release_file_pages()?;
+    drop(checkpoint);
+    safety.checkpoint("checkpoint_released", true)?;
+    safety.checkpoint("final_service_health", true)?;
+    let report = RoutedMixtureActivationCorpusReport {
+        schema_version: 1,
+        semantic: "mimo_pw0116_real_routed_mixture_activation_pilot_corpus",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        fixture_sha256,
+        checkpoint_verification_sha256: verification_sha256,
+        pw0112_manifest_sha256: PW0112_MANIFEST_SHA256,
+        input_token_ids_sha256: input_sha256,
+        route_semantics_sha256: ROUTE_SEMANTICS_SHA256.to_owned(),
+        target_layers: TARGET_LAYERS.to_vec(),
+        layers,
+        layer_traces: step.traces,
+        ledger,
+        safety_snapshots: safety.snapshots,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        accepted_per_verification: 0,
+        performance_claim: None,
+    };
+    write_create_new(
+        &output_dir.join("manifest.json"),
+        &serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?,
+    )?;
+    Ok(report)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn run_route_only_trace(
     checkpoint_root: &Path,
     model_lock_path: &Path,
@@ -7259,6 +7833,52 @@ pub fn run_full_prefix_trace(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn routed_schedule_and_final_reconstruction_are_exact() {
+        let schedule = (0_u32..TOP_K as u32)
+            .map(|expert| ExpertScheduleEntry {
+                expert,
+                positions: vec![0],
+            })
+            .collect::<Vec<_>>();
+        let selected = vec![(0_u32..TOP_K as u32).collect::<Vec<_>>()];
+        let weights = vec![vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]];
+        let mut down = vec![0.0_f32; TOP_K * HIDDEN];
+        for (column, value) in down[..HIDDEN].iter_mut().enumerate() {
+            *value = column as f32 / HIDDEN as f32;
+        }
+        let routed = reconstruct_routed_from_schedule(1, &schedule, &down, &selected, &weights)
+            .expect("valid exact routed reconstruction");
+        let expected = down[..HIDDEN]
+            .iter()
+            .map(|&value| round_bf16(value))
+            .collect::<Vec<_>>();
+        assert_eq!(f32_le_bytes(&routed), f32_le_bytes(&expected));
+        let post_attention = vec![0.5_f32; HIDDEN];
+        let final_hidden =
+            reconstruct_final(&post_attention, &routed).expect("valid exact final reconstruction");
+        let expected_final = post_attention
+            .iter()
+            .zip(&routed)
+            .map(|(&left, &right)| round_bf16(left + right))
+            .collect::<Vec<_>>();
+        assert_eq!(f32_le_bytes(&final_hidden), f32_le_bytes(&expected_final));
+    }
+
+    #[test]
+    fn routed_schedule_reconstruction_rejects_non_bijection() {
+        let schedule = vec![ExpertScheduleEntry {
+            expert: 0,
+            positions: vec![0; TOP_K],
+        }];
+        let selected = vec![(0_u32..TOP_K as u32).collect::<Vec<_>>()];
+        let weights = vec![vec![0.125; TOP_K]];
+        let down = vec![0.0_f32; TOP_K * HIDDEN];
+        assert!(
+            reconstruct_routed_from_schedule(1, &schedule, &down, &selected, &weights).is_err()
+        );
+    }
 
     #[test]
     fn retained_cache_rejects_corruption() {

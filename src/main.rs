@@ -21,7 +21,7 @@ use prismwing::{
     run_full_prefix_trace, run_real_layer0_trace, run_real_layer1_expert_trace,
     run_real_layer1_routing_trace, run_real_layer2_trace, run_real_layer4_trace,
     run_real_layer7_trace, run_real_routed_layer_trace, run_route_only_trace,
-    run_slow_text_endpoint,
+    run_routed_mixture_activation_corpus, run_slow_text_endpoint,
 };
 use std::path::PathBuf;
 use tokenizers::Tokenizer;
@@ -36,6 +36,10 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing route-only-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <output-dir> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing routed-mixture-activation-corpus <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <pw0112-manifest.json> <output-dir> <commit>"
     );
     eprintln!(
         "  prismwing fp8-gemv <source.safetensors> <weight> <scale> <input.f32> <output.f32>"
@@ -509,6 +513,30 @@ fn main() {
                     &fixture,
                     &output,
                     &arguments[7],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output.join("manifest.json")))
+                })
+            }
+            #[cfg(target_os = "macos")]
+            Some("routed-mixture-activation-corpus") if arguments.len() == 9 => {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let fixture = PathBuf::from(&arguments[5]);
+                let pw0112_manifest = PathBuf::from(&arguments[6]);
+                let output = PathBuf::from(&arguments[7]);
+                run_routed_mixture_activation_corpus(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &fixture,
+                    &pw0112_manifest,
+                    &output,
+                    &arguments[8],
                 )
                 .and_then(|report| {
                     serde_json::to_writer(std::io::stdout(), &report)
