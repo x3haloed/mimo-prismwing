@@ -1,7 +1,7 @@
 # PW-0137 — Global-Hessian fixed-grid GPTQ rescue
 
-- Status: planned
-- Disposition: pending
+- Status: completed
+- Disposition: promoted to three-expert confirmation
 - Date: 2026-08-07
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -84,3 +84,33 @@ Apply normative Gate 8 after every projection and every full-Hessian workspace
 release. Stop before allocation if projected resident use plus current physical
 footprint exceeds the Gate 8 headroom; stop on any memory-pressure, swap,
 throttling, protected-service-health, or release-boundary failure.
+
+## Result
+
+The frozen one-expert gate passes. Layer 46/expert 28 reaches `0.059227`
+validation relative L2 and a `0.077608` maximum row, versus `0.163279` for the
+identical affine-INT4 control and `0.080659` for PW-0135's group-local GPTQ.
+That is a 63.73% reduction from the control and a 26.57% improvement over the
+group-local candidate. Train relative L2 is `0.033130`, so every continuation
+condition passes.
+
+All three projections improve their train control and record nonzero
+cross-block updates. The candidate remains exactly on the original affine grid,
+costs 13,369,344 bytes (`0.531120` of source), and adds no runtime MACs.
+Holdout remains sealed. The decision is
+`authorize_three_expert_global_hessian_confirmation`; this is not authorization
+for a full layer, runtime artifact, kernel, accumulated model, or endpoint.
+
+Gate 8 passes across nine snapshots: minimum system memory free is 78%, maximum
+peak RSS is 1,576,271,872 bytes, maximum physical footprint is 384,945,408
+bytes, maximum release-boundary footprint is 365,005,952 bytes, swap growth
+and new throttled pages are zero, and protected services remain resident.
+
+Raw evidence:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0137/run-001.json`, SHA-256
+`95fee340bb676ac7c9486ea713da9c461ca6fb62441b41b32ff988e97ed1502e`.
+Validated analysis:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0137/analysis-001/manifest.json`,
+SHA-256
+`7a741514aad2f4ec783cd95b1283ae5b98afbcdad17cd64e8a7759c12f3b5d67`.
+No endpoint TPS or measured throughput-model constant changes.

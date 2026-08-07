@@ -410,6 +410,14 @@ improves train, and preserves the exact 13,369,344-byte/no-extra-MAC ledger.
 A pass authorizes a separately frozen three-expert confirmation; a failure
 moves to a genuinely different geometry or recovery mechanism.
 
+The one-expert rescue passes. Layer 46/expert 28 improves from PW-0135's
+`0.080659` validation relative L2 to `0.059227`, with a `0.077608` worst row
+and `0.033130` train error. It reduces the identical affine-INT4 control by
+63.73% while preserving the exact byte and MAC ledger. This establishes that
+cross-group Hessian coupling—not a relaxed gate—contains the missing local
+capacity. Keep holdout sealed and run the separately frozen three-expert
+confirmation before expanding to a layer or executable artifact.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

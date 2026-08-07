@@ -2423,3 +2423,29 @@ or new throttled pages, and stable services. Raw evidence hashes to
 analysis hashes to
 `7ebf2cde5c4a3f4931d2d705993f822e38af13ea66bc3efc91410296b14e2aab`.
 No endpoint TPS or measured throughput-model constant changes in PW-0136.
+
+PW-0137 establishes that PW-0135's narrow failure was caused by its discarded
+cross-group curvature, not by an intrinsically insufficient four-bit grid.
+Holding the affine group-128 grids, 0.1% damping, activation order, bytes, and
+runtime arithmetic fixed, full-Hessian error propagation moves layer 46/expert
+28 from `0.080659` validation relative L2 to `0.059227`. The identical
+round-to-nearest control is `0.163279`, so the candidate reduces validation
+error by 63.73%; its worst row is `0.077608` and train error is `0.033130`.
+
+The old group-local inference is therefore superseded: second-order assignment
+capacity is not confined to independent storage groups, and 128-column storage
+boundaries must not be treated as curvature boundaries. All projection-level
+train errors improve, all cross-block update norms are nonzero, and the exact
+13,369,344-byte (`0.531120` of source), zero-extra-MAC ledger remains intact.
+This promotes only a three-expert confirmation. Holdout, a full layer, packed
+runtime, model accumulation, and endpoint fidelity remain unauthorized.
+
+Gate 8 passes across nine snapshots at 78% minimum free memory,
+1,576,271,872-byte maximum peak RSS, 384,945,408-byte maximum physical
+footprint, 365,005,952-byte maximum release-boundary footprint, zero swap
+growth or new throttled pages, and resident protected services. Raw evidence
+hashes to
+`95fee340bb676ac7c9486ea713da9c461ca6fb62441b41b32ff988e97ed1502e`;
+analysis hashes to
+`7a741514aad2f4ec783cd95b1283ae5b98afbcdad17cd64e8a7759c12f3b5d67`.
+No endpoint TPS or measured throughput-model constant changes in PW-0137.
