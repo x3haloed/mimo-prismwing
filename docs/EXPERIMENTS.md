@@ -476,6 +476,13 @@ and 8% worst-row error, while the early control regresses by at most 10% and
 the physical ledger remains unchanged. This is a local capacity control, not a
 whole-model rotation or runtime authorization.
 
+The fixed residual rotation is rejected. Its unquantized algebra passes near
+machine precision, but validation changes only from 2.216%/6.585%/6.744% to
+2.224%/6.504%/6.623% across the three experts. Rotated round-to-nearest is much
+worse, showing that GPTQ supplies nearly all of the recovered quality. Keep
+holdout sealed and do not rotate the checkpoint or build the runtime; proceed
+to recovery training rather than another fixed rotation seed.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

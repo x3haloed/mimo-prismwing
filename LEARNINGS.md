@@ -2534,3 +2534,32 @@ hashes to
 analysis hashes to
 `1efbd70bba8c5a3a1a7ade6668ff76d90b2bcbde7a931988fae47db0a1a7ebe9`.
 No endpoint TPS or measured throughput-model constant changes in PW-0140.
+
+PW-0141 rejects a fixed model-wide randomized-Hadamard residual basis as the
+missing weight-only INT4 geometry. The function-preserving algebra is sound:
+unquantized expert parity is `1.93e-15` to `3.52e-15` relative L2 and the
+orthogonal round trip is exact at reported precision. Every rotated GPTQ
+projection also improves its rotated round-to-nearest calibration control.
+
+The validation result is nevertheless neutral. Layer 4/expert 96 changes from
+`0.022155` to `0.022241`, layer 24/expert 200 from `0.065851` to `0.065040`,
+and layer 46/expert 249 from `0.067440` to `0.066235`. The deep gains are only
+1.23% and 1.79%, versus the frozen 25% requirement. Rotated round-to-nearest
+errors worsen to `0.095517`, `0.150095`, and `0.185599`, demonstrating that
+full-Hessian assignment—not the fixed rotation—provides nearly all quality.
+
+Do not spend another validation-visible seed, rotate the checkpoint, read
+holdout, or build the runtime. A learned rotation is a different mechanism,
+but after the decisive full-bank miss the next bounded branch should test
+recovery training directly. The physical ledger remains 13,369,344 bytes per
+expert (`0.531120` of source) with no prospective per-layer residual transform.
+
+Gate 8 passes across 24 snapshots at 79% minimum free memory,
+1,789,853,696-byte maximum peak RSS, 373,395,072-byte maximum physical
+footprint, 346,541,696-byte maximum release-boundary footprint, zero swap
+growth or new throttled pages, and resident protected services. Raw evidence
+hashes to
+`4dae2abe2a59457a77e09bd4d1328b7b6dce8f0e41e3ac115fd27645c93e56a9`;
+analysis hashes to
+`0cd0f7d5cd9d8fd563a1c35888a16e8452f8f9128d26c36ce7e02d646cc3bf26`.
+No endpoint TPS or measured throughput-model constant changes in PW-0141.

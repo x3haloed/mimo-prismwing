@@ -1,7 +1,7 @@
 # PW-0141 — Fixed residual-Hadamard rotation control
 
-- Status: planned
-- Disposition: pending
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-07
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -77,3 +77,38 @@ not holdout, a whole-model rotation, bank, runtime, or endpoint.
 
 Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 Apply normative Gate 8 before and after every projection and expert release.
+
+## Result
+
+The fixed rotation is algebraically correct but numerically ineffective for
+weight-only affine INT4 plus GPTQ. Unquantized forward parity is between
+`1.93e-15` and `3.52e-15`, and every round trip is exact at reported precision.
+Every rotated GPTQ projection improves its rotated round-to-nearest train
+control.
+
+Validation remains essentially unchanged: layer 4/expert 96 moves from
+`0.022155` to `0.022241`; layer 24/expert 200 from `0.065851` to `0.065040`;
+and layer 46/expert 249 from `0.067440` to `0.066235`. The deep improvements
+are only 1.23% and 1.79%, far below the required 25%, and neither reaches 5%.
+Rotated round-to-nearest is substantially worse, at `0.095517`, `0.150095`,
+and `0.185599`, so GPTQ—not the rotation—is doing nearly all useful work.
+
+The decision is `reject_fixed_residual_hadamard_rotation`. The payload remains
+13,369,344 bytes per expert (`0.531120` of source) with no prospective online
+residual transform inside a globally rotated model. Keep holdout sealed and do
+not rotate the checkpoint or build the runtime. Learned rotations remain
+logically distinct, but the next bounded branch is recovery training.
+
+Gate 8 passes across 24 snapshots: minimum system memory free is 79%, maximum
+peak RSS is 1,789,853,696 bytes, maximum physical footprint is 373,395,072
+bytes, maximum release-boundary footprint is 346,541,696 bytes, swap growth
+and new throttled pages are zero, and protected services remain resident.
+
+Raw evidence:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0141/run-001.json`, SHA-256
+`4dae2abe2a59457a77e09bd4d1328b7b6dce8f0e41e3ac115fd27645c93e56a9`.
+Validated analysis:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0141/analysis-001/manifest.json`,
+SHA-256
+`0cd0f7d5cd9d8fd563a1c35888a16e8452f8f9128d26c36ce7e02d646cc3bf26`.
+No endpoint TPS or measured throughput-model constant changes.
