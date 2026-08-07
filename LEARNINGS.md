@@ -2123,3 +2123,30 @@ evidence hashes to
 analysis hashes to
 `e940d38d84a43332a408b41d6d6f005e9bf24bd3c5950dd61ecfc8d15bf6b1bc`.
 No throughput-model constant or endpoint TPS changes in PW-0126.
+
+PW-0127 rejects the plausible under-$500 CPU-only R720 class for Prismwing 50
+on authenticated arithmetic, not a market or nominal-bandwidth hunch. Mandatory
+checkpoint matrices require `14,820,573,184` MACs or `29,641,146,368`
+operations per ordinary target token. This includes all attention projections,
+the dense layer-0 MLP, 47 routers, top-eight experts, and LM head while omitting
+attention scores, KV work, normalization, nonlinearities, FP8 decoding, NUMA,
+networking, and sampling.
+
+Two E5-2680-v2 CPUs have an intentionally overstated 1.152-TFLOP/s ceiling when
+all twenty cores are granted 3.60-GHz maximum turbo and perfect 16-SP-op/cycle
+AVX issue. Mandatory matrices alone cap this fantasy machine at `38.8649 TPS`;
+50 TPS requires 128.65% of peak. The 34.3-TPS horizon is not formally
+impossible but requires 88.25% before every omitted cost, so retain it only for
+a borrowed-node stage and never as purchase evidence. Ordinary selected expert
+bytes alone also cap impossible dual-socket bandwidth at `12.6154 TPS`, barely
+above PW-0048's 12.5 pre-purchase gate before dense traffic.
+
+The result kills neither PW-0048 generally nor a complete under-$500
+accelerated/modified system. It does prove that cheap high-capacity DDR3 is not
+the missing Prismwing-50 mechanism by itself. Gate 8 passes at 79% minimum free
+memory, 179,292,288-byte maximum physical footprint, zero swap growth or new
+throttled pages, and stable services. Raw evidence hashes to
+`6b81023921824906fea94e2bd5756e9a8ac2ab3f98411e1bfe62fe26d125e140`;
+analysis hashes to
+`5a44e66114b51e2b241acb26fcb2c58280fc2a823314b273c0761d58c27ff113`.
+No throughput-model measured constant or endpoint TPS changes in PW-0127.

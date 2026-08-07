@@ -1,10 +1,11 @@
 # PW-0127 — Under-$500 R720 CPU arithmetic ceiling
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: completed
+- Disposition: negative for Prismwing 50; 34.3 remains measurement-only
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Commit and dirty state: preimplementation contract; clean tree
+- Commit and dirty state: implementation
+  `0c1542f627336ee710aea066907cb26b6b57b666`; clean tree at execution
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; checkpoint verification
   `9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`;
@@ -82,8 +83,42 @@ production-shaped borrowed-node stage remains mandatory before any purchase.
 
 ## Result
 
-Unexecuted.
+The authenticated checkpoint contains a mandatory `14,820,573,184` matrix MACs
+per ordinary target token before any omitted work:
+
+| Category | MACs/token |
+| --- | ---: |
+| Selected experts | `9,462,349,824` |
+| Attention projections | `4,482,662,400` |
+| LM head | `624,951,296` |
+| Dense layer-0 MLP | `201,326,592` |
+| Routers | `49,283,072` |
+
+At two operations per MAC, the lower bound is `29,641,146,368` operations per
+token. The deliberately impossible dual-CPU peak is 1.152 TFLOP/s, yielding a
+hard ceiling of `38.8649 TPS`. Ten and 12.5 TPS consume 25.73% and 32.16% of
+that peak. The valuable 34.3-TPS horizon consumes 88.25%, while 50 TPS requires
+128.65% and is arithmetically impossible before FP8 decoding, attention-score
+work, KV traffic, NUMA, or any other omitted cost.
+
+The independent ordinary-token bandwidth bound is `12.6154 TPS` for selected
+expert bytes alone at an impossible dual-socket 119.4 GB/s. This barely clears
+PW-0048's 12.5-TPS pre-purchase threshold before dense weights and therefore
+cannot support purchase; a real stage would need measured wide/expert-major
+reuse.
+
+Gate 8 passes at 79% minimum free memory, 179,292,288-byte maximum physical
+footprint, zero swap growth or new throttled pages, and stable services. Raw
+evidence hashes to
+`6b81023921824906fea94e2bd5756e9a8ac2ab3f98411e1bfe62fe26d125e140`;
+independent analysis hashes to
+`5a44e66114b51e2b241acb26fcb2c58280fc2a823314b273c0761d58c27ff113`.
 
 ## Decision
 
-Unexecuted.
+Reject the target-faithful CPU-only dual-E5-2680-v2/R720 class for Prismwing
+50. Retain 34.3 TPS only as a borrowed-node measurement question: it needs
+88.25% of an impossible peak before unavoidable work and is not a credible
+purchase inference. This does not reject a complete under-$500 GPU/newer-CPU
+BOM, modified low-bit execution, or PW-0048 generally. No endpoint TPS or
+throughput-model measured constant changes.

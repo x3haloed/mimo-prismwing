@@ -219,11 +219,12 @@ runtime work; nonlinear/input-conditioned direct compilation remains distinct.
 
 PW-0127 returns to PW-0048 with the reduced $500 cap. A historical used R720
 with two E5-2680-v2 CPUs and 512 GiB shows that source-backbone capacity can
-fit the budget, but capacity is not throughput. Authenticate every mandatory
-checkpoint matrix MAC and compare it with an intentionally impossible CPU peak
-that grants all twenty cores 3.60-GHz turbo and full AVX issue. A failed peak
-bound rejects this CPU-only class for Prismwing 50 before borrowed-node or
-purchase work; any lower-rate arithmetic pass remains measurement-only.
+fit the budget, but authenticated mandatory matrices need 29.641 billion
+operations/token. Even granting every core 3.60-GHz turbo and perfect AVX
+issue, the CPU-only ceiling is 38.865 TPS. Reject this class for Prismwing 50.
+The 34.3 horizon remains measurement-only at 88.25% of impossible peak, far
+too tight for a purchase inference before omitted FP8, attention, KV, NUMA,
+and network work.
 
 ## E6 — MTP and DFlash verification
 
