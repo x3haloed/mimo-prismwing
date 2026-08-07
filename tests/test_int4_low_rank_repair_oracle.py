@@ -3,6 +3,8 @@ import unittest
 import numpy as np
 
 from tools.run_int4_low_rank_repair_oracle import (
+    RANKS,
+    _capacity_gate,
     apply_low_rank_repair,
     fit_low_rank_repair,
     physical_ledger,
@@ -47,6 +49,27 @@ class Int4LowRankRepairOracleTests(unittest.TestCase):
             fit_low_rank_repair(np.ones((1, 4)), np.ones((1, 4096)), 1)
         with self.assertRaises(ValueError):
             physical_ledger(0)
+
+    def test_complete_rank_gate_checks_adjacent_monotonicity(self):
+        reports = []
+        for rank_index, rank in enumerate(RANKS):
+            for layer in (4, 24, 46):
+                error = 0.008 - rank_index * 0.001
+                reports.append(
+                    {
+                        "rank": rank,
+                        "layer": layer,
+                        "metrics": {
+                            "relative_l2": error,
+                            "maximum_row_relative_l2": error,
+                            "squared_error": error * error,
+                            "expected_squared_norm": 1.0,
+                        },
+                    }
+                )
+        gate = _capacity_gate(reports)
+        self.assertTrue(gate["rank_monotonic_at_every_layer"])
+        self.assertEqual(gate["smallest_passing_rank"], 8)
 
 
 if __name__ == "__main__":

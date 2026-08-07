@@ -219,7 +219,7 @@ def _capacity_gate(rank_reports: list[dict]) -> dict:
             next(row for row in by_rank[right] if row["layer"] == layer)["metrics"]["relative_l2"]
             <= next(row for row in by_rank[left] if row["layer"] == layer)["metrics"]["relative_l2"]
             + 1e-12
-            for left, right in zip(RANKS, RANKS[1:], strict=True)
+            for left, right in zip(RANKS, RANKS[1:])
         )
         for layer in LAYERS
     )
