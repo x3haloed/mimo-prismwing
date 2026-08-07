@@ -1,7 +1,7 @@
 # PW-0132 — Train-only INT4 rank-32 repair generalization
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected; weight-domain calibration or mixed precision next
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -83,3 +83,40 @@ endpoint timing, and no TPS claim. Apply normative Gate 8 at every expert
 release, layer fit/application boundary, corpus release, and final service
 health readback.
 
+## Result
+
+The clean run completed in 68,146.898 ms and kept positions `168..223` sealed.
+The frozen rank-32 repair failed decisively rather than narrowly:
+
+| Layer | INT4 validation L2 | Affine validation L2 | Rank-32 train L2 | Rank-32 validation L2 | Worst validation row |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | 4.1919% | 5.5296% | 0.0519% | 17.3981% | 57.4205% |
+| 24 | 11.9174% | 6.7939% | 0.3862% | 9.7538% | 33.4253% |
+| 46 | 15.4606% | 10.2856% | 2.3368% | 9.2928% | 12.3385% |
+
+Aggregate frozen-validation relative L2 is 15.0331%, the worst layer is
+17.3981%, and the worst row is 57.4205%. The nested monotonic gate fails:
+layer 4's train-fitted affine and rank-32 repairs both make validation worse
+than uncorrected INT4. Coverage also fails because 15 of layer 24's 448
+validation placements use one expert absent from training and therefore take
+the declared identity fallback. This is not a threshold-edge or coverage-only
+failure; even the completely covered layers miss the near-miss gate by large
+margins.
+
+Gate 8 passes across 216 snapshots at 78% minimum free memory,
+731,004,928-byte maximum peak RSS, 224,037,568-byte maximum physical footprint,
+zero swap growth or new throttled pages, and stable protected services. Raw
+evidence hashes to
+`0499a40645452eab646276e1619fb2e94b74439ef4263a71f036fae61fd8a9fe`;
+independent analysis hashes to
+`c098eb01547d211de5f3bf7fa545b599701616b8142c5689559bcda73e808557`.
+
+## Decision
+
+Reject this pilot train-only affine-plus-rank-32 activation-repair mechanism.
+Do not read holdout, acquire a broader corpus to rescue it, build a repair
+bank, or compose it with the endpoint. PW-0131's same-validation pass is now
+classified as memorization capacity rather than evidence of a general repair
+rule. Return to weight-domain calibration, outlier-aware mixed precision, or a
+structurally different executable representation. No endpoint performance or
+TPS claim changes.

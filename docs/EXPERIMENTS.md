@@ -307,6 +307,16 @@ coverage plus 1% aggregate, 2% per layer, and 5% per row. A bounded near miss
 Any larger failure rejects this pilot form. Positions `168..223` remain sealed
 regardless; only a validation pass can open a separate holdout record.
 
+The train-only result rejects the pilot repair and does not qualify as the
+bounded near miss. Aggregate validation relative L2 is 15.033%, the worst
+layer is 17.398%, and the worst row is 57.421%. Layer 4 regresses from 4.192%
+uncorrected INT4 to 17.398% after rank-32 repair, despite fitting its training
+rows to 0.052%. Layer 24 also exposes 15 validation placements for an expert
+absent from train, but both fully covered layers independently fail by large
+margins. Keep holdout sealed; do not acquire broader data for this mechanism.
+Proceed to weight-domain calibration, outlier-aware mixed precision, or a
+different executable form.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

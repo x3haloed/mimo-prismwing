@@ -2270,3 +2270,31 @@ evidence hashes to
 analysis hashes to
 `754285ca807cde425f5742dfb3ffc1014d2a99be9cf7f188eb16307fb3f90042`.
 No endpoint TPS or measured throughput constant changes in PW-0131.
+
+PW-0132 supersedes PW-0131's open hope that its compact rank-32 program might
+learn a transferable activation-repair rule. Fitted only on positions
+`0..111`, it reaches train relative L2 of `0.000519`, `0.003862`, and
+`0.023368` at layers 4/24/46, but frozen validation reaches `0.173981`,
+`0.097538`, and `0.092928`. Aggregate validation error is `0.150331`, the
+worst row is `0.574205`, and the strict and near-miss gates both fail.
+
+This is direct overfit evidence, not merely insufficient route coverage.
+Layer 4 has complete validation coverage yet worsens from uncorrected INT4's
+`0.041919` to `0.173981`; layer 46 is also fully covered and remains far over
+the near-miss threshold. Layer 24 separately records 15 identity-fallback
+placements for an expert absent from training. PW-0131 therefore remains a
+same-slice capacity oracle only. Do not read holdout, acquire a broader corpus
+to rescue this exact mechanism, build its bank, or compose it with the
+endpoint. Move to weight-domain calibration, outlier-aware mixed precision, or
+a structurally different executable representation.
+
+The prospective physical ledger is unchanged at `0.552599` of source bytes
+and `0.010417` of source expert MACs, but embodiment fitness cannot rescue a
+failed fidelity mechanism. Gate 8 passes across 216 snapshots at 78% minimum
+free memory, 731,004,928-byte maximum peak RSS, 224,037,568-byte maximum
+physical footprint, zero swap growth or new throttled pages, and stable
+services. Raw evidence hashes to
+`0499a40645452eab646276e1619fb2e94b74439ef4263a71f036fae61fd8a9fe`;
+analysis hashes to
+`c098eb01547d211de5f3bf7fa545b599701616b8142c5689559bcda73e808557`.
+No endpoint TPS or measured throughput constant changes in PW-0132.
