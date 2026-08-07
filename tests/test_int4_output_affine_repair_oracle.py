@@ -5,6 +5,7 @@ import numpy as np
 from tools.run_int4_output_affine_repair_oracle import (
     apply_output_repair,
     fit_output_repair,
+    partition_local_indices,
 )
 
 
@@ -43,6 +44,13 @@ class Int4OutputAffineRepairOracleTests(unittest.TestCase):
                 np.ones(2, dtype=np.float32),
                 np.ones(2, dtype=np.float16),
             )
+
+    def test_partition_mapping_preserves_prior_dispatch_topology(self):
+        train, validation = partition_local_indices([0, 111, 112, 167])
+        self.assertEqual(train, [0, 1])
+        self.assertEqual(validation, [2, 3])
+        with self.assertRaises(ValueError):
+            partition_local_indices([168])
 
 
 if __name__ == "__main__":

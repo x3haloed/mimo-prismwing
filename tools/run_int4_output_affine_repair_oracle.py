@@ -148,6 +148,16 @@ def _prior_report(source: dict, layer: int, partition: str) -> dict:
     return matches[0]
 
 
+def partition_local_indices(positions: list[int]) -> tuple[list[int], list[int]]:
+    if any(not isinstance(position, int) or not 0 <= position < 168 for position in positions):
+        raise ValueError("PW-0130 partition positions are invalid")
+    train = [index for index, position in enumerate(positions) if position < 112]
+    validation = [index for index, position in enumerate(positions) if position >= 112]
+    if sorted(train + validation) != list(range(len(positions))):
+        raise ValueError("PW-0130 partition mapping is not a bijection")
+    return train, validation
+
+
 def _collect_layer(
     checkpoint: ShardedCheckpoint,
     authority: dict,
@@ -178,7 +188,18 @@ def _collect_layer(
                 or packed["packed_sha256"] != prior_hashes.get(expert)
             ):
                 raise ValueError("PW-0130 recomputed packed artifact mismatch")
-            candidate, _ = _candidate_expert(moe_input[positions], projections, 4)
+            train_indices, validation_indices = partition_local_indices(positions)
+            candidate = np.empty((len(positions), 4096), dtype=np.float32)
+            if train_indices:
+                train_output, _ = _candidate_expert(
+                    moe_input[[positions[index] for index in train_indices]], projections, 4
+                )
+                candidate[train_indices] = train_output
+            if validation_indices:
+                validation_output, _ = _candidate_expert(
+                    moe_input[[positions[index] for index in validation_indices]], projections, 4
+                )
+                candidate[validation_indices] = validation_output
             source_rows = np.asarray(
                 expert_down[[offset + index for index in local_indices]], dtype=np.float32
             ).copy()
