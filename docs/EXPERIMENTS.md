@@ -160,6 +160,12 @@ watermark or retry this topology. Continue only through a separately frozen
 block-coordinate, offloaded, factored-state, or external optimizer path that
 preserves the rank-768 representation and held-out objective.
 
+PW-0121 chooses the cheapest such path: optimize one projection of layer-24
+hot expert 23 at a time, retain no inactive gradients or state, and compare the
+complete three-projection fitted expert against PW-0119's untouched validation
+and holdout rank-768 SVD control. Require at least 25% relative-L2 improvement
+on both before spending on layer 46 or shared bases.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
