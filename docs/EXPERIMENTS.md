@@ -179,6 +179,16 @@ all experts or build a decoder. A learned/common basis, sign symmetry, or
 approximate routed-mixture compiler is a distinct experiment and exactness
 class.
 
+PW-0114 conditionally retains the named repair-free Metal-native L3 numerical
+premise. On one frozen complete incremental token it passes the predeclared
+source-derived final-distribution probe with 0.024239-nat chosen-token error,
+19/20 top-token overlap, and 0.000578 projected JSD while performing zero sparse
+repairs. This does not promote the 75.834-second projection-at-a-time vehicle or
+establish near-equivalence: routes differ from source at 20 layers and from the
+repaired control at three late layers. Do not broaden the numerical walk until
+an independently bounded representation changes PW-0108's executable-byte
+premise.
+
 **Go:** use speculation as expert-byte leverage only when `A/U > 1`; otherwise
 retain it for dense-weight reuse or discard it if total wall time loses.
 
@@ -332,8 +342,8 @@ waits, and arena residency.
 **Kill:** a fused scheduler that merely moves the 95.9 ms wait or exceeds the
 shared-host memory contract does not justify a full-bank artifact. Do not build
 the approximately 303 GB bank or rerun a full token until this component gate
-passes and a separate numerical branch resolves or deliberately renames the
-PW-0101 L3 arithmetic behavior.
+passes. PW-0114 has conditionally resolved and explicitly named the numerical
+branch; it does not change the physical prerequisite.
 
 ## Black-swan budget
 

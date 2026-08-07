@@ -1821,3 +1821,33 @@ compiler is a separately named premise. Raw evidence hashes to
 `f6cb7d8510d2076b35db074a5c6a0511fff7c047effa0dcbb6fe7a146f7aea6a`;
 analysis hashes to
 `5dfb78f1e32b206050e98754cbcfdfbbf4be2960715954e47465bb882aa51a21`.
+
+PW-0114 resolves the numerical branch left separate by PW-0100/PW-0101 and the
+one-barrier result. Across the frozen complete incremental token, disabling all
+`[129, 170, 250]` sparse gate/up/down repairs preserves source argmax token 13,
+reduces source-chosen absolute logprob error from the repaired control's
+0.028671 to 0.024239 nats, retains 19/20 source top tokens, and reduces projected
+JSD from 0.000679 to 0.000578 nats. The repair-free candidate therefore passes
+the predeclared single-position L3 distribution gate with zero repair bytes.
+
+This supersedes the stronger internal assumption that source-framework
+BF16-identical layer states or sparse source-topology repair are always
+necessary for a useful final distribution. It does not establish
+near-equivalence: the candidate first fails layer-final parity at layer 4,
+reaches 3.1774% final-layer relative L2, differs from source routes at 20
+layers, and differs from the repaired control's selected experts at three late
+layers. Retain repair-free Metal-native arithmetic only as a conditional L3
+premise to test with a representation that independently changes the cold-byte
+bound. The projection-at-a-time vehicle remains rejected at 75.834 seconds for
+one diagnostic incremental token, with zero accepted tokens and no TPS claim.
+
+Gate 8 passed both full processes with 77% minimum free memory, at most
+4,430,184,448-byte peak RSS, at most 3,203,014,784-byte post-release footprint,
+zero swap growth or throttling, and stable services. Raw control and candidate
+evidence hash to
+`24622adf564d840880ea44163edbb3c98905d4914b2bc4153cb21151fc58281e`
+and `16aaaded5cb082e5672f1a18b132fa52665375117dadb07c0c628fcc76b3b43f`;
+clean analysis hashes to
+`14866caa426287a61d9ed91a441ff6937465da4e542114ba29b773726b332fa6`.
+The updated throughput model hashes to
+`021b8688d3cea29da310d3360ff03ad2d261112801956660ca98a566fb9b86ac`.
