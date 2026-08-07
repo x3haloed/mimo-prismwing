@@ -200,13 +200,13 @@ rejects development-split scarcity as the explanation for PW-0123 and makes
 broader corpus acquisition solely to rescue this exact four-basis form
 unattractive.
 
-PW-0125 moves to PW-0115's structurally distinct balanced branch without yet
-paying for a shared fit. It repeats the successful layer-46 expert-28
-activation-weighted control at rank 512 and requires it both to beat matched
-rank-512 SVD by 25% and to remain within `1.25x` PW-0122's selected rank-768
-validation and untouched-holdout errors. A pass authorizes a separately frozen
-nine-expert/eight-basis pilot; a failure kills `(r=512,m=8)` on independent
-capacity before sharing or runtime construction.
+PW-0125 moves to PW-0115's structurally distinct balanced branch without
+paying for a shared fit. Rank-512 activation fitting improves validation and
+untouched holdout by 62.16% and 46.31% over matched SVD, but validation remains
+`1.30184x` PW-0122's fitted rank-768 result and misses the frozen `1.25x`
+capacity gate; holdout passes at `1.22401x`. Reject `(r=512,m=8)` before a
+nine-expert/eight-basis optimizer or runtime construction. Preserve the strong
+independent-fit result separately from the failed branch gate.
 
 ## E6 — MTP and DFlash verification
 

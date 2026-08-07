@@ -2074,3 +2074,27 @@ hashes to
 analysis hashes to
 `a6c98d0469e2e788e5c54833975277ebcffa822a3d0b426a8bb39dbf3606d32a`.
 No throughput-model constant or endpoint TPS changes in PW-0124.
+
+PW-0125 rejects PW-0115's balanced `(r=512,m=8)` branch at the independent
+capacity rung, before sharing. On layer-46 expert 28, activation-weighted rank
+512 cuts matched SVD relative L2 by 62.16% on validation and 46.31% on the
+untouched holdout, reaching `0.254728` and `0.352673`. This reinforces the
+earlier lesson that routed activations are far more informative than matrix
+SVD for these deeper experts.
+
+Capacity relative to the already-working rank-768 fit is the limiting result.
+Rank 512 is `1.30184x` rank 768 on validation, missing the frozen `1.25x` gate,
+although holdout passes at `1.22401x`. Do not build the nine-expert/eight-basis
+sharing optimizer merely because the miss is narrow: sharing can only add a
+constraint to an independent form that already missed its predeclared gate.
+The result does not reject different objectives, nonlinear or learned
+representations outside this identity family, or the retained warm routed-
+layer transaction.
+
+Gate 8 passes at 76% minimum free memory, 642,355,264-byte maximum physical
+footprint, zero swap growth or new throttled pages, stable services, and zero
+final MPS current allocation. Raw evidence hashes to
+`916ab149169a518d68eace66f2a6d857679c8e6e5e1777f604c904f0179b08e0`;
+analysis hashes to
+`b49bfe3082cc2a81ba87c717f9f493f22b7fb9204b6b586699bcce559c1b8fe8`.
+No throughput-model constant or endpoint TPS changes in PW-0125.

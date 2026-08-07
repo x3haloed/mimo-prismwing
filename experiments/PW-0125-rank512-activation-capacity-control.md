@@ -1,10 +1,11 @@
 # PW-0125 — Rank-512 activation-weighted capacity control
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: completed
+- Disposition: negative
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Commit and dirty state: preimplementation contract; clean tree
+- Commit and dirty state: final measurement-repair implementation
+  `99241cff0d82739c93aaf82a89c465462c0a2c17`; clean tree at execution
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; checkpoint verification
   `9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`;
@@ -109,8 +110,40 @@ representation evidence.
 
 ## Result
 
-Unexecuted.
+Completed in `23,936.172 ms`. The source oracle remained bit-exact, the
+authoritative rank-512 SVD control reproduced PW-0119, and the balanced
+initialization stayed within the amended association-only tolerance. All three
+projection validation objectives improved by 84.62--92.52% without holdout
+selection.
+
+The complete fitted expert substantially improves on rank-512 SVD:
+
+| Partition | Rank-512 SVD | Fitted rank 512 | Reduction |
+| --- | ---: | ---: | ---: |
+| train | `0.682273` | `0.137378` | 79.86% |
+| validation | `0.673099` | `0.254728` | 62.16% |
+| pilot holdout | `0.656851` | `0.352673` | 46.31% |
+| overall | `0.674776` | `0.227702` | 66.26% |
+
+Both 25%-over-SVD requirements pass. Relative to PW-0122's fitted rank-768
+control, however, rank 512 is `1.30184x` on validation and `1.22401x` on
+holdout. Holdout passes the frozen `1.25x` capacity gate; validation misses it
+at `0.254728` versus the `0.244584` maximum. The final conjunction therefore
+fails.
+
+Gate 8 passes with 76% minimum free memory, 1,281,015,808-byte peak RSS,
+642,355,264-byte maximum physical footprint, zero swap growth or new throttled
+pages, stable protected services, and zero final MPS current allocation. Raw
+evidence hashes to
+`916ab149169a518d68eace66f2a6d857679c8e6e5e1777f604c904f0179b08e0`;
+independent analysis hashes to
+`b49bfe3082cc2a81ba87c717f9f493f22b7fb9204b6b586699bcce559c1b8fe8`.
 
 ## Decision
 
-Unexecuted.
+Reject `(r=512,m=8)` before a forced-sharing fit under the frozen capacity
+contract. The failure is narrow and does not erase the strong independent
+activation-weighted result, but this branch already exceeds the permitted
+validation loss before sharing can add its own constraint. Do not build the
+nine-expert optimizer, artifact, or kernel without a separately changed
+premise. No throughput-model constant or endpoint TPS changes.
