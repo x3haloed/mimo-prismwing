@@ -54,6 +54,8 @@ struct EndpointFixture {
     add_special_tokens: bool,
     expected_prompt_token_ids: Vec<u32>,
     full_prefix_trace_append_token_ids: Option<Vec<u32>>,
+    #[serde(default)]
+    route_trace_positions: Option<usize>,
     hosted_reference: Option<HostedReferenceFixture>,
     full_attention_qkv_scale_layout: FullQkvScaleFixture,
     decode: DecodeFixture,
@@ -738,6 +740,8 @@ pub struct RouteOnlyTraceReport {
     pub fixture_sha256: String,
     pub checkpoint_verification_sha256: String,
     pub prompt_token_ids: Vec<u32>,
+    pub hosted_suffix_positions: usize,
+    pub hosted_suffix_token_ids_sha256: String,
     pub teacher_forced_token_ids: Vec<u32>,
     pub input_token_ids_sha256: String,
     pub layer_routes_sha256: String,
@@ -1475,24 +1479,28 @@ fn validate_fixture(fixture: &EndpointFixture) -> Result<(), String> {
         && fixture.prompt_utf8 == "Hello"
         && fixture.expected_prompt_token_ids == [9707]
         && fixture.full_prefix_trace_append_token_ids.is_none()
+        && fixture.route_trace_positions.is_none()
         && fixture.hosted_reference.is_none();
     let chat_identity = fixture.schema_version == 2
         && fixture.semantic == "mimo_v2_5_target_faithful_chat_prefill_incremental_decode"
         && fixture.prompt_utf8 == CHAT_PROMPT
         && fixture.expected_prompt_token_ids == CHAT_PROMPT_IDS
         && fixture.full_prefix_trace_append_token_ids.is_none()
+        && fixture.route_trace_positions.is_none()
         && hosted_identity;
     let trace_identity = fixture.schema_version == 3
         && fixture.semantic == "mimo_v2_5_target_faithful_whole_sequence_trace"
         && fixture.prompt_utf8 == CHAT_PROMPT
         && fixture.expected_prompt_token_ids == CHAT_PROMPT_IDS
         && fixture.full_prefix_trace_append_token_ids.as_deref() == Some(&[264])
+        && fixture.route_trace_positions.is_none()
         && hosted_identity;
     let wide_trace_identity = fixture.schema_version == 4
         && fixture.semantic == "mimo_v2_5_target_faithful_teacher_forced_route_trace"
         && sha256_hex(fixture.prompt_utf8.as_bytes())
             == "f0548293456d9c634aa895d44e2af1d737c77c01b9d0d72e7ed24a6e0d343e35"
         && fixture.expected_prompt_token_ids.len() == 87
+        && fixture.route_trace_positions == Some(137)
         && serde_json::to_vec(&fixture.expected_prompt_token_ids).is_ok_and(|bytes| {
             sha256_hex(&bytes) == "6424415daed4ee457de12b83ebded6adbbb993679c2b3a8b4eab5975e4746297"
         })
@@ -1588,7 +1596,11 @@ fn full_prefix_trace_tokens(
     }
     let mut tokens = prompt_token_ids.to_vec();
     if let Some(appended) = fixture.full_prefix_trace_append_token_ids.as_ref() {
-        tokens.extend(appended);
+        let positions = fixture.route_trace_positions.unwrap_or(appended.len());
+        let traced = appended
+            .get(..positions)
+            .ok_or("route trace position limit exceeds authenticated suffix")?;
+        tokens.extend(traced);
     }
     Ok(tokens)
 }
@@ -6833,22 +6845,26 @@ pub fn run_route_only_trace(
         .hosted_reference
         .as_ref()
         .ok_or("route-only trace requires a hosted reference")?;
-    let teacher_forced_token_ids = fixture
+    let hosted_suffix_token_ids = fixture
         .full_prefix_trace_append_token_ids
         .clone()
         .ok_or("route-only trace requires teacher-forced token IDs")?;
     let decoded = tokenizer
-        .decode(&teacher_forced_token_ids, false)
+        .decode(&hosted_suffix_token_ids, false)
         .map_err(|error| format!("teacher-forced tokenizer decode: {error}"))?;
     if decoded != hosted.generated_text
-        || teacher_forced_token_ids != hosted.generated_token_ids
-        || teacher_forced_token_ids.len() != 192
+        || hosted_suffix_token_ids != hosted.generated_token_ids
+        || hosted_suffix_token_ids.len() != 192
     {
         return Err("teacher-forced hosted token identity mismatch".to_owned());
     }
+    let traced_positions = fixture
+        .route_trace_positions
+        .ok_or("route-only trace requires a bounded position count")?;
+    let teacher_forced_token_ids = hosted_suffix_token_ids[..traced_positions].to_vec();
     let input_token_ids = full_prefix_trace_tokens(&fixture, &prompt_token_ids)?;
-    if input_token_ids.len() != 279 {
-        return Err("route-only trace requires exactly 279 input positions".to_owned());
+    if traced_positions != 137 || input_token_ids.len() != 224 {
+        return Err("route-only trace requires exactly 224 input positions".to_owned());
     }
     let input_token_ids_bytes =
         serde_json::to_vec(&input_token_ids).map_err(|error| error.to_string())?;
@@ -6910,6 +6926,10 @@ pub fn run_route_only_trace(
         fixture_sha256: sha256_hex(&fixture_bytes),
         checkpoint_verification_sha256: verification_sha256,
         prompt_token_ids,
+        hosted_suffix_positions: hosted_suffix_token_ids.len(),
+        hosted_suffix_token_ids_sha256: sha256_hex(
+            &serde_json::to_vec(&hosted_suffix_token_ids).map_err(|error| error.to_string())?,
+        ),
         teacher_forced_token_ids,
         input_token_ids_sha256: sha256_hex(&input_token_ids_bytes),
         layer_routes_sha256: sha256_hex(&route_bytes),
@@ -6920,7 +6940,7 @@ pub fn run_route_only_trace(
         complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
         batch_size: 1,
         prompt_positions: 87,
-        teacher_forced_positions: 192,
+        teacher_forced_positions: traced_positions,
         total_positions: rows,
         concurrency: 1,
         accepted_tokens: 0,
@@ -7158,6 +7178,7 @@ mod tests {
             .as_ref()
             .expect("teacher-forced suffix");
         assert_eq!(suffix.len(), 192);
+        assert_eq!(fixture.route_trace_positions, Some(137));
         assert_eq!(
             fixture
                 .hosted_reference
@@ -7170,7 +7191,7 @@ mod tests {
             full_prefix_trace_tokens(&fixture, &fixture.expected_prompt_token_ids)
                 .expect("wide trace tokens")
                 .len(),
-            279
+            224
         );
         assert!(validate_slow_endpoint_fixture(&fixture).is_err());
     }
