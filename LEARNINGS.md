@@ -1895,3 +1895,25 @@ result requires a broader multilingual, long-context, modality, common/rare,
 and untouched corpus before promotion. Gate 8 passed at 70% minimum free
 memory, 942,702,592-byte peak RSS, zero swap growth/throttling, and stable
 services. No throughput-model constant or endpoint TPS changes in PW-0116.
+
+PW-0117 separates the published activated MoBE representation from the only
+all-projection basis form that can realize Prismwing's routed-layer transaction.
+The released trainer applies SiLU or tanh after each expert's coefficient-
+weighted basis combination. That nonlinearity does not commute with basis
+combination: deterministic counterexamples differ by 0.132106 and 0.552382.
+Even before activation, softmax, materialization, or memory traffic, the three
+frozen shapes require 206.25%, 237.50%, and 209.375% of source projection
+multiplications. Reject the published activated form as a transaction-compute
+architecture without disputing its storage/quality results.
+
+With identity activation, gate/up bases evaluate once on the common input and
+down experts factor in transposed orientation so their route-weighted latents
+reduce before shared output bases. F64 fixtures prove both reordered forms to
+within `4.441e-16`. Including coefficient mixing, `(768,4)`, `(512,8)`, and
+`(128,32)` require 37.537%, 37.549%, and 28.174% of source multiplication work,
+so all remain physically eligible but entirely untrained. Continue only the
+separately named `identity-basis-mixture-compiled` form to weight-space fitting
+and PW-0116 activation evaluation. Analysis hashes to
+`337b57c43638025673eb494eecfc87445468d21b9a1ce384952b72f6fa47a910`.
+The updated throughput model hashes to
+`a914eb9949ae201d109ca2c107088687bf9f3101b67fd17b0dddd5551300c7ad`.
