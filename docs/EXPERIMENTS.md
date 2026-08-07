@@ -433,6 +433,15 @@ candidate. Layer 46 exactly reproduces PW-0137. Proceed to the separately
 frozen all-validation-expert audit under the same mechanism and ledger; keep
 holdout and runtime construction closed.
 
+PW-0139 expands the frozen mechanism to all 41 experts selected by validation
+at layers 4/24/46 and reconstructs each complete route-weighted BF16 layer
+output. Expert-routed train positions calibrate 39 experts; the two layer-24
+train-absent experts use a declared all-train-position layer fallback. Require
+the original 1% aggregate, 2% per-layer, and 5% worst-row gates, exact PW-0138
+reproduction, improved calibration outputs, complete route accounting, and the
+unchanged physical ledger. Keep holdout sealed; a pass authorizes only a new
+holdout audit.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
