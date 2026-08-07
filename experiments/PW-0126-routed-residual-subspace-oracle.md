@@ -1,10 +1,11 @@
 # PW-0126 — Routed-residual subspace oracle
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: completed
+- Disposition: negative
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Commit and dirty state: preimplementation contract; clean tree
+- Commit and dirty state: implementation
+  `892fb4c3ee274467e7b9164e6b6fb030f5fec8e1`; clean tree at execution
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0116 corpus
   `b9df976876d63c1ffbbe0c70507aea8b939a749ce5b1db27cbca0b5d82cf802e`;
@@ -104,8 +105,41 @@ capacity oracle.
 
 ## Result
 
-Unexecuted.
+Completed in `923.978 ms`. Every layer's rank-111 centered dictionary
+reconstructs its 112 training residuals to `2.03e-15--2.22e-15` relative L2,
+closing the SVD and implementation control. Generalization fails before
+holdout:
+
+| Layer | Rank 16 validation | Rank 64 validation | Rank 111 validation |
+| ---: | ---: | ---: | ---: |
+| 4 | `0.242393` | `0.067742` | `0.052437` |
+| 24 | `0.352379` | `0.308693` | `0.270086` |
+| 46 | `0.570177` | `0.443040` | `0.384575` |
+
+All maximum-rank results miss the 1% aggregate gate by 5.24--38.46x. At layer
+24, the 15 validation positions touching a training-unseen expert reach
+`0.245325`, while the 41 all-seen positions are worse at `0.350668`; route
+novelty alone does not explain the failure. Since no layer selected a rank,
+the runner correctly left positions `168..223` sealed and emitted no holdout
+metric.
+
+The representation is physically tiny but causally insufficient: a rank-111
+F32 mean/basis is 1,835,008 bytes, `0.028476%` of the source layer bank, and
+oracle synthesis is `0.225830%` of selected source multiplications. Those
+figures exclude coefficient prediction and executable wall time and do not
+constitute a runtime path. Gate 8 passes at 79% minimum free memory,
+172,902,528-byte maximum physical footprint, zero swap growth or new throttled
+pages, and stable protected services. Raw evidence hashes to
+`7a36bba9d8e6fc24cce802341ecfd56933aa05f7f4c07471004662ac414a5ffe`;
+independent analysis hashes to
+`e940d38d84a43332a408b41d6d6f005e9bf24bd3c5950dd61ecfc8d15bf6b1bc`.
 
 ## Decision
 
-Unexecuted.
+Reject a fixed linear routed-residual output dictionary on validation without
+unsealing holdout or training a coefficient predictor. Perfect knowledge of
+the coefficients cannot overcome the output-subspace error. This kills only
+the fixed linear dictionary, not nonlinear/input-conditioned direct mixture
+compilation or PW-0045 generally. Do not build an executor, recovery path, or
+endpoint from this representation. No throughput-model constant or endpoint
+TPS changes.

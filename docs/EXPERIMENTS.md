@@ -208,13 +208,14 @@ capacity gate; holdout passes at `1.22401x`. Reject `(r=512,m=8)` before a
 nine-expert/eight-basis optimizer or runtime construction. Preserve the strong
 independent-fit result separately from the failed branch gate.
 
-PW-0126 begins the genuinely direct PW-0045 branch. It fits layer-level output
-dictionaries to routed residuals—not expert matrices—at layers 4, 24, and 46.
-An oracle receives true best coefficients, making the test an optimistic
-capacity bound. Ranks are selected on validation only; untouched holdout is
-read once only if all layers pass. Failure rejects a fixed linear residual
-dictionary before coefficient-network training, while a pass isolates
-coefficient prediction as the next uncertainty.
+PW-0126 begins the genuinely direct PW-0045 branch by fitting layer-level
+output dictionaries to routed residuals rather than expert matrices. Even an
+oracle with true best coefficients fails validation at maximum rank 111:
+5.24%, 27.01%, and 38.46% relative L2 at layers 4, 24, and 46 versus the 1%
+gate. Training reconstruction is numerical-roundoff exact, so the failure is
+generalization rather than implementation or optimization. Holdout remains
+sealed. Reject the fixed linear dictionary before coefficient-network or
+runtime work; nonlinear/input-conditioned direct compilation remains distinct.
 
 ## E6 — MTP and DFlash verification
 

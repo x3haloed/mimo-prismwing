@@ -2098,3 +2098,28 @@ final MPS current allocation. Raw evidence hashes to
 analysis hashes to
 `b49bfe3082cc2a81ba87c717f9f493f22b7fb9204b6b586699bcce559c1b8fe8`.
 No throughput-model constant or endpoint TPS changes in PW-0125.
+
+PW-0126 rejects the first direct routed-mixture compiler form without training
+a coefficient network or reading holdout. A layer-level mean plus linear output
+dictionary at centered rank 111 reconstructs all 112 training residuals to
+roughly `2e-15` relative L2, yet validation remains `0.052437` at layer 4,
+`0.270086` at layer 24, and `0.384575` at layer 46. At layer 24, positions
+whose routes use only training-seen experts are worse than the training-unseen
+slice, so categorical route novelty is not the sole cause.
+
+The old premise that routed residuals might occupy a small fixed linear output
+subspace is superseded. Its physical algebra is extraordinarily favorable—a
+rank-111 F32 dictionary is only `0.028476%` of the source layer bank and oracle
+synthesis is `0.225830%` of source mixture multiplications—but perfect
+coefficients cannot repair its validation error. Do not build the coefficient
+predictor or executor. Nonlinear or input-conditioned bases remain separate
+PW-0045 mechanisms, and the untouched holdout remains available for them under
+a new contract.
+
+Gate 8 passes at 79% minimum free memory, 172,902,528-byte maximum physical
+footprint, zero swap growth or new throttled pages, and stable services. Raw
+evidence hashes to
+`7a36bba9d8e6fc24cce802341ecfd56933aa05f7f4c07471004662ac414a5ffe`;
+analysis hashes to
+`e940d38d84a43332a408b41d6d6f005e9bf24bd3c5950dd61ecfc8d15bf6b1bc`.
+No throughput-model constant or endpoint TPS changes in PW-0126.
