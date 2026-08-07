@@ -170,3 +170,21 @@ requires a page-aligned pointer and page-aligned region length. These are
 candidate capabilities, not evidence that the M1 checkpoint layout or current
 Rust bindings realize them; each path still requires a real device probe and
 end-to-end measurement.
+
+## Mixture-of-Basis-Experts
+
+- Paper: Chen et al., *MoBE: Mixture-of-Basis-Experts for Compressing MoE-based
+  LLMs*, arXiv `2508.05257v1`, submitted 2025-08-07:
+  <https://arxiv.org/abs/2508.05257v1>.
+- Accessed: 2026-08-06.
+- Decision: research input for PW-0115 and a prospective PW-0045
+  routed-mixture compiler; not a Prismwing artifact or validated implementation.
+
+MoBE factorizes each gate/up expert matrix into an expert-specific transform
+and a learned combination of layer-shared basis matrices. It reports 24--30%
+parameter reduction on several MoE models with small average benchmark loss,
+but explicitly leaves down projections unchanged. Prismwing therefore treats
+the paper as evidence that learned shared bases are plausible, not that its
+published embodiment meets MiMo's much deeper executable-byte requirement.
+PW-0115 derives that applicability bound from MiMo's pinned shapes before any
+training or activation-corpus walk.
