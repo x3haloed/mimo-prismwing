@@ -2365,3 +2365,31 @@ Raw evidence hashes to
 analysis hashes to
 `8f0da2e109befe20928a1134a178d23343d27afe6c3d60a3e8682d1b5925745c`.
 No endpoint TPS or measured throughput constant changes in PW-0134.
+
+PW-0135 finds that correlated second-order assignments have dramatically more
+capacity than PW-0129's round-to-nearest INT4, but rejects the frozen
+group-local fixed-grid GPTQ form by one narrowly missed criterion. The three
+highest-validation-coverage experts reduce validation relative L2 by 69.82%,
+63.07%, and 50.60%. Layers 4 and 24 pass outright at `0.033047` and
+`0.066439`; layer 46 reaches `0.080659`, only `0.000659` above the frozen
+`0.080000` ceiling. Its `0.107637` worst row, train improvement, 50% reduction,
+byte ratio, and runtime-MAC conditions all pass.
+
+This supersedes the broad premise that untrained affine INT4 lacks enough
+assignment capacity on real routed activations. The evidence instead isolates
+the remaining weakness to the frozen group-local grid/curvature scope (or the
+margin needed for robust generalization). Do not weaken the gate or run the
+contracted full-validation-expert expansion. Preserve the positive signal for
+a separately frozen global-Hessian, function-preserving rotation, or recovery-
+training experiment. Holdout remains sealed.
+
+The unpacked RTN control stays within `0.000913` relative L2 of the packed MLX
+control. Physical accounting remains 13,369,344 bytes per expert,
+`0.531120` of source, with no added runtime MACs. Gate 8 passes across 60
+snapshots at 78% minimum free memory, 1,063,256,064-byte maximum peak RSS,
+353,652,480-byte maximum physical footprint, zero swap growth or new throttled
+pages, and stable protected-service PID sets. Raw evidence hashes to
+`56b9d38c3c630359b8d5b1a911627882df06a2e2fc374751fde2fddaeb3888db`;
+analysis hashes to
+`63565129c4f47cff5ab274b687a27bf9c64131ab83e86fab6b3ee4cb98a24bf6`.
+No endpoint TPS or measured throughput constant changes in PW-0135.

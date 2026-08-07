@@ -370,6 +370,16 @@ audit only if every expert halves validation error, reaches at most 8% L2 and
 12% worst-row error, and improves train without changing INT4 bytes or runtime
 MACs. Otherwise move beyond this block-local fixed-grid form.
 
+The frozen control is rejected by a narrow but real miss. Experts at layers 4
+and 24 pass with validation relative L2 of 3.305% and 6.644%. Layer 46 halves
+its error and passes the 12% row gate, but reaches 8.066% against the 8.000%
+absolute ceiling. All nine projections select activation order and 0.1%
+damping. Keep holdout sealed and do not expand this exact group-local form to
+all validation experts. The large improvement makes second-order assignment a
+useful premise, but the next contract must change the mechanism—global-Hessian
+coupling, a function-preserving rotation, or recovery training—rather than
+retroactively relaxing PW-0135's threshold.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

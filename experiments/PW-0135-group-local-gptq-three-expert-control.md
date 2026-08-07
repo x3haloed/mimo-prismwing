@@ -1,7 +1,7 @@
 # PW-0135 — Group-local GPTQ three-expert control
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -80,3 +80,38 @@ not holdout, a bank, kernel, accumulated model, or endpoint.
 Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 Apply normative Gate 8 at every projection-candidate and expert release.
 
+## Result
+
+The frozen continuation gate fails by one criterion on one expert. All three
+experts reduce validation relative L2 by at least 50% and improve train. Layer
+4/expert 96 reaches `0.033047` validation relative L2 with a `0.059566`
+maximum row; layer 24/expert 22 reaches `0.066439` with a `0.091837` maximum
+row. Both pass.
+
+Layer 46/expert 28 reduces validation error by 50.60%, from `0.163279` to
+`0.080659`, and its `0.107637` maximum row passes. It exceeds the frozen
+`0.080000` absolute validation ceiling by `0.000659`, so the all-expert gate
+fails and the decision is `reject_group_local_fixed_grid_gptq`. The selected
+setting is 0.1% damping with activation order for all nine projections.
+
+The unpacked RTN oracle remains within `0.000913` relative L2 of the MLX
+packed control, ruling out dense-oracle arithmetic as the gain. The candidate
+retains the exact 13,369,344-byte INT4 physical charge (`0.531120` of source)
+and adds no runtime MACs. Holdout remains sealed. Do not start the contracted
+all-validation-expert audit. This rejects the fixed-grid, group-local form as
+frozen, not global-Hessian GPTQ, function-preserving rotations, or recovery
+training.
+
+Gate 8 passes across 60 snapshots: minimum system memory free is 78%, maximum
+peak RSS is 1,063,256,064 bytes, maximum physical footprint and release-boundary
+footprint are 353,652,480 bytes, swap growth and new throttled pages are zero,
+and protected service PID sets remain stable.
+
+Raw evidence:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0135/run-001.json`, SHA-256
+`56b9d38c3c630359b8d5b1a911627882df06a2e2fc374751fde2fddaeb3888db`.
+Validated analysis:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0135/analysis-001/manifest.json`,
+SHA-256
+`63565129c4f47cff5ab274b687a27bf9c64131ab83e86fab6b3ee4cb98a24bf6`.
+No endpoint TPS or measured throughput constant changes.
