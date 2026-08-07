@@ -1,0 +1,24 @@
+{
+  "logprobs": true,
+  "max_tokens": 192,
+  "messages": [
+    {
+      "content": "Explain in one continuous response of at least 300 words how and why deciduous leaves change color in autumn. Include chlorophyll, carotenoids, anthocyanins, weather, and why different species show different colors. Do not use a title, bullets, or numbered sections.",
+      "role": "user"
+    }
+  ],
+  "model": "xiaomi/mimo-v2.5",
+  "provider": {
+    "allow_fallbacks": false,
+    "order": [
+      "Parasail"
+    ],
+    "require_parameters": true
+  },
+  "reasoning": {
+    "enabled": false
+  },
+  "stream": false,
+  "temperature": 0,
+  "top_logprobs": 20
+}
