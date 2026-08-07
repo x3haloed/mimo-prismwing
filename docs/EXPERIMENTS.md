@@ -200,6 +200,14 @@ rejects development-split scarcity as the explanation for PW-0123 and makes
 broader corpus acquisition solely to rescue this exact four-basis form
 unattractive.
 
+PW-0125 moves to PW-0115's structurally distinct balanced branch without yet
+paying for a shared fit. It repeats the successful layer-46 expert-28
+activation-weighted control at rank 512 and requires it both to beat matched
+rank-512 SVD by 25% and to remain within `1.25x` PW-0122's selected rank-768
+validation and untouched-holdout errors. A pass authorizes a separately frozen
+nine-expert/eight-basis pilot; a failure kills `(r=512,m=8)` on independent
+capacity before sharing or runtime construction.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
