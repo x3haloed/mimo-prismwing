@@ -339,6 +339,17 @@ quantization geometry or error propagation—AWQ scaling, GPTQ-style updates,
 function-preserving rotations, or recovery training—not merely retain more
 groups chosen by this diagonal proxy.
 
+PW-0134 changes the INT4 grid rather than adding exceptions. For each expert,
+use only positions `0..111` to search AWQ's activation-mean scale exponent over
+`0.00..0.95`. Search an exact shared gate/up input-channel transform and an
+exact up/down hidden-channel transform, compose them, quantize all three
+weights, and score only `112..167`. Gate the unquantized transform algebra,
+record train-absent fallbacks, and keep `168..223` sealed. Charge both F16
+scale vectors even when folded into packed weights. A strict 1%/2%/5% pass
+authorizes holdout and a packed kernel; a 2%/4%/8% near miss may authorize AWQ
+plus exceptions. A larger failure moves to second-order weight updates,
+rotations, or recovery training.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
