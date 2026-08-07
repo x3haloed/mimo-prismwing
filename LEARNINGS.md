@@ -2150,3 +2150,34 @@ throttled pages, and stable services. Raw evidence hashes to
 analysis hashes to
 `5a44e66114b51e2b241acb26fcb2c58280fc2a823314b273c0761d58c27ff113`.
 No throughput-model measured constant or endpoint TPS changes in PW-0127.
+
+PW-0128 separates two questions that nominal GPU specifications can easily
+conflate. The user's routed-layer transaction premise is physically correct
+for a legacy 24-GB accelerator: across the frozen PW-0112 continuation, the
+largest layer union is 31 experts, and three complete source-expert arenas need
+only `2,340,993,024` bytes. The global `q=137` union is 22.730 GB but never
+needs to be device-resident at once. Under an impossible PCIe 3.0 x16 ceiling,
+expert-only traffic corresponds to `68.012--77.510 TPS` at `q=94` and
+`94.953 TPS` at `q=137`. These are physical diagnostics, not endpoint rates.
+
+The full-capability latency gate, not decode residency, kills the named
+hardware. Authenticated mandatory matrices require `29,641,146,368`
+operations per position. Granting the dual CPUs 1.152 TFLOP/s and every GPU
+its advertised peak simultaneously, only 8,000 uncached positions take
+`29.0885 s` on one M40, `15.6500 s` on two M40s, and `18.0299 s` on one P40.
+All exceed the 15-second 8K TTFT limit before attention scores, KV, FP8 decode,
+transfers, routing, networking, or any utilization loss. Reject these direct-
+FP32 configurations before CUDA work or purchase.
+
+Do not generalize this rejection to the transaction architecture itself. It
+remains a retained fit for a faster substrate, an L1 executable codec that
+changes mandatory work, or a named modified low-bit branch. The market ledger
+also never became a BOM: the historical server plus one observed M40 subtotal
+is `$453.75`, while required GPU kit, storage, networking, shipping, tax, and
+cooling remain unpriced. Gate 8 passes at 79% minimum free memory,
+19,170,816-byte maximum physical footprint, zero swap growth or new throttled
+pages, and stable services. Raw evidence hashes to
+`12a177721d520864bd628ad99b9388cfe9c467bb7ad3706a1329536ce293611a`;
+analysis hashes to
+`e7ed1e57d7058af7328e0ba48425bb755c8476d87eb596d3b6d869870c8420d8`.
+No endpoint TPS or measured throughput constant changes in PW-0128.

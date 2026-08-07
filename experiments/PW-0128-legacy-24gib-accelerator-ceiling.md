@@ -1,7 +1,7 @@
 # PW-0128 — Legacy 24-GiB accelerator full-target ceiling
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected for the named direct-FP32 configurations
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -92,3 +92,57 @@ codec whose executable arithmetic changes the bound, or a clearly named
 modified low-bit branch. Passing the decode envelope does not compensate for a
 failed full-capability TTFT gate.
 
+## Result
+
+Both frozen reports authenticated exactly. PW-0112's `q=94` windows transfer
+19.106--21.774 GB of selected source-expert records, while `q=137` transfers
+22.730 GB across 903 layer-expert records. On one impossible-perfect PCIe 3.0
+x16 link, those payloads imply 68.012--77.510 accepted TPS at `q=94` and
+94.953 TPS at `q=137`; two perfectly balanced links double those diagnostic
+ceilings. Dense/static weights, protocol loss, draft rejection, computation,
+and every other cost remain free. This is not endpoint TPS.
+
+The routed-layer transaction does fit easily in 24 GB. The maximum observed
+layer touches 31 expert records, or 780,331,008 source bytes. Three full
+layer arenas occupy only 2,340,993,024 bytes. The new premise is therefore
+physically coherent on this device class; global route-union residency was
+never required.
+
+The full-target prefill gate rejects every named configuration before a CUDA
+implementation or remote benchmark:
+
+| Configuration | Impossible combined CPU+GPU peak | Mandatory 8,000-position floor | 15-s TTFT |
+| --- | ---: | ---: | --- |
+| One M40 24 GB | 8.152 TFLOP/s | 29.0885 s | fail |
+| Two M40 24 GB | 15.152 TFLOP/s | 15.6500 s | fail |
+| One P40 24 GB | 13.152 TFLOP/s | 18.0299 s | fail |
+
+These floors grant every accelerator its advertised FP32 peak, both CPUs
+their already-impossible 1.152-TFLOP/s peak, perfect simultaneous scaling,
+and only 8,000 rather than 8,192 positions. They omit attention scores, KV,
+normalization, nonlinearities, FP8 decoding, NUMA, PCIe, routing, and network
+latency. A miss is therefore decisive for the named direct-FP32 embodiment.
+
+The project ledger independently remains incomplete. The historical server
+plus one currently observed card totals `$453.75`, leaving only `$46.25` for
+every required kit, storage, networking, shipping, tax, and cooling item; no
+complete BOM is proven. Two M40s total `$603.75` before those items. Maxwell
+also requires a pinned legacy CUDA 12.x-or-earlier toolchain.
+
+Gate 8 passes at 79% minimum free memory, 29,769,728-byte maximum peak RSS,
+19,170,816-byte maximum physical footprint, zero swap growth or new throttled
+pages, and stable protected services. Raw evidence hashes to
+`12a177721d520864bd628ad99b9388cfe9c467bb7ad3706a1329536ce293611a`;
+independent analysis hashes to
+`e7ed1e57d7058af7328e0ba48425bb755c8476d87eb596d3b6d869870c8420d8`.
+
+## Decision
+
+Reject one M40, two M40s, and one P40 paired with the dual-E5 R720 for the
+target-faithful direct-FP32 full target. Do not build CUDA or seek a borrowed
+node merely to benchmark these named configurations. Preserve the important
+positive result: layerwise expert-major execution and bounded arenas solve the
+device-residency shape and make wide decode traffic plausible. Reopen that
+mechanism only with a faster complete hardware candidate, an L1 executable
+codec that changes mandatory physical work, or a separately named modified
+low-bit branch. No endpoint TPS or measured throughput constant changes.

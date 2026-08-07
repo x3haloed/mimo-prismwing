@@ -236,6 +236,16 @@ uncached positions already exceed it. Record PCIe and layer-arena decode
 ceilings independently; neither theoretical bandwidth nor a card-only market
 price is a performance or complete-BOM claim.
 
+The executed ceiling preserves the memo's routed-layer premise but rejects the
+named hardware: a three-arena layer pipeline needs at most 2.341 GB, and one
+ideal PCIe link would support 68.012--94.953 expert-only accepted TPS across
+the frozen wide windows. Full-target prefill is decisive instead. Even with
+CPU and GPU advertised peaks added perfectly, one M40 needs 29.0885 seconds,
+two M40s 15.6500 seconds, and one P40 18.0299 seconds for only 8,000 mandatory
+matrix positions. All miss the 15-second 8K TTFT gate before every omitted
+cost. Reject these direct-FP32 configurations; retain the bounded layer
+transaction for a faster substrate or changed executable representation.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
