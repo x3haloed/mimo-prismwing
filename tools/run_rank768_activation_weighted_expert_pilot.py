@@ -192,7 +192,11 @@ def train_projection(
     train_indices: list[int],
     validation_indices: list[int],
     safety: HostSafetyMonitor,
+    *,
+    phase_prefix: str | None = None,
+    require_improvement: bool = True,
 ) -> tuple[tuple[np.ndarray, np.ndarray], dict]:
+    phase_name = phase_prefix or projection
     device = torch.device("mps")
     left = torch.nn.Parameter(torch.from_numpy(initial[0]).to(device))
     right = torch.nn.Parameter(torch.from_numpy(initial[1]).to(device))
@@ -202,7 +206,7 @@ def train_projection(
     validation_input = inputs[validation_indices].to(device)
     validation_target = targets[validation_indices].to(device)
     torch.mps.synchronize()
-    safety.checkpoint(f"{projection}_parameters_migrated")
+    safety.checkpoint(f"{phase_name}_parameters_migrated")
     memory = [{"phase": "parameters_migrated", **_mps_memory()}]
 
     def predict(values: torch.Tensor) -> torch.Tensor:
@@ -237,7 +241,7 @@ def train_projection(
             else:
                 stale_checks += 1
             torch.mps.synchronize()
-            safety.checkpoint(f"{projection}_validation_checkpoint_{step}")
+            safety.checkpoint(f"{phase_name}_validation_checkpoint_{step}")
             memory.append({"phase": f"validation_{step}", **_mps_memory()})
             if stale_checks >= PATIENCE_CHECKS:
                 break
@@ -250,10 +254,11 @@ def train_projection(
         loss.backward()
         if step == 0:
             torch.mps.synchronize()
-            safety.checkpoint(f"{projection}_first_backward_complete")
+            safety.checkpoint(f"{phase_name}_first_backward_complete")
             memory.append({"phase": "first_backward", **_mps_memory()})
         optimizer.step()
-    if best is None or best_step is None or best_loss >= history[0]["validation_normalized_mse"]:
+    improved_over_initial = best_loss < history[0]["validation_normalized_mse"]
+    if best is None or best_step is None or (require_improvement and not improved_over_initial):
         raise ValueError(f"{experiment_id} {projection} did not improve validation loss")
     with torch.no_grad():
         left.copy_(torch.from_numpy(best[0]).to(device))
@@ -267,7 +272,7 @@ def train_projection(
     torch.mps.empty_cache()
     release_memory = _mps_memory()
     safety.release_checkpoint(
-        f"{projection}_projection_released",
+        f"{phase_name}_projection_released",
         [f"{projection} MPS factors", f"{projection} Adam state", f"{projection} activation batches"],
     )
     if release_memory["current_allocated_bytes"] != 0:
@@ -276,6 +281,7 @@ def train_projection(
         "initial_validation_normalized_mse": history[0]["validation_normalized_mse"],
         "selected_validation_normalized_mse": best_loss,
         "selected_step": best_step,
+        "improved_over_initial": improved_over_initial,
         "final_parameter_train_normalized_mse": train_loss,
         "validation_history": history,
         "wall_ms": wall_ms,
