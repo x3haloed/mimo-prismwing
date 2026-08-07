@@ -136,6 +136,26 @@ in optimistic accounting; freeze `(r=768,m=4)`, `(512,8)`, and `(128,32)` for
 the activation-weighted audit. These are candidate shapes, not quality or
 performance results.
 
+PW-0116 supplies the first real routed-activation corpus at layers 4, 24, and
+46, but its hosted English trace touches only 69--72 experts per layer and has
+thin contiguous validation/holdout expert coverage. It is sufficient for a
+pilot and matched controls, never for representation promotion. PW-0117 then
+rejects the published nonlinear MoBE form for transaction compute while
+retaining only the separately named identity-basis transaction algebra.
+PW-0118 proves that the smallest `(128,32)` production parameter and Adam shape
+fits safely on MPS; it does not prove that rank is a useful fidelity target.
+
+PW-0119 supplies the stronger independent best-rank control. Rank 128 is
+1.27--10.26x worse than rank 768 on the sampled routed expert outputs, while
+even rank 768 leaves 56.9--78.3% relative L2 at layers 24 and 46 under ordinary
+matrix-SVD fitting. This supersedes the assumption that the smallest
+weight-MSE shape should be trained first and makes activation-weighted fitting
+the cheapest remaining falsification. PW-0120 therefore preflights the
+6,643,793,920-byte semantic parameter/gradient/Adam lower bound for `(768,4)`
+under phase-level Gate 8 stops before any rank-heavy fit. A pass authorizes only
+a bounded activation-weighted pilot; a failure routes training to a separately
+contracted block-coordinate, offloaded, or external path.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
