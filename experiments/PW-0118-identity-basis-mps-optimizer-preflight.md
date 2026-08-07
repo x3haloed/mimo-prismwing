@@ -1,7 +1,7 @@
 # PW-0118 — Identity-basis MPS optimizer preflight
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: conditional
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Commit and dirty state: preimplementation contract; clean tree
@@ -72,8 +72,40 @@ than relaxing host safety.
 
 ## Result
 
-Unexecuted.
+The clean `70ef12bcda4182176170c4d44d63acb9fa8910dc` run passed. It
+allocated all 83,894,272 F32 parameters for the `(r=128,m=32)` 256-expert
+projection plus full Adam state. MPS current allocation rose from 335,610,112
+bytes after parameters to at most 1,342,505,216 bytes after optimizer steps;
+driver allocation peaked at 2,167,029,760 bytes. After deletion and cache
+clearing, current MPS allocation was zero and driver allocation was 2,752,512
+bytes.
+
+The authenticated hot/rare real source tile hashes to
+`0b10b694f07274bbeba87356f3a45dc430cc2eef29c8550812ae8545365b7d75`.
+Five finite Adam steps reduced tile MSE from `4.234154e-5` to `1.238841e-5`, a
+70.742% reduction. The first allocation/state-creation step took 1,429.848 ms;
+the next four took 111.407–113.334 ms. Complete wall time was 3,449.506 ms.
+These are optimizer-tile diagnostics, not layer training or inference timing.
+
+Gate 8 passed with 67% minimum system-free memory, 416,415,744-byte process
+peak RSS, 2,408,975,168-byte maximum physical footprint, zero swap growth,
+zero throttling, stable services, and a 2,383,596,352-byte post-release
+footprint. The raw report
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0118/run-001.json` hashes to
+`9d96d71f21f68c249b10422ec0fb479ec905874a93a5631c2488b3fc90e53c9c`;
+independent analysis hashes to
+`25f71aabb3d66f3142c8ff8447c451c61d7f527b79a02638b256916fe0db778e`.
+There are zero accepted tokens and no TPS claim.
 
 ## Decision
 
-Unexecuted.
+Promote the direct MPS/F32/Adam substrate only for streamed identity-basis
+weight fitting. The experiment proves production parameter and optimizer-state
+embodiment for the smallest-memory frozen shape, not convergence or fidelity.
+
+Next, freeze a rank-control audit and a streamed source-weight fit. Preflight
+the rank-heavy shape separately before allocating it because its expert factor
+and Adam state are much larger. Keep source targets tiled; do not stack a full
+256-expert F32 layer. Any trained candidate must still be evaluated on all
+PW-0116 positions, rare experts, validation, and untouched holdout before a
+kernel or full bank is justified.

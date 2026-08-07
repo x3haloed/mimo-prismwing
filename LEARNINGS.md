@@ -1917,3 +1917,23 @@ and PW-0116 activation evaluation. Analysis hashes to
 `337b57c43638025673eb494eecfc87445468d21b9a1ce384952b72f6fa47a910`.
 The updated throughput model hashes to
 `a914eb9949ae201d109ca2c107088687bf9f3101b67fd17b0dddd5551300c7ad`.
+
+PW-0118 removes the local optimizer-memory blocker for the smallest-memory
+identity-basis shape. A production `(r=128,m=32)` projection across all 256
+experts contains 83,894,272 F32 trainable values. Full Adam state reaches
+1,342,505,216 bytes of current MPS allocation and 2,167,029,760 driver bytes,
+while a real hot/rare source-tile loss falls 70.742% in five steps. Gate 8
+passes at 67% minimum free memory, 2,408,975,168-byte maximum process physical
+footprint, zero swap growth/throttling, and stable services; MPS current
+allocation returns to zero after release.
+
+This authorizes streamed source-weight fitting on the M1, not a quality or
+speed claim. The fixed tile can be memorized and does not establish layer
+convergence, shared-basis reconstruction, activation fidelity, executable
+quantization, or inference performance. Preserve full PW-0116 validation and
+holdout gates, and preflight the much larger rank-heavy optimizer separately.
+Raw evidence hashes to
+`9d96d71f21f68c249b10422ec0fb479ec905874a93a5631c2488b3fc90e53c9c`;
+analysis hashes to
+`25f71aabb3d66f3142c8ff8447c451c61d7f527b79a02638b256916fe0db778e`.
+No throughput-model constant or endpoint TPS changes in PW-0118.
