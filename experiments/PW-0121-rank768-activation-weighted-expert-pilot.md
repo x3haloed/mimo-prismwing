@@ -42,12 +42,14 @@ holdout placements at `168..223`. Authenticate every schedule, capture, and
 source tensor. Derive source gate, up, BF16 SwiGLU hidden, and down targets with
 the already bit-exact PW-0119 PyTorch source-FP8 oracle.
 
-For gate, up, and canonical transposed down independently, initialize the exact
-rank-768 SVD factors `L = U[:, :768] * S[:768]` and `R = Vt[:768, :]`, so the
-candidate matrix is `L @ R`. Optimize only one projection's `L` and `R` at a
-time on MPS; inactive projections remain on CPU and carry no gradient or
-optimizer state. Each active projection has 4,718,592 F32 values (18,874,368
-bytes), with a 75,497,472-byte parameter/gradient/Adam semantic live set.
+For gate, up, and canonical transposed down independently, initialize balanced
+rank-768 SVD factors `L = U[:, :768] * sqrt(S[:768])` and
+`R = sqrt(S[:768]) * Vt[:768, :]`, so the candidate matrix is `L @ R` while
+neither factor absorbs the entire singular scale. Optimize only one
+projection's `L` and `R` at a time on MPS; inactive projections remain on CPU
+and carry no gradient or optimizer state. Each active projection has 4,718,592
+F32 values (18,874,368 bytes), with a 75,497,472-byte
+parameter/gradient/Adam semantic live set.
 
 Train gate/up against their source BF16 projection outputs using frozen
 source-quantized `moe_input`. Train down against source BF16 down outputs using
