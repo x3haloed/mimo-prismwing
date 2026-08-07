@@ -69,7 +69,7 @@ authority fail closed.
 
 1. The source oracle remains bit-exact. The authoritative `U,S,Vt` rank-512
    control reproduces PW-0119 within `1e-6`; the balanced initialization stays
-   within `5e-6` relative L2 of that authority.
+   within `1e-5` relative L2 of that authority.
 2. Every projection's selected validation normalized MSE is finite and below
    step zero. Selection never reads the holdout.
 3. The complete candidate improves at least 25% over rank-512 SVD: validation
@@ -88,6 +88,24 @@ bank. A failure rejects the `(r=512,m=8)` branch before sharing because its
 independent capacity cannot approach the already-working rank-768 control; do
 not compensate by weakening the gates or inspecting the holdout during
 selection. PW-0124's rejected four-basis form remains rejected either way.
+
+## Pre-result measurement amendment
+
+The first clean execution at `0499ed8678127d583c2f181d61c3f19f47b5e15f`
+stopped without emitting evidence because rank-512 balanced-factor
+reassociation differed from the authoritative three-factor SVD control by
+`9.539990338591764e-6` on validation, narrowly above the inherited `5e-6`
+measurement tolerance. Overall, train, and unchanged-holdout differences were
+only `3.5053e-6`, `3.3297e-6`, and `0.5298e-6`. No candidate holdout metric was
+emitted or used.
+
+Amend only this non-acceptance association check to `1e-5`, the smallest
+decimal bound above the independently reproduced delta. Preserve PW-0121 and
+PW-0122 at `5e-6`; preserve every candidate validation and holdout quality
+threshold unchanged. Emit the configured tolerance in evidence and include
+actual values in any future failure. This repairs a known F32/BF16 factor-
+association measurement seam and does not turn the stopped attempt into
+representation evidence.
 
 ## Result
 

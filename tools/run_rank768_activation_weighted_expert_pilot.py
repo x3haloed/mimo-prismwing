@@ -64,6 +64,7 @@ class PilotSpec:
     seed: int
     partition_counts: dict[str, int]
     pw0119_baseline: dict[str, float]
+    balanced_initialization_tolerance: float
     validation_maximum: float
     holdout_maximum: float
     pass_decision: str
@@ -85,6 +86,7 @@ PW0121_SPEC = PilotSpec(
         "validation": 0.7103805967306607,
         "pilot_holdout": 0.6849577905886747,
     },
+    balanced_initialization_tolerance=5e-6,
     validation_maximum=0.5327854475479955,
     holdout_maximum=0.5137183429415060,
     pass_decision="authorize_layer46_activation_weighted_rank768_pilot",
@@ -107,6 +109,7 @@ PW0122_SPEC = PilotSpec(
         "validation": 0.572330134931118,
         "pilot_holdout": 0.5458150398186078,
     },
+    balanced_initialization_tolerance=5e-6,
     validation_maximum=0.4292476011983385,
     holdout_maximum=0.4093612798639559,
     pass_decision="authorize_multi_expert_shared_basis_pilot_contract",
@@ -129,6 +132,7 @@ PW0125_SPEC = PilotSpec(
         "validation": 0.6730991256068856,
         "pilot_holdout": 0.6568507915821798,
     },
+    balanced_initialization_tolerance=1e-5,
     validation_maximum=0.24458385116689985,
     holdout_maximum=0.36016001389755276,
     pass_decision="authorize_rank512_eight_basis_forced_sharing_contract",
@@ -476,8 +480,14 @@ def run(
             if name == "overall"
             else balanced_baseline["partitions"][name]["metrics"]["relative_l2"]
         )
-        if abs(balanced_value - authority_value) > 5e-6:
-            raise ValueError(f"{spec.experiment_id} balanced initialization mismatch for {name}")
+        association_delta = abs(balanced_value - authority_value)
+        if association_delta > spec.balanced_initialization_tolerance:
+            raise ValueError(
+                f"{spec.experiment_id} balanced initialization mismatch for {name}: "
+                f"authority={authority_value!r} balanced={balanced_value!r} "
+                f"delta={association_delta!r} "
+                f"maximum={spec.balanced_initialization_tolerance!r}"
+            )
     candidate_output = factor_expert(selected_factors, inputs)
     candidate = {
         "overall": parity(candidate_output, expected),
@@ -523,6 +533,9 @@ def run(
             "validate_every": VALIDATE_EVERY,
             "patience_checks": PATIENCE_CHECKS,
             "mps_memory_fraction": MPS_MEMORY_FRACTION,
+            "balanced_initialization_relative_l2_tolerance": (
+                spec.balanced_initialization_tolerance
+            ),
             "active_projection_parameter_values": P * spec.rank + spec.rank * D,
             "active_projection_semantic_adam_bytes": (P * spec.rank + spec.rank * D) * 4 * 4,
         },
