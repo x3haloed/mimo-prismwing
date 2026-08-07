@@ -190,6 +190,13 @@ layer expert coverage in every split, then repeat the forced-sharing control.
 If the tail failure survives representative coverage, kill four-basis sharing
 before any full bank, quantized artifact, or kernel.
 
+PW-0124 inserts the cheaper coverage falsification first. It keeps positions
+`168..223` untouched and occurrence-stratifies only the already-unsealed
+development prefix, raising expert 57 from 17 to 58 train placements. All
+sharing and per-expert gates remain unchanged. A pass authorizes broader corpus
+acquisition but cannot promote the representation; a failure makes corpus
+acquisition in service of this exact four-basis form unattractive.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
