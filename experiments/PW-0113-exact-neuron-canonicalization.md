@@ -4,7 +4,7 @@
 - Disposition: unexecuted
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Contract commit: pending
+- Contract commit: `e6cd914bee4b448d04864e2473e4e573698756d3`
 - Artifact authority: PW-0106 layer-4 selected-expert artifact
   `fac61c2cfad4b00248c96a52b68360fecd39e2c912e6ffd6643e3f06ade00d21`;
   manifest
