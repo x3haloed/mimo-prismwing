@@ -188,3 +188,15 @@ the paper as evidence that learned shared bases are plausible, not that its
 published embodiment meets MiMo's much deeper executable-byte requirement.
 PW-0115 derives that applicability bound from MiMo's pinned shapes before any
 training or activation-corpus walk.
+
+- Implementation: inclusionAI/MoBE commit
+  `7f3501da2a9f7b12d773cb52c454a0be0ceeb185`, `train.py`, accessed
+  2026-08-06: <https://github.com/inclusionAI/MoBE/blob/7f3501da2a9f7b12d773cb52c454a0be0ceeb185/train.py>.
+- Decision: primary implementation authority for PW-0117's algebra audit.
+
+The released trainer applies SiLU or tanh to each expert's softmax-weighted
+basis matrix before multiplying by its expert-specific factor. That nonlinear
+step is relevant to reconstruction quality but prevents basis evaluations from
+being linearly shared across selected experts. PW-0117 separates the published
+activated representation from Prismwing's prospective identity-activation
+all-projection transaction form instead of conflating their compute claims.
