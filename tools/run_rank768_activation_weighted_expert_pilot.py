@@ -24,6 +24,7 @@ try:
         partition_metrics,
         sha256_file,
         source_linear,
+        svd_control,
     )
 except ModuleNotFoundError:
     from generate_real_layer1_expert_oracle import ShardedCheckpoint, dynamic_input
@@ -35,6 +36,7 @@ except ModuleNotFoundError:
         partition_metrics,
         sha256_file,
         source_linear,
+        svd_control,
     )
 
 
@@ -324,6 +326,7 @@ def run(
     safety.checkpoint("source_projection_targets_derived")
 
     initial_factors = {}
+    svd_decompositions = {}
     selected_factors = {}
     projection_reports = {}
     torch.manual_seed(SEED)
@@ -336,6 +339,7 @@ def run(
         svd_wall_ms = (time.perf_counter() - started) * 1000.0
         safety.checkpoint(f"{projection}_svd_complete")
         initial = balanced_factors(decomposition, RANK)
+        svd_decompositions[projection] = decomposition
         initial_factors[projection] = initial
         selected, training_report = train_projection(
             projection,
@@ -351,10 +355,17 @@ def run(
             "svd_wall_ms": svd_wall_ms,
             **training_report,
         }
-        del decomposition, canonical
+        del canonical
         gc.collect()
 
-    baseline_output = factor_expert(initial_factors, inputs)
+    baseline_gate = svd_control(svd_decompositions["gate"], inputs, RANK, down=False)
+    baseline_up = svd_control(svd_decompositions["up"], inputs, RANK, down=False)
+    baseline_hidden = (
+        torch.nn.functional.silu(baseline_gate) * baseline_up
+    ).to(torch.bfloat16)
+    baseline_output = svd_control(
+        svd_decompositions["down"], baseline_hidden, RANK, down=True
+    )
     baseline = {
         "overall": parity(baseline_output, expected),
         "partitions": partition_metrics(baseline_output, expected, positions),
@@ -367,6 +378,24 @@ def run(
         )
         if abs(actual - expected_relative_l2) > 1e-6:
             raise ValueError(f"PW-0121 rank-768 baseline mismatch for {name}")
+    balanced_output = factor_expert(initial_factors, inputs)
+    balanced_baseline = {
+        "overall": parity(balanced_output, expected),
+        "partitions": partition_metrics(balanced_output, expected, positions),
+    }
+    for name in PW0119_BASELINE:
+        authority_value = (
+            baseline["overall"]["relative_l2"]
+            if name == "overall"
+            else baseline["partitions"][name]["metrics"]["relative_l2"]
+        )
+        balanced_value = (
+            balanced_baseline["overall"]["relative_l2"]
+            if name == "overall"
+            else balanced_baseline["partitions"][name]["metrics"]["relative_l2"]
+        )
+        if abs(balanced_value - authority_value) > 5e-6:
+            raise ValueError(f"PW-0121 balanced initialization mismatch for {name}")
     candidate_output = factor_expert(selected_factors, inputs)
     candidate = {
         "overall": parity(candidate_output, expected),
@@ -377,7 +406,7 @@ def run(
     validation_gate = validation_error <= 0.5327854475479955
     holdout_gate = holdout_error <= 0.5137183429415060
     safety.checkpoint("complete_expert_evaluation")
-    del initial_factors, selected_factors, weights, training_inputs, training_targets
+    del initial_factors, selected_factors, svd_decompositions, weights, training_inputs, training_targets
     gc.collect()
     torch.mps.synchronize()
     torch.mps.empty_cache()
@@ -419,6 +448,7 @@ def run(
         "projection_training_tensor_sha256": training_tensor_hashes,
         "projection_training": projection_reports,
         "rank768_svd_control": baseline,
+        "balanced_rank768_initialization_control": balanced_baseline,
         "activation_weighted_candidate": candidate,
         "validation_relative_l2_gate": {"maximum": 0.5327854475479955, "passed": validation_gate},
         "pilot_holdout_relative_l2_gate": {"maximum": 0.5137183429415060, "passed": holdout_gate},

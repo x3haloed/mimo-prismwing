@@ -80,8 +80,12 @@ record current/driver memory at every phase.
 
 ## Gates and interpretation
 
-1. The source oracle must remain bit-exact to PW-0116 expert-down, and the
-   untrained SVD factors must reproduce PW-0119 rank-768 metrics within `1e-6`.
+1. The source oracle must remain bit-exact to PW-0116 expert-down. The
+   authoritative three-factor `U,S,Vt` control must reproduce PW-0119 rank-768
+   metrics within `1e-6`. Separately report the balanced two-factor
+   initialization and require its relative-L2 metrics to remain within `5e-6`
+   of that authority; acceptance thresholds remain bound to PW-0119, not the
+   re-associated initialization arithmetic.
 2. Every training and validation value must be finite. The selected validation
    normalized MSE must be below step zero for all three projections; selection
    uses no holdout result.
@@ -105,7 +109,16 @@ a new contract.
 
 ## Result
 
-Unexecuted.
+The first implementation attempt at
+`854d78f2f649faa37c40f85ec2a405005ad80eee` stopped after fitting but before
+candidate evaluation or evidence emission. No candidate holdout metric was
+computed or observed. Balanced `sqrt(S)` factor materialization changed
+the overall BF16 expert-output relative L2 from `0.709771747` to `0.709773524`,
+a `1.777e-6` association delta that missed the original `1e-6` control check.
+This is not representation evidence. The measurement repair retains PW-0119's
+exact `U,S,Vt` arithmetic as the acceptance authority and adds a separate
+`5e-6` bound for the balanced optimizer initialization. No quality threshold
+or holdout result changed.
 
 ## Decision
 
