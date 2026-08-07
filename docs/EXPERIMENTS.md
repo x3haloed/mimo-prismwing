@@ -176,6 +176,12 @@ This authorizes only a multi-expert shared-basis pilot within one layer. That
 pilot must compare against activation-weighted independent controls and retain
 at least two experts with non-empty train, validation, and holdout coverage.
 
+PW-0123 strengthens that minimum to the smallest topology that forces sharing:
+five well-covered layer-46 experts against four bases. It builds matched
+independent activation-weighted controls in the same run, weights experts
+equally, seals holdout through model selection, and rejects sharing if any
+expert loses the required improvement behind a favorable aggregate.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
