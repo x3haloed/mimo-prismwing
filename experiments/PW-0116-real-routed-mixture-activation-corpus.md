@@ -169,7 +169,11 @@ representative promotion corpus.
 Gate 8 passed with 70% minimum system-free memory, 942,702,592-byte maximum
 peak RSS, zero swap growth, zero new throttled pages, stable protected
 services, and a 246,876,800-byte final physical footprint. Independent payload
-size/hash, partition, reconstruction-hash, and safety validation passes.
+size/hash, partition, reconstruction-hash, and safety validation passes. Its
+manifest is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0116/analysis-001/manifest.json`
+and hashes to
+`6007e93aa9cc280d20cab3db0f72851ad9f9722e9f225c07c3c1309cc5ef5e08`.
 
 ## Decision
 

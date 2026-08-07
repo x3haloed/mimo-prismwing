@@ -1882,6 +1882,8 @@ expert-down rows, schedules, and weights. All 48 route identities and
 deterministic source-work counters reproduce the prior authority. The raw
 manifest hashes to
 `b9df976876d63c1ffbbe0c70507aea8b939a749ce5b1db27cbca0b5d82cf802e`.
+Independent validation hashes to
+`6007e93aa9cc280d20cab3db0f72851ad9f9722e9f225c07c3c1309cc5ef5e08`.
 
 The pilot also sharpens the corpus limitation: the three layers touch only
 69–72 experts total, 26–37 appear at most twice, and contiguous validation and
