@@ -840,7 +840,7 @@ struct RouteAuthorityManifest {
     ledger: RouteAuthorityLedger,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 struct RouteAuthorityLayer {
     layer: usize,
     attention: String,
@@ -946,6 +946,7 @@ struct FullPrefixCaptures {
     final_norm: Vec<f32>,
     mixture_target_layers: BTreeSet<usize>,
     mixture_layers: BTreeMap<usize, MixtureLayerInternalCapture>,
+    route_authority: Option<Vec<RouteAuthorityLayer>>,
 }
 
 struct MixtureLayerInternalCapture {
@@ -3283,7 +3284,7 @@ fn decode_step(
             .copied()
             .collect::<BTreeSet<_>>()
             .len();
-        traces.push(LayerRouteTrace {
+        let trace = LayerRouteTrace {
             layer,
             attention: if config.hybrid_layer_pattern[layer] == 1 {
                 "sliding_window_128"
@@ -3299,7 +3300,18 @@ fn decode_step(
                 expert_union_factor(unique, rows)?
             },
             wall_ms: layer_started.elapsed().as_secs_f64() * 1000.0,
-        });
+        };
+        if let Some(expected) = full_captures
+            .as_deref()
+            .and_then(|captures| captures.route_authority.as_ref())
+            .and_then(|authority| authority.get(layer))
+            && let Some(mismatch) = route_layer_mismatch(expected, &trace)
+        {
+            return Err(format!(
+                "layer {layer}: PW-0112 route semantics mismatch: {mismatch}"
+            ));
+        }
+        traces.push(trace);
         checkpoint.release_file_pages()?;
         safety.checkpoint(&format!("layer_{layer}_complete"), true)?;
     }
@@ -6254,6 +6266,73 @@ fn reconstruct_final(post_attention: &[f32], routed: &[f32]) -> Result<Vec<f32>,
         .collect())
 }
 
+fn route_layer_mismatch(
+    expected: &RouteAuthorityLayer,
+    actual: &LayerRouteTrace,
+) -> Option<String> {
+    let expected_unique = expected
+        .selected_experts_by_position
+        .iter()
+        .flatten()
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .len();
+    let derived_expected_union = if expected.layer == 0 {
+        0.0
+    } else if expected.selected_experts_by_position.is_empty() {
+        f64::NAN
+    } else {
+        expected_unique as f64 / expected.selected_experts_by_position.len() as f64
+    };
+    let expected_union_valid = expected.expert_union_factor.is_finite()
+        && (expected.expert_union_factor - derived_expected_union).abs() <= f64::EPSILON;
+    let union_matches = expected_union_valid
+        && (expected.expert_union_factor - actual.expert_union_factor).abs() <= f64::EPSILON;
+    let selected_rows = expected
+        .selected_experts_by_position
+        .iter()
+        .zip(&actual.selected_experts_by_position)
+        .filter(|(left, right)| left != right)
+        .count();
+    let weight_values = expected
+        .route_weights_by_position
+        .iter()
+        .flatten()
+        .zip(actual.route_weights_by_position.iter().flatten());
+    let mut differing_weight_values = 0_usize;
+    let mut maximum_weight_absolute_error = 0.0_f32;
+    for (&left, &right) in weight_values {
+        if left.to_bits() != right.to_bits() {
+            differing_weight_values += 1;
+        }
+        maximum_weight_absolute_error = maximum_weight_absolute_error.max((left - right).abs());
+    }
+    if expected.layer == actual.layer
+        && expected.attention == actual.attention
+        && expected.cache_length == actual.cache_length
+        && expected.selected_experts_by_position == actual.selected_experts_by_position
+        && expected.route_weights_by_position == actual.route_weights_by_position
+        && union_matches
+    {
+        None
+    } else {
+        Some(format!(
+            "expected layer/attention/cache/U {}/{}/{}/{:?}, actual {}/{}/{}/{:?}; selected differing rows {}; weight differing values {}, max abs error {}",
+            expected.layer,
+            expected.attention,
+            expected.cache_length,
+            expected.expert_union_factor,
+            actual.layer,
+            actual.attention,
+            actual.cache_length,
+            actual.expert_union_factor,
+            selected_rows,
+            differing_weight_values,
+            maximum_weight_absolute_error,
+        ))
+    }
+}
+
 fn validate_route_authority(
     authority: &RouteAuthorityManifest,
     fixture_sha256: &str,
@@ -6280,16 +6359,10 @@ fn validate_route_authority(
         return Err("PW-0112 route authority identity mismatch".to_owned());
     }
     for (expected, actual) in authority.layer_traces.iter().zip(traces) {
-        if expected.layer != actual.layer
-            || expected.attention != actual.attention
-            || expected.cache_length != actual.cache_length
-            || expected.selected_experts_by_position != actual.selected_experts_by_position
-            || expected.route_weights_by_position != actual.route_weights_by_position
-            || expected.expert_union_factor.to_bits() != actual.expert_union_factor.to_bits()
-        {
+        if let Some(mismatch) = route_layer_mismatch(expected, actual) {
             return Err(format!(
-                "layer {}: PW-0112 route semantics mismatch",
-                actual.layer
+                "layer {}: PW-0112 route semantics mismatch: {mismatch}",
+                actual.layer,
             ));
         }
     }
@@ -7388,6 +7461,7 @@ pub fn run_routed_mixture_activation_corpus(
     let mut ledger = EndpointLedger::default();
     let mut internal = FullPrefixCaptures {
         mixture_target_layers: TARGET_LAYERS.into_iter().collect(),
+        route_authority: Some(route_authority.layer_traces.clone()),
         ..FullPrefixCaptures::default()
     };
     let step = decode_step(
@@ -7833,6 +7907,33 @@ pub fn run_full_prefix_trace(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn route_authority_tolerates_one_ulp_json_round_trip_for_derived_union_only() {
+        let selected = vec![vec![0], vec![0]];
+        let weights = vec![vec![1.0], vec![1.0]];
+        let expected = RouteAuthorityLayer {
+            layer: 1,
+            attention: "sliding_window_128".to_owned(),
+            cache_length: 2,
+            selected_experts_by_position: selected.clone(),
+            route_weights_by_position: weights.clone(),
+            expert_union_factor: f64::from_bits(0.5_f64.to_bits() + 1),
+        };
+        let actual = LayerRouteTrace {
+            layer: 1,
+            attention: "sliding_window_128",
+            cache_length: 2,
+            selected_experts_by_position: selected,
+            route_weights_by_position: weights,
+            expert_union_factor: 0.5,
+            wall_ms: 1.0,
+        };
+        assert!(route_layer_mismatch(&expected, &actual).is_none());
+        let mut changed = actual;
+        changed.route_weights_by_position[0][0] = 0.999;
+        assert!(route_layer_mismatch(&expected, &changed).is_some());
+    }
 
     #[test]
     fn routed_schedule_and_final_reconstruction_are_exact() {

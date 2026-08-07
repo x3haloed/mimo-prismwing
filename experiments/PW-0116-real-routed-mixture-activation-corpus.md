@@ -39,6 +39,16 @@ Keep that raw hash as provenance, but do not mistake timing identity for route
 identity. The semantic hash above is derived canonically from the immutable
 PW-0112 manifest and is the fail-closed comparison for this experiment.
 
+Execution amendment after the first fail-closed diagnostic: deserializing the
+PW-0112 JSON representation of layer 1's derived `U=44/224` produced the
+adjacent F64 value (`0.19642857142857145`) while recomputation produced
+`0.19642857142857142`. All selected expert IDs and all route-weight F32 bits
+matched. Compare `U` to the ratio derived independently from the selected IDs
+within one F64 epsilon; keep layer identity, attention mode, cache length,
+selected IDs, and route weights exact. This admits only JSON round-trip noise
+in a redundant statistic, not route or model divergence. The runtime now
+checks this authority after every layer so future mismatches stop early.
+
 At routed layers 4, 24, and 46, capture the causal source-derived mapping from
 the layer's real MoE input and actual route to its expert outputs, weighted
 mixture residual, and final residual. These are early, middle, and late pilot
