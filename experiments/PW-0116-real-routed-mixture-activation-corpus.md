@@ -1,7 +1,7 @@
 # PW-0116 — Real routed-mixture activation pilot corpus
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: completed
+- Disposition: promoted as pilot-corpus evidence only
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Commit and dirty state: preimplementation contract; clean tree
@@ -141,8 +141,41 @@ claim representation quality from corpus construction.
 
 ## Result
 
-Unexecuted.
+The clean `2b4a79ec771210c777e66dfa8436b495c08933be` run passed.
+The immutable raw manifest is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0116/corpus-001/manifest.json`
+and hashes to
+`b9df976876d63c1ffbbe0c70507aea8b939a749ce5b1db27cbca0b5d82cf802e`.
+Its fifteen payloads total 132,120,576 bytes.
+
+All 48 route records reproduced PW-0112: selected IDs and route-weight F32
+values were exact, and the redundant `U` values matched their independently
+derived route ratios within one F64 epsilon. Deterministic source counters also
+matched: 86,365,815,680 logical bytes, 9,570 expanded FP8 matrices, 48 expanded
+BF16 matrices, 3,173 routed expert executions, 7,124,992 dynamic activation
+groups, and 911,998,976 dynamic activation values. Actual process disk reads
+were 87,804,215,296 bytes. Complete wall time was 1,313,285.066 ms; this is
+capture cost with zero accepted tokens, not TPS.
+
+Every target layer accounted for 224 positions and 1,792 placements. Layers 4,
+24, and 46 touched 69, 72, and 72 distinct experts; respectively 37, 26, and
+31 appeared at most twice. For every layer, schedule-weighted reconstruction
+matched `routed_output` bit-for-bit and residual reconstruction matched `final`
+bit-for-bit. The contiguous validation/holdout slices cover far fewer experts
+than train (layer 4: 10/16 versus 66; layer 24: 16/12 versus 70; layer 46:
+15/12 versus 72), reinforcing that this is a correlated pilot rather than a
+representative promotion corpus.
+
+Gate 8 passed with 70% minimum system-free memory, 942,702,592-byte maximum
+peak RSS, zero swap growth, zero new throttled pages, stable protected
+services, and a 246,876,800-byte final physical footprint. Independent payload
+size/hash, partition, reconstruction-hash, and safety validation passes.
 
 ## Decision
 
-Unexecuted.
+Promote the corpus only as the frozen input to the three PW-0115
+activation-weighted pilot audits and matched per-expert controls. Do not claim
+representation fidelity, build a full factor bank, or promote a runtime from
+this one English trace. A positive factor pilot must trigger broader
+multilingual, long-context, modality, common/rare, and untouched evaluation
+corpus acquisition before any representation decision.

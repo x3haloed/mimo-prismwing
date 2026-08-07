@@ -1873,3 +1873,23 @@ before training or implementation. Clean analysis hashes to
 `41cc9b745561a09073902ba65354889d6b87e7d8716aea4db85940cbafc9c67a`.
 The updated throughput model hashes to
 `770ae7e017db648ac329b2964b55f3a7589c1f42330e7b02500dc02c2e0b3b23`.
+
+PW-0116 establishes a real, exactly reconstructible activation pilot for the
+three PW-0115 shared-basis shapes. Across the frozen 224-position PW-0112 path,
+layers 4, 24, and 46 each preserve all 1,792 routed placements and reproduce
+both the weighted routed output and final residual bit-for-bit from captured
+expert-down rows, schedules, and weights. All 48 route identities and
+deterministic source-work counters reproduce the prior authority. The raw
+manifest hashes to
+`b9df976876d63c1ffbbe0c70507aea8b939a749ce5b1db27cbca0b5d82cf802e`.
+
+The pilot also sharpens the corpus limitation: the three layers touch only
+69–72 experts total, 26–37 appear at most twice, and contiguous validation and
+holdout partitions cover only 10–16 experts per layer versus 66–72 in train.
+This supersedes any assumption that the convenient hosted English trace can
+serve as representative representation evidence. It authorizes only the
+frozen activation-weighted pilot audit and matched controls; any positive
+result requires a broader multilingual, long-context, modality, common/rare,
+and untouched corpus before promotion. Gate 8 passed at 70% minimum free
+memory, 942,702,592-byte peak RSS, zero swap growth/throttling, and stable
+services. No throughput-model constant or endpoint TPS changes in PW-0116.
