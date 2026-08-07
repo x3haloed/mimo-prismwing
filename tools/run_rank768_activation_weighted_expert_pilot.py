@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import gc
 import hashlib
 import json
@@ -44,22 +45,71 @@ REVISION = "63651580ca774f8504f676040460aed3e1244ac1"
 VERIFICATION_SHA256 = "9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03"
 CORPUS_SHA256 = "b9df976876d63c1ffbbe0c70507aea8b939a749ce5b1db27cbca0b5d82cf802e"
 PW0119_SOURCE_SHA256 = "3e7729dfff3d9ab6793d8e74d29ad20bb3c877bea328ae53d9325737c717c8fb"
-LAYER = 24
-EXPERT = 23
 RANK = 768
 P, D = 2048, 4096
-SEED = 260121
 LEARNING_RATE = 0.001
 MAX_STEPS = 100
 VALIDATE_EVERY = 5
 PATIENCE_CHECKS = 4
 MPS_MEMORY_FRACTION = 0.60
-PW0119_BASELINE = {
-    "overall": 0.7097717469432467,
-    "train": 0.731277796685779,
-    "validation": 0.7103805967306607,
-    "pilot_holdout": 0.6849577905886747,
-}
+
+
+@dataclass(frozen=True)
+class PilotSpec:
+    experiment_id: str
+    evidence_class: str
+    layer: int
+    expert: int
+    seed: int
+    partition_counts: dict[str, int]
+    pw0119_baseline: dict[str, float]
+    validation_maximum: float
+    holdout_maximum: float
+    pass_decision: str
+    fail_decision: str
+    limitations: str
+
+
+PW0121_SPEC = PilotSpec(
+    experiment_id="PW-0121",
+    evidence_class="pw0121_rank768_activation_weighted_expert_pilot",
+    layer=24,
+    expert=23,
+    seed=260121,
+    partition_counts={"train": 65, "validation": 46, "pilot_holdout": 56},
+    pw0119_baseline={
+        "overall": 0.7097717469432467,
+        "train": 0.731277796685779,
+        "validation": 0.7103805967306607,
+        "pilot_holdout": 0.6849577905886747,
+    },
+    validation_maximum=0.5327854475479955,
+    holdout_maximum=0.5137183429415060,
+    pass_decision="authorize_layer46_activation_weighted_rank768_pilot",
+    fail_decision="reject_current_activation_weighted_rank768_factor_fit",
+    limitations="one hot middle-layer expert on one English sequential corpus; independent factors only, no shared bases, broad corpus, kernel, endpoint, or TPS",
+)
+
+
+PW0122_SPEC = PilotSpec(
+    experiment_id="PW-0122",
+    evidence_class="pw0122_layer46_rank768_activation_weighted_expert_pilot",
+    layer=46,
+    expert=28,
+    seed=260122,
+    partition_counts={"train": 100, "validation": 56, "pilot_holdout": 56},
+    pw0119_baseline={
+        "overall": 0.5694250892637611,
+        "train": 0.5775213424014214,
+        "validation": 0.572330134931118,
+        "pilot_holdout": 0.5458150398186078,
+    },
+    validation_maximum=0.4292476011983385,
+    holdout_maximum=0.4093612798639559,
+    pass_decision="authorize_multi_expert_shared_basis_pilot_contract",
+    fail_decision="reject_depth_general_activation_weighted_rank768_factor_fit",
+    limitations="one hot late-layer expert on one English sequential corpus; independent factors only, no shared bases, broad corpus, kernel, endpoint, or TPS",
+)
 
 
 def dequant_weight(checkpoint: ShardedCheckpoint, name: str) -> np.ndarray:
@@ -134,6 +184,7 @@ def _mps_memory() -> dict:
 
 
 def train_projection(
+    experiment_id: str,
     projection: str,
     initial: tuple[np.ndarray, np.ndarray],
     inputs: torch.Tensor,
@@ -170,7 +221,7 @@ def train_projection(
                     normalized_mse(predict(validation_input), validation_target).cpu()
                 )
             if not np.isfinite(validation_loss):
-                raise ValueError(f"PW-0121 {projection} non-finite validation loss")
+                raise ValueError(f"{experiment_id} {projection} non-finite validation loss")
             improved = validation_loss < best_loss
             history.append(
                 {"step": step, "validation_normalized_mse": validation_loss, "improved": improved}
@@ -195,7 +246,7 @@ def train_projection(
         optimizer.zero_grad(set_to_none=True)
         loss = normalized_mse(predict(train_input), train_target)
         if not bool(torch.isfinite(loss).item()):
-            raise ValueError(f"PW-0121 {projection} non-finite train loss")
+            raise ValueError(f"{experiment_id} {projection} non-finite train loss")
         loss.backward()
         if step == 0:
             torch.mps.synchronize()
@@ -203,7 +254,7 @@ def train_projection(
             memory.append({"phase": "first_backward", **_mps_memory()})
         optimizer.step()
     if best is None or best_step is None or best_loss >= history[0]["validation_normalized_mse"]:
-        raise ValueError(f"PW-0121 {projection} did not improve validation loss")
+        raise ValueError(f"{experiment_id} {projection} did not improve validation loss")
     with torch.no_grad():
         left.copy_(torch.from_numpy(best[0]).to(device))
         right.copy_(torch.from_numpy(best[1]).to(device))
@@ -220,7 +271,7 @@ def train_projection(
         [f"{projection} MPS factors", f"{projection} Adam state", f"{projection} activation batches"],
     )
     if release_memory["current_allocated_bytes"] != 0:
-        raise ValueError(f"PW-0121 {projection} MPS allocation did not release")
+        raise ValueError(f"{experiment_id} {projection} MPS allocation did not release")
     return best, {
         "initial_validation_normalized_mse": history[0]["validation_normalized_mse"],
         "selected_validation_normalized_mse": best_loss,
@@ -242,19 +293,20 @@ def run(
     pw0119_path: Path,
     output_path: Path,
     commit: str,
+    spec: PilotSpec = PW0121_SPEC,
 ) -> dict:
     if output_path.exists():
         raise ValueError(f"refusing to overwrite {output_path}")
     if len(commit) != 40 or any(character not in "0123456789abcdef" for character in commit):
         raise ValueError("implementation commit must be lowercase 40-hex")
     if sha256_file(verification_path) != VERIFICATION_SHA256:
-        raise ValueError("PW-0121 checkpoint verification hash mismatch")
+        raise ValueError(f"{spec.experiment_id} checkpoint verification hash mismatch")
     if sha256_file(corpus_manifest_path) != CORPUS_SHA256:
-        raise ValueError("PW-0121 corpus manifest hash mismatch")
+        raise ValueError(f"{spec.experiment_id} corpus manifest hash mismatch")
     if sha256_file(pw0119_path) != PW0119_SOURCE_SHA256:
-        raise ValueError("PW-0121 PW-0119 authority hash mismatch")
+        raise ValueError(f"{spec.experiment_id} PW-0119 authority hash mismatch")
     if not torch.backends.mps.is_built() or not torch.backends.mps.is_available():
-        raise ValueError("PW-0121 requires an available PyTorch MPS backend")
+        raise ValueError(f"{spec.experiment_id} requires an available PyTorch MPS backend")
 
     complete_started = time.perf_counter()
     safety = HostSafetyMonitor()
@@ -262,31 +314,27 @@ def run(
     torch.mps.empty_cache()
     corpus = json.loads(corpus_manifest_path.read_text())
     if corpus.get("revision") != REVISION:
-        raise ValueError("PW-0121 corpus revision mismatch")
-    authority = next(row for row in corpus["layers"] if row["layer"] == LAYER)
+        raise ValueError(f"{spec.experiment_id} corpus revision mismatch")
+    authority = next(row for row in corpus["layers"] if row["layer"] == spec.layer)
     root = corpus_manifest_path.parent
     moe_input = load_capture(root, authority["captures"]["moe_input"])
     expert_down = load_capture(root, authority["captures"]["expert_down"])
     offset = 0
     positions = None
     for schedule in authority["expert_schedule"]:
-        if schedule["expert"] == EXPERT:
+        if schedule["expert"] == spec.expert:
             positions = schedule["positions"]
             break
         offset += len(schedule["positions"])
-    if positions is None or len(positions) != 167:
-        raise ValueError("PW-0121 expert schedule mismatch")
+    if positions is None or len(positions) != sum(spec.partition_counts.values()):
+        raise ValueError(f"{spec.experiment_id} expert schedule mismatch")
     partition_indices = {
         "train": [index for index, position in enumerate(positions) if position < 112],
         "validation": [index for index, position in enumerate(positions) if 112 <= position < 168],
         "pilot_holdout": [index for index, position in enumerate(positions) if position >= 168],
     }
-    if {name: len(rows) for name, rows in partition_indices.items()} != {
-        "train": 65,
-        "validation": 46,
-        "pilot_holdout": 56,
-    }:
-        raise ValueError("PW-0121 partition coverage mismatch")
+    if {name: len(rows) for name, rows in partition_indices.items()} != spec.partition_counts:
+        raise ValueError(f"{spec.experiment_id} partition coverage mismatch")
     inputs = torch.from_numpy(np.asarray(moe_input[positions]).copy()).to(torch.bfloat16)
     expected = torch.from_numpy(
         np.asarray(expert_down[offset : offset + len(positions)]).copy()
@@ -294,7 +342,7 @@ def run(
     safety.checkpoint("authenticated_corpus_loaded")
 
     checkpoint = ShardedCheckpoint(checkpoint_root, verification_path)
-    prefix = f"model.layers.{LAYER}.mlp.experts.{EXPERT}"
+    prefix = f"model.layers.{spec.layer}.mlp.experts.{spec.expert}"
     weights = {
         projection: dequant_weight(checkpoint, f"{prefix}.{projection}_proj.weight")
         for projection in ("gate", "up", "down")
@@ -305,7 +353,7 @@ def run(
     source_output = source_linear(weights["down"], source_hidden)
     source_parity = parity(source_output, expected)
     if source_parity["equality_fraction"] != 1.0:
-        raise ValueError("PW-0121 source oracle is not bit exact")
+        raise ValueError(f"{spec.experiment_id} source oracle is not bit exact")
     training_inputs = {
         "gate": dynamic_input(inputs).float(),
         "up": dynamic_input(inputs).float(),
@@ -329,7 +377,7 @@ def run(
     svd_decompositions = {}
     selected_factors = {}
     projection_reports = {}
-    torch.manual_seed(SEED)
+    torch.manual_seed(spec.seed)
     for projection in ("gate", "up", "down"):
         canonical = np.ascontiguousarray(
             weights[projection].T if projection == "down" else weights[projection]
@@ -342,6 +390,7 @@ def run(
         svd_decompositions[projection] = decomposition
         initial_factors[projection] = initial
         selected, training_report = train_projection(
+            spec.experiment_id,
             projection,
             initial,
             training_inputs[projection],
@@ -370,20 +419,20 @@ def run(
         "overall": parity(baseline_output, expected),
         "partitions": partition_metrics(baseline_output, expected, positions),
     }
-    for name, expected_relative_l2 in PW0119_BASELINE.items():
+    for name, expected_relative_l2 in spec.pw0119_baseline.items():
         actual = (
             baseline["overall"]["relative_l2"]
             if name == "overall"
             else baseline["partitions"][name]["metrics"]["relative_l2"]
         )
         if abs(actual - expected_relative_l2) > 1e-6:
-            raise ValueError(f"PW-0121 rank-768 baseline mismatch for {name}")
+            raise ValueError(f"{spec.experiment_id} rank-768 baseline mismatch for {name}")
     balanced_output = factor_expert(initial_factors, inputs)
     balanced_baseline = {
         "overall": parity(balanced_output, expected),
         "partitions": partition_metrics(balanced_output, expected, positions),
     }
-    for name in PW0119_BASELINE:
+    for name in spec.pw0119_baseline:
         authority_value = (
             baseline["overall"]["relative_l2"]
             if name == "overall"
@@ -395,7 +444,7 @@ def run(
             else balanced_baseline["partitions"][name]["metrics"]["relative_l2"]
         )
         if abs(balanced_value - authority_value) > 5e-6:
-            raise ValueError(f"PW-0121 balanced initialization mismatch for {name}")
+            raise ValueError(f"{spec.experiment_id} balanced initialization mismatch for {name}")
     candidate_output = factor_expert(selected_factors, inputs)
     candidate = {
         "overall": parity(candidate_output, expected),
@@ -403,8 +452,8 @@ def run(
     }
     validation_error = candidate["partitions"]["validation"]["metrics"]["relative_l2"]
     holdout_error = candidate["partitions"]["pilot_holdout"]["metrics"]["relative_l2"]
-    validation_gate = validation_error <= 0.5327854475479955
-    holdout_gate = holdout_error <= 0.5137183429415060
+    validation_gate = validation_error <= spec.validation_maximum
+    holdout_gate = holdout_error <= spec.holdout_maximum
     safety.checkpoint("complete_expert_evaluation")
     del initial_factors, selected_factors, svd_decompositions, weights, training_inputs, training_targets
     gc.collect()
@@ -417,24 +466,24 @@ def run(
     )
     safety.checkpoint("final_service_health")
     if final_mps_memory["current_allocated_bytes"] != 0:
-        raise ValueError("PW-0121 final MPS allocation did not release")
+        raise ValueError(f"{spec.experiment_id} final MPS allocation did not release")
 
     passed = validation_gate and holdout_gate
     report = {
         "schema_version": 1,
-        "evidence_class": "pw0121_rank768_activation_weighted_expert_pilot",
+        "evidence_class": spec.evidence_class,
         "revision": REVISION,
         "commit": commit,
         "checkpoint_verification_sha256": VERIFICATION_SHA256,
         "corpus_manifest_sha256": CORPUS_SHA256,
         "pw0119_source_sha256": PW0119_SOURCE_SHA256,
-        "layer": LAYER,
-        "expert": EXPERT,
+        "layer": spec.layer,
+        "expert": spec.expert,
         "positions": positions,
         "partition_counts": {name: len(rows) for name, rows in partition_indices.items()},
         "configuration": {
             "rank": RANK,
-            "seed": SEED,
+            "seed": spec.seed,
             "optimizer": "Adam",
             "learning_rate": LEARNING_RATE,
             "maximum_steps": MAX_STEPS,
@@ -450,8 +499,8 @@ def run(
         "rank768_svd_control": baseline,
         "balanced_rank768_initialization_control": balanced_baseline,
         "activation_weighted_candidate": candidate,
-        "validation_relative_l2_gate": {"maximum": 0.5327854475479955, "passed": validation_gate},
-        "pilot_holdout_relative_l2_gate": {"maximum": 0.5137183429415060, "passed": holdout_gate},
+        "validation_relative_l2_gate": {"maximum": spec.validation_maximum, "passed": validation_gate},
+        "pilot_holdout_relative_l2_gate": {"maximum": spec.holdout_maximum, "passed": holdout_gate},
         "gates_passed": passed,
         "final_mps_memory": final_mps_memory,
         "safety_snapshots": safety.evidence(),
@@ -460,12 +509,8 @@ def run(
         "concurrency": 1,
         "accepted_tokens": 0,
         "A": 0,
-        "decision": (
-            "authorize_layer46_activation_weighted_rank768_pilot"
-            if passed
-            else "reject_current_activation_weighted_rank768_factor_fit"
-        ),
-        "limitations": "one hot middle-layer expert on one English sequential corpus; independent factors only, no shared bases, broad corpus, kernel, endpoint, or TPS",
+        "decision": spec.pass_decision if passed else spec.fail_decision,
+        "limitations": spec.limitations,
         "performance_claim": None,
         "platform": platform.platform(),
         "torch_version": torch.__version__,
