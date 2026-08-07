@@ -1,7 +1,7 @@
 # PW-0136 — Page-aligned `pread` expert-slot acquisition bound
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-07
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -107,3 +107,42 @@ A failure rejects parallel `pread` for the unchanged internal-SSD source-FP8
 payload. Preserve it as a control for a future approximately 53%-sized INT4
 artifact if that numerical branch independently passes fidelity. Report zero
 accepted tokens, `A=0`, no endpoint timing, and no TPS.
+
+## Result
+
+Every one of 24 trials performs exactly eight complete expert reads totaling
+201,719,808 bytes, reconstructs the authenticated artifact hash, and preserves
+all eight Metal buffer pointer identities and lengths. Every cold trial records
+exactly 201,719,808 physical read bytes; every warm trial records zero. There
+are no short-read retries.
+
+Cold medians for 1/2/4/8 workers are `59.094`, `58.125`, `58.205`, and
+`58.515` ms. The selected two-worker result misses the 47.7 ms continuation
+bound by `10.425` ms, and all three of its trials (`58.094`, `58.125`, and
+`58.151` ms) exceed the 57.723 ms trial ceiling. More workers do not raise
+cold storage throughput. The result nearly reproduces PW-0108's 58.034 ms
+three-command Metal-I/O median, identifying the unchanged internal SSD plus
+201.7 MB payload as the common floor rather than either API's submission
+policy.
+
+Warm medians are `30.126`, `18.437`, `13.640`, and `13.632` ms; bounded
+parallel copies help when the file is already resident, but that state cannot
+satisfy the cold gate. The decision is
+`reject_parallel_pread_for_internal_ssd_source_fp8`. Do not build the
+source-FP8 slot-owned scheduler. Retain the eight-slot implementation as the
+direct control for a future fidelity-qualified INT4 artifact, where the byte
+premise changes materially.
+
+Gate 8 passes across 29 snapshots at 79% minimum free memory, 417,251,328-byte
+maximum peak RSS, 206,637,248-byte maximum physical footprint,
+206,538,560-byte final footprint, zero swap growth or new throttled pages, and
+stable protected-service PID sets.
+
+Raw evidence:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0136/run-001.json`, SHA-256
+`e6ab84cada19c6036ee7b83f318c3920631141b9ea5e882cc88eb9784d0b5a56`.
+Validated analysis:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0136/analysis-001/manifest.json`,
+SHA-256
+`7ebf2cde5c4a3f4931d2d705993f822e38af13ea66bc3efc91410296b14e2aab`.
+No endpoint TPS or measured throughput-model constant changes.

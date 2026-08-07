@@ -2393,3 +2393,33 @@ pages, and stable protected-service PID sets. Raw evidence hashes to
 analysis hashes to
 `63565129c4f47cff5ab274b687a27bf9c64131ab83e86fab6b3ee4cb98a24bf6`.
 No endpoint TPS or measured throughput constant changes in PW-0135.
+
+PW-0136 rejects the missing explicit-`pread` embodiment for the unchanged
+internal-SSD source-FP8 representation. Eight fixed-stride 25,214,976-byte
+expert blobs are read into eight reusable 2-MiB-aligned allocations already
+wrapped by Metal. All 24 trials perform exactly eight complete reads, reproduce
+the authenticated 201,719,808-byte artifact hash, and retain exact Metal buffer
+pointer identity and length. Every cold trial records the full artifact as
+physical reads; every warm trial records zero.
+
+Cold medians at 1/2/4/8 workers are `59.094`, `58.125`, `58.205`, and
+`58.515` ms. The selected two-worker result misses PW-0108's unchanged 47.7 ms
+continuation bound by `10.425` ms and all its trials exceed the 57.723 ms
+ceiling. The result is essentially PW-0108's 58.034 ms Metal-I/O median, so the
+shared floor is the internal SSD moving 201.7 MB—not demand paging, Metal-I/O
+submission, `pread` submission, or insufficient read concurrency.
+
+Warm parallel copies do improve monotonically to a 13.632 ms eight-worker
+median, but that cannot rescue a continually cold source-FP8 decode. Do not
+build the source-FP8 protected-slot/pending-MoE scheduler. The architectural
+pattern remains useful only after the numerical branch qualifies a materially
+smaller executable artifact; PW-0135's 0.531120-byte-ratio INT4 form is now the
+specific convergence target, not yet a fidelity-qualified default.
+
+Gate 8 passes across 29 snapshots at 79% minimum free memory, 417,251,328-byte
+maximum peak RSS, 206,637,248-byte maximum physical footprint, zero swap growth
+or new throttled pages, and stable services. Raw evidence hashes to
+`e6ab84cada19c6036ee7b83f318c3920631141b9ea5e882cc88eb9784d0b5a56`;
+analysis hashes to
+`7ebf2cde5c4a3f4931d2d705993f822e38af13ea66bc3efc91410296b14e2aab`.
+No endpoint TPS or measured throughput-model constant changes in PW-0136.

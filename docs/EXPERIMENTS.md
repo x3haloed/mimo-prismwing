@@ -390,6 +390,16 @@ clears PW-0108's unchanged 47.7 ms bound with no trial above 57.723 ms. Failure
 kills this I/O embodiment for source FP8, not for a later fidelity-qualified
 INT4 artifact whose selected bytes are roughly halved.
 
+The explicit-read branch is rejected for the unchanged source-FP8 payload.
+Cold medians for 1/2/4/8 workers are 59.094/58.125/58.205/58.515 ms, with
+exactly 201,719,808 physical bytes read in every trial. The selected two-worker
+median misses the 47.7 ms bound and all of its trials exceed 57.723 ms. Its
+near-identity with PW-0108's 58.034 ms Metal-I/O result shows that neither API
+nor additional cold-read concurrency removes the internal-SSD/payload floor.
+Warm eight-worker `pread` reaches 13.632 ms, but warm pages are not the target
+state. Do not build a source-FP8 slot scheduler. Reuse this exact control only
+after a numerically qualified representation materially reduces bytes.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
