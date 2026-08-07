@@ -1,7 +1,7 @@
 # PW-0131 — INT4 input-conditioned low-rank repair oracle
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: capacity pass; train-only validation authorized
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -86,3 +86,43 @@ Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 Apply normative Gate 8 at source authentication, every expert release, every
 rank fit, layer release, checkpoint release, and final service-health readback.
 
+## Result
+
+The clean run completed in 69,259.843 ms. It reproduced PW-0129's packed INT4
+artifacts and PW-0130's affine parameter hashes and validation metrics exactly.
+All rank errors are monotonic at every layer, and the holdout remained sealed.
+
+| Rank | Aggregate relative L2 | Worst layer | Worst row | Combined source-byte ratio | Repair/source MAC ratio |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 8 | 1.9075% | 3.1675% | 3.9249% | 53.6978% | 0.2604% |
+| 16 | 1.5148% | 2.5183% | 3.2738% | 54.2185% | 0.5208% |
+| 32 | 0.9493% | 1.5825% | 2.1885% | 55.2599% | 1.0417% |
+| 56 | 0.0485% | 0.0572% | 0.0911% | 56.8221% | 1.8229% |
+
+Rank 32 is the smallest passing capacity. It uses 134,217,728 low-rank-factor
+bytes per complete layer in addition to the INT4 and affine artifacts. Its
+complete representation is 55.2599% of the source layer bank and its repair
+adds 2,097,152 MACs per eight-expert mixture, 1.0417% of source expert MACs.
+The same-validation numerical result passes every frozen gate.
+
+This is a capacity result, not generalization. The fit sees the validation
+targets it scores, and rank 56's near-perfect result illustrates the available
+memorization capacity. A train-only rank-32 fit must now reproduce the gain on
+validation before holdout can be considered.
+
+Gate 8 passes at 78% minimum free memory, 763,248,640-byte maximum peak RSS,
+221,907,904-byte maximum physical footprint, zero swap growth or new
+throttled pages, and stable protected services. Raw evidence hashes to
+`e0cf60d13b3e55fd805b480bf834baa55e87f7cf5de6b49623f722c094c0d876`;
+independent analysis hashes to
+`754285ca807cde425f5742dfb3ffc1014d2a99be9cf7f188eb16307fb3f90042`.
+
+## Decision
+
+Authorize a separately frozen train-only rank-32 affine-plus-low-rank repair
+fit, evaluated on validation with holdout sealed. Do not build a bank, execute
+an accumulated model, or claim endpoint fidelity or TPS. The result proves
+only that an input-conditioned cross-channel repair family has sufficient
+same-slice capacity inside the initial byte and compute envelope. Train-only
+failure would reject generalization from this pilot; success would authorize
+one holdout read and then broader corpus acquisition.

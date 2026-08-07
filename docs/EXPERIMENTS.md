@@ -292,6 +292,13 @@ charge a full 256-expert bank. Select the smallest rank reaching 1% aggregate,
 Holdout remains sealed. A same-validation pass only authorizes train-only
 generalization; rank-56 failure kills this low-rank output-repair family.
 
+The capacity oracle passes first at rank 32: 0.9493% aggregate validation
+relative L2, 1.5825% worst layer, and 2.1885% worst row. The combined INT4,
+affine, and low-rank representation is 55.2599% of source bytes and repair
+arithmetic is 1.0417% of source expert MACs. Rank 56 nearly memorizes the
+same-validation slice, underscoring that this is capacity—not generalization.
+Proceed to a frozen train-only rank-32 fit; keep holdout sealed.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

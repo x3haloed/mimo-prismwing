@@ -2243,3 +2243,30 @@ evidence hashes to
 analysis hashes to
 `18df3de03834e9725c1b472f196d1e67700d9cdd1c8f18f07e5a9c8d6604bd46`.
 No endpoint TPS or measured throughput constant changes in PW-0130.
+
+PW-0131 establishes that compact input-conditioned cross-channel capacity can
+repair affine INT4 locally, unlike PW-0130's static diagonal transform. On the
+same validation rows used for fitting, errors decrease monotonically at ranks
+8/16/32/56. Rank 32 is the first full gate pass: aggregate relative L2
+`0.009493`, maximum layer `0.015825`, and maximum row `0.021885`.
+
+The capacity fits the initial embodiment envelope. Rank-32 factors cost
+134,217,728 bytes per full 256-expert layer; combined INT4, affine, and repair
+bytes are `0.552599` of the source bank. Repair work is 2,097,152 MACs per
+eight-expert mixture or `0.010417` of source expert MACs. Rank 56 reaches
+`0.000485` aggregate error, which is evidence of memorization capacity rather
+than deployable quality.
+
+The old broad inference that INT4's remaining error might be irreducible is
+superseded. It is irreducible by static diagonal output calibration, but not by
+a small input-conditioned low-rank program. Generalization is wholly unproven:
+the next test must fit rank 32 only on positions `0..111`, score `112..167`,
+and keep `168..223` sealed. No bank or accumulated model is authorized.
+
+Gate 8 passes at 78% minimum free memory, 221,907,904-byte maximum physical
+footprint, zero swap growth or new throttled pages, and stable services. Raw
+evidence hashes to
+`e0cf60d13b3e55fd805b480bf834baa55e87f7cf5de6b49623f722c094c0d876`;
+analysis hashes to
+`754285ca807cde425f5742dfb3ffc1014d2a99be9cf7f188eb16307fb3f90042`.
+No endpoint TPS or measured throughput constant changes in PW-0131.
