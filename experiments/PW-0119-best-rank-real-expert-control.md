@@ -1,7 +1,7 @@
 # PW-0119 — Best-rank real-expert activation control
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: conditional
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Commit and dirty state: preimplementation contract; clean tree
@@ -82,8 +82,53 @@ kernel, endpoint output, accepted token, or TPS claim is allowed.
 
 ## Result
 
-Unexecuted.
+The clean implementation at `ef5de9f1261e1e0d3b17f5a315c4991eb8dc67de`
+completed all 18 full singular decompositions and six expert activation
+controls in 94,299.533 ms. The PyTorch source oracle reproduced every captured
+BF16 expert-down value bit-for-bit, closing the corpus/orientation/dynamic-FP8
+control before interpreting any approximation.
+
+The independent rank controls separate the unusually compressible early layer
+from the deeper model:
+
+| Layer | rank 128 relative-L2 range | rank 512 range | rank 768 range |
+| ---: | ---: | ---: | ---: |
+| 4 | 0.0838--0.2131 | 0.0305--0.0595 | 0.0198--0.0208 |
+| 24 | 0.9633--0.9926 | 0.8277--0.8705 | 0.7098--0.7832 |
+| 46 | 0.8701--1.0512 | 0.6748--0.8999 | 0.5694--0.7143 |
+
+Errors decrease monotonically with rank for every sampled expert, but rank 128
+is never competitive with rank 768: its routed-output error is 1.27--10.26x
+higher. More importantly, even independent best rank 768 leaves 56.9--78.3%
+relative L2 in the layer-24/46 controls. Their projection-space rank-768
+Frobenius residuals remain 43.2--56.3%, compared with 8.59--19.03% at layer 4.
+This is strong evidence that ordinary source-weight MSE/SVD is a weak fitting
+objective for the deeper expert sample. It does not lower-bound a fit trained
+on the frozen activations.
+
+Gate 8 passed with 81% minimum free memory, 1,036,451,840-byte peak RSS,
+339,954,816-byte maximum physical footprint, 224,594,560 bytes at the largest
+release boundary, zero swap growth, zero throttling, and stable protected
+services. The raw report at
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0119/run-001.json` hashes to
+`3e7729dfff3d9ab6793d8e74d29ad20bb3c877bea328ae53d9325737c717c8fb`.
+The independent analysis at
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0119/analysis-001/manifest.json`
+hashes to
+`166f56b0b56c82099520acd6696647d8bc350b52d5b33d8649d51a7971cf7a34`.
+There are zero accepted tokens and no TPS claim.
 
 ## Decision
 
-Unexecuted.
+Do not begin with the cheapest `(r=128,m=32)` weight-MSE bank merely because
+PW-0118 proved that optimizer shape fits. Begin with a bounded rank-768
+activation-weighted pilot on the predeclared experts and PW-0116 partitions,
+after separately proving that rank-heavy optimizer embodiment passes Gate 8.
+The candidate must compare against this independent rank-768 control and may
+not infer broad representation quality from layer 4.
+
+If activation-weighted rank 768 cannot materially improve the deeper held-out
+expert outputs, kill the current low-rank identity-basis family before fitting
+a full layer. If it can, only then test whether shared bases approach that
+independent activation-weighted control. No result here promotes a stored
+artifact, kernel, endpoint, or performance default.

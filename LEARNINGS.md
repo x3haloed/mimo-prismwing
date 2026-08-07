@@ -1937,3 +1937,26 @@ Raw evidence hashes to
 analysis hashes to
 `25f71aabb3d66f3142c8ff8447c451c61d7f527b79a02638b256916fe0db778e`.
 No throughput-model constant or endpoint TPS changes in PW-0118.
+
+PW-0119 establishes the independent per-expert rank control that any shared
+identity-basis candidate must beat. Across six authenticated hot/rare experts,
+the source PyTorch oracle reproduces all PW-0116 expert-down BF16 values
+bit-for-bit. Rank error improves monotonically, but the early-layer result is
+not representative: rank-768 routed-output relative L2 is only
+`0.01977--0.02078` at layer 4, yet `0.70977--0.78318` at layer 24 and
+`0.56943--0.71427` at layer 46. Rank 128 is 1.27--10.26x worse than rank 768
+on the same outputs.
+
+This supersedes the convenient assumption that a source-weight MSE fit at the
+small `(r=128,m=32)` shape is the right first representation test. PW-0118
+proved only that its optimizer embodiment fits. Preflight rank-heavy optimizer
+memory, then use rank-768 activation-weighted fitting on the frozen corpus
+before allocating a shared bank. Even poor SVD cannot finally kill that path,
+because it minimizes global matrix Frobenius error rather than error on routed
+activations. Raw evidence hashes to
+`3e7729dfff3d9ab6793d8e74d29ad20bb3c877bea328ae53d9325737c717c8fb`;
+analysis hashes to
+`166f56b0b56c82099520acd6696647d8bc350b52d5b33d8649d51a7971cf7a34`.
+Gate 8 passes with 81% minimum free memory, 1,036,451,840-byte peak RSS, zero
+swap growth/throttling, and stable services. No throughput-model constant or
+endpoint TPS changes in PW-0119.
