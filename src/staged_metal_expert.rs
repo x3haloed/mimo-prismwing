@@ -1011,7 +1011,15 @@ impl BoundedMetalExpertRuntime {
         projections: [&ValidatedMappedFp8<'_>; 3],
         input: &[f32],
     ) -> Result<BoundedMetalExpertOutput, String> {
-        self.execute_internal(projections, input, None)
+        self.execute_internal(projections, input, None, true)
+    }
+
+    pub(crate) fn execute_without_sparse_repair(
+        &self,
+        projections: [&ValidatedMappedFp8<'_>; 3],
+        input: &[f32],
+    ) -> Result<BoundedMetalExpertOutput, String> {
+        self.execute_internal(projections, input, None, false)
     }
 
     pub(crate) fn execute_profiled(
@@ -1021,7 +1029,7 @@ impl BoundedMetalExpertRuntime {
         projections: [&ValidatedMappedFp8<'_>; 3],
         input: &[f32],
     ) -> Result<BoundedMetalExpertOutput, String> {
-        self.execute_internal(projections, input, Some((layer, expert)))
+        self.execute_internal(projections, input, Some((layer, expert)), true)
     }
 
     pub(crate) fn execute_profiled_no_copy(
@@ -1037,6 +1045,7 @@ impl BoundedMetalExpertRuntime {
             input,
             Some((layer, expert)),
             backing.map(SourceBufferMode::NoCopy),
+            true,
         )
     }
 
@@ -1461,12 +1470,14 @@ impl BoundedMetalExpertRuntime {
         projections: [&ValidatedMappedFp8<'_>; 3],
         input: &[f32],
         identity: Option<(usize, u32)>,
+        sparse_repair_enabled: bool,
     ) -> Result<BoundedMetalExpertOutput, String> {
         self.execute_internal_with_modes(
             projections,
             input,
             identity,
             [SourceBufferMode::Copied; 3],
+            sparse_repair_enabled,
         )
     }
 
@@ -1476,6 +1487,7 @@ impl BoundedMetalExpertRuntime {
         input: &[f32],
         identity: Option<(usize, u32)>,
         source_modes: [SourceBufferMode; 3],
+        sparse_repair_enabled: bool,
     ) -> Result<BoundedMetalExpertOutput, String> {
         let execution = execute_staged_expert(
             &self.device,
@@ -1486,6 +1498,7 @@ impl BoundedMetalExpertRuntime {
             input,
             identity,
             source_modes,
+            sparse_repair_enabled,
         )?;
         let installed_source_bytes = projections.iter().try_fold(0_u64, |total, tensor| {
             total
@@ -1941,6 +1954,7 @@ fn execute_staged_expert(
     input: &[f32],
     identity: Option<(usize, u32)>,
     source_modes: [SourceBufferMode; 3],
+    sparse_repair_enabled: bool,
 ) -> Result<StagedExpertExecution, String> {
     let wall_started = Instant::now();
     let activity_started = identity.map(|_| process_activity()).transpose()?;
@@ -1978,9 +1992,16 @@ fn execute_staged_expert(
     round_bf16_values(&mut up_output);
     let gate_up_bf16_round_ms = gate_up_round_started.elapsed().as_secs_f64() * 1000.0;
     let gate_up_repair_started = Instant::now();
-    let gate_repairs =
-        repair_uncertain_rows(gate, &staged_input, &gate_pre_round, &mut gate_output)?;
-    let up_repairs = repair_uncertain_rows(up, &staged_input, &up_pre_round, &mut up_output)?;
+    let gate_repairs = if sparse_repair_enabled {
+        repair_uncertain_rows(gate, &staged_input, &gate_pre_round, &mut gate_output)?
+    } else {
+        0
+    };
+    let up_repairs = if sparse_repair_enabled {
+        repair_uncertain_rows(up, &staged_input, &up_pre_round, &mut up_output)?
+    } else {
+        0
+    };
     let gate_up_sparse_repair_ms = gate_up_repair_started.elapsed().as_secs_f64() * 1000.0;
     let swiglu_started = Instant::now();
     let hidden = gate_output
@@ -2008,7 +2029,11 @@ fn execute_staged_expert(
     round_bf16_values(&mut output);
     let down_bf16_round_ms = down_round_started.elapsed().as_secs_f64() * 1000.0;
     let down_repair_started = Instant::now();
-    let down_repairs = repair_uncertain_rows(down, &staged_hidden, &down_pre_round, &mut output)?;
+    let down_repairs = if sparse_repair_enabled {
+        repair_uncertain_rows(down, &staged_hidden, &down_pre_round, &mut output)?
+    } else {
+        0
+    };
     let down_sparse_repair_ms = down_repair_started.elapsed().as_secs_f64() * 1000.0;
     if output.iter().any(|x| !x.is_finite()) {
         return Err("staged Metal expert produced non-finite output".to_owned());
@@ -2150,6 +2175,7 @@ pub fn run_staged_metal_fp8_expert(
             &input,
             None,
             [SourceBufferMode::Copied; 3],
+            true,
         )?;
         Ok((
             execution.down,
@@ -2504,6 +2530,7 @@ pub fn run_bounded_metal_routed_row(
                 &input,
                 None,
                 [SourceBufferMode::Copied; 3],
+                true,
             )?;
             for (destination, value) in output.iter_mut().zip(&expert_execution.down) {
                 *destination += *value * route_weight;

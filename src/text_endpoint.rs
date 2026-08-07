@@ -322,7 +322,12 @@ pub struct MetalIncrementalTextReport {
     pub final_norm_parity: NumericalParity,
     pub logits_parity: NumericalParity,
     pub top20_token_identity: bool,
+    pub source_argmax_token_id: u32,
+    pub candidate_argmax_token_id: u32,
+    pub source_chosen_token_absolute_logprob_error_nats: f64,
+    pub source_top20_candidate_overlap: usize,
     pub projected_top20_jsd_nats: f64,
+    pub distribution_probe_passed: bool,
     pub ledger: EndpointLedger,
     pub metal_ledger: MetalExpertLedger,
     pub safety_snapshots: Vec<SafetySnapshot>,
@@ -338,6 +343,9 @@ pub struct MetalIncrementalTextReport {
     pub accepted_per_verification: usize,
     pub cache_state: &'static str,
     pub exactness: &'static str,
+    pub repair_mode: &'static str,
+    pub diagnostic_only: bool,
+    pub output_committed: bool,
     pub performance_claim: Option<String>,
     pub implementation: &'static str,
     pub promotion_gates_passed: bool,
@@ -2705,6 +2713,7 @@ fn require_one_row_metal_experts(rows: usize) -> Result<(), String> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn routed_mlp_metal(
     checkpoint: &Checkpoint,
     layer: usize,
@@ -2713,6 +2722,7 @@ fn routed_mlp_metal(
     ledger: &mut EndpointLedger,
     metal_ledger: &mut MetalExpertLedger,
     runtime: &BoundedMetalExpertRuntime,
+    sparse_repair_enabled: bool,
 ) -> Result<RoutedMlpOutput, String> {
     let routed_wall_started = Instant::now();
     let routed_activity_started = metal_ledger
@@ -2776,8 +2786,10 @@ fn routed_mlp_metal(
         }
         let mut execution = if metal_ledger.tomography_enabled {
             runtime.execute_profiled(layer, expert, [&gate, &up, &down], input)?
-        } else {
+        } else if sparse_repair_enabled {
             runtime.execute([&gate, &up, &down], input)?
+        } else {
+            runtime.execute_without_sparse_repair([&gate, &up, &down], input)?
         };
         let weight = placements[0].1;
         let scatter_started = Instant::now();
@@ -3020,7 +3032,7 @@ fn decode_step(
     ledger: &mut EndpointLedger,
     safety: &mut SafetyMonitor,
     mut full_captures: Option<&mut FullPrefixCaptures>,
-    mut metal: Option<(&BoundedMetalExpertRuntime, &mut MetalExpertLedger)>,
+    mut metal: Option<(&BoundedMetalExpertRuntime, &mut MetalExpertLedger, bool)>,
     output: DecodeOutput,
 ) -> Result<NativeDecodeStep, String> {
     let started = Instant::now();
@@ -3074,19 +3086,21 @@ fn decode_step(
                 Vec::new(),
             )
         } else {
-            let routed = if let Some((runtime, metal_ledger)) = metal.as_mut() {
-                routed_mlp_metal(
-                    checkpoint,
-                    layer,
-                    &moe_input,
-                    rows,
-                    ledger,
-                    metal_ledger,
-                    runtime,
-                )?
-            } else {
-                routed_mlp(checkpoint, layer, &moe_input, rows, ledger)?
-            };
+            let routed =
+                if let Some((runtime, metal_ledger, sparse_repair_enabled)) = metal.as_mut() {
+                    routed_mlp_metal(
+                        checkpoint,
+                        layer,
+                        &moe_input,
+                        rows,
+                        ledger,
+                        metal_ledger,
+                        runtime,
+                        *sparse_repair_enabled,
+                    )?
+                } else {
+                    routed_mlp(checkpoint, layer, &moe_input, rows, ledger)?
+                };
             (routed.output, routed.selected, routed.weights)
         };
         hidden = post_attention
@@ -3475,6 +3489,104 @@ fn projected_top20_jsd(reference: &[f32], candidate: &[f32]) -> Result<(bool, f6
     Ok((top20_identity, jsd))
 }
 
+#[derive(Debug, PartialEq)]
+struct DistributionProbeMetrics {
+    source_argmax_token_id: u32,
+    candidate_argmax_token_id: u32,
+    source_chosen_token_absolute_logprob_error_nats: f64,
+    source_top20_candidate_overlap: usize,
+    top20_token_identity: bool,
+    projected_top20_jsd_nats: f64,
+}
+
+fn log_probability(logits: &[f32], token: usize) -> Result<f64, String> {
+    if token >= logits.len() || logits.is_empty() || logits.iter().any(|value| !value.is_finite()) {
+        return Err("distribution probe logits are invalid".to_owned());
+    }
+    let maximum = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let normalizer = logits
+        .iter()
+        .map(|value| f64::from(*value - maximum).exp())
+        .sum::<f64>();
+    if !normalizer.is_finite() || normalizer <= 0.0 {
+        return Err("distribution probe normalization is invalid".to_owned());
+    }
+    Ok(f64::from(logits[token] - maximum) - normalizer.ln())
+}
+
+fn distribution_probe_metrics(
+    reference: &[f32],
+    candidate: &[f32],
+) -> Result<DistributionProbeMetrics, String> {
+    let reference_top = top_logits(reference, 20)?;
+    let candidate_top = top_logits(candidate, 20)?;
+    let source_argmax_token_id = reference_top[0].0;
+    let candidate_argmax_token_id = candidate_top[0].0;
+    let source_chosen_token_absolute_logprob_error_nats =
+        (log_probability(reference, source_argmax_token_id as usize)?
+            - log_probability(candidate, source_argmax_token_id as usize)?)
+        .abs();
+    let candidate_tokens = candidate_top
+        .iter()
+        .map(|(token, _)| *token)
+        .collect::<BTreeSet<_>>();
+    let source_top20_candidate_overlap = reference_top
+        .iter()
+        .filter(|(token, _)| candidate_tokens.contains(token))
+        .count();
+    let (top20_token_identity, projected_top20_jsd_nats) =
+        projected_top20_jsd(reference, candidate)?;
+    Ok(DistributionProbeMetrics {
+        source_argmax_token_id,
+        candidate_argmax_token_id,
+        source_chosen_token_absolute_logprob_error_nats,
+        source_top20_candidate_overlap,
+        top20_token_identity,
+        projected_top20_jsd_nats,
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MetalIncrementalMode {
+    Endpoint,
+    Tomography,
+    DistributionControl,
+    DistributionCandidate,
+}
+
+impl MetalIncrementalMode {
+    fn tomography_enabled(self) -> bool {
+        self == Self::Tomography
+    }
+
+    fn diagnostic_only(self) -> bool {
+        matches!(
+            self,
+            Self::DistributionControl | Self::DistributionCandidate
+        )
+    }
+
+    fn sparse_repair_enabled(self) -> bool {
+        self != Self::DistributionCandidate
+    }
+}
+
+fn validate_distribution_probe_repair_accounting(
+    mode: MetalIncrementalMode,
+    repair_counts: [u64; 3],
+    sparse_decoded_weight_bytes: u64,
+) -> Result<(), String> {
+    if mode == MetalIncrementalMode::DistributionCandidate
+        && (repair_counts != [0, 0, 0] || sparse_decoded_weight_bytes != 0)
+    {
+        return Err("repair-free distribution candidate performed sparse repair".to_owned());
+    }
+    if mode == MetalIncrementalMode::DistributionControl && repair_counts == [0, 0, 0] {
+        return Err("distribution control performed no sparse repairs".to_owned());
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_metal_incremental_text_endpoint(
     checkpoint_root: &Path,
@@ -3495,7 +3607,7 @@ pub fn run_metal_incremental_text_endpoint(
         kernel_path,
         output_path,
         commit,
-        false,
+        MetalIncrementalMode::Endpoint,
     )
 }
 
@@ -3519,7 +3631,37 @@ pub fn run_weight_install_tomography(
         kernel_path,
         output_path,
         commit,
-        true,
+        MetalIncrementalMode::Tomography,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_metal_native_distribution_probe(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    oracle_manifest_path: &Path,
+    kernel_path: &Path,
+    repair_mode: &str,
+    output_path: &Path,
+    commit: &str,
+) -> Result<MetalIncrementalTextReport, String> {
+    let mode = match repair_mode {
+        "control" => MetalIncrementalMode::DistributionControl,
+        "candidate" => MetalIncrementalMode::DistributionCandidate,
+        _ => return Err("distribution probe repair mode must be control or candidate".to_owned()),
+    };
+    run_metal_incremental(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+        oracle_manifest_path,
+        kernel_path,
+        output_path,
+        commit,
+        mode,
     )
 }
 
@@ -3533,7 +3675,7 @@ fn run_metal_incremental(
     kernel_path: &Path,
     output_path: &Path,
     commit: &str,
-    tomography_enabled: bool,
+    mode: MetalIncrementalMode,
 ) -> Result<MetalIncrementalTextReport, String> {
     const ORACLE_SHA256: &str = "75b4a5799bcc7dc898643c266d42a00b52c75be0f1fe1682ef253ce8fe4287a8";
     const PREFILL_LOGITS_SHA256: &str =
@@ -3617,7 +3759,7 @@ fn run_metal_incremental(
     safety.checkpoint("token_1_accepted", true)?;
     let mut captures = FullPrefixCaptures::default();
     let mut metal_ledger = MetalExpertLedger {
-        tomography_enabled,
+        tomography_enabled: mode.tomography_enabled(),
         ..MetalExpertLedger::default()
     };
     let incremental = decode_step(
@@ -3628,7 +3770,7 @@ fn run_metal_incremental(
         &mut ledger,
         &mut safety,
         Some(&mut captures),
-        Some((&runtime, &mut metal_ledger)),
+        Some((&runtime, &mut metal_ledger, mode.sparse_repair_enabled())),
         DecodeOutput::Logits,
     )?;
     if caches
@@ -3697,8 +3839,17 @@ fn run_metal_incremental(
         config.vocab_size,
     )?;
     let logits_parity = numerical_parity(&incremental.full_logits, &expected_logits)?;
-    let (top20_token_identity, projected_top20_jsd_nats) =
-        projected_top20_jsd(&expected_logits, &incremental.full_logits)?;
+    let distribution = distribution_probe_metrics(&expected_logits, &incremental.full_logits)?;
+    let distribution_probe_passed = distribution.source_argmax_token_id
+        == distribution.candidate_argmax_token_id
+        && distribution.source_chosen_token_absolute_logprob_error_nats <= 0.08
+        && distribution.projected_top20_jsd_nats <= 0.01
+        && distribution.source_top20_candidate_overlap >= 18;
+    validate_distribution_probe_repair_accounting(
+        mode,
+        metal_ledger.sparse_repair_counts,
+        metal_ledger.sparse_decoded_weight_bytes,
+    )?;
     let speedup_vs_pw0092_repeats = [
         158_521.015 / incremental.wall_ms,
         158_614.709 / incremental.wall_ms,
@@ -3709,12 +3860,13 @@ fn run_metal_incremental(
             .all(|speedup| *speedup >= 5.0);
     checkpoint.release_file_pages()?;
     safety.checkpoint("candidate_buffers_released", true)?;
-    let promotion_gates_passed = incremental.output_token == 13
+    let endpoint_gates_passed = incremental.output_token == 13
         && all_layer_parity_passed
         && final_norm_parity.passed
         && logits_parity.passed
         && timing_gate_passed;
-    if !promotion_gates_passed && !tomography_enabled {
+    let promotion_gates_passed = mode == MetalIncrementalMode::Endpoint && endpoint_gates_passed;
+    if !promotion_gates_passed && mode == MetalIncrementalMode::Endpoint {
         let minimum_free = safety
             .snapshots
             .iter()
@@ -3772,12 +3924,9 @@ fn run_metal_incremental(
             maximum_new_throttled,
         ));
     }
-    if incremental.output_token != 13
-        || !all_layer_parity_passed
-        || !final_norm_parity.passed
-        || !logits_parity.passed
-        || !timing_gate_passed
-    {
+    if mode.diagnostic_only() {
+        safety.checkpoint("distribution_probe_not_accepted", true)?;
+    } else if !endpoint_gates_passed {
         safety.checkpoint("tomography_candidate_rejected", true)?;
     } else {
         safety.checkpoint("token_2_accepted", true)?;
@@ -3823,10 +3972,19 @@ fn run_metal_incremental(
     ];
     let report = MetalIncrementalTextReport {
         schema_version: 1,
-        semantic: if tomography_enabled {
-            "mimo_v2_5_bounded_metal_incremental_weight_install_tomography"
-        } else {
-            "mimo_v2_5_target_faithful_bounded_metal_incremental_text_endpoint"
+        semantic: match mode {
+            MetalIncrementalMode::Endpoint => {
+                "mimo_v2_5_target_faithful_bounded_metal_incremental_text_endpoint"
+            }
+            MetalIncrementalMode::Tomography => {
+                "mimo_v2_5_bounded_metal_incremental_weight_install_tomography"
+            }
+            MetalIncrementalMode::DistributionControl => {
+                "mimo_v2_5_pw0114_sparse_repaired_distribution_control"
+            }
+            MetalIncrementalMode::DistributionCandidate => {
+                "mimo_v2_5_pw0114_repair_free_metal_native_l3_distribution_probe"
+            }
         },
         revision: REVISION,
         commit: commit.to_owned(),
@@ -3843,8 +4001,14 @@ fn run_metal_incremental(
         layer_parity,
         final_norm_parity,
         logits_parity,
-        top20_token_identity,
-        projected_top20_jsd_nats,
+        top20_token_identity: distribution.top20_token_identity,
+        source_argmax_token_id: distribution.source_argmax_token_id,
+        candidate_argmax_token_id: distribution.candidate_argmax_token_id,
+        source_chosen_token_absolute_logprob_error_nats: distribution
+            .source_chosen_token_absolute_logprob_error_nats,
+        source_top20_candidate_overlap: distribution.source_top20_candidate_overlap,
+        projected_top20_jsd_nats: distribution.projected_top20_jsd_nats,
+        distribution_probe_passed,
         ledger,
         metal_ledger,
         safety_snapshots: safety.snapshots,
@@ -3856,13 +4020,30 @@ fn run_metal_incremental(
         batch_size: 1,
         concurrency: 1,
         accepted_tokens_in_timed_interval: usize::from(promotion_gates_passed),
-        accepted_per_verification: 1,
+        accepted_per_verification: usize::from(promotion_gates_passed),
         cache_state: "cold process and verified SSD mmap; CPU prefill; retained K/V; warm process-local Metal pipeline; bounded copied expert tensors released per projection",
-        exactness: "L3 bounded arithmetic approximation: source weights/routes and value-derived sparse BF16 midpoint repair",
+        exactness: if mode == MetalIncrementalMode::DistributionCandidate {
+            "L3 bounded arithmetic approximation: source weights/routes and repair-free Metal projection reduction"
+        } else {
+            "L3 bounded arithmetic approximation: source weights/routes and value-derived sparse BF16 midpoint repair"
+        },
+        repair_mode: if mode.sparse_repair_enabled() {
+            "value_derived_sparse_repair"
+        } else {
+            "disabled"
+        },
+        diagnostic_only: mode.diagnostic_only(),
+        output_committed: promotion_gates_passed,
         performance_claim: None,
-        implementation: "single_rust_authority_retained_kv_cpu_attention_bounded_source_fp8_metal_experts_sparse_bf16_repair",
+        implementation: if mode == MetalIncrementalMode::DistributionCandidate {
+            "single_rust_authority_retained_kv_cpu_attention_bounded_source_fp8_metal_experts_without_sparse_repair"
+        } else {
+            "single_rust_authority_retained_kv_cpu_attention_bounded_source_fp8_metal_experts_sparse_bf16_repair"
+        },
         promotion_gates_passed,
-        status: if promotion_gates_passed {
+        status: if mode.diagnostic_only() {
+            "diagnostic_complete_not_accepted"
+        } else if promotion_gates_passed {
             "promotion_gates_passed"
         } else {
             "diagnostic_complete_candidate_gates_failed"
@@ -7996,6 +8177,66 @@ mod tests {
         let (identity, jsd) = projected_top20_jsd(&logits, &logits).expect("projected JSD");
         assert!(identity);
         assert_eq!(jsd, 0.0);
+    }
+
+    #[test]
+    fn distribution_probe_reports_logprob_and_top20_overlap() {
+        let mut reference = vec![-20.0_f32; 152_576];
+        for (index, value) in reference.iter_mut().take(20).enumerate() {
+            *value = 20.0 - index as f32;
+        }
+        let mut candidate = reference.clone();
+        candidate[19] = -20.0;
+        candidate[20] = 1.5;
+        let metrics = distribution_probe_metrics(&reference, &candidate).expect("probe metrics");
+        assert_eq!(metrics.source_argmax_token_id, 0);
+        assert_eq!(metrics.candidate_argmax_token_id, 0);
+        assert_eq!(metrics.source_top20_candidate_overlap, 19);
+        assert!(!metrics.top20_token_identity);
+        assert!(metrics.source_chosen_token_absolute_logprob_error_nats > 0.0);
+        assert!(metrics.projected_top20_jsd_nats > 0.0);
+    }
+
+    #[test]
+    fn distribution_probe_modes_are_diagnostic_and_repair_accounting_is_fail_closed() {
+        assert!(!MetalIncrementalMode::Endpoint.diagnostic_only());
+        assert!(!MetalIncrementalMode::Tomography.diagnostic_only());
+        assert!(MetalIncrementalMode::DistributionControl.diagnostic_only());
+        assert!(MetalIncrementalMode::DistributionCandidate.diagnostic_only());
+        assert!(MetalIncrementalMode::DistributionControl.sparse_repair_enabled());
+        assert!(!MetalIncrementalMode::DistributionCandidate.sparse_repair_enabled());
+        assert!(
+            validate_distribution_probe_repair_accounting(
+                MetalIncrementalMode::DistributionControl,
+                [1, 0, 0],
+                4096,
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_distribution_probe_repair_accounting(
+                MetalIncrementalMode::DistributionControl,
+                [0, 0, 0],
+                0,
+            )
+            .is_err()
+        );
+        assert!(
+            validate_distribution_probe_repair_accounting(
+                MetalIncrementalMode::DistributionCandidate,
+                [0, 0, 0],
+                0,
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_distribution_probe_repair_accounting(
+                MetalIncrementalMode::DistributionCandidate,
+                [0, 1, 0],
+                4096,
+            )
+            .is_err()
+        );
     }
 
     #[test]

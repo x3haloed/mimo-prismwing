@@ -7,10 +7,10 @@ use prismwing::{
     run_metal_dynamic_fp8_moe_block, run_metal_dynamic_real_attention_fp8_moe_block,
     run_metal_fp8_expert, run_metal_fp8_expert_batch8, run_metal_fp8_expert_batch8_shared_weight,
     run_metal_fp8_moe_block, run_metal_fused_gate_up_fp8_moe_block,
-    run_metal_incremental_text_endpoint, run_metal_mapped_fp8_gemv, run_metal_noaux_tc_router,
-    run_metal_real_base_layer, run_metal_simdgroup_matrix_fp8_moe_block,
-    run_metal_union_parallel_fp8_moe_block, run_staged_metal_fp8_expert,
-    run_weight_install_tomography,
+    run_metal_incremental_text_endpoint, run_metal_mapped_fp8_gemv,
+    run_metal_native_distribution_probe, run_metal_noaux_tc_router, run_metal_real_base_layer,
+    run_metal_simdgroup_matrix_fp8_moe_block, run_metal_union_parallel_fp8_moe_block,
+    run_staged_metal_fp8_expert, run_weight_install_tomography,
 };
 use prismwing::{
     build_census, inspect_mapped_tensor, repack_expert_container, run_mapped_fp8_gemv,
@@ -111,6 +111,10 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing weight-install-tomography <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <oracle-manifest.json> <kernel.metal> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing metal-native-distribution-probe <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <oracle-manifest.json> <kernel.metal> <control|candidate> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -228,6 +232,34 @@ fn main() {
                     &kernel,
                     &output,
                     &arguments[9],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output))
+                })
+            }
+            #[cfg(target_os = "macos")]
+            Some("metal-native-distribution-probe") if arguments.len() == 11 => {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let fixture = PathBuf::from(&arguments[5]);
+                let oracle = PathBuf::from(&arguments[6]);
+                let kernel = PathBuf::from(&arguments[7]);
+                let repair_mode = &arguments[8];
+                let output = PathBuf::from(&arguments[9]);
+                run_metal_native_distribution_probe(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &fixture,
+                    &oracle,
+                    &kernel,
+                    repair_mode,
+                    &output,
+                    &arguments[10],
                 )
                 .and_then(|report| {
                     serde_json::to_writer(std::io::stdout(), &report)
