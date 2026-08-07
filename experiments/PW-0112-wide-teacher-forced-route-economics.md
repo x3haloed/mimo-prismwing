@@ -118,3 +118,29 @@ repair only the measurement path before interpreting route economics. If both
 mechanisms fail their optimistic gates, return to executable-byte reduction
 and the layer-transaction storage boundary rather than training a proposer or
 building a cache runtime.
+
+## Pre-result amendment after the first safe stop
+
+The first execution at runtime commit
+`64be9a2db15b2cd2479cf146a44050bcff98f959` stopped without emitting a
+manifest after approximately 20 minutes because the source-directed router observed an
+exact top-k boundary tie at global causal position 268. PyTorch documents that
+indices of tied top-k elements are not stable across implementations/backends;
+choosing the local C++ `nth_element` result would therefore weaken this
+experiment's route authority.
+
+No declared decision requires that ambiguous tail. Amend the executed prefix
+to the first 137 of the 192 authenticated continuation tokens: 224 total
+positions. This is the exact minimum width required by PW-0110's formal
+50-TPS bound and contains complete windows at `q=94`, `q=128`, and `q=137`.
+Measure the cache on the first 128 continuation positions, with the first 32 as
+calibration and the following 96 as held-out text. The full 192-token hosted
+capture, byte sequence, token IDs, and hashes remain the fixture authority;
+the runner records both the full hosted suffix identity and the exact traced
+prefix.
+
+This is a scope reduction before any route-economics result exists, not an
+acceptance-threshold change. The amended run must still fail closed on any tie
+within the 137-token suffix, and the failed first attempt remains part of the
+experiment record. The 4-GiB Belady kill threshold remains 30%, and the
+`q=94`/`q=137` `A/U` thresholds remain 93.556/136.380.
