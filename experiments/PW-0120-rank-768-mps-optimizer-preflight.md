@@ -53,6 +53,12 @@ bytes, protected-service PIDs, phase wall time, and every released resource.
 Write only a small external JSON report; never save parameters, gradients,
 optimizer state, source weights, or reconstructed tiles.
 
+Set PyTorch's per-process MPS memory fraction to `0.60` before allocation and
+record the resulting recommended maximum. On this host that creates a hard
+allocator stop near 7.63 GB, below Gate 8's 8 GiB process ceiling; an allocator
+failure is a valid rejected result and must still trigger cleanup and a failed
+evidence report.
+
 Before the real process, add a small CPU fixture covering the rank-768/four-
 basis equation and proving that the optimizer changes the loss. Authenticate
 the checkpoint manifest and exact source tensor name, shape, dtype, scale
