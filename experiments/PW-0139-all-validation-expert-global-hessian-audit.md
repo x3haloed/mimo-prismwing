@@ -1,7 +1,7 @@
 # PW-0139 — All-validation-expert global-Hessian audit
 
-- Status: planned
-- Disposition: pending
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-07
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -73,3 +73,41 @@ Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 Apply normative Gate 8 before and after every projection and expert release.
 Stop on projected-headroom, memory-pressure, swap, throttling, protected-
 service-health, or release-boundary failure.
+
+## Result
+
+The full-validation gate fails despite exact authority, coverage, physical, and
+calibration checks. Aggregate routed-output relative L2 is `0.035040` versus
+the `0.010000` ceiling. Layer errors are `0.010130`, `0.040686`, and
+`0.057541` at layers 4/24/46; the maximum row is `0.082790` versus `0.050000`.
+Only layer 4 clears the per-layer and row gates.
+
+All 41 experts, 1,344 routed placements, and three source replays are
+accounted. Every projection improves its calibration control, both declared
+train-absent fallbacks execute, and all three PW-0138 controls reproduce
+exactly. This therefore rejects the frozen expert-specific/global-Hessian
+fixed-grid form on broad validation rather than exposing an authority or
+implementation failure. Holdout remains sealed.
+
+The deeper layers show a calibration-coverage problem but not an exclusively
+low-count failure. Layer 24 experts 39 and 128 have only 6 and 19 routed train
+placements and reach `0.124820` and `0.108000` validation error; layer 46
+expert 140 has 10 and reaches `0.100973`. However, several better-covered
+experts remain near 6--7%, so pooled-Hessian shrinkage is only a bounded next
+falsification, not a presumed rescue.
+
+The physical ledger remains 13,369,344 bytes per expert (`0.531120` of source)
+with no additional runtime MACs. Gate 8 passes across 296 snapshots: minimum
+system memory free is 78%, maximum peak RSS is 1,765,031,936 bytes, maximum
+physical footprint is 394,153,664 bytes, maximum release-boundary footprint is
+348,393,152 bytes, swap growth and new throttled pages are zero, and protected
+services remain resident.
+
+Raw evidence:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0139/run-001.json`, SHA-256
+`83bd204c9d5c35a684cab15a4ddacf48cf9b661563fb26223eb3655d0ef4a7b5`.
+Validated analysis:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0139/analysis-001/manifest.json`,
+SHA-256
+`9aecfdcd32e535b4b9d27fcac075dfd1c9014080d624aa3f4af2c678be3f3b6c`.
+No endpoint TPS or measured throughput-model constant changes.

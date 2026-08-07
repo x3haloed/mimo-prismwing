@@ -442,6 +442,15 @@ reproduction, improved calibration outputs, complete route accounting, and the
 unchanged physical ledger. Keep holdout sealed; a pass authorizes only a new
 holdout audit.
 
+The all-expert audit rejects the frozen candidate. Aggregate routed validation
+error is 3.504%; layers 4/24/46 reach 1.013%/4.069%/5.754%, and the worst row
+is 8.279%. Coverage, source reconstruction, projection calibration improvement,
+PW-0138 reproduction, and physical checks all pass, so the three-expert result
+does not generalize to the routed layer population. Keep holdout sealed and do
+not build the bank or runtime. A cheap successor may test pooled-Hessian
+shrinkage on the deeper low-calibration-count failures before moving to
+rotation or recovery training.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

@@ -2475,3 +2475,37 @@ hashes to
 analysis hashes to
 `7ed32546bfb042d5b863c23d812eeada89cafb7d65b9c1d86c30c7483022e14b`.
 No endpoint TPS or measured throughput-model constant changes in PW-0138.
+
+PW-0139 reverses the provisional bank direction from PW-0138. Across every
+expert selected by validation at layers 4/24/46, the frozen global-Hessian
+assignment reaches aggregate routed-output relative L2 of `0.035040`, not the
+required `0.010000`. Layer errors are `0.010130`, `0.040686`, and `0.057541`;
+the worst row is `0.082790`. Only the early layer clears the original 2% layer
+and 5% row gates.
+
+This is a generalization failure, not an authority or execution ambiguity. All
+41 experts and 1,344 placements are accounted, source prefix reconstruction
+and replays pass, every projection improves on its calibration input, the two
+declared layer-24 fallbacks execute, and the three PW-0138 controls reproduce
+exactly. The old inference that three high-coverage experts qualified this
+representation as a bank candidate is superseded. Do not read holdout, build
+the bank, or implement the packed/streaming runtime yet.
+
+Sparse routed calibration is one causal lead: at layer 24, experts with 6 and
+19 routed train placements reach `0.124820` and `0.108000` validation error;
+at layer 46, a 10-placement expert reaches `0.100973`. The train-absent pooled
+fallback experts reach `0.053410` and `0.071468`, suggesting pooled-Hessian
+shrinkage deserves a cheap falsification. It is not sufficient evidence for a
+rescue: several better-covered deep experts remain near 6--7%, and the routed
+layer misses by multiples rather than a narrow margin.
+
+The physical ledger remains 13,369,344 bytes per expert (`0.531120` of source)
+with zero extra runtime MACs. Gate 8 passes across 296 snapshots at 78% minimum
+free memory, 1,765,031,936-byte maximum peak RSS, 394,153,664-byte maximum
+physical footprint, 348,393,152-byte maximum release-boundary footprint, zero
+swap growth or new throttled pages, and resident protected services. Raw
+evidence hashes to
+`83bd204c9d5c35a684cab15a4ddacf48cf9b661563fb26223eb3655d0ef4a7b5`;
+analysis hashes to
+`9aecfdcd32e535b4b9d27fcac075dfd1c9014080d624aa3f4af2c678be3f3b6c`.
+No endpoint TPS or measured throughput-model constant changes in PW-0139.
