@@ -1777,3 +1777,28 @@ hashes to
 `47f764370172dff489629bb171d9dad7345f39e37f21622244a63b6f4edfcb14`;
 clean analysis hashes to
 `1940aa4554eedc586ff567c041f62f91d757d5afc88244ef895e71ca22488fc0`.
+
+PW-0112 supersedes the remaining premise that a sufficiently wide,
+base-aligned proposer could amortize unchanged source-FP8 expert acquisition
+on realistic target routes. A frozen 137-token hosted suffix prefix produces
+`U=2.401596` at `q=137`, so even perfect acceptance gives `A/U=57.0454` and an
+otherwise-free 20.914 accepted-TPS ceiling on PW-0110's cold floor. At `q=94`,
+the best of 44 sliding windows reaches only `A/U=46.5665` and 17.072 TPS. Both
+are below even the separately valuable 34.3-TPS horizon. Reject proposer
+training and a wide verifier until executable-byte reduction or a different
+physical store changes this premise; route-coherent candidate selection cannot
+change the routes of tokens that are actually accepted.
+
+The same trace refines rather than reverses PW-0104's cache result. Four GiB
+(170 equal-size layer-experts) reaches 44.7162% under offline Belady across 128
+continuation positions, while global LRU remains at zero and a static cache
+trained on 32 positions reaches 29.9507% on the following 96. Adjacent route
+sets are identical 57.8379% of the time, but the trace still touches 895
+distinct layer-experts and the Belady oracle leaves 5.232 GB of logical misses
+per token. Retain route/frequency residency only as a secondary conditional
+mechanism requiring a cold physical wall gain; it remains far below the 93%
+primary-mechanism hit requirement and is not a Prismwing 34.3/50 path by
+itself. The raw route manifest hashes to
+`584d3a8b1b09b12d4f83908be1fa5471b9fd66373500cc56332213928cd0bc3e`;
+analysis hashes to
+`e93d930549ee9fe761d7fc98bf59642088b3eb9f41c712968f8df26d5b2c8b98`.

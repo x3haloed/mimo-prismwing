@@ -1,7 +1,8 @@
 # PW-0112 — Wide teacher-forced route economics
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: scope-decision; wide source-FP8 speculation rejected on trace,
+  bounded cache retained only as an unpromoted secondary experiment
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Contract commit: `ffff868640457e6c927e39775c59911e796a9b41`
@@ -144,3 +145,82 @@ acceptance-threshold change. The amended run must still fail closed on any tie
 within the 137-token suffix, and the failed first attempt remains part of the
 experiment record. The 4-GiB Belady kill threshold remains 30%, and the
 `q=94`/`q=137` `A/U` thresholds remain 93.556/136.380.
+
+## Result
+
+The amended clean runtime at
+`9647b740f8f19c075ec752ed044795fa20c1102a` completed the 224-position
+causal walk in 1,312,791.400 ms. It authenticated the complete 192-token hosted
+suffix, teacher-forced its first 137 tokens after the 87-token prompt, and
+emitted every top-8 route and weight for all 47 routed layers. The process
+expanded 3,173 distinct layer-local expert executions, accounted for
+86,365,815,680 logical source bytes and 87,823,466,496 process-read bytes, and
+made no endpoint-throughput claim.
+
+The raw manifest at
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0112/route-002/manifest.json`
+hashes to
+`584d3a8b1b09b12d4f83908be1fa5471b9fd66373500cc56332213928cd0bc3e`.
+Its route payload hashes independently to
+`d6024840a97fd180aad17c39fef944da9a28db56bdc4de3301962b36c81923eb`.
+The clean hash-pinned analyzer at
+`35690c265c4cdd93979657b26a24e6f02dd38013` emitted
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0112/analysis-001/manifest.json`,
+which hashes to
+`e93d930549ee9fe761d7fc98bf59642088b3eb9f41c712968f8df26d5b2c8b98`.
+The updated throughput model hashes to
+`82005921bf0be529c093b4af055dca4991147d7e6b90e65c0f24de8e4aaa4e23`.
+
+Wide source-FP8 verification misses both frozen physical bounds before any
+draft rejection or omitted cost:
+
+| Width | Observed mean `U` | Best impossible-perfect `A/U` | Optimistic TPS ceiling | Required `A/U` |
+| ---: | ---: | ---: | ---: | ---: |
+| `q=94` | median 2.125; range 2.019--2.301 | 46.567 | 17.072 | 93.556 for 34.3 TPS |
+| `q=137` | 2.402 | 57.045 | 20.914 | 136.380 for 50 TPS |
+
+At `q=137`, target routes touch 903 unique layer-expert records rather than
+the impossible minimum 376. Even accepting every token with zero-cost draft,
+attention, dense work, correction, and arithmetic cannot reach the separately
+valuable 34.3-TPS horizon, much less 50 TPS, on PW-0110's unchanged cold
+source-FP8 acquisition floor.
+
+The cache result is more nuanced. Across the first 128 continuation positions,
+there are 48,128 accesses to 895 distinct layer-experts. A 4-GiB/170-expert
+offline Belady oracle reaches 44.716% hits and therefore clears this record's
+deliberately low 30% continuation gate. Two and three GiB reach 22.286% and
+33.369%. Causal global LRU reaches zero at every capacity because 170 slots
+cannot span the 376 layer-expert accesses between adjacent tokens. A static
+4-GiB frequency cache selected on the first 32 positions reaches 29.951% on
+the following 96 held-out positions—promising as a secondary reduction, but
+not promoted and nowhere near PW-0104's 93% primary-mechanism requirement.
+
+Route sets are exactly identical across 57.838% of adjacent layer-position
+pairs and have median intersection eight, explaining why an oracle/frequency
+policy finds value despite global LRU's zero hits. The 4-GiB Belady oracle
+still leaves 5.232 GB of logical source expert misses per token. Logical hits
+do not establish physical page residency, cold wall reduction, or accepted
+TPS.
+
+Gate 8 passes all 53 boundaries: 78% minimum free memory, 805,994,496-byte
+peak RSS, 712,235,008-byte maximum physical footprint, 49,645,504-byte final
+footprint, zero swap growth, zero new throttled pages, and stable protected
+services.
+
+## Decision
+
+Reject base-aligned proposer training and a wide verifier on the unchanged
+source-FP8/internal-SSD representation for this held-out trace. PW-0044's
+route-coherent selection premise cannot repair target-route union: the exact
+greedy suffix itself supplies less than half the `A/U` needed for 34.3 TPS and
+about 42% of that needed for 50 TPS under impossible-perfect acceptance.
+Executable-byte reduction or a different physical store must change the
+premise before reopening it.
+
+Do not reverse PW-0104 or promote a cache runtime. Retain a 4-GiB
+frequency/route-aware exact cache only as a secondary conditional experiment:
+its oracle clears the 30% diagnostic gate and its held-out causal static policy
+nearly matches it, but even the oracle leaves orders of magnitude too much
+traffic for Prismwing 34.3/50 by itself. A later combined branch may build the
+bounded artifact only if it freezes a physical cold end-to-end gain gate and
+shows why the remaining bytes fit that branch's throughput budget.

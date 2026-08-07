@@ -156,6 +156,21 @@ support at least `q=137` for the formal 50-TPS branch or `q=94` for the
 separately valuable 34.3-TPS horizon, and real `A/U` must meet 136.380 or
 93.556 respectively. Do not begin proposer training below that physical bar.
 
+PW-0112 supplies the real wide-route answer: on a frozen base teacher-forced
+text suffix, the best `q=94` window reaches only `A/U=46.567`, and `q=137`
+reaches `A/U=57.045`. Their otherwise-free ceilings are 17.072 and 20.914 TPS.
+Reject proposer training and wide source-FP8 verification on this storage
+premise even if the proposer is base-aligned and perfectly accepting. Reopen
+only after executable-byte reduction or a different named physical store
+changes PW-0110's acquisition floor.
+
+The same trace retains—but does not promote—a bounded exact cache as a
+secondary experiment. Four-GiB offline Belady reaches 44.716% hits and a
+first-32-trained static frequency cache reaches 29.951% on the following 96
+positions, while global LRU remains zero. Any physical follow-up must freeze a
+cold end-to-end gain and explain why the remaining 5.232 GB/token of oracle
+misses fits the combined branch; it is not a standalone 34.3/50 mechanism.
+
 **Go:** use speculation as expert-byte leverage only when `A/U > 1`; otherwise
 retain it for dense-weight reuse or discard it if total wall time loses.
 

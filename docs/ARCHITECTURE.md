@@ -126,6 +126,15 @@ The construction order follows the least-proven boundaries:
   gain fails the frozen continuation gate because page acquisition still owns
   roughly 92 ms beyond GPU-active time. Do not expand the 303 GB bank under the
   unchanged storage premise.
+- PW-0112 closes the unchanged-source-FP8 wide-speculation branch on a real
+  137-token target suffix: target-route union limits impossible-perfect
+  `A/U` to 57.045 and the optimistic ceiling to 20.914 TPS. Base alignment and
+  route-aware proposal ranking cannot repair the union of tokens that are
+  actually accepted. Four-GiB offline Belady retains 44.716% cache value as a
+  secondary conditional mechanism, but global LRU is zero, a held-out static
+  policy reaches 29.951%, and even the oracle leaves 5.232 GB/token. No cache
+  or proposer is an active endpoint authority under the unchanged storage
+  premise.
 - The PW-0049 correctness baseline owns one complete real base layer from
   source-FP8 QKV through SWA, residual/norm, dynamic routing, 56 selected
   experts, weighted scatter, and the final residual. Rust uses Accelerate
