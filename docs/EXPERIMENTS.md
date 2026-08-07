@@ -400,6 +400,16 @@ Warm eight-worker `pread` reaches 13.632 ms, but warm pages are not the target
 state. Do not build a source-FP8 slot scheduler. Reuse this exact control only
 after a numerically qualified representation materially reduces bytes.
 
+PW-0137 changes the one causal feature PW-0135 left untested: retain one full
+input-channel Hessian and carry each 128-column block's quantization error into
+all later columns. Reuse the original MLX affine-INT4 grids, PW-0135's selected
+0.1% damping and activation order, and test only the narrowly failing layer
+46/expert 28 on the same sealed train/validation split. Continue only if it
+clears the unchanged 8%/12% complete-expert gates, halves validation error,
+improves train, and preserves the exact 13,369,344-byte/no-extra-MAC ledger.
+A pass authorizes a separately frozen three-expert confirmation; a failure
+moves to a genuinely different geometry or recovery mechanism.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

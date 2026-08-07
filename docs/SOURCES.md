@@ -275,6 +275,9 @@ pinned to CUDA 12.x or earlier.
 - Frantar et al., *GPTQ: Accurate Post-Training Quantization for Generative
   Pre-trained Transformers*, arXiv `2210.17323`, accessed 2026-08-06:
   <https://arxiv.org/abs/2210.17323>.
+- Official GPTQ implementation, `IST-DASLab/gptq`, commit
+  `2d65066eeb06a5c9ff5184d8cebdf33662c67faf`, `gptq.py`, accessed 2026-08-07:
+  <https://github.com/IST-DASLab/gptq/blob/2d65066eeb06a5c9ff5184d8cebdf33662c67faf/gptq.py>.
 - Ashkboos et al., *QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs*,
   arXiv `2404.00456`, accessed 2026-08-06:
   <https://arxiv.org/abs/2404.00456>.
@@ -292,6 +295,14 @@ source-FP8 exceptions selected by a train-only diagonal activation-weighted
 error proxy. None of the published quality or speed results transfer to MiMo's
 dynamic source-FP8 MoE without the repository's routed-activation and endpoint
 gates.
+
+The official implementation is the mechanism authority for PW-0137's
+cross-group distinction. It forms one Hessian across the full input dimension,
+uses an inverse-Cholesky factor, applies column updates inside a bounded block,
+and then multiplies the block's accumulated error into every remaining column.
+With activation order plus static quantization groups, it selects each grid by
+the column's original pre-permutation group. This is design authority only;
+PW-0137 must establish MiMo fidelity on the repository's routed activations.
 
 ## Explicit routed-expert I/O and slot-ownership authorities
 
