@@ -281,6 +281,10 @@ pinned to CUDA 12.x or earlier.
 - Ashkboos et al., *QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs*,
   arXiv `2404.00456`, accessed 2026-08-06:
   <https://arxiv.org/abs/2404.00456>.
+- Official QuaRot implementation, `spcl/QuaRot`, commit
+  `5008669b08c1f11f9b64d52d16fddd47ca754c5a`, rotation utilities and
+  randomized-Hadamard implementation, accessed 2026-08-07:
+  <https://github.com/spcl/QuaRot/tree/5008669b08c1f11f9b64d52d16fddd47ca754c5a>.
 
 Decision: design authorities for PW-0133 and successor weight-domain branches,
 not MiMo fidelity or performance evidence. SpQR establishes the causal value of
@@ -303,6 +307,13 @@ and then multiplies the block's accumulated error into every remaining column.
 With activation order plus static quantization groups, it selects each grid by
 the column's original pre-permutation group. This is design authority only;
 PW-0137 must establish MiMo fidelity on the repository's routed activations.
+
+The official QuaRot implementation is the mechanism authority for PW-0141's
+fixed residual-basis test. It constructs a randomized orthogonal Hadamard
+matrix, right-multiplies MLP gate/up weights, and left-multiplies the down
+projection so a globally rotated residual stream preserves the unquantized
+model. PW-0141 tests only that folded residual rotation; it does not transfer
+QuaRot's Llama quality results or claim a complete MiMo rotation.
 
 ## Explicit routed-expert I/O and slot-ownership authorities
 

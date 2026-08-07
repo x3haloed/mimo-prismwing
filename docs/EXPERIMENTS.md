@@ -467,6 +467,15 @@ sparse calibration contributes to PW-0139, yet pooled-only calibration does
 not qualify the fixed-grid bank and cannot address the better-covered deep
 failures. Keep holdout and runtime closed; move to rotation or recovery.
 
+PW-0141 leaves calibration topology and changes the weight geometry. Apply one
+fixed model-wide randomized-Hadamard residual rotation to an early control and
+well-covered layer-24/46 experts, prove the unquantized algebra exactly, create
+new affine-INT4 grids in the rotated basis, and run unchanged full-Hessian
+GPTQ. Continue only if both deep experts improve PW-0139 by 25%, reach 5% L2
+and 8% worst-row error, while the early control regresses by at most 10% and
+the physical ledger remains unchanged. This is a local capacity control, not a
+whole-model rotation or runtime authorization.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
