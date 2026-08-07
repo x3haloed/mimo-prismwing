@@ -223,6 +223,23 @@ all-projection transaction form instead of conflating their compute claims.
 - eBay listing `116590232547`, used Tesla P40 card-only, observed at `$249.99`
   with three available on 2026-08-06; accessories are excluded:
   <https://www.ebay.com/itm/116590232547>.
+- NVIDIA, Tesla M40 24-GB data sheet (accessed 2026-08-06):
+  <https://images.nvidia.com/content/tesla/pdf/78071_Tesla_M40_24GB_Print_Datasheet_LR.PDF>.
+- NVIDIA, legacy CUDA GPU compute capability table, identifying Tesla M40 as
+  compute capability 5.2 (accessed 2026-08-06):
+  <https://developer.nvidia.com/cuda/gpus/legacy>.
+- NVIDIA, CUDA toolkit/driver/architecture matrix, listing CUDA 12.x and R580
+  as the last toolkit and driver families for Maxwell (accessed 2026-08-06):
+  <https://docs.nvidia.com/datacenter/tesla/drivers/cuda-toolkit-driver-and-architecture-matrix.html>.
+- NVIDIA, CUDA 13.0 release notes, removal of Maxwell offline compilation and
+  library support (accessed 2026-08-06):
+  <https://docs.nvidia.com/cuda/archive/13.0.0/cuda-toolkit-release-notes/index.html>.
+- Dell, PowerEdge R720 GPU card installation guidelines (accessed 2026-08-06):
+  <https://www.dell.com/support/manuals/en-us/poweredge-r720/720720xdom-v3/gpu-card-installation-guidelines>.
+- GPUDojo, Tesla M40 24-GB market tracker, observed used-from price of `$150`
+  at 12:39 UTC on 2026-08-06. This affiliate market observation is not a
+  complete BOM or purchase authority:
+  <https://gpudojo.com/tesla-m40>.
 
 Decision: source authority for PW-0127's pre-purchase ceiling, not evidence of
 measured MiMo performance or a complete purchasable BOM. Intel specifies ten
@@ -234,3 +251,12 @@ stage gates. NVIDIA specifies 24 GB, 12 FP32 TFLOP/s, 47 INT8 TOPS, 346 GB/s,
 PCIe 3.0 x16, and 250 W for the P40. The representative server-plus-current-
 P40 prices already total `$553.74` before storage, adapters, or cooling, so
 that pair is not an eligible BOM.
+
+Decision: additional source authority for PW-0128's legacy-accelerator
+pre-purchase ceiling. NVIDIA specifies 24 GB, up to 7 FP32 TFLOP/s, 288 GB/s,
+PCIe 3.0 x16, passive cooling, and 250 W for the M40. Dell's supported R720 GPU
+configuration requires the GPU enablement kit, redundant 1100-W supplies, two
+CPUs at no more than 115 W each, and a 30 C maximum inlet; these requirements
+belong in the complete BOM and operational power/thermal checks. Maxwell is a
+legacy compute-capability-5.2 target whose supported build environment must be
+pinned to CUDA 12.x or earlier.

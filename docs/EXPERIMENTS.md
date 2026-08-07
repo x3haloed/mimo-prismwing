@@ -226,6 +226,16 @@ The 34.3 horizon remains measurement-only at 88.25% of impossible peak, far
 too tight for a purchase inference before omitted FP8, attention, KV, NUMA,
 and network work.
 
+PW-0128 tests the remaining conventional legacy-accelerator variant without
+confusing a favorable decode roofline with the full target. It binds PW-0112's
+exact wide route unions and PW-0127's authenticated matrix count to one or two
+M40 24-GB cards and one P40 24-GB card. The continuation gate is the 15-second
+8K text TTFT requirement: grant all CPUs and GPUs peak FP32 simultaneously and
+reject any named configuration whose mandatory matrices for only 8,000
+uncached positions already exceed it. Record PCIe and layer-arena decode
+ceilings independently; neither theoretical bandwidth nor a card-only market
+price is a performance or complete-BOM claim.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
