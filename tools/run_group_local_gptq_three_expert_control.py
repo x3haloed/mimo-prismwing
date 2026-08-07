@@ -63,7 +63,32 @@ def train_positions(positions: list[int]) -> list[int]:
     return [position for position in positions if position < 112]
 
 
-def affine_grid(weight: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def unpack_int4_codes(packed: np.ndarray, columns: int) -> np.ndarray:
+    if packed.ndim != 2 or packed.dtype != np.uint32 or packed.shape[1] * 8 != columns:
+        raise ValueError("PW-0135 packed INT4 layout is invalid")
+    codes = np.empty((packed.shape[0], columns), dtype=np.uint8)
+    for nibble in range(8):
+        codes[:, nibble::8] = ((packed >> (4 * nibble)) & 15).astype(np.uint8)
+    return codes
+
+
+def reconstruct_fixed_grid(
+    codes: np.ndarray,
+    scales: np.ndarray,
+    biases: np.ndarray,
+) -> np.ndarray:
+    if codes.ndim != 2 or codes.dtype != np.uint8 or np.any(codes > 15):
+        raise ValueError("PW-0135 fixed-grid codes are invalid")
+    rows, columns = codes.shape
+    if scales.shape != biases.shape or scales.shape[0] != rows or columns % scales.shape[1]:
+        raise ValueError("PW-0135 fixed-grid reconstruction shape mismatch")
+    group_size = columns // scales.shape[1]
+    expanded_scale = np.repeat(scales, group_size, axis=1)
+    expanded_bias = np.repeat(biases, group_size, axis=1)
+    return (codes.astype(np.float32) * expanded_scale + expanded_bias).astype(np.float16)
+
+
+def affine_grid(weight: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if weight.ndim != 2 or weight.shape[1] % GROUP_SIZE or not np.isfinite(weight).all():
         raise ValueError("PW-0135 affine-grid weight is invalid")
     arrays = mx.quantize(
@@ -76,12 +101,16 @@ def affine_grid(weight: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]
         *arrays, group_size=GROUP_SIZE, bits=4, mode="affine", dtype=mx.float16
     )
     mx.eval(*arrays, dequantized)
+    packed = np.asarray(arrays[0]).astype(np.uint32, copy=True)
     scales = np.asarray(arrays[1]).astype(np.float32, copy=True)
     biases = np.asarray(arrays[2]).astype(np.float32, copy=True)
     result = np.asarray(dequantized).astype(np.float16, copy=True)
+    codes = unpack_int4_codes(packed, weight.shape[1])
+    if not np.array_equal(reconstruct_fixed_grid(codes, scales, biases), result):
+        raise ValueError("PW-0135 decoded MLX INT4 control differs from MLX dequantization")
     del arrays, dequantized
     mx.clear_cache()
-    return scales, biases, result
+    return scales, biases, result, codes
 
 
 def quantize_fixed_grid(
@@ -102,7 +131,7 @@ def quantize_fixed_grid(
     safe_scale = np.where(zero_scale, 1.0, expanded_scale)
     codes = np.clip(np.rint((values.astype(np.float32) - expanded_bias) / safe_scale), 0, 15)
     codes = np.where(zero_scale, 0, codes).astype(np.uint8)
-    dequantized = (codes.astype(np.float32) * expanded_scale + expanded_bias).astype(np.float16)
+    dequantized = reconstruct_fixed_grid(codes, scales, biases)
     return codes, dequantized
 
 
@@ -114,10 +143,8 @@ def validate_grid_membership(
 ) -> None:
     if codes.dtype != np.uint8 or np.any(codes > 15):
         raise ValueError("PW-0135 codes leave four-bit domain")
-    _, reconstructed = quantize_fixed_grid(values.astype(np.float32), scales, biases)
-    # Re-quantizing a grid value must be idempotent and recover its code/value.
-    recodes, redequantized = quantize_fixed_grid(reconstructed.astype(np.float32), scales, biases)
-    if not np.array_equal(codes, recodes) or not np.array_equal(values, redequantized):
+    reconstructed = reconstruct_fixed_grid(codes, scales, biases)
+    if not np.array_equal(values, reconstructed):
         raise ValueError("PW-0135 grid membership failed")
 
 
@@ -236,10 +263,7 @@ def select_projection(
     safety: HostSafetyMonitor,
     phase_prefix: str,
 ) -> tuple[np.ndarray, dict]:
-    scales, biases, baseline = affine_grid(weight)
-    baseline_codes, manual_baseline = quantize_fixed_grid(weight, scales, biases)
-    if not np.array_equal(baseline, manual_baseline):
-        raise ValueError("PW-0135 manual affine control differs from MLX dequantization")
+    scales, biases, baseline, baseline_codes = affine_grid(weight)
     validate_grid_membership(baseline_codes, baseline, scales, biases)
     curve = []
     best = None

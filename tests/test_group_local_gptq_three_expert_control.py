@@ -6,7 +6,9 @@ from tools.run_group_local_gptq_three_expert_control import (
     gptq_fixed_grid,
     physical_ledger,
     quantize_fixed_grid,
+    reconstruct_fixed_grid,
     train_positions,
+    unpack_int4_codes,
     validate_grid_membership,
 )
 
@@ -19,6 +21,25 @@ class GroupLocalGptqTests(unittest.TestCase):
         codes, dequantized = quantize_fixed_grid(values, scales, biases)
         self.assertEqual(codes.tolist(), [[0, 3, 8, 15]])
         validate_grid_membership(codes, dequantized, scales, biases)
+
+    def test_unpack_uses_little_endian_nibbles(self):
+        packed = np.array([[0xFEDCBA98, 0x76543210]], dtype=np.uint32)
+        codes = unpack_int4_codes(packed, 16)
+        self.assertEqual(codes.tolist(), [[8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7]])
+        scales = np.array([[0.5]], dtype=np.float32)
+        biases = np.array([[-1.0]], dtype=np.float32)
+        values = reconstruct_fixed_grid(codes, scales, biases)
+        validate_grid_membership(codes, values, scales, biases)
+
+    def test_membership_uses_authoritative_code_not_requantization(self):
+        # MLX chooses codes with the pre-cast scale, then persists an FP16 scale.
+        # A value reconstructed from a persisted code can consequently sit across
+        # the stored grid's re-rounding boundary and must retain its packed code.
+        codes = np.array([[9]], dtype=np.uint8)
+        scales = np.array([[0.010643005]], dtype=np.float32)
+        biases = np.array([[-0.10644531]], dtype=np.float32)
+        values = reconstruct_fixed_grid(codes, scales, biases)
+        validate_grid_membership(codes, values, scales, biases)
 
     def test_error_propagation_stays_on_grid(self):
         weight = np.array([[0.3, 0.7, -0.4, 1.1]], dtype=np.float32)
