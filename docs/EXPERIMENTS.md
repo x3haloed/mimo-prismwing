@@ -129,6 +129,13 @@ only checkpoint size.
 **Kill:** rank 256 or higher for acceptable activation-weighted error makes the
 stock-M1 moonshot nonviable.
 
+PW-0115 adds the prerequisite physical envelope. A published-MoBE-shaped form
+that leaves MiMo down projections unchanged has a 33.333% bank floor and cannot
+meet PW-0045's 25% gate. A deeper all-three-projection family remains eligible
+in optimistic accounting; freeze `(r=768,m=4)`, `(512,8)`, and `(128,32)` for
+the activation-weighted audit. These are candidate shapes, not quality or
+performance results.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

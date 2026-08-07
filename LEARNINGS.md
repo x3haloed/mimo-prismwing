@@ -1851,3 +1851,25 @@ clean analysis hashes to
 `14866caa426287a61d9ed91a441ff6937465da4e542114ba29b773726b332fa6`.
 The updated throughput model hashes to
 `021b8688d3cea29da310d3360ff03ad2d261112801956660ca98a566fb9b86ac`.
+
+PW-0115 rejects direct adoption of published MoBE for PW-0045 on a shape bound,
+not a quality claim. MiMo's gate, up, and down expert projections have exactly
+equal source bytes, while MoBE keeps down unchanged. Even free gate/up factors
+therefore leave a 33.333% routed-bank floor, already above the frozen 25% gate.
+
+A deeper whole-mixture factorization of all three projections remains
+physically eligible under deliberately optimistic one-byte factors/bases and
+resident shared work. Of 48 enumerated rank/basis pairs, 36 clear necessary
+bank, selected-stream, compute, and 4 GiB resident-basis bounds. The frozen
+activation-audit set is rank-heavy `(r=768,m=4)`, balanced `(512,8)`, and
+basis-heavy `(128,32)`. The balanced form models 13.281% of source bank bytes,
+12.5% of selected streamed bytes, 37.5% of projection work, and 2,365,587,456
+resident basis bytes across 47 layers.
+
+This is an eligibility envelope only. It omits factor quantization metadata and
+has no learned artifact, activation-weighted error, route stability, kernel,
+wall time, output, accepted token, or TPS. Continue to real routed activations
+before training or implementation. Clean analysis hashes to
+`41cc9b745561a09073902ba65354889d6b87e7d8716aea4db85940cbafc9c67a`.
+The updated throughput model hashes to
+`770ae7e017db648ac329b2964b55f3a7589c1f42330e7b02500dc02c2e0b3b23`.

@@ -951,6 +951,23 @@
             "status": "conditional_single_position_L3_numerical_continuation; projection_at_a_time_physical_vehicle_rejected; no_hosted_parity_or_endpoint_tps",
             "provenance": "PW-0114; contract 4238b4d523ebcc36e0760f971b2f84664eeffe56; implementation a25236b7d5c0a65200934954665024b40b7890fb; raw control 24622adf564d840880ea44163edbb3c98905d4914b2bc4153cb21151fc58281e; raw candidate 16aaaded5cb082e5672f1a18b132fa52665375117dadb07c0c628fcc76b3b43f; clean analyzer 8fd4ac82177959acc7429b3463615a1c1ab8344c; analysis 14866caa426287a61d9ed91a441ff6937465da4e542114ba29b773726b332fa6; Gate 8 passed"
         },
+        "pw0115_shared_basis_physical_feasibility": {
+            "source_projection_bytes": 8390656,
+            "source_expert_bytes": 25171968,
+            "source_selected_layer_bytes": 201375744,
+            "source_routed_bank_bytes": 302869118976,
+            "published_mobe_unchanged_down_floor_ratio": 0.3333333333333333,
+            "pw0045_bank_ratio_limit": 0.25,
+            "enumerated_configurations": 48,
+            "eligible_configurations": 36,
+            "selected_rank_basis_pairs": [[768, 4], [512, 8], [128, 32]],
+            "balanced_bank_ratio": 0.1328144073486328,
+            "balanced_selected_stream_ratio": 0.125,
+            "balanced_optimistic_compute_ratio": 0.375,
+            "balanced_resident_basis_bytes_all_layers": 2365587456,
+            "status": "reject_direct_published_mobe_shape; continue_all_projection_shared_basis_to_activation_weighted_audit; analytical_only_not_endpoint_tps",
+            "provenance": "PW-0115; contract 2e4599ca09326e6ff1d1b079b09211b9c0271bcc; clean analyzer e50276d715bb4eaa434a59243e637d45c14d6c24; analysis 41cc9b745561a09073902ba65354889d6b87e7d8716aea4db85940cbafc9c67a; no model execution"
+        },
         "native_simdgroup_matrix_source_fp8_moe_schedule": {
             "candidate_wall_median_ms_repeats": [22.450083, 22.531125],
             "control_wall_median_ms_repeats": [17.107709, 17.089417],

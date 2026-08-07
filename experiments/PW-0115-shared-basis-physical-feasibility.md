@@ -1,10 +1,12 @@
 # PW-0115 — Shared-basis physical feasibility envelope
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: scope-decision
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Commit and dirty state: preimplementation contract; clean tree
+- Commit and dirty state: contract
+  `2e4599ca09326e6ff1d1b079b09211b9c0271bcc`; clean analyzer
+  `e50276d715bb4eaa434a59243e637d45c14d6c24`
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; checkpoint verification
   `9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`;
@@ -108,8 +110,50 @@ or companion-hardware premise.
 
 ## Result
 
-Unexecuted.
+The authenticated source-byte ledger closes exactly: 8,390,656 bytes per
+projection, 25,171,968 per expert, 201,375,744 per selected eight-expert layer,
+and 302,869,118,976 across 256 experts and 47 routed layers.
+
+Published MoBE's unchanged down projection creates an exact one-third
+(`0.333333`) routed-bank floor before any gate/up factors, bases, coefficients,
+or metadata. It therefore fails PW-0045's 25% physical gate by construction.
+This rejects direct adoption of that representation shape for Prismwing, not
+the paper's reported results or its evidence that learned bases can work.
+
+The deeper all-three-projection family has 36 eligible configurations among the
+48 enumerated pairs under the explicitly optimistic model. The maximum eligible
+rank by basis count is:
+
+| Bases `m` | Rank `r` | Bank ratio | Stream ratio | Compute ratio | 47-layer resident bases |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 768 | 18.897% | 18.750% | 23.438% | 443,547,648 B |
+| 2 | 768 | 19.043% | 18.750% | 28.125% | 887,095,296 B |
+| 4 | 768 | 19.336% | 18.750% | 37.500% | 1,774,190,592 B |
+| 8 | 512 | 13.281% | 12.500% | 37.500% | 2,365,587,456 B |
+| 16 | 256 | 7.032% | 6.250% | 31.250% | 2,365,587,456 B |
+| 32 | 128 | 3.907% | 3.125% | 28.125% | 2,365,587,456 B |
+
+The predeclared structurally diverse activation-audit set is rank-heavy
+`(r=768,m=4)`, balanced `(r=512,m=8)`, and basis-heavy `(r=128,m=32)`.
+Every selected row clears the 25% idealized bank and stream gates, 50% compute
+gate, and 4 GiB basis-residency gate.
+
+No model executed, so Gate 8 is not applicable. The result has no learned
+factors, candidate scale metadata, activation error, kernel, wall time, output,
+accepted token, or TPS. The clean immutable analysis hashes to
+`41cc9b745561a09073902ba65354889d6b87e7d8716aea4db85940cbafc9c67a`.
+The updated throughput model hashes to
+`770ae7e017db648ac329b2964b55f3a7589c1f42330e7b02500dc02c2e0b3b23`.
 
 ## Decision
 
-Unexecuted.
+Reject direct published-MoBE shape as a PW-0045 candidate because its unchanged
+down floor is already too large. Continue only the all-three-projection shared
+basis to an activation-weighted audit using the three frozen configurations.
+
+The next contract must capture real target-routed MoE inputs and source mixture
+residuals at representative early, middle, and late layers, freeze train,
+validation, and untouched holdout partitions, and compare direct mixture bases
+against per-expert controls at matched idealized bytes and FLOPs. It must test
+fidelity before training a full bank or writing a Metal kernel. This envelope
+changes the candidate search space; it does not promote a representation.
