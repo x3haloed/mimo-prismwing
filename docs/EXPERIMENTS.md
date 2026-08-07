@@ -246,6 +246,16 @@ matrix positions. All miss the 15-second 8K TTFT gate before every omitted
 cost. Reject these direct-FP32 configurations; retain the bounded layer
 transaction for a faster substrate or changed executable representation.
 
+PW-0129 returns to the compact modified representation that can actually
+change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
+as a quality control, on PW-0116's real source-routed activations at layers 4,
+24, and 46. Preserve source routes and compare complete route-weighted layer
+outputs, not isolated matrices. Read only positions `0..167` first; the final
+56-position pilot holdout stays sealed unless INT4 reaches at most 1%
+aggregate and 2% per-layer validation relative L2, no row above 5%, and at
+most 60% of source executable expert bytes. Failure kills naive INT4 before a
+full bank, recovery training, speculation, or accumulated execution.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
