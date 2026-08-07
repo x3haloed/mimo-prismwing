@@ -1,7 +1,7 @@
 # PW-0138 — Three-expert global-Hessian GPTQ confirmation
 
-- Status: planned
-- Disposition: pending
+- Status: completed
+- Disposition: promoted to all-validation-expert audit
 - Date: 2026-08-07
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -72,3 +72,31 @@ Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 Apply normative Gate 8 before and after each projection and at every expert
 release, including conservative projected-workspace preflight. Stop on any
 memory-pressure, swap, throttling, service-health, or release-boundary failure.
+
+## Result
+
+All three experts pass and layer 46/expert 28 exactly reproduces PW-0137's
+metrics, grid hashes, and activation-order hashes. Validation relative L2 is
+`0.022155`, `0.059604`, and `0.059227` at layers 4/24/46, reductions of
+79.77%, 66.87%, and 63.73% from their identical affine-INT4 controls. Maximum
+row errors are `0.036150`, `0.079795`, and `0.077608`; train errors are
+`0.005445`, `0.041274`, and `0.033130`. Every frozen condition passes.
+
+The physical ledger remains 13,369,344 bytes per expert (`0.531120` of source)
+with no additional runtime MACs. Holdout remains sealed. The decision is
+`authorize_all_validation_expert_global_hessian_audit`; no runtime artifact,
+kernel, bank, accumulated model, or endpoint is authorized yet.
+
+Gate 8 passes across 24 snapshots: minimum system memory free is 79%, maximum
+peak RSS is 1,648,082,944 bytes, maximum physical footprint is 417,795,456
+bytes, maximum release-boundary footprint is 395,726,080 bytes, swap growth
+and new throttled pages are zero, and protected services remain resident.
+
+Raw evidence:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0138/run-001.json`, SHA-256
+`37fa27ce90d0dc46b4b9308ed708c99405eb7ad3d924b859489716b9771bde49`.
+Validated analysis:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0138/analysis-001/manifest.json`,
+SHA-256
+`7ed32546bfb042d5b863c23d812eeada89cafb7d65b9c1d86c30c7483022e14b`.
+No endpoint TPS or measured throughput-model constant changes.

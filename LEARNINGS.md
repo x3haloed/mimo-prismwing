@@ -2449,3 +2449,29 @@ hashes to
 analysis hashes to
 `7a741514aad2f4ec783cd95b1283ae5b98afbcdad17cd64e8a7759c12f3b5d67`.
 No endpoint TPS or measured throughput-model constant changes in PW-0137.
+
+PW-0138 confirms that full-Hessian fixed-grid GPTQ is not a one-expert rescue.
+Without layer- or projection-specific tuning, the original representative
+experts at layers 4/24/46 reach validation relative L2 of `0.022155`,
+`0.059604`, and `0.059227`, reducing their identical affine-INT4 controls by
+79.77%, 66.87%, and 63.73%. Maximum-row errors remain below 8%, train improves
+for every expert, and every candidate also improves on PW-0135's group-local
+assignment. Layer 46 exactly reproduces PW-0137's metrics and assignment
+hashes.
+
+This supersedes the concern that global coupling merely overfit the narrow
+PW-0135 miss. It now earns an all-validation-expert audit, still on the sealed
+train/validation split and still before holdout. The physical case remains
+13,369,344 bytes per expert (`0.531120` of source) with zero extra runtime
+MACs, but no packed artifact or endpoint conclusion follows until coverage,
+accumulation, and execution are separately proven.
+
+Gate 8 passes across 24 snapshots at 79% minimum free memory,
+1,648,082,944-byte maximum peak RSS, 417,795,456-byte maximum physical
+footprint, 395,726,080-byte maximum release-boundary footprint, zero swap
+growth or new throttled pages, and resident protected services. Raw evidence
+hashes to
+`37fa27ce90d0dc46b4b9308ed708c99405eb7ad3d924b859489716b9771bde49`;
+analysis hashes to
+`7ed32546bfb042d5b863c23d812eeada89cafb7d65b9c1d86c30c7483022e14b`.
+No endpoint TPS or measured throughput-model constant changes in PW-0138.

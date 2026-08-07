@@ -426,6 +426,13 @@ The layer-46 rerun must reproduce PW-0137's metrics and assignment hashes
 exactly. A pass authorizes only a separately frozen all-validation-expert
 audit; holdout and runtime construction remain closed.
 
+The confirmation passes all three experts. Validation relative L2 is
+2.216%/5.960%/5.923% at layers 4/24/46 and maximum-row error is
+3.615%/7.979%/7.761%; every expert improves train and beats its group-local
+candidate. Layer 46 exactly reproduces PW-0137. Proceed to the separately
+frozen all-validation-expert audit under the same mechanism and ledger; keep
+holdout and runtime construction closed.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
