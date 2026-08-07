@@ -2509,3 +2509,28 @@ evidence hashes to
 analysis hashes to
 `9aecfdcd32e535b4b9d27fcac075dfd1c9014080d624aa3f4af2c678be3f3b6c`.
 No endpoint TPS or measured throughput-model constant changes in PW-0139.
+
+PW-0140 confirms that sparse routed calibration contributes materially to the
+deep-layer GPTQ failure, but rejects pooled-only calibration as a complete
+remedy. Using all 112 layer train inputs moves layer 24/expert 39 from
+`0.124820` to `0.063960` validation relative L2 and expert 128 from `0.108000`
+to `0.068350`. Layer 46/expert 140 improves from `0.100973` to `0.083363`, but
+misses the frozen `0.080000` ceiling by `0.003363`.
+
+Every pooled projection improves its round-to-nearest calibration control, so
+the gain is real. The branch still cannot be promoted: its policy was inspected
+on validation-visible failures, one expert fails, and PW-0139 also contains
+better-covered deep experts near 6--7% while the complete routed layers miss by
+larger margins. Do not derive a hybrid threshold from these validation labels,
+read holdout, or build the runtime. The next mechanism must change outlier
+geometry through a function-preserving rotation or learn transferable recovery.
+
+Gate 8 passes across 24 snapshots at 79% minimum free memory,
+1,643,970,560-byte maximum peak RSS, 370,298,304-byte maximum physical
+footprint, 333,581,696-byte maximum release-boundary footprint, zero swap
+growth or new throttled pages, and resident protected services. Raw evidence
+hashes to
+`824d66549da7833d855f430a60b761f145a98757fa191bb41db6cf6e56f78b9f`;
+analysis hashes to
+`1efbd70bba8c5a3a1a7ade6668ff76d90b2bcbde7a931988fae47db0a1a7ebe9`.
+No endpoint TPS or measured throughput-model constant changes in PW-0140.

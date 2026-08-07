@@ -1,7 +1,7 @@
 # PW-0140 — Pooled-calibration low-count GPTQ falsification
 
-- Status: planned
-- Disposition: pending
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-07
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -66,3 +66,33 @@ or endpoint; it only justifies deriving a policy without validation labels.
 
 Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 Apply normative Gate 8 before and after every projection and expert release.
+
+## Result
+
+Pooled calibration materially improves all three experts but fails the frozen
+uniform gate. Layer 24/expert 39 improves from `0.124820` to `0.063960`, and
+expert 128 from `0.108000` to `0.068350`; both pass. Layer 46/expert 140
+improves from `0.100973` to `0.083363`, with a passing `0.100029` maximum row,
+but misses the `0.080000` validation ceiling by `0.003363`.
+
+Every projection improves its pooled round-to-nearest calibration control and
+the physical ledger remains 13,369,344 bytes per expert (`0.531120` of source)
+with no extra runtime MACs. The decision is
+`reject_pooled_only_low_count_gptq`. The positive signal does not justify a
+validation-derived hybrid policy, particularly because PW-0139's deeper layer
+misses also include better-covered experts. Keep holdout sealed and move to a
+different geometry or learned recovery mechanism.
+
+Gate 8 passes across 24 snapshots: minimum system memory free is 79%, maximum
+peak RSS is 1,643,970,560 bytes, maximum physical footprint is 370,298,304
+bytes, maximum release-boundary footprint is 333,581,696 bytes, swap growth
+and new throttled pages are zero, and protected services remain resident.
+
+Raw evidence:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0140/run-001.json`, SHA-256
+`824d66549da7833d855f430a60b761f145a98757fa191bb41db6cf6e56f78b9f`.
+Validated analysis:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0140/analysis-001/manifest.json`,
+SHA-256
+`1efbd70bba8c5a3a1a7ade6668ff76d90b2bcbde7a931988fae47db0a1a7ebe9`.
+No endpoint TPS or measured throughput-model constant changes.

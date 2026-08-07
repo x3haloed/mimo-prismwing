@@ -460,6 +460,13 @@ L2 and 12% worst-row error, and improves every pooled projection control. A
 pass authorizes only a train-only shrinkage-policy experiment; holdout and
 runtime remain closed.
 
+Pooled calibration improves all three experts but is rejected by the uniform
+gate. Layer 24 experts 39 and 128 fall to 6.396% and 6.835% validation error;
+layer 46 expert 140 falls to 8.336% but misses the 8% ceiling. This confirms
+sparse calibration contributes to PW-0139, yet pooled-only calibration does
+not qualify the fixed-grid bank and cannot address the better-covered deep
+failures. Keep holdout and runtime closed; move to rotation or recovery.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
