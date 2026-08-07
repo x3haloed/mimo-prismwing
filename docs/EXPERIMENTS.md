@@ -328,6 +328,17 @@ most 60% source bytes, and at most 10% extra expert MACs. A 2%/4%/8% near miss
 may authorize AWQ composition; a larger miss kills this exception-store form
 before a sparse Metal kernel or full bank.
 
+The completed audit rejects that exception-store form. At the largest
+admissible 6% group fraction, aggregate validation error falls only from 9.766%
+to 8.387%, the worst layer remains 13.737%, and the worst row 17.161%. The
+artifact already occupies 59.487% of source bytes and adds 6.001% correction
+MACs; 7% would exceed the 60% byte gate. The fully covered layers fail
+independently of layer 24's 15 fallback placements. Keep holdout sealed and do
+not build the sparse kernel or bank. A next weight-domain test must change the
+quantization geometry or error propagation—AWQ scaling, GPTQ-style updates,
+function-preserving rotations, or recovery training—not merely retain more
+groups chosen by this diagonal proxy.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

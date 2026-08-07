@@ -2298,3 +2298,36 @@ services. Raw evidence hashes to
 analysis hashes to
 `c098eb01547d211de5f3bf7fa545b599701616b8142c5689559bcda73e808557`.
 No endpoint TPS or measured throughput constant changes in PW-0132.
+
+PW-0133 rejects the cheapest mixed-precision weight-domain continuation. It
+keeps PW-0129's affine group-128 INT4 core and uses only training activation
+second moments to rank exact source-FP8 row-group exceptions. Every baseline
+reproduces exactly and the validation curve improves monotonically, but 1%,
+2%, 4%, and 6% exceptions reach aggregate relative L2 of `0.093098`,
+`0.089733`, `0.085955`, and `0.083871` from the `0.097661` baseline.
+
+The maximum admissible 6% candidate restores 11,799 groups per expert yet
+reduces aggregate error only 14.12%. Layer errors remain `0.025346`,
+`0.096881`, and `0.137370` at layers 4/24/46, and the worst row is `0.171606`.
+Its conservative sparse artifact is already 14,974,008 bytes per expert or
+`0.594868` of source and adds `0.060013` correction MACs; 7% would occupy
+`0.605485` of source. Two layer-24 validation experts use the declared
+train-absent fallback for 15 placements, but fully covered layers 4 and 46
+independently fail by large margins.
+
+The superseded premise is specific: a small set of high diagonal
+activation-weighted weight-error groups does not dominate affine INT4's routed
+expert error. Do not build this sparse kernel or bank, read holdout, or spend
+the remaining byte budget on more exceptions. This does not reject
+weight-domain calibration generally. AWQ channel scaling changes the grid,
+GPTQ propagates second-order error, and rotations change outlier geometry;
+recovery training is deeper still. Each needs a separately frozen mechanism.
+
+Gate 8 passes across 47 snapshots at 78% minimum free memory,
+847,396,864-byte maximum peak RSS, 253,119,552-byte maximum physical footprint,
+zero swap growth or new throttled pages, and stable services. Raw evidence
+hashes to
+`a0226e42058a04ea1009a6c00a6b44fdc85728bf36e383166a589b1d3e28b0d8`;
+analysis hashes to
+`02715ba47566a1269a34ce470e4e04bf6acfd0ebb55c2174b9d329d00300b350`.
+No endpoint TPS or measured throughput constant changes in PW-0133.

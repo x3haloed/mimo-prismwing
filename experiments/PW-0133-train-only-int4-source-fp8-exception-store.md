@@ -1,7 +1,7 @@
 # PW-0133 — Train-only INT4 source-FP8 exception store
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected; AWQ/GPTQ/rotation or recovery-training branch next
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -94,3 +94,44 @@ rotations, or recovery training.
 
 Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 
+## Result
+
+The clean run completed in 31,115.291 ms. Every PW-0129 affine-INT4 validation
+baseline reproduced exactly, every selection used only positions `0..111`, and
+positions `168..223` remained sealed. The validation curve improves
+monotonically but far too slowly:
+
+| Exact group fraction | Aggregate L2 | Worst layer | Worst row | Source-byte ratio | Correction MAC ratio |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 0% baseline | 9.7661% | 15.4606% | 17.9215% | 53.1120% | 0% |
+| 1% | 9.3098% | 14.9098% | 17.7513% | 54.1753% | 1.0010% |
+| 2% | 8.9733% | 14.4888% | 17.5880% | 55.2370% | 2.0004% |
+| 4% | 8.5955% | 14.0163% | 17.3097% | 57.3619% | 4.0009% |
+| 6% | 8.3871% | 13.7370% | 17.1606% | 59.4868% | 6.0013% |
+
+At 6%, the exception store restores 11,799 row-groups or 1,510,272 raw FP8
+weight bytes per expert. The conservative complete artifact is 14,974,008
+bytes per expert, already 59.4868% of source. It reduces aggregate error by
+only 14.12% relative. Layer-4 validation reaches 2.5346%, layer 24 reaches
+9.6881%, and layer 46 reaches 13.7370%. Two layer-24 validation experts lack
+training placements; their declared fallback accounts for 15 placements, but
+the fully covered layers independently reject the mechanism. A 7% store would
+occupy 60.5485% of source and is outside the frozen byte gate.
+
+Gate 8 passes across 47 snapshots at 78% minimum free memory,
+847,396,864-byte maximum peak RSS, 253,119,552-byte maximum physical footprint,
+zero swap growth or new throttled pages, and stable protected services. Raw
+evidence hashes to
+`a0226e42058a04ea1009a6c00a6b44fdc85728bf36e383166a589b1d3e28b0d8`;
+independent analysis hashes to
+`02715ba47566a1269a34ce470e4e04bf6acfd0ebb55c2174b9d329d00300b350`.
+
+## Decision
+
+Reject diagonal train-activation-weighted selection of exact source-FP8
+row-groups over the fixed affine INT4 core. Do not build its sparse Metal
+kernel, full bank, or holdout evaluation. The result does not reject
+weight-domain calibration broadly: AWQ changes the quantization grid by exact
+channel rescaling, GPTQ propagates second-order error into unquantized weights,
+and rotations change outlier geometry. Those are distinct mechanisms. No
+endpoint performance or TPS claim changes.
