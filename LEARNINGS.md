@@ -1981,3 +1981,24 @@ training. Raw evidence hashes to
 analysis hashes to
 `4fce122f9887f7c103c635337c235767fe66de63372c80219f8b745a191c4a50`.
 No throughput-model constant or endpoint TPS changes in PW-0120.
+
+PW-0121 rescues activation-weighted rank-768 fitting from PW-0119's poor
+global-SVD result without reopening PW-0120's full-state allocator topology.
+On layer-24 hot expert 23, sequential projection fitting reduces complete
+expert relative L2 from `0.710381` to `0.251869` on validation (64.54%) and
+from `0.684958` to `0.378045` on the untouched holdout (44.81%). Train error
+falls 85.18%, so substantial corpus specialization remains visible, but both
+predeclared 25% continuation gates pass.
+
+The active projection uses only 4,718,592 parameters and returns MPS current
+allocation to zero after each fit. Gate 8 passes at 68% minimum free memory,
+1,684,082,816-byte maximum physical footprint, zero swap growth/throttling,
+stable services, and a 307,990,080-byte final footprint. This supersedes the
+belief that matrix-SVD error alone makes deeper rank-768 experts unpromising;
+it does not establish shared-basis quality, broad-corpus generalization, rare-
+expert behavior, or a runtime artifact. Replicate at layer 46 before any shared
+fit. Raw evidence hashes to
+`04388f2704607657fecd5304d2533585e7ee6389080f3e77e5658a9875da05fb`;
+analysis hashes to
+`6f3c7e8d9ddd25db65dc35cb888a98349bfa89b538cc33be7a2e0ffe5e3c6d17`.
+No throughput-model constant or endpoint TPS changes in PW-0121.

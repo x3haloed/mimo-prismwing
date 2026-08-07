@@ -1,7 +1,7 @@
 # PW-0121 — Rank-768 activation-weighted expert pilot
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: conditional
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Commit and dirty state: preimplementation contract; clean tree
@@ -120,6 +120,55 @@ exact `U,S,Vt` arithmetic as the acceptance authority and adds a separate
 `5e-6` bound for the balanced optimizer initialization. No quality threshold
 or holdout result changed.
 
+The repaired clean implementation at
+`45111335cabed14bf49a14ea80a2deff51c81286` passed in 24,153.190 ms. The
+source oracle remained bit-exact and the authoritative SVD control reproduced
+PW-0119 exactly. Balanced initialization differed by only `1.777e-6` overall
+relative L2 and passed its separate association bound.
+
+All projection validation objectives improved under selection that never read
+the holdout:
+
+| Projection | Initial validation NMSE | Selected NMSE | Reduction | Step |
+| --- | ---: | ---: | ---: | ---: |
+| gate | 0.112674 | 0.011874 | 89.46% | 50 |
+| up | 0.257866 | 0.021014 | 91.85% | 100 |
+| down | 0.227509 | 0.033148 | 85.43% | 60 |
+
+After freezing all three selections, the complete source-FP8/BF16 expert
+comparison was:
+
+| Partition | SVD relative L2 | Activation-weighted relative L2 | Reduction |
+| --- | ---: | ---: | ---: |
+| train | 0.731278 | 0.108358 | 85.18% |
+| validation | 0.710381 | 0.251869 | 64.54% |
+| pilot holdout | 0.684958 | 0.378045 | 44.81% |
+| overall | 0.709772 | 0.267000 | 62.38% |
+
+Both frozen 25% continuation gates pass. The result is not close to source
+identity, but it decisively shows that routed-activation fitting is much more
+informative than global matrix SVD at the same rank on this expert.
+
+Gate 8 passed with 68% minimum free memory, 1,301,970,944-byte peak RSS,
+1,684,082,816-byte maximum physical footprint, zero swap growth/throttling,
+stable services, zero MPS current allocation after every projection, and a
+307,990,080-byte final footprint. The raw report at
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0121/run-001.json` hashes to
+`04388f2704607657fecd5304d2533585e7ee6389080f3e77e5658a9875da05fb`.
+Independent analysis at
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0121/analysis-001/manifest.json`
+hashes to
+`6f3c7e8d9ddd25db65dc35cb888a98349bfa89b538cc33be7a2e0ffe5e3c6d17`.
+There are zero accepted tokens and no TPS claim.
+
 ## Decision
 
-Unexecuted.
+Authorize the identical activation-weighted rank-768 pilot on layer-46 hot
+expert 28. Preserve its 100 train, 56 validation, and 56 holdout rows and set
+its continuation threshold against PW-0119 before execution.
+
+Do not train shared bases yet. A late-layer replication is required because
+PW-0119 showed substantial depth dependence. Even a second pass would
+authorize only a small shared-basis pilot; this corpus is English, sequential,
+and sparse in expert coverage, and the selected factors were deliberately not
+persisted as a runtime artifact.
