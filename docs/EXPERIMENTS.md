@@ -275,6 +275,14 @@ cannot reach 1% aggregate, 2% per layer, and 5% per row while monotonically
 improving the nested controls. Holdout remains sealed; a capacity pass would
 authorize a separately frozen train-only calibration test, not deployment.
 
+The same-validation oracle rejects diagonal output calibration before a
+train-only implementation. Affine repair reduces validation error from
+4.192%/11.917%/15.461% to 1.153%/2.485%/4.816% at layers 4/24/46, but aggregate
+error remains 2.992% and the worst row 6.913%. Its 4-MiB-per-layer cost is only
+0.0651% of the source bank, so capacity—not storage—is the failure. The
+remaining error requires input-conditioned and/or cross-channel correction.
+Holdout remains sealed.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

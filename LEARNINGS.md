@@ -2213,3 +2213,33 @@ evidence hashes to
 analysis hashes to
 `6d7f75d8b65ccd0ba2fe5c3767e2f2e2a4841c4a859749dbcab8289c7c29b673`.
 No endpoint TPS or measured throughput constant changes in PW-0129.
+
+PW-0130 determines how much of affine INT4's real-activation error is a static
+per-expert output-channel distortion. It recomputes every PW-0129 packed
+artifact and baseline exactly, then grants bias-only and scale-plus-bias F16
+repairs fitted on the same validation rows they score. This is a deliberately
+noncausal capacity upper bound, not a deployable calibration protocol.
+
+Static repair removes most of the error but not enough. Baseline validation
+relative L2 at layers 4/24/46 is `0.041919/0.119174/0.154606`; bias-only reaches
+`0.017171/0.030419/0.055696`; affine reaches
+`0.011530/0.024850/0.048155`. The affine aggregate remains `0.029916` versus
+the 1% gate and its worst row is `0.069135` versus 5%. All nested improvements
+are monotonic, and the full F16 repair costs only 4,194,304 bytes per layer or
+`0.000651` of the source bank.
+
+The failed premise is now specific: a static diagonal transform after the
+complete INT4 expert cannot supply sufficient fidelity, even with validation
+leakage. Do not spend evidence or engineering budget on train-only output
+scale/bias calibration. The remaining error is input-dependent and/or
+cross-channel; viable successors must change weight-domain quantization,
+retain mixed-precision outliers, add low-rank residual capacity, or perform
+recovery training. The final 56 positions remain sealed.
+
+Gate 8 passes at 78% minimum free memory, 221,186,688-byte maximum physical
+footprint, zero swap growth or new throttled pages, and stable services. Raw
+evidence hashes to
+`b011bd5ced8787df62f4380aeeccab9a35aef8b8ab15541207bcd99e35727994`;
+analysis hashes to
+`18df3de03834e9725c1b472f196d1e67700d9cdd1c8f18f07e5a9c8d6604bd46`.
+No endpoint TPS or measured throughput constant changes in PW-0130.
