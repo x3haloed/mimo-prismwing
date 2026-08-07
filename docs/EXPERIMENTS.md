@@ -256,6 +256,16 @@ aggregate and 2% per-layer validation relative L2, no row above 5%, and at
 most 60% of source executable expert bytes. Failure kills naive INT4 before a
 full bank, recovery training, speculation, or accumulated execution.
 
+The real-activation audit rejects naive affine INT4 without unsealing holdout.
+Its 53.112% byte ratio passes the physical gate, but validation routed-output
+relative L2 is 4.192%, 11.917%, and 15.461% at layers 4, 24, and 46; aggregate
+error is 9.766% and the worst row reaches 17.922%. Source replays are bit-exact.
+INT8 improves those layer errors to 0.970%, 2.406%, and 3.551%, but occupies
+103.100% of source bytes and still misses the deeper-layer numerical gate.
+Do not build the naive INT4 bank or compose it with cache/speculation. A next
+quantized branch must change calibration, outlier treatment, training, or the
+representation itself.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

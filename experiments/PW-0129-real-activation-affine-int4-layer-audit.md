@@ -1,7 +1,7 @@
 # PW-0129 — Real-activation affine-INT4 routed-layer audit
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected for naive affine INT4
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -86,3 +86,53 @@ this audit. A pass authorizes only a separately frozen accumulated
 route/logit probe. Report zero accepted tokens, `A=0`, no endpoint timing, and
 no performance claim. Apply normative Gate 8 at source authentication, every
 layer, every expert release, corpus release, and final service-health readback.
+
+## Result
+
+The clean implementation run completed in 151,984.255 ms. Every capture and
+route authority passed; the in-scope source prefix reconstructed bit-for-bit
+at all three layers. Independent dynamic-FP8/BF16 source replays for experts
+96, 23, and 28 also matched their captured outputs bit-for-bit.
+
+INT4 achieves its physical objective: every streamed expert occupies
+13,369,344 executable bytes, or 53.1120% of the 25,171,968-byte source-FP8
+record. It misses every numerical gate by a wide margin:
+
+| Layer | Train routed relative L2 | Validation routed relative L2 | Validation worst row |
+| ---: | ---: | ---: | ---: |
+| 4 | 1.5812% | 4.1919% | 7.7105% |
+| 24 | 10.6954% | 11.9174% | 17.9215% |
+| 46 | 14.6523% | 15.4606% | 17.2042% |
+
+Validation aggregate relative L2 is 9.7661%, versus the 1% gate. Maximum
+layer error is 15.4606% versus 2%, and maximum row error is 17.9215% versus
+5%. The failure is depth-general and appears on both train and validation; it
+is not explained by a single synthetic input or validation-only route novelty.
+The holdout remained sealed.
+
+INT8 provides a monotonic quality control rather than a compact candidate. Its
+validation errors are 0.9703%, 2.4061%, and 3.5508% across layers 4, 24, and
+46, materially better than INT4 but still above the per-layer gate at the two
+deeper layers. Its 25,952,256-byte artifact is 103.100% of source-FP8 bytes and
+therefore cannot change the traffic premise.
+
+Candidate execution timings exclude source load, quantization, attention,
+accumulated routing, and the endpoint; they remain diagnostic only. Gate 8
+passes at 78% minimum free memory, 599,113,728-byte maximum peak RSS,
+226,265,920-byte maximum physical footprint, zero swap growth or new
+throttled pages, and stable protected services. Raw evidence hashes to
+`1deb9dd85f0b598f31bc2d8bc1d41bf52cfabcda43de63a2ae5b3fdfad400306`;
+independent analysis hashes to
+`6d7f75d8b65ccd0ba2fe5c3767e2f2e2a4841c4a859749dbcab8289c7c29b673`.
+
+## Decision
+
+Reject naive affine group-128 INT4 on real routed activations before a full
+bank, accumulated prefix, cache composition, or proposer training. Its
+physical compression is real, but its layer-local error is already roughly
+5--15 times the allowed layer gate under source routes, an optimistic setting.
+Do not read this branch's holdout. Preserve affine INT8 as a quality-oriented
+diagnostic only; it is larger than source FP8 and also misses the deeper-layer
+gate. Calibration, outlier-aware mixed precision, recovery training, exact
+codecs, and structurally different representations remain separate candidates.
+No endpoint TPS or measured throughput constant changes.

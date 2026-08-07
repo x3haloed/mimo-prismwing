@@ -2181,3 +2181,35 @@ pages, and stable services. Raw evidence hashes to
 analysis hashes to
 `e7ed1e57d7058af7328e0ba48425bb755c8476d87eb596d3b6d869870c8420d8`.
 No endpoint TPS or measured throughput constant changes in PW-0128.
+
+PW-0129 replaces the synthetic-activation warning around affine INT4 with a
+real source-routed validation result. On PW-0116 layers 4, 24, and 46, every
+source capture and route authenticated; prefix reconstruction and three
+independent dynamic-FP8/BF16 expert replays were bit-exact. The candidate was
+then streamed one expert at a time through the complete gate/up/SwiGLU/down
+transaction with unchanged source routes.
+
+Affine group-128 INT4 does satisfy the embodiment ledger: 13,369,344 bytes per
+expert is `0.531120` of the 25,171,968-byte source record. Fidelity is
+decisively inadequate. Validation routed-output relative L2 is `0.041919` at
+layer 4, `0.119174` at layer 24, and `0.154606` at layer 46. Aggregate error is
+`0.097661`, and the worst validation row is `0.179215`. Train errors show the
+same depth trend, so the result is not a validation-only coverage artifact.
+The final 56 positions remain sealed.
+
+Affine INT8 is an informative monotonic control: validation errors fall to
+`0.009703`, `0.024061`, and `0.035508`, but the artifact occupies `1.030998`
+times source-FP8 bytes and still misses the deeper-layer 2% gate. Faster MLX
+arithmetic does not make it an embodiment compression. Do not build or compose
+the naive INT4 bank merely because its ideal traffic could approach the 34.3
+horizon. Any successor must introduce calibration, outlier-aware mixed
+precision, recovery training, or a structurally different executable form and
+must earn a new frozen validation gate.
+
+Gate 8 passes at 78% minimum free memory, 226,265,920-byte maximum physical
+footprint, zero swap growth or new throttled pages, and stable services. Raw
+evidence hashes to
+`1deb9dd85f0b598f31bc2d8bc1d41bf52cfabcda43de63a2ae5b3fdfad400306`;
+analysis hashes to
+`6d7f75d8b65ccd0ba2fe5c3767e2f2e2a4841c4a859749dbcab8289c7c29b673`.
+No endpoint TPS or measured throughput constant changes in PW-0129.
