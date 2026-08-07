@@ -177,10 +177,18 @@ pilot must compare against activation-weighted independent controls and retain
 at least two experts with non-empty train, validation, and holdout coverage.
 
 PW-0123 strengthens that minimum to the smallest topology that forces sharing:
-five well-covered layer-46 experts against four bases. It builds matched
-independent activation-weighted controls in the same run, weights experts
-equally, seals holdout through model selection, and rejects sharing if any
-expert loses the required improvement behind a favorable aggregate.
+five layer-46 experts against four bases. It rejects the mechanism. The four
+experts initialized with private bases remain competitive, while expert 57—the
+first forced to share—misses independent projection controls by 3.98--5.05x
+and reaches `0.8114` holdout relative L2, worse than global SVD's `0.7454`.
+Equal-expert complete averages pass and would conceal the tail failure.
+
+Do not add bases or merely extend the same run. PW-0116 now limits the next
+representation inference: expert 57 has only 17 train placements. Acquire a
+broader frozen multilingual/modality activation corpus with substantive same-
+layer expert coverage in every split, then repeat the forced-sharing control.
+If the tail failure survives representative coverage, kill four-basis sharing
+before any full bank, quantized artifact, or kernel.
 
 ## E6 — MTP and DFlash verification
 

@@ -2021,3 +2021,30 @@ physical footprint, zero swap growth/throttling, stable services, and a
 analysis hashes to
 `5b5a21be9438e81e9b05a155ca365cd0dc4180be1b06a18a873362e88f60e0eb`.
 No throughput-model constant or endpoint TPS changes in PW-0122.
+
+PW-0123 rejects the first identity-basis topology that actually forces sharing.
+With five layer-46 experts and four bases, the four experts initialized with a
+private basis remain near their independent activation-weighted controls. The
+fifth, expert 57, misses gate/up/down validation NMSE by `3.983x`, `5.053x`,
+and `4.863x`. Its shared holdout relative L2 is `0.811428`, worse than both its
+independent fitted `0.524725` and global-SVD `0.745367` controls.
+
+Aggregate validation and holdout ratios still pass at `1.112x` and `1.138x`.
+This is direct evidence that a favorable mean can hide the exact rare/tail
+failure prohibited by the target. The prospective representation remains
+physically attractive—`19.336%` of source projection bytes under the named
+FP8-factor hypothesis and `37.537%` of source multiplications—but those are not
+achieved runtime facts because fidelity failed before quantization or kernels.
+
+The unchanged-duration branch is unattractive: expert-57 validation errors
+fall only about 1--3% over the final 30 steps while remaining roughly 3--5x
+over gate. The stronger unresolved premise is corpus coverage, since PW-0116
+provides expert 57 only 17 training placements. Preserve this rejection and
+require broader multilingual/modality, route-stratified activation evidence
+before another sharing fit. Gate 8 passes at 69% minimum free memory,
+1,957,483,392-byte maximum physical footprint, zero swap growth/throttling,
+stable services, and a 269,864,960-byte final footprint. Raw evidence hashes to
+`e0f682e77d3f9ca79b762fae52534820af963b3a0478d5d4fa9944694ce5bbc2`;
+analysis hashes to
+`4d4469184eda8717a12643a58b111d0a4fd6ac72585eb6aaabcfc6c187ab6438`.
+No throughput-model constant or endpoint TPS changes in PW-0123.

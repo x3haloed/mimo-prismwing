@@ -1,7 +1,7 @@
 # PW-0123 — Five-expert/four-basis sharing pilot
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Commit and dirty state: preimplementation contract; clean tree
@@ -122,8 +122,80 @@ not add bases, change experts, or tune on holdout without a new contract.
 
 ## Result
 
-Unexecuted.
+The clean implementation at `6bf2d72bdee51435731d8a384960fa0a17bc4451`
+completed in 180,934.883 ms. All five source oracles were bit-exact, all 15
+independent projection controls improved validation, and expert 28 reproduced
+PW-0122's complete metrics within `1e-6`. The shared coefficient gradients
+were finite and nonzero, all three shared objectives improved from
+initialization, and every MPS phase released current allocation to zero.
+
+The forced-sharing result is sharply localized:
+
+| Projection | Shared/independent equal-expert validation NMSE | Expert 57 ratio | Frozen gate |
+| --- | ---: | ---: | --- |
+| gate | 1.937x | 3.983x | fail |
+| up | 2.320x | 5.053x | fail |
+| down | 2.087x | 4.863x | fail |
+
+Experts 28, 249, 213, and 125 each began with a private basis and retained
+per-projection ratios no worse than 1.445x; expert 57 was the first identity
+actually forced to use another expert's basis family and was the sole
+per-expert projection failure. Equal-expert complete-output averages would
+have hidden this: shared/independent relative L2 is only 1.112x on validation
+and 1.138x on holdout, both within their aggregate gates.
+
+The required per-expert holdout gate exposes the failure:
+
+| Expert | Global-SVD holdout relative L2 | Independent fitted | Shared | Shared improvement vs SVD |
+| ---: | ---: | ---: | ---: | ---: |
+| 28 | 0.545815 | 0.288128 | 0.289267 | 47.00% |
+| 249 | 0.698467 | 0.432653 | 0.450714 | 35.47% |
+| 213 | 0.684109 | 0.372535 | 0.359454 | 47.46% |
+| 125 | 0.599189 | 0.381405 | 0.364761 | 39.12% |
+| 57 | 0.745367 | 0.524725 | 0.811428 | **-8.86%** |
+
+The fifth expert is worse than both its independent control and global SVD.
+The late validation tails continue descending slowly, but not at a scale that
+supports a cheap duration retry: over steps 120--150, expert-57 up NMSE falls
+only `0.098450 -> 0.096895` and down only `0.237832 -> 0.235617`, while their
+1.5x gates require approximately `0.0288` and `0.0727`. This is diagnostic,
+not a mathematical convergence bound; it makes an unchanged longer run a poor
+next falsification.
+
+The prospective full-bank physical algebra remains eligible under the named
+FP8-factor/F32-scale/F16-coefficient hypothesis: 415,339,520 bytes per
+projection versus 2,148,007,936 source bytes (`19.336%`), and transaction
+multiplications remain `37.537%` of source. These are unachieved size/compute
+hypotheses because the shared representation failed fidelity and was never
+quantized or made executable.
+
+Gate 8 passed with 69% minimum free memory, 1,746,518,016-byte peak RSS,
+1,957,483,392-byte maximum physical footprint, 1,872,679,296-byte maximum
+release-boundary footprint, zero swap growth/throttling, stable services, and
+a 269,864,960-byte final footprint. The raw report at
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0123/run-001.json` hashes to
+`e0f682e77d3f9ca79b762fae52534820af963b3a0478d5d4fa9944694ce5bbc2`.
+Independent analysis at
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0123/analysis-001/manifest.json`
+hashes to
+`4d4469184eda8717a12643a58b111d0a4fd6ac72585eb6aaabcfc6c187ab6438`.
+There are zero accepted tokens and no TPS claim.
 
 ## Decision
 
-Unexecuted.
+Reject rank-768/four-basis sharing under this objective and corpus. Do not add
+bases, swap experts, tune on the holdout, or rerun the same initialization for
+more steps as if aggregate success erased expert 57.
+
+This rejects the current sharing mechanism, not all learned executable-byte
+reduction. The result also confirms that PW-0116's single English trace is now
+the representation bottleneck: expert 57 has only 17 train placements versus
+56 validation and 56 holdout rows. Before another shared fit, acquire a broader
+frozen activation corpus with multilingual and modality traces, route-stratify
+train/validation/holdout so at least five same-layer experts have substantive
+coverage in every split, and keep the current five-expert result as the
+unchanged control. If broader coverage still forces one expert below global
+SVD, kill four-basis sharing more generally rather than expanding a full bank.
+
+No throughput-model constant or endpoint TPS changes. The branch remains
+unqualified for artifact, kernel, whole-prefix, or hosted evaluation.
