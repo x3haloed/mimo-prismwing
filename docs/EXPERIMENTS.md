@@ -190,12 +190,15 @@ layer expert coverage in every split, then repeat the forced-sharing control.
 If the tail failure survives representative coverage, kill four-basis sharing
 before any full bank, quantized artifact, or kernel.
 
-PW-0124 inserts the cheaper coverage falsification first. It keeps positions
+PW-0124 executes the cheaper coverage falsification first. It keeps positions
 `168..223` untouched and occurrence-stratifies only the already-unsealed
-development prefix, raising expert 57 from 17 to 58 train placements. All
-sharing and per-expert gates remain unchanged. A pass authorizes broader corpus
-acquisition but cannot promote the representation; a failure makes corpus
-acquisition in service of this exact four-basis form unattractive.
+development prefix, raising expert 57 from 17 to 58 train placements. Expert
+57's complete holdout result improves enough to pass the global-SVD gate, but
+its shared gate/up/down projection errors remain `4.329--6.817x` their matched
+independent controls; all three aggregate projection gates fail too. This
+rejects development-split scarcity as the explanation for PW-0123 and makes
+broader corpus acquisition solely to rescue this exact four-basis form
+unattractive.
 
 ## E6 — MTP and DFlash verification
 

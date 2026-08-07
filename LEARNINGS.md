@@ -2048,3 +2048,29 @@ stable services, and a 269,864,960-byte final footprint. Raw evidence hashes to
 analysis hashes to
 `4d4469184eda8717a12643a58b111d0a4fd6ac72585eb6aaabcfc6c187ab6438`.
 No throughput-model constant or endpoint TPS changes in PW-0123.
+
+PW-0124 rejects the cheapest remaining coverage explanation for PW-0123. It
+preserves the original positions `168..223` holdout and redistributes only the
+development prefix by per-expert occurrence, raising expert 57 from 17 to 58
+training placements. Its complete holdout relative L2 improves to `0.515999`
+from global SVD's `0.745367`, clearing the 25% improvement gate, while complete
+validation and holdout equal-expert ratios pass at `0.953x` and `1.136x`.
+
+That positive composed result does not rescue the representation. Shared-to-
+independent aggregate projection NMSE is `2.291x` gate, `3.158x` up, and
+`1.856x` down. Expert 57 remains the decisive tail at `5.241x`, `6.817x`, and
+`4.329x`; expert 28 also reaches `1.568x` on up. The old assumption that the
+forced fifth identity failed chiefly because of the contiguous development
+split is therefore superseded. Do not acquire a broad corpus solely to rescue
+this exact four-basis/rank-768 form. This does not reject independent fitted
+experts, other exact sharing codecs, or layer-transaction execution.
+
+The physical ledger remains only prospective at `19.336%` of source projection
+bytes and `37.537%` of source multiplications. Gate 8 passes at 70% minimum free
+memory, 1,958,122,368-byte maximum physical footprint, zero swap growth or new
+throttled pages, stable services, and zero final MPS allocation. Raw evidence
+hashes to
+`086cd06b66aa79117e44f3b17e3f1b18b751640d1696e3ce6f3045a769586077`;
+analysis hashes to
+`a6c98d0469e2e788e5c54833975277ebcffa822a3d0b426a8bb39dbf3606d32a`.
+No throughput-model constant or endpoint TPS changes in PW-0124.

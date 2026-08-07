@@ -1,10 +1,11 @@
 # PW-0124 — Coverage-rebalanced forced-sharing control
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: completed
+- Disposition: negative
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
-- Commit and dirty state: preimplementation contract; clean tree
+- Commit and dirty state: implementation commit
+  `9167f22e04a845bb76863919b12a8f732bf30fd7`; clean tree at execution
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; checkpoint verification
   `9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`;
@@ -79,8 +80,35 @@ corpus. Neither outcome authorizes artifacts, kernels, or runtime changes.
 
 ## Result
 
-Unexecuted.
+Completed in `183,010.327 ms`. The frozen rebalancing produced exactly the
+predeclared counts and all independent projection controls improved. Source
+oracles remained bit-exact. Expert 57's complete holdout relative L2 improved
+from global SVD's `0.745367` to `0.515999`, so the composed 25% improvement
+gate now passes.
+
+The representation gates nevertheless fail more strongly. Shared-to-
+independent aggregate projection NMSE ratios are `2.291x` gate, `3.158x` up,
+and `1.856x` down, all above `1.25x`. Expert 57's corresponding per-expert
+ratios are `5.241x`, `6.817x`, and `4.329x`, all above `1.50x`; expert 28 also
+misses the up-projection tail gate at `1.568x`. Complete validation and
+holdout means pass at `0.953x` and `1.136x`, again demonstrating that complete
+aggregate behavior conceals projection-level tail failure.
+
+The prospective physical algebra remains eligible at `19.336%` of source
+projection bytes and `37.537%` of source multiplications, but is not an
+achieved artifact or runtime result. Gate 8 passed with 70% minimum free
+memory, 1,958,122,368-byte maximum physical footprint, zero swap growth or new
+throttled pages, stable protected services, and zero final MPS allocation.
+Raw evidence hashes to
+`086cd06b66aa79117e44f3b17e3f1b18b751640d1696e3ce6f3045a769586077`;
+independent analysis hashes to
+`a6c98d0469e2e788e5c54833975277ebcffa822a3d0b426a8bb39dbf3606d32a`.
 
 ## Decision
 
-Unexecuted.
+Reject development-split coverage scarcity as the explanation for PW-0123's
+four-basis failure. Do not acquire a broader corpus solely to rescue this exact
+identity-basis/rank-768 parameterization. Preserve the positive independent-fit
+and complete-holdout observations as separate facts; neither overrides the
+failed frozen projection gates or authorizes an artifact, kernel, endpoint
+claim, or TPS change.
