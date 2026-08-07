@@ -350,6 +350,15 @@ authorizes holdout and a packed kernel; a 2%/4%/8% near miss may authorize AWQ
 plus exceptions. A larger failure moves to second-order weight updates,
 rotations, or recovery training.
 
+The AWQ-style scale family improves every layer but is decisively rejected.
+Aggregate validation error falls from 9.766% to 7.745%; layer errors become
+2.563%, 8.381%, and 12.614% at layers 4/24/46, with a 17.501% worst row. The
+exact transform algebra passes and selected exponents are nontrivial, so this
+is not an identity-control failure. Its 53.161% source-byte ratio is excellent,
+but quality misses even the near-miss gate. Keep holdout sealed and do not
+compose exceptions. Proceed to a mechanism that propagates correlated error,
+changes outlier geometry, or trains recovery weights.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

@@ -2331,3 +2331,37 @@ hashes to
 analysis hashes to
 `02715ba47566a1269a34ce470e4e04bf6acfd0ebb55c2174b9d329d00300b350`.
 No endpoint TPS or measured throughput constant changes in PW-0133.
+
+PW-0134 rejects the official AWQ activation-mean exponent scale family as
+adapted to MiMo's independently routed SwiGLU experts. Train-only searches pick
+nontrivial input/hidden exponents and improve every validation layer:
+`0.041919 -> 0.025631` at layer 4, `0.119174 -> 0.083810` at layer 24, and
+`0.154606 -> 0.126141` at layer 46. Aggregate error falls 20.69%, from
+`0.097661` to `0.077451`.
+
+The improvement is physically cheap but numerically insufficient. The worst
+layer remains `0.126141` and the worst row `0.175005`, far beyond the
+`0.02/0.04/0.08` near-miss thresholds. Two layer-24 experts use pooled
+activation and median-exponent fallback for 15 validation placements, while
+fully calibrated layers 4 and 46 independently fail. Exact pre-quantization
+transform reconstruction stays below `2.77e-8`, ruling out the non-homogeneous
+SiLU placement as an implementation defect.
+
+The packed representation plus conservative F16 input/hidden scales occupies
+13,381,632 bytes per expert or `0.531608` of source. Its 4,096 input divides
+are `0.000163` of source expert MACs. This supersedes the idea that a scalar
+activation-mean exponent can redirect enough four-bit resolution on its own.
+Do not read holdout, compose PW-0133 exceptions, or build a kernel/bank. GPTQ-
+style correlated error propagation, function-preserving rotation, and recovery
+training remain distinct mechanisms.
+
+Gate 8 passes across 86 snapshots at 78% minimum free memory,
+923,418,624-byte maximum peak RSS, 230,214,656-byte maximum physical footprint,
+zero swap growth or new throttled pages, and every protected service name
+remaining resident. One auxiliary `nxnode` PID exited while another remained;
+the normative service-health rule passed and the PID-set change is preserved.
+Raw evidence hashes to
+`7d470bd5fa5541424c2b619afb49a2ebf493ce7a11b2498cf281b3d1c6f34490`;
+analysis hashes to
+`8f0da2e109befe20928a1134a178d23343d27afe6c3d60a3e8682d1b5925745c`.
+No endpoint TPS or measured throughput constant changes in PW-0134.

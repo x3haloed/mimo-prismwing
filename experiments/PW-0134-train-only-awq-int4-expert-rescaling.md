@@ -1,7 +1,7 @@
 # PW-0134 — Train-only AWQ-style INT4 expert rescaling
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected; second-order updates, rotations, or recovery training next
 - Date: 2026-08-06
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -82,3 +82,48 @@ recovery training.
 Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 Apply normative Gate 8 at every expert and layer release boundary.
 
+## Result
+
+The clean run completed in 65,746.525 ms. All PW-0129 validation baselines
+reproduced exactly, all scale searches used only positions `0..111`, and
+holdout positions `168..223` remained sealed. Every layer improves, but the
+result is still a decisive miss:
+
+| Layer | Baseline L2 | AWQ-style L2 | Worst candidate row | Median input alpha | Median hidden alpha |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | 4.1919% | 2.5631% | 4.6175% | 0.30 | 0.20 |
+| 24 | 11.9174% | 8.3810% | 17.5005% | 0.20 | 0.25 |
+| 46 | 15.4606% | 12.6141% | 13.6778% | 0.20 | 0.30 |
+
+Aggregate validation relative L2 falls from 9.7661% to 7.7451%, a 20.69%
+relative reduction. The worst layer remains 12.6141% and the worst row
+17.5005%, so neither the strict nor near-miss gate is close. Two layer-24
+experts use the declared pooled-activation/median-exponent fallback for 15
+placements; layers 4 and 46 are fully calibrated and independently reject the
+family. All selected exponents are nonzero, and the worst exact-transform
+weight reconstruction error is below `2.77e-8`, so the result is not an
+identity-control or algebra failure.
+
+The embodiment remains attractive in isolation: 13,381,632 bytes per expert
+is 53.1608% of source, including both conservative F16 scale vectors, and
+4,096 runtime input divides are only 0.0163% of source expert MACs. Physical
+fitness does not compensate for failed routed-output fidelity.
+
+Gate 8 passes across 86 snapshots at 78% minimum free memory,
+923,418,624-byte maximum peak RSS, 230,214,656-byte maximum physical footprint,
+zero swap growth or new throttled pages, and all protected service names
+remaining resident. One of two baseline `nxnode` PIDs exited while the other
+remained; this is recorded and does not violate the normative name-level
+service-health stop. Raw evidence hashes to
+`7d470bd5fa5541424c2b619afb49a2ebf493ce7a11b2498cf281b3d1c6f34490`;
+independent analysis hashes to
+`8f0da2e109befe20928a1134a178d23343d27afe6c3d60a3e8682d1b5925745c`.
+
+## Decision
+
+Reject the official AWQ activation-mean exponent scale family as adapted to
+independently routed MiMo experts. Do not read holdout, compose it with
+PW-0133 exceptions, build a packed kernel, or construct a bank. This does not
+reject second-order weight-error propagation, rotations, or recovery training;
+those change mechanisms that this scalar-exponent rescaling preserves. No
+endpoint performance or TPS claim changes.
