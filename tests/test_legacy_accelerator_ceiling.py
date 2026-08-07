@@ -1,12 +1,60 @@
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from tools.run_legacy_accelerator_ceiling import (
+    PW0112_SHA256,
+    PW0127_SHA256,
+    _authenticate_sources,
     configuration_ceiling,
     route_window_ceiling,
 )
 
 
 class LegacyAcceleratorCeilingTests(unittest.TestCase):
+    def test_frozen_source_schemas_authenticate(self):
+        route_source = {
+            "schema_version": 1,
+            "evidence_class": "pw0112_wide_teacher_forced_route_economics",
+            "revision": "63651580ca774f8504f676040460aed3e1244ac1",
+            "routed_layers": 47,
+            "top_k": 8,
+            "expert_bytes": 25_171_968,
+            "performance_claim": None,
+        }
+        arithmetic_source = {
+            "schema_version": 1,
+            "evidence_class": "pw0127_r720_cpu_arithmetic_ceiling",
+            "revision": "63651580ca774f8504f676040460aed3e1244ac1",
+            "mandatory_macs_by_category": {
+                "attention_projections": 4_482_662_400,
+                "dense_layer0_mlp": 201_326_592,
+                "routers": 49_283_072,
+                "selected_experts": 9_462_349_824,
+                "lm_head": 624_951_296,
+            },
+            "accepted_tokens": 0,
+            "A": 0,
+            "performance_claim": None,
+            "decision": "reject_cpu_only_dual_e5_2680v2_for_prismwing_50",
+        }
+        with TemporaryDirectory() as directory:
+            route_path = Path(directory) / "route.json"
+            arithmetic_path = Path(directory) / "arithmetic.json"
+            route_path.write_text(json.dumps(route_source))
+            arithmetic_path.write_text(json.dumps(arithmetic_source))
+            with patch(
+                "tools.run_legacy_accelerator_ceiling.sha256_file",
+                side_effect=[PW0112_SHA256, PW0127_SHA256],
+            ):
+                route, arithmetic = _authenticate_sources(route_path, arithmetic_path)
+        self.assertEqual(route["evidence_class"], "pw0112_wide_teacher_forced_route_economics")
+        self.assertEqual(arithmetic["evidence_class"], "pw0127_r720_cpu_arithmetic_ceiling")
+        self.assertEqual(len(PW0112_SHA256), 64)
+        self.assertEqual(len(PW0127_SHA256), 64)
+
     def test_full_target_prefill_rejects_all_named_configurations(self):
         macs = 14_820_573_184
         one_m40 = configuration_ceiling("one_m40", 1, 7e12, macs)

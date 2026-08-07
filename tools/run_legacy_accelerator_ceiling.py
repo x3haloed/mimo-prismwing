@@ -114,7 +114,7 @@ def _authenticate_sources(route_path: Path, arithmetic_path: Path) -> tuple[dict
     arithmetic = json.loads(arithmetic_path.read_text())
     if (
         route.get("schema_version") != 1
-        or route.get("evidence_class") != "pw0112_wide_route_and_cache_analysis"
+        or route.get("evidence_class") != "pw0112_wide_teacher_forced_route_economics"
         or route.get("revision") != REVISION
         or route.get("routed_layers") != 47
         or route.get("top_k") != 8
