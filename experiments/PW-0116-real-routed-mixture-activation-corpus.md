@@ -27,8 +27,17 @@ Reuse the exact PW-0112 224-position teacher-forced sequence: 87 prompt
 positions plus the first 137 tokens of the frozen pinned-OpenRouter suffix. The
 new execution must reproduce input-token hash
 `ec757454956b42c085e5402ded86975176b987deba3d9b5a94c739fa49e459ad`
-and complete 48-layer route-payload hash
-`d6024840a97fd180aad17c39fef944da9a28db56bdc4de3301962b36c81923eb`.
+and canonical 48-layer route-semantics hash
+`5063ff60b4cc6adb3677f08acae05f17954c00768fa3e9b60f4993cd44877218`.
+The canonical payload contains only layer, attention mode, cache length,
+selected IDs, route weights, and `U`.
+
+Scope amendment before implementation: PW-0112's recorded
+`layer_routes_sha256=d6024840...` covers the serialized `LayerRouteTrace`
+objects including `wall_ms`, so it cannot be reproduced by a second execution.
+Keep that raw hash as provenance, but do not mistake timing identity for route
+identity. The semantic hash above is derived canonically from the immutable
+PW-0112 manifest and is the fail-closed comparison for this experiment.
 
 At routed layers 4, 24, and 46, capture the causal source-derived mapping from
 the layer's real MoE input and actual route to its expert outputs, weighted
@@ -89,8 +98,8 @@ promote a factorization or be reused as the final untouched evaluation set.
 
 Run one clean process. It passes only if:
 
-1. checkpoint, fixture, input tokens, all 48 layer routes, and source ledgers
-   reproduce PW-0112 exactly;
+1. checkpoint, fixture, input tokens, all 48 layer route semantics, and source
+   ledgers reproduce PW-0112 exactly; timing fields are recorded separately;
 2. all five captures at all three target layers pass shape, finiteness, byte,
    and content-hash validation;
 3. expert schedule reconstruction reproduces every routed output and final
