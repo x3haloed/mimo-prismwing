@@ -260,3 +260,35 @@ CPUs at no more than 115 W each, and a 30 C maximum inlet; these requirements
 belong in the complete BOM and operational power/thermal checks. Maxwell is a
 legacy compute-capability-5.2 target whose supported build environment must be
 pinned to CUDA 12.x or earlier.
+
+## Low-bit weight-calibration and exception-store authorities
+
+- Dettmers et al., *SpQR: A Sparse-Quantized Representation for Near-Lossless
+  LLM Weight Compression*, arXiv `2306.03078`, accessed 2026-08-06:
+  <https://arxiv.org/abs/2306.03078>.
+- Lin et al., *AWQ: Activation-aware Weight Quantization for On-Device LLM
+  Compression and Acceleration*, MLSys 2024, accessed 2026-08-06:
+  <https://proceedings.mlsys.org/paper_files/paper/2024/file/42a452cbafa9dd64e9ba4aa95cc1ef21-Paper-Conference.pdf>.
+- Official AWQ implementation, `mit-han-lab/llm-awq`, `auto_scale.py`, accessed
+  2026-08-06:
+  <https://github.com/mit-han-lab/llm-awq/blob/main/awq/quantize/auto_scale.py>.
+- Frantar et al., *GPTQ: Accurate Post-Training Quantization for Generative
+  Pre-trained Transformers*, arXiv `2210.17323`, accessed 2026-08-06:
+  <https://arxiv.org/abs/2210.17323>.
+- Ashkboos et al., *QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs*,
+  arXiv `2404.00456`, accessed 2026-08-06:
+  <https://arxiv.org/abs/2404.00456>.
+
+Decision: design authorities for PW-0133 and successor weight-domain branches,
+not MiMo fidelity or performance evidence. SpQR establishes the causal value of
+isolating sensitivity outliers in a sparse high-precision representation. AWQ
+uses calibration activations and a bounded scale search to protect salient
+weight channels without backpropagation; its official code minimizes module
+output error over candidate activation-derived scales. GPTQ uses approximate
+second-order information to update remaining weights while quantizing, and
+QuaRot applies function-preserving rotations to remove outliers before low-bit
+execution. PW-0133 deliberately tests the smaller mechanism first: exact
+source-FP8 exceptions selected by a train-only diagonal activation-weighted
+error proxy. None of the published quality or speed results transfer to MiMo's
+dynamic source-FP8 MoE without the repository's routed-activation and endpoint
+gates.

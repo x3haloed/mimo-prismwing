@@ -317,6 +317,17 @@ margins. Keep holdout sealed; do not acquire broader data for this mechanism.
 Proceed to weight-domain calibration, outlier-aware mixed precision, or a
 different executable form.
 
+PW-0133 takes the cheapest weight-domain branch first. Preserve PW-0129's
+affine group-128 INT4 core, rank row-by-128 weight-error groups using only
+train activation second moments, and restore the top 1%, 2%, 4%, and 6% from
+exact source FP8. Score frozen validation with routes unchanged and holdout
+sealed. Charge raw FP8 groups, source block scales, U32 ordinals, and
+correction MACs; dense correction matrices are oracle machinery, not the
+artifact. A strict pass requires 1% aggregate, 2% per layer, 5% per row, at
+most 60% source bytes, and at most 10% extra expert MACs. A 2%/4%/8% near miss
+may authorize AWQ composition; a larger miss kills this exception-store form
+before a sparse Metal kernel or full bank.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
