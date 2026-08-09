@@ -13,9 +13,11 @@ import struct
 from typing import Any, Callable
 
 try:
+    from tools.checkpoint_lock import validate_verified_install_file
     from tools.openrouter_reference import atomic_write_new, canonical_json
     from tools.remote_safetensors_audit import fetch_range, load_lock
 except ModuleNotFoundError:
+    from checkpoint_lock import validate_verified_install_file
     from openrouter_reference import atomic_write_new, canonical_json
     from remote_safetensors_audit import fetch_range, load_lock
 
@@ -192,14 +194,8 @@ def materialize_local(
     ):
         raise ValueError(f"local source was not verified against lock: {source_path}")
     path = checkpoint_dir / source_path
+    validate_verified_install_file(path, actual)
     stat = path.stat()
-    if (
-        stat.st_size != actual.get("bytes")
-        or stat.st_dev != actual.get("device")
-        or stat.st_ino != actual.get("inode")
-        or stat.st_mtime_ns != actual.get("modified_ns")
-    ):
-        raise ValueError(f"local source identity changed after verification: {source_path}")
 
     def fetch_local(repository: str, revision: str, remote: str, start: int, end: int) -> bytes:
         if (

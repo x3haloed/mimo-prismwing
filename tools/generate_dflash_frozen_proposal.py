@@ -19,6 +19,7 @@ import torch
 from transformers import DynamicCache, Qwen3Config
 
 try:
+    from tools.checkpoint_lock import validate_verified_install_file
     from tools.dflash_semantics import (
         TARGET_LAYER_IDS,
         first_block_position_ids,
@@ -29,6 +30,7 @@ try:
     from tools.host_safety import HostSafetyMonitor
     from tools.openrouter_reference import atomic_write_new, canonical_json
 except ModuleNotFoundError:
+    from checkpoint_lock import validate_verified_install_file
     from dflash_semantics import (
         TARGET_LAYER_IDS,
         first_block_position_ids,
@@ -88,16 +90,7 @@ def sha256_file(path: Path) -> str:
 
 
 def verified_file(path: Path, record: dict[str, Any]) -> None:
-    stat = path.stat()
-    if (
-        not path.is_file()
-        or record.get("status", "verified") != "verified"
-        or stat.st_size != record.get("bytes")
-        or stat.st_dev != record.get("device")
-        or stat.st_ino != record.get("inode")
-        or stat.st_mtime_ns != record.get("modified_ns")
-    ):
-        raise ValueError(f"verified file identity changed: {path}")
+    validate_verified_install_file(path, record)
 
 
 def authenticate_inputs(
@@ -158,7 +151,10 @@ def authenticate_inputs(
         item for item in artifact.get("verified_files", [])
         if item.get("path") == "dflash/dflash_draft_model.safetensors"
     )
-    verified_file(dflash_root / draft_record["path"], draft_record)
+    verified_file(
+        dflash_root / draft_record["path"],
+        {**draft_record, "status": "verified"},
+    )
 
     lock_bytes = sglang_lock_path.read_bytes()
     lock = json.loads(lock_bytes)

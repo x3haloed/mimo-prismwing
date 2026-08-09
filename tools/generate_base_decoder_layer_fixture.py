@@ -18,9 +18,11 @@ from safetensors import safe_open
 import torch
 
 try:
+    from tools.checkpoint_lock import validate_verified_install_file
     from tools.generate_mtp_decoder_block_fixture import install_scales, project, rms_norm
     from tools.openrouter_reference import atomic_write_new, canonical_json
 except ModuleNotFoundError:
+    from checkpoint_lock import validate_verified_install_file
     from generate_mtp_decoder_block_fixture import install_scales, project, rms_norm
     from openrouter_reference import atomic_write_new, canonical_json
 
@@ -217,14 +219,7 @@ def require_verified_source(
         or observed.get("sha256") != locked.get("sha256")
     ):
         raise ValueError(f"source did not pass the lock: {relative_path}")
-    stat = (checkpoint_dir / relative_path).stat()
-    if (
-        stat.st_size != observed.get("bytes")
-        or stat.st_dev != observed.get("device")
-        or stat.st_ino != observed.get("inode")
-        or stat.st_mtime_ns != observed.get("modified_ns")
-    ):
-        raise ValueError(f"source identity changed after verification: {relative_path}")
+    validate_verified_install_file(checkpoint_dir / relative_path, observed)
     return locked, observed
 
 

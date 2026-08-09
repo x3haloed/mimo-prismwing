@@ -15,11 +15,13 @@ from safetensors import safe_open
 import torch
 
 try:
+    from tools.checkpoint_lock import validate_verified_install_file
     from tools.generate_real_layer0_bf16_oracle import (
         PROMPT_IDS, REVISION, VERIFICATION_SHA256, Safety, dynamic_input, write_capture,
     )
     from tools.openrouter_reference import atomic_write_new, canonical_json
 except ModuleNotFoundError:
+    from checkpoint_lock import validate_verified_install_file
     from generate_real_layer0_bf16_oracle import (
         PROMPT_IDS, REVISION, VERIFICATION_SHA256, Safety, dynamic_input, write_capture,
     )
@@ -34,11 +36,7 @@ def sha256(path: Path) -> str:
 
 
 def validate_file(path: Path, record: dict) -> None:
-    stat = path.stat()
-    if (record.get("status") != "verified" or stat.st_size != record.get("bytes")
-            or stat.st_dev != record.get("device") or stat.st_ino != record.get("inode")
-            or stat.st_mtime_ns != record.get("modified_ns")):
-        raise ValueError(f"verified file identity changed: {path.name}")
+    validate_verified_install_file(path, record)
 
 
 class ShardedCheckpoint:

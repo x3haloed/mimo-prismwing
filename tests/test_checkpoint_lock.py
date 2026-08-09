@@ -3,11 +3,44 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tools.checkpoint_lock import sha256_file, verify_lock
+from tools.checkpoint_lock import sha256_file, validate_verified_install_file, verify_lock
 from tools.openrouter_reference import canonical_json
 
 
 class CheckpointLockTests(unittest.TestCase):
+    def test_runtime_identity_allows_only_transient_device_drift(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "payload"
+            path.write_bytes(b"checkpoint")
+            stat = path.stat()
+            record = {
+                "status": "verified",
+                "bytes": stat.st_size,
+                "sha256": hashlib.sha256(b"checkpoint").hexdigest(),
+                "device": stat.st_dev + 1,
+                "inode": stat.st_ino,
+                "modified_ns": stat.st_mtime_ns,
+            }
+            result = validate_verified_install_file(path, record)
+            self.assertTrue(result["device_changed"])
+            self.assertEqual(result["current_device"], stat.st_dev)
+            for field, value in (
+                ("bytes", stat.st_size + 1),
+                ("inode", stat.st_ino + 1),
+                ("modified_ns", stat.st_mtime_ns + 1),
+                ("status", "unverified"),
+                ("sha256", "missing"),
+            ):
+                with self.subTest(field=field):
+                    corrupted = dict(record)
+                    corrupted[field] = value
+                    with self.assertRaisesRegex(ValueError, "identity changed"):
+                        validate_verified_install_file(path, corrupted)
+            directory = Path(temporary) / "directory"
+            directory.mkdir()
+            with self.assertRaisesRegex(ValueError, "not regular"):
+                validate_verified_install_file(directory, record)
+
     def test_partial_and_complete_verification(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

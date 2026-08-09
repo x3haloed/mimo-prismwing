@@ -21,6 +21,32 @@ except ModuleNotFoundError:  # Direct execution places tools/ first on sys.path.
 SCHEMA_VERSION = 1
 
 
+def validate_verified_install_file(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    """Validate durable post-install identity while preserving mount drift as evidence."""
+    if not path.is_file():
+        raise ValueError(f"verified file is absent or not regular: {path}")
+    stat = path.stat()
+    recorded_hash = record.get("sha256")
+    if (
+        record.get("status") != "verified"
+        or not isinstance(recorded_hash, str)
+        or len(recorded_hash) != 64
+        or any(character not in "0123456789abcdef" for character in recorded_hash)
+        or stat.st_size != record.get("bytes")
+        or stat.st_ino != record.get("inode")
+        or stat.st_mtime_ns != record.get("modified_ns")
+    ):
+        raise ValueError(f"verified file identity changed: {path}")
+    recorded_device = record.get("device")
+    if not isinstance(recorded_device, int):
+        raise ValueError(f"verified file receipt lacks device observation: {path}")
+    return {
+        "recorded_device": recorded_device,
+        "current_device": stat.st_dev,
+        "device_changed": recorded_device != stat.st_dev,
+    }
+
+
 def sha256_file(path: Path, chunk_bytes: int = 8 * 1024 * 1024) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:

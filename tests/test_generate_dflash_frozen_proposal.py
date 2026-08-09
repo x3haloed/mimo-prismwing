@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -34,7 +35,10 @@ class FrozenProposalTests(unittest.TestCase):
                 "device": stat.st_dev,
                 "inode": stat.st_ino,
                 "modified_ns": stat.st_mtime_ns,
+                "sha256": hashlib.sha256(b"abc").hexdigest(),
             }
+            verified_file(path, record)
+            record["device"] += 1
             verified_file(path, record)
             record["bytes"] += 1
             with self.assertRaisesRegex(ValueError, "identity changed"):

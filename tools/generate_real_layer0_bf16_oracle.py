@@ -18,8 +18,10 @@ from safetensors import safe_open
 import torch
 
 try:
+    from tools.checkpoint_lock import validate_verified_install_file
     from tools.openrouter_reference import atomic_write_new, canonical_json
 except ModuleNotFoundError:
+    from checkpoint_lock import validate_verified_install_file
     from openrouter_reference import atomic_write_new, canonical_json
 
 
@@ -112,11 +114,9 @@ def load_verified_shard(checkpoint: Path, verification_path: Path) -> Path:
         raise ValueError("checkpoint verification identity mismatch")
     record = next((x for x in verification["files"] if x["path"] == SHARD), None)
     path = checkpoint / SHARD
-    stat = path.stat()
-    if (not record or record.get("status") != "verified" or stat.st_size != record["bytes"]
-            or stat.st_dev != record["device"] or stat.st_ino != record["inode"]
-            or stat.st_mtime_ns != record["modified_ns"]):
-        raise ValueError("verified shard identity changed")
+    if not record:
+        raise ValueError("verified shard is absent from receipt")
+    validate_verified_install_file(path, record)
     return path
 
 
