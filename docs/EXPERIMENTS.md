@@ -555,6 +555,13 @@ explosion. Never load validation. Continue only for 25% train improvement,
 descending loss, 0--5% changed codes, exact grid/code authority, and unchanged
 runtime accounting. Failure ends schedule search for this parameterization.
 
+PW-0146 rejects the remaining schedule interval. It changes a bounded 2.346%
+of codes and reaches 0.628 latent displacement, but train error explodes from
+3.928% to 106.296% and loss from 0.00154 to 1.12988. Validation was never
+loaded. Combined with PW-0145's no-change dead zone and PW-0144's large-step
+divergence, end schedule search for this fixed-grid independent-offset STE
+form. Move to grid-changing training or another executable representation.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

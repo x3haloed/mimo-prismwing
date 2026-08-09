@@ -2659,3 +2659,29 @@ evidence hashes to
 analysis hashes to
 `a562ec97d8a9e49566b562a4cee2d88df102f1d9afff2987ed16988de6bfa687`.
 No endpoint TPS or measured throughput-model constant changes in PW-0145.
+
+PW-0146 closes the remaining train-only schedule interval for fixed-grid
+straight-through code offsets. The predicted threshold-crossing schedule
+reaches `0.628309` maximum displacement and changes 590,345 of 25,165,824
+codes (`2.3458%`), satisfying the bounded code-change condition. It is not a
+recovery: train relative L2 explodes from `0.039279` to `1.062956` and loss
+from `0.001542818` to `1.129876494`.
+
+Together, PW-0144 through PW-0146 reject further schedule search for this
+specific parameterization. Low rates remain inside the rounding dead zone;
+the first bounded crossing changes many coupled weights discontinuously and
+destroys train; the high schedule also diverges. Validation was never loaded
+in PW-0145 or PW-0146, so this is optimizer/representation evidence rather
+than a new fidelity result. Grid-changing training, a coordinated discrete
+optimizer, or a different executable representation remains logically open.
+
+Code domain, F16 metadata, and the 13,369,344-byte (`0.531120`)
+zero-extra-MAC ledger remain exact. Gate 8 passes across 15 snapshots at 59%
+minimum free memory, 1,533,788,160-byte maximum peak RSS, 1,424,920,128-byte
+maximum physical footprint, 302,648,448-byte maximum release-boundary
+footprint, zero swap growth or new throttled pages, and stable services. Raw
+evidence hashes to
+`7bb795455927295c673bfe65d06ae6311dbdd97b9d3517caa357307d189bdcf3`;
+analysis hashes to
+`9ea3ba39fc7381389e168b09478cdf3789cbcce846ac82b096e392b5d42bc3f3`.
+No endpoint TPS or measured throughput-model constant changes in PW-0146.

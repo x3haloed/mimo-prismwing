@@ -1,7 +1,7 @@
 # PW-0146 — Train-only threshold-crossing code QAT
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -52,3 +52,35 @@ endpoint.
 Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 Apply normative Gate 8 at least every eight steps and after release.
 
+## Result
+
+The schedule crosses the intended first-bin regime but is immediately
+destructive. Maximum latent displacement reaches `0.628309`; 590,345 of
+25,165,824 codes change (2.3458%), inside the frozen 5% bound. Train relative
+L2 nevertheless explodes from `0.039279` to `1.062956`, and normalized loss
+rises from `0.001542818` to `1.129876494`.
+
+The code-domain, changed-code, grid-metadata, physical, and safety conditions
+all pass. Validation values were never loaded and holdout remains sealed. The
+result joins PW-0145's inert low-rate family and PW-0144's destructive high
+schedule: within this fixed-grid, independent latent-offset, straight-through
+form, schedules below the boundary cannot change the artifact and the first
+bounded boundary crossing destroys the train objective. End schedule search
+for this parameterization. Grid-changing training or a structurally different
+executable representation is required.
+
+The runtime ledger remains 13,369,344 bytes per expert (`0.531120` of source)
+with zero additional MACs. Gate 8 passes across 15 snapshots: minimum free
+memory is 59%, maximum peak RSS is 1,533,788,160 bytes, maximum physical
+footprint is 1,424,920,128 bytes, maximum release-boundary footprint is
+302,648,448 bytes, swap growth and new throttled pages are zero, and protected
+services remain resident.
+
+Raw evidence:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0146/run-001.json`, SHA-256
+`7bb795455927295c673bfe65d06ae6311dbdd97b9d3517caa357307d189bdcf3`.
+Validated analysis:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0146/analysis-001/manifest.json`,
+SHA-256
+`9ea3ba39fc7381389e168b09478cdf3789cbcce846ac82b096e392b5d42bc3f3`.
+No endpoint TPS or measured throughput-model constant changes.
