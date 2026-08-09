@@ -644,6 +644,16 @@ target directly; do not import bundle acceptance claims or substitute its
 target. Restrict the shipped verifier to greedy mode until a distribution-
 preserving positive-temperature correction path passes statistical tests.
 
+PW-0150 corrects one draft-input omission in PW-0102: the shipped trained mask
+embedding has norm `1.479445`, while pinned-base row 151675 has norm only
+`0.0000207`. Substituting the authenticated draft-only mask changes the proposal
+from `[264,1773,102092,...]` to `[264,11,11,...]`, proving that the old proposal
+was not representative of the shipped mask embodiment. It still fails the
+first required target token (`11` versus `13`); target token 13 is draft rank
+four with a `2.21875` logit gap. Thus `A=1` and, because `U>=1`, `A/U<=1` without
+another target walk. Reject the supplied DFlash-8/mask/base combination; retain
+base-trained or materially wider proposers as separate branches.
+
 PW-0110 adds the measured cold-storage prerequisite for the unchanged
 source-FP8 internal-SSD branch. `q=16` and `q=32` are rejected even with
 perfect acceptance and minimum union. A base-aligned route-coherent pool must

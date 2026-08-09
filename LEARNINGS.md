@@ -2760,3 +2760,30 @@ swap or new throttled pages, and stable services. Raw evidence hashes to
 analysis hashes to
 `eeb5576f1d20f81cfa0c6326622fa649262ac5fcf13ca09625e59b7512044f18`.
 No endpoint TPS or measured throughput-model constant changes in PW-0149.
+
+PW-0150 supersedes PW-0102's implicit assumption that pinned-base embedding
+row 151675 is a representative DFlash mask input. That base row is effectively
+zero (`0.0000207325` F32 norm); the separately shipped and authenticated BF16
+mask has norm `1.4794452`, relative L2 distance `71358.67`, and cosine
+similarity `-0.0310`. Using the exported draft-only value changes the frozen
+proposal causally from `[264,1773,102092,102092,102092,1773,1773,1773]` to
+`[264,11,11,11,11,11,11,11]`. Future DFlash audits must preserve the shipped
+mask embodiment rather than importing the base placeholder row.
+
+That correction does not rescue the supplied proposer. The pinned base's first
+required suffix remains token 13, while the draft chooses token 11. Token 13 is
+only draft rank four and trails by `2.21875` logits, so matching suffix length
+is zero and formal `A=1` counts only the anchor. Since a width-eight top-eight
+route union necessarily has `U>=1`, this block has `A/U<=1` and cannot meet the
+strict routed-byte leverage gate. No second target walk is justified. Reject
+the supplied DFlash-8/mask/base combination on this trace while leaving a
+base-trained proposer or wider route-coherent lattice logically open.
+
+The passed raw manifest hashes to
+`0582f905d8d6531e0c7d4e9a50def819a6d337a62c5e9b0cac351caa9435f882`;
+analysis hashes to
+`72051c021ae1d93989508b0423ab1b0811072c24799b8e986d4543b4a513f04e`.
+Gate 8 passes at 62% minimum free memory, 4,110,647,296-byte peak RSS,
+299,475,008-byte maximum physical footprint, zero swap growth or throttling,
+and stable services. This is proposal evidence, not accepted endpoint TPS, and
+no throughput-model constant changes.

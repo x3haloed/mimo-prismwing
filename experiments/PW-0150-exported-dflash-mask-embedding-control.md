@@ -1,9 +1,11 @@
 # PW-0150 — Exported DFlash mask-embedding control
 
-- Status: ready to execute
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
+- Commit and dirty state: `draft-003` runtime `4d8c34d`, clean; analysis
+  `db4a283b536586993796317368130107a5f6a94c`, clean
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; checkpoint verification
   `9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`;
@@ -91,8 +93,43 @@ diagnostic container at the JSON boundary, add a regression fixture for list,
 tuple, and set forms, and authorize `draft-003`. The model outputs are not read
 from or compared with the quarantined files.
 
+The authorized post-failure `draft-003` run passed. Its immutable raw manifest
+is `/Users/chad/Models/mimo-prismwing/evidence/PW-0150/draft-003/manifest.json`
+and hashes to
+`0582f905d8d6531e0c7d4e9a50def819a6d337a62c5e9b0cac351caa9435f882`.
+The shipped mask changes the complete proposal from PW-0102's
+`[264, 1773, 102092, 102092, 102092, 1773, 1773, 1773]` to
+`[264, 11, 11, 11, 11, 11, 11, 11]`. Its final-hidden and complete-logit
+captures hash to `8cabe564...b8f4` and `9a97853d...2f7` respectively.
+
+The changed proposal still fails at the first required suffix. The already
+authenticated target token is `13`, while the exported-mask draft chooses
+token `11` at logit `8.75`. Token `13` is draft rank four at logit `6.53125`,
+a `2.21875` gap. Therefore matching suffix length is zero and formal `A=1`
+counts only the target anchor. Every width-eight top-eight route union has
+`U>=1`, so even without another target walk this block has the decisive bound
+`A/U<=1` and cannot pass the strict routed-byte leverage gate `A/U>1`.
+
+The post-failure run was cache-influenced and is not a cold latency claim. It
+read 1,095,921,664 physical bytes, spent 27,582.396 ms in the draft and
+1,002.224 ms in the base LM head, and completed in 29,918.319 ms. Gate 8 passed
+all 15 snapshots with 62% minimum free memory, 4,110,647,296-byte peak RSS,
+299,475,008-byte maximum physical footprint, 289,049,088-byte final footprint,
+zero swap growth or new throttled pages, and stable services.
+
+Independent analysis authenticates the raw proposal, both captures, and the
+PW-0102 target posterior. Its manifest is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0150/analysis-001/manifest.json`
+and hashes to
+`72051c021ae1d93989508b0423ab1b0811072c24799b8e986d4543b4a513f04e`.
+
 ## Decision
 
-Pending execution. This control can reverse only PW-0102's judgment about the
-exported-mask embodiment. It cannot establish broad acceptance, a wide proposer,
-companion feasibility, endpoint TPS, or Prismwing completion by itself.
+Reject the supplied DFlash-8 draft with its exported mask against this frozen
+pinned-base trace. The shipped mask is the correct causal variable to retain in
+any future draft audit, and PW-0102's near-zero-mask proposal should not be
+treated as representative of that embodiment. Nevertheless, the corrected
+draft still misses the first token and cannot provide routed-byte leverage, so
+do not spend another full target walk or optimize this proposal. A base-trained
+proposer or materially wider route-coherent lattice remains a distinct branch.
+No endpoint TPS or throughput-model constant changes.
