@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import platform
 import time
+from typing import Callable
 
 import mlx.core as mx
 import numpy as np
@@ -81,6 +82,8 @@ class NBitControlConfig:
     experiment: str
     bits: int
     packed_code_bytes: int
+    metadata_bytes: int
+    metadata_label: str
     maximum_packed_ratio: float
     candidate_label: str
     evidence_class: str
@@ -98,13 +101,15 @@ class NBitControlConfig:
 
     @property
     def packed_bytes(self) -> int:
-        return self.packed_code_bytes + METADATA_BYTES
+        return self.packed_code_bytes + self.metadata_bytes
 
 
 FIVE_BIT_CONFIG = NBitControlConfig(
     experiment="PW-0147",
     bits=5,
     packed_code_bytes=PACKED_CODE_BYTES,
+    metadata_bytes=METADATA_BYTES,
+    metadata_label="f16_affine_metadata_bytes_per_expert",
     maximum_packed_ratio=0.70,
     candidate_label="five_bit",
     evidence_class="pw0147_five_bit_global_hessian_three_expert_control",
@@ -189,21 +194,27 @@ def global_hessian_nbit_fixed_grid(
     bits: int = BITS,
     damping: float = DAMPING,
     block_size: int = BLOCK_SIZE,
+    column_quantizer: Callable | None = None,
+    result_validator: Callable | None = None,
+    grid_payloads: tuple[np.ndarray, ...] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     if (
         weight.ndim != 2
         or activations.ndim != 2
         or activations.shape[1] != weight.shape[1]
         or activations.shape[0] == 0
-        or scales.shape != biases.shape
-        or scales.shape[0] != weight.shape[0]
-        or weight.shape[1] != scales.shape[1] * GROUP_SIZE
         or bits <= 0
         or bits > 8
         or damping <= 0
         or block_size <= 0
     ):
         raise ValueError("PW-0147 global-Hessian input is invalid")
+    if column_quantizer is None and (
+        scales.shape != biases.shape
+        or scales.shape[0] != weight.shape[0]
+        or weight.shape[1] != scales.shape[1] * GROUP_SIZE
+    ):
+        raise ValueError("PW-0147 global-Hessian affine metadata is invalid")
     rows, columns = weight.shape
     maximum = (1 << bits) - 1
     x = activations.astype(np.float64)
@@ -234,15 +245,22 @@ def global_hessian_nbit_fixed_grid(
         for local_column in range(count):
             ordered_column = start + local_column
             original_column = int(permutation[ordered_column])
-            group = original_column // GROUP_SIZE
-            scale = scales[:, group].astype(np.float64)
-            bias = biases[:, group].astype(np.float64)
-            safe = np.where(scale == 0, 1.0, scale)
-            code = np.clip(
-                np.rint((block_weight[:, local_column] - bias) / safe), 0, maximum
-            )
-            code = np.where(scale == 0, 0, code)
-            value = code * scale + bias
+            if column_quantizer is None:
+                group = original_column // GROUP_SIZE
+                scale = scales[:, group].astype(np.float64)
+                bias = biases[:, group].astype(np.float64)
+                safe = np.where(scale == 0, 1.0, scale)
+                code = np.clip(
+                    np.rint((block_weight[:, local_column] - bias) / safe), 0, maximum
+                )
+                code = np.where(scale == 0, 0, code)
+                value = code * scale + bias
+            else:
+                code, value = column_quantizer(
+                    block_weight[:, local_column], original_column
+                )
+                if code.shape != (rows,) or value.shape != (rows,):
+                    raise ValueError("global-Hessian column quantizer shape mismatch")
             codes[:, original_column] = code.astype(np.uint8)
             quantized[:, original_column] = value.astype(np.float16)
             error = (block_weight[:, local_column] - value) / block_factor[local_column, local_column]
@@ -254,11 +272,14 @@ def global_hessian_nbit_fixed_grid(
             update = block_error @ inverse_cholesky[start:end, end:]
             cross_block_update_squared += float(np.sum(update * update, dtype=np.float64))
             working[:, end:] -= update
-    validate_nbit_grid(codes, quantized, scales, biases, bits)
+    if result_validator is None:
+        validate_nbit_grid(codes, quantized, scales, biases, bits)
+    else:
+        result_validator(codes, quantized)
     digest = hashlib.sha256()
     digest.update(np.ascontiguousarray(codes).tobytes())
-    digest.update(np.ascontiguousarray(scales).tobytes())
-    digest.update(np.ascontiguousarray(biases).tobytes())
+    for payload in grid_payloads or (scales, biases):
+        digest.update(np.ascontiguousarray(payload).tobytes())
     return quantized, codes, {
         "bits": bits,
         "maximum_code": maximum,
@@ -279,7 +300,7 @@ def physical_ledger(config: NBitControlConfig = FIVE_BIT_CONFIG) -> dict:
     return {
         "bits": config.bits,
         "packed_code_bytes_per_expert": config.packed_code_bytes,
-        "f16_affine_metadata_bytes_per_expert": METADATA_BYTES,
+        config.metadata_label: config.metadata_bytes,
         "packed_bytes_per_expert": packed_bytes,
         "packed_to_source_ratio": packed_bytes / SOURCE_EXPERT_BYTES,
         "full_routed_bank_bytes": 47 * 256 * packed_bytes,
@@ -355,6 +376,8 @@ def run(
     output_path: Path,
     commit: str,
     config: NBitControlConfig = FIVE_BIT_CONFIG,
+    grid_builder: Callable = affine_nbit_grid,
+    assignment_builder: Callable = global_hessian_nbit_fixed_grid,
 ) -> dict:
     if output_path.exists():
         raise ValueError(f"refusing to overwrite {output_path}")
@@ -437,8 +460,8 @@ def run(
             before = safety.checkpoint(f"layer_{layer}_expert_{expert}_{projection}_preflight")
             if before.process_physical_footprint_bytes + projected > safety.policy.maximum_process_physical_footprint_bytes:
                 raise RuntimeError(f"{config.experiment} layer {layer} expert {expert} exceeds Gate 8 headroom")
-            scales5, biases5, rtn5, rtn_codes5 = affine_nbit_grid(weight, config.bits)
-            candidate5, codes5, diagnostics5 = global_hessian_nbit_fixed_grid(
+            scales5, biases5, rtn5, rtn_codes5 = grid_builder(weight, config.bits)
+            candidate5, codes5, diagnostics5 = assignment_builder(
                 weight, activations[projection], scales5, biases5, bits=config.bits
             )
             scales4, biases4, _, _ = affine_grid(weight)
@@ -521,7 +544,7 @@ def run(
         mx.clear_cache()
         safety.release_checkpoint(
             f"layer_{layer}_expert_{expert}_complete_released",
-            ["source expert", "five/four-bit candidates", "captured activations", "expert outputs"],
+            ["source expert", "candidate/control weights", "captured activations", "expert outputs"],
         )
     gate = _gate(reports, config)
     decision = (
