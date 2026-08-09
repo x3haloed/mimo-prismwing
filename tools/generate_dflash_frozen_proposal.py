@@ -531,7 +531,11 @@ def main() -> int:
         if safety is not None and arguments.output.is_dir() and not failure_path.exists():
             failure = {
                 "schema_version": 1,
-                "evidence_class": "pw0102_frozen_hidden_dflash_proposal_failure",
+                "evidence_class": (
+                    "pw0150_exported_mask_dflash_proposal_failure"
+                    if arguments.exported_mask_embedding is not None
+                    else "pw0102_frozen_hidden_dflash_proposal_failure"
+                ),
                 "status": "failed",
                 "error_type": type(error).__name__,
                 "error": str(error),

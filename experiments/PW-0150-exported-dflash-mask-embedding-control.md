@@ -64,7 +64,19 @@ silently retrying it.
 
 ## Result
 
-Pending execution.
+The first invocation stopped before input authentication because its command
+named a nonexistent receipt path. Preserve
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0150/draft-001/failure.json`,
+SHA-256 `7c9f7ca03b8c6ea98b61f071e9b5f0b7713ed05a33aeadd4af5b7933912bb6bc`.
+Its sole safety snapshot retained 67% free memory, used no new swap or
+throttled pages, and retained every protected service. No checkpoint or draft
+payload was opened. The authenticated receipt is the already-established
+PW-0049 artifact at
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0049/checkpoint-verification.json`,
+whose SHA-256 is the required
+`9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`.
+Authorize `draft-002` with that corrected path; this operational amendment
+changes no model, mask, proposal, or gate semantics.
 
 ## Decision
 
