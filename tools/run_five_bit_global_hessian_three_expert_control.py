@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import gc
 import hashlib
 import json
@@ -73,6 +74,47 @@ PACKED_CODE_BYTES = 15_728_640
 METADATA_BYTES = 786_432
 PACKED_BYTES = PACKED_CODE_BYTES + METADATA_BYTES
 PACKED_RATIO = PACKED_BYTES / SOURCE_EXPERT_BYTES
+
+
+@dataclass(frozen=True)
+class NBitControlConfig:
+    experiment: str
+    bits: int
+    packed_code_bytes: int
+    maximum_packed_ratio: float
+    candidate_label: str
+    evidence_class: str
+    pass_decision: str
+    reject_decision: str
+    prerequisite_sha256: str
+    prerequisite_label: str
+    prerequisite_decision: str
+    prerequisite_source_key: str
+    prior_candidate_label: str | None = None
+
+    @property
+    def maximum_code(self) -> int:
+        return (1 << self.bits) - 1
+
+    @property
+    def packed_bytes(self) -> int:
+        return self.packed_code_bytes + METADATA_BYTES
+
+
+FIVE_BIT_CONFIG = NBitControlConfig(
+    experiment="PW-0147",
+    bits=5,
+    packed_code_bytes=PACKED_CODE_BYTES,
+    maximum_packed_ratio=0.70,
+    candidate_label="five_bit",
+    evidence_class="pw0147_five_bit_global_hessian_three_expert_control",
+    pass_decision="authorize_all_validation_expert_five_bit_audit",
+    reject_decision="reject_five_bit_global_hessian_three_expert_control",
+    prerequisite_sha256=PW0146_SHA256,
+    prerequisite_label="PW-0146 report",
+    prerequisite_decision="reject_threshold_crossing_fixed_grid_code_qat",
+    prerequisite_source_key="pw0146_report_sha256",
+)
 
 
 def affine_nbit_grid(
@@ -232,14 +274,15 @@ def global_hessian_nbit_fixed_grid(
     }
 
 
-def physical_ledger() -> dict:
+def physical_ledger(config: NBitControlConfig = FIVE_BIT_CONFIG) -> dict:
+    packed_bytes = config.packed_bytes
     return {
-        "bits": BITS,
-        "packed_code_bytes_per_expert": PACKED_CODE_BYTES,
+        "bits": config.bits,
+        "packed_code_bytes_per_expert": config.packed_code_bytes,
         "f16_affine_metadata_bytes_per_expert": METADATA_BYTES,
-        "packed_bytes_per_expert": PACKED_BYTES,
-        "packed_to_source_ratio": PACKED_RATIO,
-        "full_routed_bank_bytes": 47 * 256 * PACKED_BYTES,
+        "packed_bytes_per_expert": packed_bytes,
+        "packed_to_source_ratio": packed_bytes / SOURCE_EXPERT_BYTES,
+        "full_routed_bank_bytes": 47 * 256 * packed_bytes,
         "additional_runtime_macs": 0,
     }
 
@@ -250,39 +293,49 @@ def _prior_report(prior: dict, layer: int, expert: int) -> dict:
         if row.get("layer") == layer and row.get("expert") == expert
     ]
     if len(matches) != 1:
-        raise ValueError("PW-0147 PW-0138 control authority mismatch")
+        raise ValueError("n-bit prior control authority mismatch")
     return matches[0]
 
 
-def _gate(reports: list[dict]) -> dict:
+def _gate(
+    reports: list[dict], config: NBitControlConfig = FIVE_BIT_CONFIG
+) -> dict:
     rows = []
     for report in reports:
-        candidate = report["five_bit_validation_metrics"]
-        prior = report["pw0138_four_bit_validation_metrics"]
+        candidate = report[f"{config.candidate_label}_validation_metrics"]
+        if config.prior_candidate_label is None:
+            prior = report["pw0138_four_bit_validation_metrics"]
+            prior_condition = "improves_four_bit_validation"
+            prior_output = "four_bit_validation_relative_l2"
+        else:
+            prior = report["prior_candidate_validation_metrics"]
+            prior_condition = f"improves_{config.prior_candidate_label}_validation"
+            prior_output = f"{config.prior_candidate_label}_validation_relative_l2"
         conditions = {
             "validation_relative_l2": candidate["relative_l2"] <= 0.02,
             "maximum_validation_row_relative_l2": candidate["maximum_row_relative_l2"] <= 0.05,
             "train_improves_round_to_nearest": (
-                report["five_bit_train_metrics"]["relative_l2"]
-                < report["five_bit_rtn_train_metrics"]["relative_l2"]
+                report[f"{config.candidate_label}_train_metrics"]["relative_l2"]
+                < report[f"{config.candidate_label}_rtn_train_metrics"]["relative_l2"]
             ),
-            "improves_four_bit_validation": candidate["relative_l2"] < prior["relative_l2"],
+            prior_condition: candidate["relative_l2"] < prior["relative_l2"],
             "four_bit_control_reproduced": report["four_bit_control_reproduced"],
             "code_domain": report["code_domain_valid"],
         }
-        rows.append({
+        row = {
             "layer": report["layer"],
             "expert": report["expert"],
             "passes": all(conditions.values()),
             "conditions": conditions,
-            "five_bit_validation_relative_l2": candidate["relative_l2"],
-            "five_bit_maximum_row_relative_l2": candidate["maximum_row_relative_l2"],
-            "four_bit_validation_relative_l2": prior["relative_l2"],
-        })
-    physical = physical_ledger()
+            f"{config.candidate_label}_validation_relative_l2": candidate["relative_l2"],
+            f"{config.candidate_label}_maximum_row_relative_l2": candidate["maximum_row_relative_l2"],
+            prior_output: prior["relative_l2"],
+        }
+        rows.append(row)
+    physical = physical_ledger(config)
     physical_passes = (
-        physical["packed_bytes_per_expert"] == PACKED_BYTES
-        and physical["packed_to_source_ratio"] <= 0.70
+        physical["packed_bytes_per_expert"] == config.packed_bytes
+        and physical["packed_to_source_ratio"] <= config.maximum_packed_ratio
         and physical["additional_runtime_macs"] == 0
     )
     return {
@@ -298,9 +351,10 @@ def run(
     verification_path: Path,
     corpus_manifest_path: Path,
     pw0138_path: Path,
-    pw0146_path: Path,
+    prerequisite_path: Path,
     output_path: Path,
     commit: str,
+    config: NBitControlConfig = FIVE_BIT_CONFIG,
 ) -> dict:
     if output_path.exists():
         raise ValueError(f"refusing to overwrite {output_path}")
@@ -310,23 +364,23 @@ def run(
         (verification_path, VERIFICATION_SHA256, "checkpoint verification"),
         (corpus_manifest_path, CORPUS_SHA256, "PW-0116 corpus"),
         (pw0138_path, PW0138_SHA256, "PW-0138 report"),
-        (pw0146_path, PW0146_SHA256, "PW-0146 report"),
+        (prerequisite_path, config.prerequisite_sha256, config.prerequisite_label),
     ):
         if sha256_file(path) != expected:
-            raise ValueError(f"PW-0147 {label} hash mismatch")
+            raise ValueError(f"{config.experiment} {label} hash mismatch")
     started = time.perf_counter()
     safety = HostSafetyMonitor()
     corpus = json.loads(corpus_manifest_path.read_text())
     prior = json.loads(pw0138_path.read_text())
-    recovery_end = json.loads(pw0146_path.read_text())
+    prerequisite = json.loads(prerequisite_path.read_text())
     if (
         corpus.get("revision") != REVISION
         or prior.get("decision") != "authorize_all_validation_expert_global_hessian_audit"
-        or recovery_end.get("decision") != "reject_threshold_crossing_fixed_grid_code_qat"
+        or prerequisite.get("decision") != config.prerequisite_decision
         or prior.get("holdout_unsealed")
-        or recovery_end.get("holdout_unsealed")
+        or prerequisite.get("holdout_unsealed")
     ):
-        raise ValueError("PW-0147 authority identity mismatch")
+        raise ValueError(f"{config.experiment} authority identity mismatch")
     checkpoint = ShardedCheckpoint(checkpoint_root, verification_path)
     root = corpus_manifest_path.parent
     reports = []
@@ -340,7 +394,7 @@ def run(
             if 112 <= position < 168
         ]
         if len(train_local) != expected_train or len(validation_local) != expected_validation:
-            raise ValueError("PW-0147 frozen sample coverage mismatch")
+            raise ValueError(f"{config.experiment} frozen sample coverage mismatch")
         offset = sum(
             len(row["positions"])
             for row in authority["expert_schedule"][: authority["expert_schedule"].index(schedule)]
@@ -382,10 +436,10 @@ def run(
             projected = projected_workspace_bytes(weight)
             before = safety.checkpoint(f"layer_{layer}_expert_{expert}_{projection}_preflight")
             if before.process_physical_footprint_bytes + projected > safety.policy.maximum_process_physical_footprint_bytes:
-                raise RuntimeError(f"PW-0147 layer {layer} expert {expert} exceeds Gate 8 headroom")
-            scales5, biases5, rtn5, rtn_codes5 = affine_nbit_grid(weight)
+                raise RuntimeError(f"{config.experiment} layer {layer} expert {expert} exceeds Gate 8 headroom")
+            scales5, biases5, rtn5, rtn_codes5 = affine_nbit_grid(weight, config.bits)
             candidate5, codes5, diagnostics5 = global_hessian_nbit_fixed_grid(
-                weight, activations[projection], scales5, biases5
+                weight, activations[projection], scales5, biases5, bits=config.bits
             )
             scales4, biases4, _, _ = affine_grid(weight)
             candidate4, _, diagnostics4 = global_hessian_gptq_fixed_grid(
@@ -395,17 +449,17 @@ def run(
             five_rtn_weights[projection] = rtn5
             four_weights[projection] = candidate4
             projection_reports[projection] = {
-                "five_bit": diagnostics5,
-                "five_bit_candidate_train_metrics": error_metrics(
+                config.candidate_label: diagnostics5,
+                f"{config.candidate_label}_candidate_train_metrics": error_metrics(
                     dense_projection(activations[projection], candidate5),
                     expected_projection[projection],
                 ),
-                "five_bit_rtn_train_metrics": error_metrics(
+                f"{config.candidate_label}_rtn_train_metrics": error_metrics(
                     dense_projection(activations[projection], rtn5),
                     expected_projection[projection],
                 ),
                 "four_bit_grid_sha256": diagnostics4["grid_sha256"],
-                "five_bit_rtn_code_sha256": hashlib.sha256(
+                f"{config.candidate_label}_rtn_code_sha256": hashlib.sha256(
                     np.ascontiguousarray(rtn_codes5).tobytes()
                 ).hexdigest(),
             }
@@ -436,23 +490,29 @@ def run(
                 for name, row in prior_report["projection_reports"].items()
             }
         )
-        reports.append({
+        report = {
             "layer": layer,
             "expert": expert,
             "train_placements": len(train_positions),
             "validation_placements": len(validation_positions),
             "projection_reports": projection_reports,
-            "five_bit_train_metrics": error_metrics(five_train, train_expected),
-            "five_bit_validation_metrics": error_metrics(five_validation, validation_expected),
-            "five_bit_rtn_train_metrics": error_metrics(five_rtn_train, train_expected),
+            f"{config.candidate_label}_train_metrics": error_metrics(five_train, train_expected),
+            f"{config.candidate_label}_validation_metrics": error_metrics(five_validation, validation_expected),
+            f"{config.candidate_label}_rtn_train_metrics": error_metrics(five_rtn_train, train_expected),
             "four_bit_train_metrics": four_train_metrics,
             "pw0138_four_bit_validation_metrics": prior_report["global_gptq_validation"],
             "four_bit_control_reproduced": reproduced,
             "code_domain_valid": all(
-                row["five_bit"]["maximum_code"] == MAXIMUM_CODE
+                row[config.candidate_label]["maximum_code"] == config.maximum_code
                 for row in projection_reports.values()
             ),
-        })
+        }
+        if config.prior_candidate_label is not None:
+            prior_candidate = _prior_report(prerequisite, layer, expert)
+            report["prior_candidate_validation_metrics"] = prior_candidate[
+                f"{config.prior_candidate_label}_validation_metrics"
+            ]
+        reports.append(report)
         del moe_input, expert_down, train_expected, validation_expected, source_weights
         del hidden, activations, expected_projection, five_weights, five_rtn_weights
         del four_weights, five_train, five_validation, five_rtn_train, four_train
@@ -463,27 +523,27 @@ def run(
             f"layer_{layer}_expert_{expert}_complete_released",
             ["source expert", "five/four-bit candidates", "captured activations", "expert outputs"],
         )
-    gate = _gate(reports)
+    gate = _gate(reports, config)
     decision = (
-        "authorize_all_validation_expert_five_bit_audit"
+        config.pass_decision
         if gate["passes"]
-        else "reject_five_bit_global_hessian_three_expert_control"
+        else config.reject_decision
     )
     safety.release_checkpoint(
         "checkpoint_and_authorities_released",
-        ["checkpoint mappings", "PW-0116 corpus", "PW-0138/PW-0146 authorities"],
+        ["checkpoint mappings", "PW-0116 corpus", "frozen control authorities"],
     )
     safety.checkpoint("final_service_health")
     result = {
         "schema_version": 1,
-        "evidence_class": "pw0147_five_bit_global_hessian_three_expert_control",
+        "evidence_class": config.evidence_class,
         "revision": REVISION,
         "commit": commit,
         "source_hashes": {
             "checkpoint_verification_sha256": VERIFICATION_SHA256,
             "corpus_manifest_sha256": CORPUS_SHA256,
             "pw0138_report_sha256": PW0138_SHA256,
-            "pw0146_report_sha256": PW0146_SHA256,
+            config.prerequisite_source_key: config.prerequisite_sha256,
         },
         "samples": [list(row) for row in SAMPLES],
         "reports": reports,
@@ -535,4 +595,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
