@@ -534,6 +534,14 @@ ledger, and Gate 8 all pass. Do not tune this failed schedule on visible
 validation or expand it. Grid-changing QAT or a different representation needs
 a new frozen cheap gate.
 
+PW-0145 separates optimizer viability from validation. On layer 46/expert 249
+train positions only, restart the exact PW-0144 fixed-grid latent form for 32
+steps at learning rates `0.0001/0.0005/0.001/0.005`; never load validation.
+Select lowest final train error with a lower-rate tie break. Continue only if
+train error falls 25%, loss descends, 0--5% of codes change, code/grid
+authority passes, and the runtime ledger remains exact. A pass freezes one
+schedule for a separate validation experiment; it is not fidelity evidence.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
