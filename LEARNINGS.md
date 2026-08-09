@@ -2820,3 +2820,29 @@ growth or throttling, and stable services. The first report with a mistyped
 full commit is preserved and rejected; the final analyzer now authenticates
 HEAD and a clean tree rather than merely validating 40-hex syntax. No measured
 throughput-model constant or endpoint TPS changes in PW-0151.
+
+PW-0152 supersedes the remaining assumption that conventional DFlash block
+chaining could supply PW-0151's extreme acceptance inside one target
+transaction. The supplied width-eight shape needs 18 target transactions to
+span 137 positions; the published width-16 shape needs nine. Each next block
+depends on the clean target bonus anchor from the preceding verification, so
+their accepted lengths cannot be summed while charging only one routed-expert
+union.
+
+Tree width does not repair the fixed `q=137` budget. The 34.3-TPS prerequisite
+requires depth at least 86 and leaves 51 off-path nodes. Prismwing 50 requires
+depth at least 125, placing 91.24% of candidate nodes on one path and leaving
+only 12 for branching. The constant-independent-match diagnostic requires
+`p=0.9925414` and `p=0.9986313`, respectively. The strongest published DFlash
+Table 6 result, `tau=6.33/16`, implies only `p=0.8548765` under that same
+diagnostic; the 50-TPS branch needs about 106.03x less mismatch. Cross-model
+paper values are not a bound on a newly trained MiMo proposer, so retain only
+a distinct `q>=137` or depth-at-least-125 base-aligned architecture as
+unproven. Kill training and runtime work that preserves conventional
+width-eight/16 DFlash boundaries or ordinary chaining.
+
+The authoritative manifest hashes to
+`68783813c30d08aabb6c23971d65b2579655314819ea8d6e1aef8b19328bc686`.
+Gate 8 passes with 66% minimum free memory, 30,867,456-byte peak RSS, zero swap
+growth or new throttled pages, and stable services. PW-0152 reports zero
+accepted tokens and no endpoint TPS; no throughput-model constant changes.

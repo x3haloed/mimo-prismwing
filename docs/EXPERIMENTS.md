@@ -256,13 +256,14 @@ still 2.483 seconds: 34.3 TPS requires `A>=86/137`, and 50 TPS requires
 a BOM or performance result; cable, airflow, clearance, storage, power, and
 base-aligned proposer evidence remain required.
 
-PW-0152 falsifies the proposer shape before training. Bind PW-0151's required
-`A=86/137` and `A=125/137` to DFlash's published acceptance law, clean
-target-bonus block anchors, width-eight/16 structural maxima, observed
-acceptance, and tree depth/node budget. Reject ordinary chained blocks if they
-insert target verification between blocks; retain only a separately named
-`q>=137` or depth-at-least-125 base-aligned proposer if its own cheap
-calibration and complete physical ledger survive.
+PW-0152 rejects the supplied width-eight and published width-16 DFlash shapes
+before training. They require 18 and nine distinct target transactions to span
+137 positions because every next block depends on the preceding target's clean
+bonus anchor. They therefore cannot meet PW-0151's `A=86/137` or `A=125/137`
+single-transaction requirement by ordinary chaining. A 137-node tree for
+Prismwing 50 needs depth at least 125 and leaves only 12 off-path nodes. Retain
+only a separately named `q>=137` or depth-at-least-125 base-aligned proposer;
+its own cheap calibration and complete physical ledger remain prerequisites.
 
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8

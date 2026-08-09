@@ -1,7 +1,7 @@
 # PW-0152 — Wide-proposer acceptance prerequisite
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -13,6 +13,8 @@
   `ffa514e6ce180eb1f7a39c49372f3b8170b99f8bc142d4a4daa0f087bf2ceb91`
 - Hardware: analytical prerequisite only; no accelerator, storage, or memory
   purchase and no endpoint execution
+- Implementation commit and dirty state:
+  `aa9e6389a5ceb42d31bc293148b8fc99ebcf42f4`, clean
 - Related records: PW-0044, PW-0102, PW-0112, PW-0150, PW-0151
 
 ## Question and risk frontier
@@ -84,8 +86,54 @@ ledger.
 
 ## Result
 
-Unexecuted.
+The authoritative `analysis-003` manifest hashes to
+`68783813c30d08aabb6c23971d65b2579655314819ea8d6e1aef8b19328bc686`.
+It authenticates PW-0151, PW-0150, and the camera-ready DFlash v2 PDF, and
+reproduces PW-0151's `A>=86/137` requirement for 34.3 TPS and `A>=125/137`
+requirement for 50 TPS.
+
+The published/supplied block shapes fail structurally before draft quality is
+considered. A width-eight block can accept at most eight positions in one
+target transaction and needs 18 target transactions to span 137 positions. A
+width-16 block can accept at most 16 and needs nine. Conventional chaining
+does not compose these into one amortized transaction: the next block requires
+the clean bonus/anchor emitted by the preceding target verification.
+
+A tree does not create a wide escape hatch at the fixed node budget. At
+`q=137`, the 34.3-TPS branch requires a root-to-leaf path of at least 86 nodes
+and leaves at most 51 off-path nodes. Prismwing 50 requires depth at least 125,
+puts 91.24% of all candidate nodes on the accepted path, and leaves only 12
+nodes for every alternative branch.
+
+The explicitly diagnostic constant-independent-match model requires
+conditional match probability `0.9925414` for expected `A=86` and `0.9986313`
+for expected `A=125`. The strongest published DFlash Table 6 row is
+`tau=6.33/16`; its corresponding diagnostic probability is `0.8548765` and
+would asymptote to only `6.8907` expected positions at `q=137`. Reaching the
+50-TPS prerequisite would require about `106.03x` less conditional mismatch.
+These paper results use other targets and are scale evidence, not an
+impossibility bound on a newly trained MiMo proposer.
+
+Gate 8 passes across five snapshots with 66% minimum free memory,
+30,867,456-byte peak RSS, 19,318,080-byte maximum physical footprint, zero
+swap growth, zero new throttled pages, and stable protected services. The
+first invocation rejected an incorrect commit identity, the second exposed a
+mistyped PW-0150 evidence class, and the third exposed an obsolete safety API
+call; all failed before manifest publication and their implementation defects
+were corrected in subsequent pushed commits. No endpoint ran, accepted-token
+count is zero, and no throughput-model constant changes.
 
 ## Decision
 
-Unexecuted.
+Reject training or runtime work that preserves the supplied width-eight or
+published width-16 DFlash transaction shape, and reject ordinary chaining as a
+way to satisfy PW-0151's single-transaction requirement. This kills that
+specific PW-0044 prerequisite embodiment.
+
+Do not generalize the result to every proposer. Retain only a separately named,
+base-aligned `q>=137` block or depth-at-least-125 proposer as logically open.
+It is a new architecture, not a continuation of conventional DFlash, and must
+first pass a cheap calibration with a complete draft-compute, target-union,
+memory, and training-data ledger. The next embodiment question is whether
+resident expert DRAM removes enough of the extreme acceptance prerequisite to
+fit the owned host and complete `$500` BOM.
