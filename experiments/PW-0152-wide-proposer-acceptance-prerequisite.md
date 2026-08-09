@@ -7,6 +7,8 @@
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; PW-0151 analysis
   `d6919e47f0f4495ccac2ad56ebcfe6662b3309aebd3296c6b546a50836829cb1`;
+  PW-0150 analysis
+  `72051c021ae1d93989508b0423ab1b0811072c24799b8e986d4543b4a513f04e`;
   DFlash arXiv v2 PDF
   `ffa514e6ce180eb1f7a39c49372f3b8170b99f8bc142d4a4daa0f087bf2ceb91`
 - Hardware: analytical prerequisite only; no accelerator, storage, or memory
@@ -37,8 +39,9 @@ as endpoint TPS.
 
 ## Contract
 
-1. Authenticate PW-0151's clean `run-003` report and the camera-ready DFlash
-   arXiv v2 PDF by SHA-256. Fail closed unless the report retains `q=137`,
+1. Authenticate PW-0151's clean `run-003` report, PW-0150's exported-mask
+   control, and the camera-ready DFlash arXiv v2 PDF by SHA-256. Fail closed
+   unless the reports retain the supplied proposer's `A=1/8`, `q=137`,
    `A>=86` for 34.3 TPS, and `A>=125` for 50 TPS in the named four-lane
    envelope.
 2. Bind DFlash's published semantics: one cycle proposes `gamma` tokens,
