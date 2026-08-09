@@ -2605,3 +2605,31 @@ recording device drift diagnostically. Twenty-three affected tests and the full
 the known device drift, and PW-0142 opens real shards and completes through the
 unchanged receipt. No receipt, model hash, accepted token, endpoint TPS, or
 throughput-model constant changes in PW-0143.
+
+PW-0144 rejects the first code-changing recovery schedule before it can test
+generalization. Its straight-through optimizer gives layer 4/expert 96 no
+effective update. At layer 24/expert 200 it changes 5,398,042 of 25,165,824
+codes yet worsens train relative L2 from `0.030712` to `0.158823` and
+validation from `0.065851` to `0.684947`. At layer 46/expert 249 it changes
+5,870,177 codes and worsens train from `0.039279` to `0.170402` and validation
+from `0.067440` to `0.444887`.
+
+The changed-code capacity is real, but the frozen learning dynamics are not a
+recovery mechanism: they make the allowed train objective substantially worse.
+This supersedes only the specific fixed-grid, dimensionless-offset, 0.05-Adam
+schedule. It does not reject code-changing or grid-changing QAT generally. Do
+not use visible validation to tune this branch, read holdout, expand it, or
+build its runtime. A successor must freeze materially different training
+authority or move to a different executable representation.
+
+All initial PW-0139 metrics reproduce, final codes remain in `[0,15]`, F16
+grid metadata is bit-identical, and the 13,369,344-byte (`0.531120`)
+zero-extra-MAC runtime ledger remains exact. Gate 8 passes across 51 snapshots
+at 58% minimum free memory, 1,632,075,776-byte maximum peak RSS,
+1,430,818,176-byte maximum physical footprint, 285,494,144-byte maximum
+release-boundary footprint, zero swap growth or new throttled pages, and stable
+services. Raw evidence hashes to
+`8828db18f3d9471aa9abd2110b78994b86803ff393e4ec0d9fe81e10cef5d00c`;
+analysis hashes to
+`93871a88c85a883ced215a233e25791b1f39861a86332e60fd1e2a9cfc64db28`.
+No endpoint TPS or measured throughput-model constant changes in PW-0144.

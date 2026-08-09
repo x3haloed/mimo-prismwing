@@ -1,7 +1,7 @@
 # PW-0144 — Train-only code-changing INT4 QAT
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -82,3 +82,38 @@ Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 Apply normative Gate 8 before training, during training at least every 16
 steps, and after every expert release.
 
+## Result
+
+The frozen straight-through schedule fails its train prerequisite. Layer
+4/expert 96 receives no effective latent update or code change and remains
+exactly at `0.005445` train and `0.022155` validation relative L2. Layer
+24/expert 200 changes 5,398,042 of 25,165,824 codes (21.45%) but worsens from
+`0.030712` to `0.158823` on train and from `0.065851` to `0.684947` on
+validation. Layer 46/expert 249 changes 5,870,177 codes (23.33%) and worsens
+from `0.039279` to `0.170402` on train and from `0.067440` to `0.444887` on
+validation. Their worst validation rows reach `0.817322` and `0.613438`.
+
+All PW-0139 controls reproduce before training. Every final code remains in
+`[0,15]`, fixed F16 scale/bias metadata remains bit-identical, and the
+partitions and sealed holdout remain intact. The branch therefore rejects this
+learning-rate/straight-through/fixed-grid schedule rather than exposing an
+authority or artifact defect. Because the permitted train objective itself
+worsens, do not tune this schedule on visible validation or expand it to all
+experts. Grid-changing QAT, broader recovery training, distillation, and other
+executable representations remain distinct.
+
+The runtime ledger remains 13,369,344 bytes per expert (`0.531120` of source)
+with zero additional MACs; latent offsets and Adam state are training-only.
+Gate 8 passes across 51 snapshots: minimum free memory is 58%, maximum peak RSS
+is 1,632,075,776 bytes, maximum physical footprint is 1,430,818,176 bytes,
+maximum release-boundary footprint is 285,494,144 bytes, swap growth and new
+throttled pages are zero, and protected services remain resident.
+
+Raw evidence:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0144/run-001.json`, SHA-256
+`8828db18f3d9471aa9abd2110b78994b86803ff393e4ec0d9fe81e10cef5d00c`.
+Validated analysis:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0144/analysis-001/manifest.json`,
+SHA-256
+`93871a88c85a883ced215a233e25791b1f39861a86332e60fd1e2a9cfc64db28`.
+No endpoint TPS or measured throughput-model constant changes.

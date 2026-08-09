@@ -511,7 +511,7 @@ not weaken checkpoint content authority.
 
 The repair passes. All 39 checkpoint files retain exact size, inode, mtime,
 and receipt hashes while consistently reporting only the APFS device-number
-drift. Twenty-two focused tests pass, the real shard preflight succeeds, and
+drift. Twenty-three focused tests pass, the real shard preflight succeeds, and
 PW-0142 completes through the unchanged receipt. Promote the centralized
 durable identity predicate as a correctness repair; retain device numbers as
 diagnostics rather than restart-invalidating gates.
@@ -525,6 +525,14 @@ deep experts improve by 25%, reach 5% L2 and 8% worst-row error, the early
 control remains stable, train improves, codes change without leaving `[0,15]`,
 and the original byte/MAC ledger remains exact. Keep holdout, bank, and runtime
 closed.
+
+The PW-0144 schedule is rejected before generalization. The early expert makes
+no effective update; the deep experts change 21.45% and 23.33% of codes but
+worsen train error to 15.882% and 17.040% and validation to 68.495% and
+44.489%. Initial controls, code domain, F16 metadata, partitions, physical
+ledger, and Gate 8 all pass. Do not tune this failed schedule on visible
+validation or expand it. Grid-changing QAT or a different representation needs
+a new frozen cheap gate.
 
 ## E6 — MTP and DFlash verification
 
