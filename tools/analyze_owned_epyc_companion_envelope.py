@@ -8,6 +8,7 @@ import json
 import math
 from pathlib import Path
 import platform
+import subprocess
 import time
 
 try:
@@ -31,6 +32,30 @@ MANDATORY_OPERATIONS = 2 * MANDATORY_MACS
 EPYC_IMPOSSIBLE_FP32 = 16 * 2.9e9 * 16
 PREFILL_POSITIONS = 8_000
 TTFT_LIMIT_SECONDS = 15.0
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+
+
+def authenticate_implementation_commit(commit: str) -> None:
+    if len(commit) != 40 or any(value not in "0123456789abcdef" for value in commit):
+        raise ValueError("implementation commit must be lowercase 40-hex")
+    actual = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=REPOSITORY_ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+    if commit != actual:
+        raise ValueError("implementation commit does not match repository HEAD")
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        cwd=REPOSITORY_ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout
+    if dirty:
+        raise ValueError("repository has tracked changes; implementation identity is not clean")
 
 
 def accelerator_ceiling(name: str, count: int, fp32_each: float) -> dict:
@@ -167,8 +192,7 @@ def run(
 ) -> dict:
     if output_path.exists():
         raise ValueError(f"refusing to overwrite {output_path}")
-    if len(commit) != 40 or any(value not in "0123456789abcdef" for value in commit):
-        raise ValueError("implementation commit must be lowercase 40-hex")
+    authenticate_implementation_commit(commit)
     started = time.perf_counter()
     safety = HostSafetyMonitor()
     route, _arithmetic = _authenticate(

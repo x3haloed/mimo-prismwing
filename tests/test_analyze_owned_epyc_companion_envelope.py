@@ -3,6 +3,7 @@ import unittest
 from tools.analyze_owned_epyc_companion_envelope import (
     MANDATORY_OPERATIONS,
     accelerator_ceiling,
+    authenticate_implementation_commit,
     route_storage_rows,
 )
 
@@ -46,6 +47,10 @@ class OwnedEpycCompanionEnvelopeTests(unittest.TestCase):
     def test_invalid_route_shape_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "route window identity"):
             route_storage_rows(137, [8] * 46, 25_171_968, 1.0)
+
+    def test_malformed_implementation_commit_fails_before_git_lookup(self):
+        with self.assertRaisesRegex(ValueError, "lowercase 40-hex"):
+            authenticate_implementation_commit("556538f")
 
 
 if __name__ == "__main__":
