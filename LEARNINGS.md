@@ -2633,3 +2633,29 @@ services. Raw evidence hashes to
 analysis hashes to
 `93871a88c85a883ced215a233e25791b1f39861a86332e60fd1e2a9cfc64db28`.
 No endpoint TPS or measured throughput-model constant changes in PW-0144.
+
+PW-0145 isolates why conservative code-QAT schedules cannot repair PW-0139.
+On layer 46/expert 249 train data only, learning rates `0.0001`, `0.0005`,
+`0.001`, and `0.005` for 32 steps produce maximum latent offsets of `0.003196`,
+`0.015981`, `0.031962`, and `0.159808`. Every value remains below the 0.5
+rounding boundary, all 25,165,824 integer codes stay unchanged, and train
+relative L2 remains exactly `0.039279`.
+
+This rejects the tested low-rate family without making a validation claim:
+validation values were never loaded and holdout remains sealed. Together,
+PW-0144 and PW-0145 reveal a discontinuous optimizer regime—small schedules
+cannot cross a code bin, while the much larger schedule changes 23% of codes
+and diverges. One explicitly threshold-crossing train-only schedule is the
+remaining cheap test of this parameterization; repeated validation-visible
+schedule tuning is not authorized.
+
+Code domain, F16 grid metadata, and the 13,369,344-byte (`0.531120`)
+zero-extra-MAC ledger remain exact. Gate 8 passes across 33 snapshots at 59%
+minimum free memory, 1,502,953,472-byte maximum peak RSS, 1,423,019,456-byte
+maximum physical footprint, 449,891,968-byte maximum release-boundary
+footprint, zero swap growth or new throttled pages, and stable services. Raw
+evidence hashes to
+`1d5f4f4bf9dacc39114d483f90e3e61590f847aa24a31a1c6d48dbb077deafa4`;
+analysis hashes to
+`a562ec97d8a9e49566b562a4cee2d88df102f1d9afff2987ed16988de6bfa687`.
+No endpoint TPS or measured throughput-model constant changes in PW-0145.

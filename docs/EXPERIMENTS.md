@@ -542,6 +542,12 @@ train error falls 25%, loss descends, 0--5% of codes change, code/grid
 authority passes, and the runtime ledger remains exact. A pass freezes one
 schedule for a separate validation experiment; it is not fidelity evidence.
 
+The tested PW-0145 family is rejected. All four rates change zero codes and
+leave train L2 exactly at 3.928%; their maximum offsets range from 0.0032 to
+0.1598, below the 0.5 rounding boundary. Validation was never loaded. This
+isolates a quantized dead zone rather than a fidelity result. Resolve one
+threshold-crossing train-only schedule before any new validation experiment.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

@@ -1,7 +1,7 @@
 # PW-0145 — Train-only code-QAT optimizer preflight
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -60,3 +60,35 @@ Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 Apply normative Gate 8 before and after every trial and at least every eight
 training steps.
 
+## Result
+
+All four tested schedules remain inside the rounding dead zone and change zero
+of 25,165,824 codes. Train relative L2 therefore remains exactly `0.039279` in
+every trial. At learning rates `0.0001`, `0.0005`, `0.001`, and `0.005`, the
+maximum absolute latent offsets after 32 steps are `0.003196`, `0.015981`,
+`0.031962`, and `0.159808`; none reaches the `0.5` boundary required to change
+an integer assignment. Loss is unchanged at the two smallest rates and rises
+only in the final reported digits at the larger two.
+
+The frozen selection rule chooses `0.0001` by the lower-rate tie break, and the
+continuation gate fails because train does not improve, loss does not decrease,
+and no code changes. Validation values were never loaded or scored and holdout
+remains sealed. This rejects the tested low-rate/32-step family, not all
+straight-through training. A threshold-crossing train-only schedule remains a
+distinct cheap question; it must be resolved before any further validation.
+
+Code domain, F16 grid metadata, PW-0139 initialization, and the
+13,369,344-byte (`0.531120`) zero-extra-MAC ledger remain exact. Gate 8 passes
+across 33 snapshots: minimum free memory is 59%, maximum peak RSS is
+1,502,953,472 bytes, maximum physical footprint is 1,423,019,456 bytes,
+maximum release-boundary footprint is 449,891,968 bytes, swap growth and new
+throttled pages are zero, and protected services remain resident.
+
+Raw evidence:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0145/run-001.json`, SHA-256
+`1d5f4f4bf9dacc39114d483f90e3e61590f847aa24a31a1c6d48dbb077deafa4`.
+Validated analysis:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0145/analysis-001/manifest.json`,
+SHA-256
+`a562ec97d8a9e49566b562a4cee2d88df102f1d9afff2987ed16988de6bfa687`.
+No endpoint TPS or measured throughput-model constant changes.
