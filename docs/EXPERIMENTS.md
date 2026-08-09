@@ -516,6 +516,16 @@ PW-0142 completes through the unchanged receipt. Promote the centralized
 durable identity predicate as a correctness repair; retain device numbers as
 diagnostics rather than restart-invalidating gates.
 
+PW-0144 tests the next distinct recovery mechanism. Hold PW-0139's group-128
+F16 grids fixed, initialize dimensionless latent offsets around its exact
+four-bit codes, and use a frozen straight-through full-expert optimizer that may
+change code assignments. Fit only routed train positions for the three
+well-covered controls and score untouched validation. Continue only if both
+deep experts improve by 25%, reach 5% L2 and 8% worst-row error, the early
+control remains stable, train improves, codes change without leaving `[0,15]`,
+and the original byte/MAC ledger remains exact. Keep holdout, bank, and runtime
+closed.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
