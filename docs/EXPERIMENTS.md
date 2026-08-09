@@ -256,6 +256,14 @@ still 2.483 seconds: 34.3 TPS requires `A>=86/137`, and 50 TPS requires
 a BOM or performance result; cable, airflow, clearance, storage, power, and
 base-aligned proposer evidence remain required.
 
+PW-0152 falsifies the proposer shape before training. Bind PW-0151's required
+`A=86/137` and `A=125/137` to DFlash's published acceptance law, clean
+target-bonus block anchors, width-eight/16 structural maxima, observed
+acceptance, and tree depth/node budget. Reject ordinary chained blocks if they
+insert target verification between blocks; retain only a separately named
+`q>=137` or depth-at-least-125 base-aligned proposer if its own cheap
+calibration and complete physical ledger survive.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

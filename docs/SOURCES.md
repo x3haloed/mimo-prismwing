@@ -384,3 +384,16 @@ report. NVIDIA specifies the advertised compute peaks and 250-W passive PCIe
 forms. None of these nameplates establishes achieved MiMo throughput, SSD
 sustained reads, physical fit, cable compatibility, cooling, wall power, or
 fidelity.
+
+## Wide-proposer acceptance authority
+
+- Chen, Liang, and Liu, "DFlash: Block Diffusion for Flash Speculative
+  Decoding," arXiv:2602.06036v2, camera-ready ICML 2026 version, accessed
+  2026-08-09: <https://arxiv.org/abs/2602.06036v2>.
+
+Decision: semantic and empirical authority for PW-0152's DFlash-specific
+analysis. The paper defines expected accepted tokens per cycle as
+`tau in [1, gamma+1]`, including the target bonus token; trains each block from
+a clean target-produced bonus anchor; uses block size 16 in its main
+experiments; and reports a maximum Table 6 `tau=6.33`. These facts constrain
+the published block embodiment, not every possible future long-depth proposer.
