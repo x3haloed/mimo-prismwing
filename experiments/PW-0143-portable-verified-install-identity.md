@@ -1,7 +1,7 @@
 # PW-0143 — Portable verified-install runtime identity
 
-- Status: planned
-- Disposition: unexecuted correctness repair
+- Status: completed
+- Disposition: correctness-repair
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -51,3 +51,28 @@ Promote as a correctness repair only if:
 
 This record makes no token, performance, fidelity, or endpoint claim.
 
+## Result
+
+The centralized runtime identity predicate now requires a verified receipt
+record with a valid SHA-256 plus exact current size, inode, and nanosecond
+mtime. It records receipt/current device numbers and their difference without
+making the transient device number a durable gate. Missing or non-regular
+paths and every protected metadata mutation still fail closed.
+
+All 39 real checkpoint files pass and report the same isolated drift:
+`recorded_device=16777233`, `current_device=16777231`. The checkpoint index and
+the first real PW-0142 expert shard open through the unchanged receipt, and
+PW-0142 completes its full authenticated run. Twenty-three focused checkpoint,
+DFlash proposal, base-layer, remote-extraction, and PW-0142 tests pass. The
+complete repository gate also passes 63 Rust and 205 Python tests, Clippy, both
+real Metal FP8 fixtures, the real Metal INT4 fixture, and the MLX C++ smoke. The
+receipt retains SHA-256
+`9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`;
+no model file or model lock changed.
+
+This repair removes one duplicated identity implementation by routing the
+affected checkpoint consumers through `validate_verified_install_file`. It
+does not claim resilience against an attacker who can replace local bytes
+while forging inode and nanosecond mtime; the pinned receipt hash and original
+full SHA-256 installation verification remain the authority within the local
+host threat envelope. No accepted tokens or performance constants change.

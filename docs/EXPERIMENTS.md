@@ -493,6 +493,14 @@ experts improve by at least 25%, reach 5% L2 and 8% worst-row error, the early
 control remains stable, and the 13,369,344-byte zero-extra-MAC ledger is exact.
 Keep holdout, code-changing QAT, bank construction, and runtime work closed.
 
+The frozen PW-0142 form is rejected. Layer 4 remains unchanged after F16 grid
+staging, while layer 24 worsens from 6.585% to 34.294% validation L2 and layer
+46 from 6.744% to 37.572%; neither deep expert improves even on train. Codes,
+PW-0139 reproduction, partitions, physical accounting, and Gate 8 all pass.
+Reject this fixed-code group-scale/bias schedule without generalizing the
+result to code-changing QAT or other recovery representations. Keep holdout and
+runtime construction closed.
+
 PW-0143 repairs a receipt portability defect exposed by the PW-0142 preflight.
 macOS changed the APFS mount-session device number while every path, byte count,
 inode, nanosecond mtime, and receipt hash remained unchanged. Centralize runtime
@@ -500,6 +508,13 @@ file-identity validation and treat `st_dev` as a recorded diagnostic rather
 than a durable gate. Continue to fail on any size, inode, mtime, status,
 receipt-hash, or model-hash change. This is an L1 correctness repair and does
 not weaken checkpoint content authority.
+
+The repair passes. All 39 checkpoint files retain exact size, inode, mtime,
+and receipt hashes while consistently reporting only the APFS device-number
+drift. Twenty-two focused tests pass, the real shard preflight succeeds, and
+PW-0142 completes through the unchanged receipt. Promote the centralized
+durable identity predicate as a correctness repair; retain device numbers as
+diagnostics rather than restart-invalidating gates.
 
 ## E6 — MTP and DFlash verification
 

@@ -2563,3 +2563,45 @@ hashes to
 analysis hashes to
 `0cd0f7d5cd9d8fd563a1c35888a16e8452f8f9128d26c36ce7e02d646cc3bf26`.
 No endpoint TPS or measured throughput-model constant changes in PW-0141.
+
+PW-0142 rejects the first direct recovery-training schedule before it can make
+a generalization claim. Holding PW-0139's four-bit codes fixed and training
+only the existing group-128 scales and biases end to end leaves layer 4/expert
+96 unchanged after F16 staging. It makes layer 24/expert 200 worse from
+`0.030712` to `0.092812` on train and `0.065851` to `0.342938` on validation;
+layer 46/expert 249 worsens from `0.039279` to `0.131436` on train and
+`0.067440` to `0.375717` on validation.
+
+This supersedes the idea that the already-assigned codes can be rescued by one
+frozen, cheap group-parameter schedule. It does not reject recovery training
+generally: the chosen optimizer fails its allowed training objective, so no
+claim about validation transfer follows. Do not tune it against visible
+validation, read holdout, expand to all experts, or build its bank. A successor
+must change the codes, training authority, or executable representation and
+freeze a new cheap gate.
+
+All PW-0139 initial metrics and grids reproduce, codes remain fixed, and the
+13,369,344-byte (`0.531120`) zero-extra-MAC ledger remains exact. Gate 8 passes
+across 51 snapshots at 62% minimum free memory, 1,629,175,808-byte maximum peak
+RSS, 937,020,992-byte maximum physical footprint, 286,133,184-byte maximum
+release-boundary footprint, zero swap growth or new throttled pages, and stable
+services. Raw evidence hashes to
+`0c2095a2068ccf347ab86beccb41e8d303444ce371b52d8475a37b26c29e9cc7`;
+analysis hashes to
+`9e9faf22442899ad98b60dbcda6eb59bad5bf864d4daba0c62b82e94300d7460`.
+No endpoint TPS or measured throughput-model constant changes in PW-0142.
+
+PW-0143 repairs a separate installation-authority defect exposed by PW-0142.
+The verified checkpoint did not change: all 39 files retained path, byte count,
+inode, nanosecond mtime, and receipt SHA-256, while macOS changed only the APFS
+mount-session device number from `16777233` to `16777231`. Treating `st_dev` as
+a durable identity incorrectly invalidated a fully verified installation after
+an ordinary remount or reboot.
+
+Runtime file identity now has one shared authority. It continues to require a
+verified hash-bearing receipt record and exact size, inode, and mtime, while
+recording device drift diagnostically. Twenty-three affected tests and the full
+63-Rust/205-Python plus Metal/MLX gate pass, all 39 real files pass with only
+the known device drift, and PW-0142 opens real shards and completes through the
+unchanged receipt. No receipt, model hash, accepted token, endpoint TPS, or
+throughput-model constant changes in PW-0143.

@@ -1,7 +1,7 @@
 # PW-0142 — Train-only end-to-end INT4 grid recovery
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -84,3 +84,38 @@ Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 Apply normative Gate 8 before training, during training at least every 16
 steps, and after every expert release.
 
+## Result
+
+The fixed-code group-parameter form fails before any generalization claim: its
+frozen optimizer does not improve the permitted train objective. Layer
+4/expert 96 is unchanged after final F16 grid staging (`0.005445` train,
+`0.022155` validation). Layer 24/expert 200 worsens from `0.030712` to
+`0.092812` train and from `0.065851` to `0.342938` validation. Layer 46/expert
+249 worsens from `0.039279` to `0.131436` train and from `0.067440` to
+`0.375717` validation. Their worst validation rows are `0.417727` and
+`0.546578`.
+
+All PW-0139 initial grid and expert metrics reproduce exactly, all four-bit
+codes remain unchanged, the train/validation partitions remain disjoint, and
+positions `168..223` remain sealed. The failure is therefore attributed to the
+frozen fixed-code, group-scale/bias, full-batch Adam schedule—not checkpoint
+authority or validation leakage. Do not tune this schedule on visible
+validation, run the all-expert audit, build a bank, or implement its runtime.
+Code-changing QAT and structurally different executable representations remain
+distinct branches.
+
+The physical ledger remains 13,369,344 bytes per expert (`0.531120` of source)
+with zero additional runtime MACs. Gate 8 passes across 51 snapshots: minimum
+free memory is 62%, maximum peak RSS is 1,629,175,808 bytes, maximum physical
+footprint is 937,020,992 bytes, maximum release-boundary footprint is
+286,133,184 bytes, swap growth and new throttled pages are zero, and protected
+services remain resident.
+
+Raw evidence:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0142/run-001.json`, SHA-256
+`0c2095a2068ccf347ab86beccb41e8d303444ce371b52d8475a37b26c29e9cc7`.
+Validated analysis:
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0142/analysis-001/manifest.json`,
+SHA-256
+`9e9faf22442899ad98b60dbcda6eb59bad5bf864d4daba0c62b82e94300d7460`.
+No endpoint TPS or measured throughput-model constant changes.
