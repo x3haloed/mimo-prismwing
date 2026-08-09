@@ -351,3 +351,36 @@ hit rate need not improve decode, argument-buffer reuse can reduce allocations
 while slowing the workload, and monolithic fusion can reduce throughput.
 Prismwing therefore retains end-to-end promotion gates and does not infer that
 fewer reads, buffers, or dispatches are sufficient.
+
+## Owned EPYC companion-envelope authorities
+
+- AMD, EPYC 7351P specifications, accessed 2026-08-09:
+  <https://www.amd.com/en/support/downloads/drivers.html/processors/epyc/epyc-7001-series/amd-epyc-7351p.html>.
+- Supermicro, H11SSL-i product specifications and motherboard manual, accessed
+  2026-08-09:
+  <https://www.supermicro.com/en/products/motherboard/H11SSL-i> and
+  <https://www.supermicro.com/manuals/motherboard/EPYC7000/MNL-2085.pdf>.
+- EVGA, SuperNOVA NEX750B manual, product 120-PB-0750, accessed 2026-08-09:
+  <https://www.evga.com/support/manuals/files/120-PB-0750.pdf>.
+- NVIDIA, Tesla P40, P100 PCIe, and V100 official specifications, accessed
+  2026-08-09:
+  <https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/tesla-product-literature/184427-Tesla-P40-Datasheet-NV-Final-Letter-Web.pdf>,
+  <https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/tesla-p100/pdf/nvidia-tesla-p100-PCIe-datasheet.pdf>, and
+  <https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/tesla-product-literature/v100-application-performance-guide.pdf>.
+- eBay item 188207963486, used P100 PCIe 16-GB listing, observed `$74.37`
+  each at quantity two on 2026-08-09; and item 336284264679, new single-M.2
+  PCIe adapter, observed `$12.80` each on 2026-08-09. These moving listings
+  are price observations, not hardware validation, a complete BOM, or purchase
+  authority:
+  <https://www.ebay.com/itm/188207963486> and
+  <https://www.ebay.com/itm/336284264679>.
+
+Decision: source authority for PW-0151's authenticated pre-purchase envelope.
+AMD specifies 16 cores, 2.9-GHz maximum boost, 155/170-W TDP, PCIe 3.0 x128,
+and eight memory channels. Supermicro specifies three x16, three x8, and one
+native M.2 x4 slot. EVGA specifies 750 W continuous at 50 C and 61 A/732 W
+combined across four 20-A +12-V rails, with the exact VGA rail map used by the
+report. NVIDIA specifies the advertised compute peaks and 250-W passive PCIe
+forms. None of these nameplates establishes achieved MiMo throughput, SSD
+sustained reads, physical fit, cable compatibility, cooling, wall power, or
+fidelity.

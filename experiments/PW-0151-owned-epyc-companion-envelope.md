@@ -1,7 +1,7 @@
 # PW-0151 — Owned EPYC companion pre-purchase envelope
 
-- Status: ready to execute
-- Disposition: unexecuted
+- Status: completed
+- Disposition: conditional
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -13,6 +13,8 @@
   no NVMe; analytical pre-purchase bound only
 - Related records: PW-0048, PW-0102, PW-0110 through PW-0112, PW-0127,
   PW-0128, PW-0150; E7
+- Implementation commit and dirty state: `7affcf01feffd3514afbe744e023c5e88410f465`,
+  clean
 
 ## Question and changed premise
 
@@ -63,8 +65,54 @@ TPS. Preserve every omitted cost and physical uncertainty explicitly.
 
 ## Result
 
-Pending execution.
+The authoritative `run-003` report hashes to
+`d6919e47f0f4495ccac2ad56ebcfe6662b3309aebd3296c6b546a50836829cb1`.
+It authenticates both host censuses, the PSU photo
+(`3c398ea5c2a12b71908c5b9adcf16d58fc6e26e867cd7c38c550f42bea367b42`),
+PW-0112, PW-0127, and the clean implementation commit.
+
+CPU-only fails before implementation work. Even granting all 16 cores
+2.9 GHz and 16 FP32 operations/cycle, the impossible ceiling is only
+`25.0463 TPS`, below both `34.3` and `50`. Mandatory 8K matrix-only prefill
+floors are `18.6095` seconds for one P40, `23.6128` for one P100, `16.0848`
+for one V100, and `12.2596` for two P100s. Thus two P100s are the sole tested
+direct-FP32 compute configuration to clear the 15-second impossible floor.
+
+The real `q=137` route window selects 903 layer-expert records totaling
+`22,730,287,104` source bytes. Two P100s at advertised FP32 peak plus the
+impossible EPYC grant need `0.2100` seconds for its mandatory matrices. At
+four independent storage lanes granted 2.5 GB/s each, serial expert read plus
+matrix compute is `2.48297` seconds. Perfect acceptance would be only
+`55.1758 TPS`; `34.3 TPS` requires at least `A=86/137`, while `50 TPS`
+requires `A=125/137` (`91.24%`). No measured storage, compute, proposer, or
+endpoint result supports those grants.
+
+Nameplate sensitivity does not make four lanes logically unique. Three lanes
+at 3.5 GB/s leave the `q=137` idealized 50-TPS branch open at `A>=119`; four
+such lanes leave it open at `A>=92`. A `q=94` window can reach the 50-TPS
+arithmetic only at the most optimistic tested four-by-3.5-GB/s sensitivity
+point. The retained conservative prerequisite is therefore two P100s,
+aggregate expert storage around 10 GB/s or better, and a base-aligned wide
+proposer with exceptionally high exact acceptance—not a claimed BOM.
+
+`run-001` is preserved but rejected because the operator supplied a nonexistent
+full commit expansion; it hashes to
+`86ce9908211e0cf6ff90d731f295bc0ab3a729c56e06b30f0459d34fbfe48b6a`.
+`run-002` corrected the value and hashes to
+`1f3bc8538a3806743039ebc1580a694e46644d8b809f26c485704ff027dfc3e5`,
+but exposed that the analyzer accepted rather than authenticated the supplied
+commit. The authoritative rerun adds fail-closed HEAD and clean-tree checks.
+
+Gate 8 passes across five `run-003` snapshots with 65% minimum free memory,
+30,932,992-byte peak RSS, zero swap growth or new throttled pages, and stable
+protected services. Accepted tokens and endpoint TPS remain zero.
 
 ## Decision
 
-Pending execution.
+Reject the owned EPYC by itself and every tested single-card direct-FP32
+configuration. Conditionally retain the two-P100/wide-speculation/striped-NVMe
+envelope only as a pre-purchase prerequisite. Do not buy from this report.
+Next falsify delivered BOM, drive sustained-read behavior, physical clearance,
+original-compatible cable availability and pinout, forced-air cooling, and
+proposer acceptance. FP16 and V100 tensor execution remain separate L3 modes
+requiring full near-equivalence evidence.

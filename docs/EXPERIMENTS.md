@@ -246,6 +246,16 @@ matrix positions. All miss the 15-second 8K TTFT gate before every omitted
 cost. Reject these direct-FP32 configurations; retain the bounded layer
 transaction for a faster substrate or changed executable representation.
 
+PW-0151 reopens E7 against the zero-acquisition-cost H11SSL-i/EPYC 7351P host
+and photographed 750-W NEX750B. Its impossible CPU-only ceiling is 25.046 TPS;
+one P40, one P100, and one V100 each fail the 15-second 8K matrix-only prefill
+gate. Two P100s alone survive compute at 12.260 seconds. On the real `q=137`
+route and a granted four-by-2.5-GB/s store, however, the ideal serial block is
+still 2.483 seconds: 34.3 TPS requires `A>=86/137`, and 50 TPS requires
+`A>=125/137`. Conditionally retain this as a narrow pre-purchase envelope, not
+a BOM or performance result; cable, airflow, clearance, storage, power, and
+base-aligned proposer evidence remain required.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

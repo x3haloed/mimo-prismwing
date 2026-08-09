@@ -2787,3 +2787,36 @@ Gate 8 passes at 62% minimum free memory, 4,110,647,296-byte peak RSS,
 299,475,008-byte maximum physical footprint, zero swap growth or throttling,
 and stable services. This is proposal evidence, not accepted endpoint TPS, and
 no throughput-model constant changes.
+
+PW-0151 binds the already-owned H11SSL-i/EPYC 7351P host and photographed EVGA
+NEX750B to the complete mandatory matrix ledger. The CPU cannot explain either
+useful horizon: even an impossible all-core 2.9-GHz, 16-FP32-op/cycle grant is
+only `25.0463 TPS`. One P40, one P100, and one V100 also fail the 15-second 8K
+matrix-only prefill floor at advertised FP32 peak. Two P100s are the only
+tested source-preserving compute configuration that survives, at an impossible
+`12.2596` seconds before all non-matrix work.
+
+Compute survival is not system survival. The real `q=137` route moves
+`22,730,287,104` source expert bytes. With two advertised-peak P100s and four
+ideal 2.5-GB/s independent storage lanes, serial storage plus matrix compute is
+`2.48297` seconds: `34.3 TPS` needs `A>=86/137`, and Prismwing 50 needs
+`A>=125/137`. The latter is a `91.24%` exact accepted prefix before dense
+weights, attention, KV, protocol, filesystem, cooling, and contention. This
+supersedes any assumption that inexpensive card prices alone make the owned
+host procurement-ready.
+
+The photographed PSU is EVGA SuperNOVA NEX750B: 750 W continuous at 50 C,
+61 A/732 W combined +12 V, four 20-A rails, with VGA1/VGA2 on +12V2 and
+VGA3/VGA4 on +12V4. This does not reject two 250-W cards by itself, but it
+makes original-compatible cabling, connector pinout, forced airflow, clearance,
+rail loading, and measured wall power mandatory evidence. Retain two P100s,
+roughly 10-GB/s-or-better expert storage, and a base-aligned wide proposer only
+as a conditional envelope; no purchase or endpoint claim follows.
+
+The authoritative report hashes to
+`d6919e47f0f4495ccac2ad56ebcfe6662b3309aebd3296c6b546a50836829cb1`.
+Gate 8 passes at 65% minimum free memory, 30,932,992-byte peak RSS, zero swap
+growth or throttling, and stable services. The first report with a mistyped
+full commit is preserved and rejected; the final analyzer now authenticates
+HEAD and a clean tree rather than merely validating 40-hex syntax. No measured
+throughput-model constant or endpoint TPS changes in PW-0151.
