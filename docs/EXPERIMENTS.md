@@ -493,6 +493,14 @@ experts improve by at least 25%, reach 5% L2 and 8% worst-row error, the early
 control remains stable, and the 13,369,344-byte zero-extra-MAC ledger is exact.
 Keep holdout, code-changing QAT, bank construction, and runtime work closed.
 
+PW-0143 repairs a receipt portability defect exposed by the PW-0142 preflight.
+macOS changed the APFS mount-session device number while every path, byte count,
+inode, nanosecond mtime, and receipt hash remained unchanged. Centralize runtime
+file-identity validation and treat `st_dev` as a recorded diagnostic rather
+than a durable gate. Continue to fail on any size, inode, mtime, status,
+receipt-hash, or model-hash change. This is an L1 correctness repair and does
+not weaken checkpoint content authority.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
