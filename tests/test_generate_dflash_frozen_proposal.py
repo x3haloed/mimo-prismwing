@@ -9,6 +9,7 @@ from transformers import Qwen3Config
 from tools.generate_dflash_frozen_proposal import (
     assemble_block_noise_embeddings,
     configure_sglang_full_head_rope,
+    normalize_loading_sequence,
     tensor_capture,
     verified_file,
 )
@@ -78,6 +79,12 @@ class FrozenProposalTests(unittest.TestCase):
             assemble_block_noise_embeddings(
                 anchor, target_mask, torch.ones((1, 5), dtype=torch.bfloat16)
             )
+
+    def test_loader_diagnostics_normalize_sets_for_json(self):
+        self.assertEqual(normalize_loading_sequence(set(), "empty"), [])
+        self.assertEqual(normalize_loading_sequence({"b", "a"}, "keys"), ["a", "b"])
+        with self.assertRaisesRegex(ValueError, "invalid type"):
+            normalize_loading_sequence(None, "bad")
 
 
 if __name__ == "__main__":

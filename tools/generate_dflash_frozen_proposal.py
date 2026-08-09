@@ -311,6 +311,13 @@ def load_block_noise_embeddings(
     return assemble_block_noise_embeddings(anchor, target_mask, exported_mask)
 
 
+def normalize_loading_sequence(value: Any, field: str) -> list[Any]:
+    """Normalize Transformers' version-varying list/set loader diagnostics."""
+    if not isinstance(value, (list, tuple, set)):
+        raise ValueError(f"DFlash loading field {field} has invalid type")
+    return sorted(value, key=repr)
+
+
 def run(arguments: argparse.Namespace) -> dict[str, Any]:
     started = time.monotonic()
     torch.set_num_threads(1)
@@ -377,8 +384,10 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     timings["draft_load_ms"] = (time.monotonic() - load_started) * 1000
     missing = set(loading.get("missing_keys", []))
     unexpected = set(loading.get("unexpected_keys", []))
-    mismatched = loading.get("mismatched_keys", [])
-    errors = loading.get("error_msgs", [])
+    mismatched = normalize_loading_sequence(
+        loading.get("mismatched_keys", []), "mismatched_keys"
+    )
+    errors = normalize_loading_sequence(loading.get("error_msgs", []), "error_msgs")
     if missing or unexpected != EXPECTED_UNEXPECTED_KEYS or mismatched or errors:
         raise ValueError(
             f"DFlash loading mismatch: missing={sorted(missing)}, "

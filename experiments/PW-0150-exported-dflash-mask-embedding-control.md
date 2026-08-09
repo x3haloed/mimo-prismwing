@@ -78,6 +78,19 @@ whose SHA-256 is the required
 Authorize `draft-002` with that corrected path; this operational amendment
 changes no model, mask, proposal, or gate semantics.
 
+`draft-002` completed draft and LM-head computation but stopped at manifest
+serialization because Transformers 5.14 returned `mismatched_keys` as an empty
+Python set, whereas the existing evidence code assumed the earlier list form.
+Its explicit failure record hashes to
+`89974d17b07487963d7d3b40940f7747369e59bd25c58f536ca3933241f8981e`.
+Quarantine its two partial captures; they hash to
+`8cabe5649d6aecaf65b66f86cd9852f0aa0779c6c4609c261b7da1c507c3b8f4`
+and `9a97853dee932e215c801075bbb2bd0abc95ebb276aeea7fd14c226c176492f7`
+but have no valid manifest and are not results. Normalize only the loader's
+diagnostic container at the JSON boundary, add a regression fixture for list,
+tuple, and set forms, and authorize `draft-003`. The model outputs are not read
+from or compared with the quarantined files.
+
 ## Decision
 
 Pending execution. This control can reverse only PW-0102's judgment about the
