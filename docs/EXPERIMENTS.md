@@ -614,6 +614,16 @@ round-to-nearest train output and immutable six-bit validation. A pass opens
 only an all-validation-expert audit; a failure closes this fixed per-group
 codebook form without claiming that all vector or learned quantizers fail.
 
+PW-0149 rejects the scalar-codebook form. Validation relative L2 is
+`3.376%/6.060%/6.064%` and worst-row error is
+`6.881%/8.157%/7.748%`; all three are worse than immutable six-bit affine and
+miss both fidelity bounds. Global-Hessian assignment still drives train error
+from `9.443%/17.941%/15.747%` down to `0.544%/4.104%/3.287%`, reproducing the
+same train floor without validation transfer. Close fixed per-group scalar
+level search. Vector/program quantization and source-preserving companion
+execution remain distinct; no bank, kernel, hardware, or throughput constant
+is authorized.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?

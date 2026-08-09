@@ -2736,3 +2736,27 @@ swap or new throttled pages, and stable services. Raw evidence hashes to
 analysis hashes to
 `66cf40287ba8c60bd8ee52e143311fac21e0dc07414c9d1f3230edb5a71ecf64`.
 No endpoint TPS or measured throughput-model constant changes in PW-0148.
+
+PW-0149 rejects deterministic per-row-group nonuniform scalar INT4 as the
+missing capacity mechanism. Sixteen F16 Lloyd centroids per group produce
+validation relative L2 of `0.033762`, `0.060601`, and `0.060640`, with
+maximum-row errors of `0.068806`, `0.081569`, and `0.077481`. Every expert is
+worse than its immutable six-bit affine control and fails both frozen gates.
+
+The assignment mechanism remains powerful on visible train positions:
+global-Hessian propagation reduces nonuniform round-to-nearest train error from
+`0.094429/0.179407/0.157468` to `0.005443/0.041036/0.032874`. Convergence near
+the same four-to-six-bit train floor, coupled with poor validation, strengthens
+the causal inference that fixed scalar grids are compensating the calibration
+slice rather than learning a transferable expert representation. Do not spend
+more experiments on scalar level counts, spacing, or another fixed seed.
+
+The exact prospective ledger is 18,874,368 bytes/expert (`0.749817` of source),
+227,096,395,776 bytes for the routed bank, and zero added matrix MACs. Gate 8
+passes across 24 snapshots at 65% minimum free memory, 1,856,372,736-byte peak
+RSS, 362,843,968-byte maximum physical and release-boundary footprint, zero
+swap or new throttled pages, and stable services. Raw evidence hashes to
+`f8860f648cc6596d5c6a35eca7b2236270676aa421d0890c1d2b02236dffd54a`;
+analysis hashes to
+`eeb5576f1d20f81cfa0c6326622fa649262ac5fcf13ca09625e59b7512044f18`.
+No endpoint TPS or measured throughput-model constant changes in PW-0149.

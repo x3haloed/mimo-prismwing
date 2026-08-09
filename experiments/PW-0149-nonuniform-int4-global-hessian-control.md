@@ -1,7 +1,7 @@
 # PW-0149 — Nonuniform INT4 global-Hessian three-expert control
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -81,3 +81,34 @@ model, or endpoint.
 
 Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 Apply normative Gate 8 before and after every projection and expert release.
+
+## Result
+
+All three candidates fail. Validation relative L2 is `0.033762` at layer
+4/expert 96, `0.060601` at layer 24/expert 22, and `0.060640` at layer
+46/expert 28. Maximum-row error is `0.068806`, `0.081569`, and `0.077481`.
+Every result is worse than its immutable six-bit affine control and misses both
+the 2% aggregate and 5% row gates.
+
+Global-Hessian assignment does improve every nonuniform round-to-nearest train
+control, reducing train relative L2 from `0.094429/0.179407/0.157468` to
+`0.005443/0.041036/0.032874`. Those final train errors again converge near the
+four-to-six-bit floor while validation remains poor. This strengthens the
+inference that visible-train compensation in a fixed scalar grid does not
+generalize; changing scalar level spacing is not sufficient.
+
+Reject this deterministic per-row-group 16-centroid/global-Hessian form. Do
+not build its 227,096,395,776-byte bank or lookup kernel. The result does not
+reject vector quantization, learned executable programs, or a companion
+hardware embodiment that preserves the source representation.
+
+Gate 8 passes across 24 snapshots: minimum free memory is 65%, maximum process
+peak RSS is 1,856,372,736 bytes, maximum physical and release-boundary
+footprint are 362,843,968 bytes, swap and throttled-page growth are zero, and
+protected services remain stable. Raw evidence hashes to
+`f8860f648cc6596d5c6a35eca7b2236270676aa421d0890c1d2b02236dffd54a`;
+independent analysis hashes to
+`eeb5576f1d20f81cfa0c6326622fa649262ac5fcf13ca09625e59b7512044f18`.
+
+No holdout, all-expert audit, runtime, hardware purchase, endpoint, accepted
+tokens, TPS claim, or throughput-model constant follows from PW-0149.
