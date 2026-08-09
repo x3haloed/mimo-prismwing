@@ -483,6 +483,16 @@ worse, showing that GPTQ supplies nearly all of the recovered quality. Keep
 holdout sealed and do not rotate the checkpoint or build the runtime; proceed
 to recovery training rather than another fixed rotation seed.
 
+PW-0142 tests the cheapest direct recovery-training form without changing the
+runtime ledger. Reproduce PW-0139's codes for the three well-covered PW-0141
+experts, freeze those four-bit assignments, and jointly train only the existing
+group-128 scale and bias arrays through each complete SwiGLU expert. Use one
+frozen optimizer schedule on routed train positions, stage final grids through
+F16, and score untouched validation positions. Continue only if both deep
+experts improve by at least 25%, reach 5% L2 and 8% worst-row error, the early
+control remains stable, and the 13,369,344-byte zero-extra-MAC ledger is exact.
+Keep holdout, code-changing QAT, bank construction, and runtime work closed.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
