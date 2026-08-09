@@ -2685,3 +2685,29 @@ evidence hashes to
 analysis hashes to
 `9ea3ba39fc7381389e168b09478cdf3789cbcce846ac82b096e392b5d42bc3f3`.
 No endpoint TPS or measured throughput-model constant changes in PW-0146.
+
+PW-0147 tests the next representation-capacity point rather than another
+optimizer schedule. Five-bit group-128 affine grids with unchanged
+global-Hessian assignment materially improve all three exact PW-0138 four-bit
+validation controls: relative L2 becomes `0.019898`, `0.047222`, and `0.043164`
+at layers 4, 24, and 46. The early expert clears the frozen `2%` validation and
+`5%` worst-row gates; both deep experts miss the validation gate, and layer 24
+also misses worst-row at `0.054097`.
+
+This rejects the tested five-bit form on the representative experts without
+collapsing the broader low-bit branch. All candidates improve five-bit
+round-to-nearest on train and four-bit global-Hessian on validation, so bit
+capacity—not a failed optimizer—is causally implicated. A separately frozen
+six-bit control is the next cheap falsification; an all-validation-expert audit
+remains unauthorized.
+
+The prospective five-bit representation remains physically exact at
+16,515,072 bytes per expert (`0.656090` of source), 198,709,346,304 bytes for
+the routed bank, and zero additional runtime MACs. Gate 8 passes across 24
+snapshots at 66% minimum free memory, 1,902,084,096-byte maximum peak RSS,
+397,365,184-byte maximum physical and release-boundary footprint, zero swap or
+new throttled pages, and stable services. Raw evidence hashes to
+`a7706fce33dc716930d080988e197089bcf1ebb6fb5729adcdb3203a8cccd62e`;
+analysis hashes to
+`4c7a5ef1a4a91816fd66021d4068e2224057d1c3967069b915bae3655e4cff4e`.
+No endpoint TPS or measured throughput-model constant changes in PW-0147.

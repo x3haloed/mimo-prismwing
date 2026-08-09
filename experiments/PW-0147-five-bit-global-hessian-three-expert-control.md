@@ -1,7 +1,7 @@
 # PW-0147 — Five-bit global-Hessian three-expert control
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -67,3 +67,26 @@ not holdout, a bank, kernel, companion purchase, accumulated model, or endpoint.
 
 Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 Apply normative Gate 8 before and after every projection and expert release.
+
+## Result
+
+The early control passes, but both deep controls fail the unchanged validation
+gate. Validation relative L2 is `0.019898` at layer 4/expert 96, `0.047222` at
+layer 24/expert 22, and `0.043164` at layer 46/expert 28. Maximum-row relative
+L2 is `0.034270`, `0.054097`, and `0.049707`, respectively. All three improve
+their exact four-bit validation controls and five-bit round-to-nearest train
+controls, and the code domain and physical ledger remain exact.
+
+Reject this affine-group-128/global-Hessian five-bit form on the representative
+gate. The result does not reject a six-bit control, which is the next distinct
+capacity point. No all-validation-expert audit, holdout access, runtime bank,
+hardware purchase, endpoint result, accepted tokens, or TPS claim is
+authorized by PW-0147.
+
+Gate 8 passes across 24 snapshots: minimum free memory is 66%, maximum process
+peak RSS is 1,902,084,096 bytes, maximum physical footprint and release-boundary
+footprint are 397,365,184 bytes, swap and throttled-page growth are zero, and
+protected services remain stable. Raw evidence hashes to
+`a7706fce33dc716930d080988e197089bcf1ebb6fb5729adcdb3203a8cccd62e`;
+independent analysis hashes to
+`4c7a5ef1a4a91816fd66021d4068e2224057d1c3967069b915bae3655e4cff4e`.

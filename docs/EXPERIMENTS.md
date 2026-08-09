@@ -571,6 +571,17 @@ L2 and 5% worst-row error, improves train and its four-bit control, preserves
 all authorities, and adds no runtime MACs. A pass opens only an all-validation-
 expert audit; no runtime or hardware purchase follows.
 
+PW-0147 rejects that five-bit form. The early expert passes at `1.990%`
+validation L2 and `3.427%` worst-row error, but the layer-24 and layer-46
+experts reach only `4.722%/5.410%` and `4.316%/4.971%`, respectively. Every
+candidate still improves both its five-bit round-to-nearest train control and
+its exact four-bit validation control. Thus the added bit has real value, but
+not enough capacity for the unchanged `2%/5%` representative gate. Preserve
+the physical result—16,515,072 bytes/expert, 198,709,346,304 bytes/bank, zero
+extra MACs—and advance only to a separately frozen six-bit control. No
+throughput-model constant changes because no executable bank or endpoint was
+measured.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
