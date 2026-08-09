@@ -548,6 +548,13 @@ leave train L2 exactly at 3.928%; their maximum offsets range from 0.0032 to
 isolates a quantized dead zone rather than a fidelity result. Resolve one
 threshold-crossing train-only schedule before any new validation experiment.
 
+PW-0146 is the final schedule test for the fixed-grid latent form. On the same
+layer 46/expert 249 train slice, run exactly 32 steps at learning rate `0.02`,
+predicted to cross the first 0.5 code boundary without PW-0144's multi-bin
+explosion. Never load validation. Continue only for 25% train improvement,
+descending loss, 0--5% changed codes, exact grid/code authority, and unchanged
+runtime accounting. Failure ends schedule search for this parameterization.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
