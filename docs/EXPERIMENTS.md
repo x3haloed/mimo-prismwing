@@ -562,6 +562,15 @@ loaded. Combined with PW-0145's no-change dead zone and PW-0144's large-step
 divergence, end schedule search for this fixed-grid independent-offset STE
 form. Move to grid-changing training or another executable representation.
 
+PW-0147 changes representation rather than repeating recovery schedules. Build
+group-128 affine five-bit grids and run unchanged global-Hessian assignment on
+PW-0138's three representative experts. The exact prospective artifact is
+16,515,072 bytes per expert (`0.656090` of source), or about 198.7 GB for the
+routed bank before padding. Continue only if every expert reaches 2% validation
+L2 and 5% worst-row error, improves train and its four-bit control, preserves
+all authorities, and adds no runtime MACs. A pass opens only an all-validation-
+expert audit; no runtime or hardware purchase follows.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
