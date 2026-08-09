@@ -126,8 +126,17 @@ def train_code_offsets(
     safety: HostSafetyMonitor | None = None,
     *,
     steps: int = STEPS,
+    learning_rate: float = LEARNING_RATE,
+    safety_interval: int = SAFETY_INTERVAL,
 ) -> tuple[dict[str, np.ndarray], dict]:
-    if steps <= 0 or inputs.ndim != 2 or targets.ndim != 2 or inputs.shape[0] != targets.shape[0]:
+    if (
+        steps <= 0
+        or learning_rate <= 0
+        or safety_interval <= 0
+        or inputs.ndim != 2
+        or targets.ndim != 2
+        or inputs.shape[0] != targets.shape[0]
+    ):
         raise ValueError("PW-0144 training tensors are invalid")
     constants = {}
     offsets = {}
@@ -179,7 +188,7 @@ def train_code_offsets(
         return normalized_mse + REGULARIZATION * regularizer
 
     optimizer = optim.Adam(
-        learning_rate=LEARNING_RATE,
+        learning_rate=learning_rate,
         betas=[0.9, 0.999],
         eps=1e-8,
         bias_correction=True,
@@ -193,7 +202,7 @@ def train_code_offsets(
         value = float(loss.item())
         if not np.isfinite(value):
             raise RuntimeError("PW-0144 training loss is not finite")
-        if step == 0 or step % SAFETY_INTERVAL == 0 or step == steps:
+        if step == 0 or step % safety_interval == 0 or step == steps:
             history.append({"step": step, "loss": value})
             if safety is not None:
                 safety.checkpoint(f"code_qat_step_{step}")
@@ -204,7 +213,7 @@ def train_code_offsets(
     learned = {name: np.asarray(value).astype(np.float32, copy=True) for name, value in offsets.items()}
     diagnostics = {
         "steps": steps,
-        "learning_rate": LEARNING_RATE,
+        "learning_rate": learning_rate,
         "betas": [0.9, 0.999],
         "epsilon": 1e-8,
         "bias_correction": True,
@@ -537,4 +546,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
