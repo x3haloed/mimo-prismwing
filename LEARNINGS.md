@@ -2711,3 +2711,28 @@ new throttled pages, and stable services. Raw evidence hashes to
 analysis hashes to
 `4c7a5ef1a4a91816fd66021d4068e2224057d1c3967069b915bae3655e4cff4e`.
 No endpoint TPS or measured throughput-model constant changes in PW-0147.
+
+PW-0148 closes the affine-group-128/global-Hessian bit-width ladder for a
+256 GiB companion embodiment. Six-bit validation relative L2 is `0.019209`,
+`0.044075`, and `0.038193` across the early, middle, and late controls. All
+maximum rows clear 5%, all candidates improve six-bit round-to-nearest on train
+and immutable five-bit controls on validation, and all authorities reproduce;
+nevertheless both deep experts miss the unchanged 2% gate.
+
+The sixth bit provides only small validation gains over five-bit and leaves
+optimized train errors essentially unchanged (`0.005448`, `0.041244`, and
+`0.032966`). Treat this as a generalization/topology floor for the tested
+fixed affine-grid assignment, not a reason to tune the acceptance threshold.
+Seven-bit storage would require 22,806,528 bytes/expert and 274,408,144,896
+bytes (255.5625 GiB) for routed experts alone. It is therefore ineligible for
+a 256 GiB companion after spine, KV, runtime, OS, and safety headroom.
+
+The exact six-bit prospective ledger is 19,660,800 bytes/expert (`0.781059` of
+source), 236,558,745,600 bytes for the routed bank, and zero added MACs. Gate 8
+passes across 24 snapshots at 66% minimum free memory, 1,899,380,736-byte peak
+RSS, 395,677,568-byte maximum physical and release-boundary footprint, zero
+swap or new throttled pages, and stable services. Raw evidence hashes to
+`48d1c28cc589e55002ce5a4b836d62ef172d3ed77106c100b2ad49d708fd1257`;
+analysis hashes to
+`66cf40287ba8c60bd8ee52e143311fac21e0dc07414c9d1f3230edb5a71ecf64`.
+No endpoint TPS or measured throughput-model constant changes in PW-0148.

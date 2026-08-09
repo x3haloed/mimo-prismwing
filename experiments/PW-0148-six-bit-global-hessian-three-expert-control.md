@@ -1,7 +1,7 @@
 # PW-0148 — Six-bit global-Hessian three-expert control
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -71,3 +71,33 @@ not holdout, a bank, kernel, companion purchase, accumulated model, or endpoint.
 
 Report zero accepted tokens, `A=0`, no endpoint timing, and no TPS claim.
 Apply normative Gate 8 before and after every projection and expert release.
+
+## Result
+
+The early control passes, but both deep controls again fail the unchanged 2%
+validation gate. Validation relative L2 is `0.019209` at layer 4/expert 96,
+`0.044075` at layer 24/expert 22, and `0.038193` at layer 46/expert 28.
+Maximum-row relative L2 is `0.033202`, `0.049543`, and `0.047434`; all three
+now clear the 5% row gate. Every candidate improves its six-bit
+round-to-nearest train control and immutable five-bit validation result, and
+all code, source, partition, four-bit, and physical authorities pass.
+
+Reject this affine-group-128/global-Hessian six-bit form on the representative
+gate. The small five-to-six-bit improvements and nearly unchanged optimized
+train errors identify a generalization/topology floor rather than adequate
+evidence for another bit. Seven-bit storage would be 22,806,528 bytes/expert
+and 274,408,144,896 bytes (255.5625 GiB) for the routed bank alone, exceeding a
+256 GiB companion once spine, KV, runtime, OS, and safety headroom are counted.
+Do not continue this family by bit width within that embodiment.
+
+Gate 8 passes across 24 snapshots: minimum free memory is 66%, maximum process
+peak RSS is 1,899,380,736 bytes, maximum physical footprint and release-boundary
+footprint are 395,677,568 bytes, swap and throttled-page growth are zero, and
+protected services remain stable. Raw evidence hashes to
+`48d1c28cc589e55002ce5a4b836d62ef172d3ed77106c100b2ad49d708fd1257`;
+independent analysis hashes to
+`66cf40287ba8c60bd8ee52e143311fac21e0dc07414c9d1f3230edb5a71ecf64`.
+
+No all-validation-expert audit, holdout access, runtime bank, hardware purchase,
+endpoint result, accepted tokens, TPS claim, or measured throughput-model
+constant follows from PW-0148.

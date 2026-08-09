@@ -591,6 +591,19 @@ PW-0147 five-bit controls, preserve all authorities, and add no MACs. The bank
 fits arithmetically in 256 GiB but leaves only about 35.6 GiB for everything
 else, so a fidelity pass remains insufficient to authorize hardware.
 
+PW-0148 rejects the six-bit form. The early expert reaches `1.921%` validation
+L2, but the layer-24 and layer-46 experts remain at `4.407%` and `3.819%`.
+All worst rows now clear 5%, every candidate improves its six-bit
+round-to-nearest train control and five-bit validation control, and all
+authorities pass. The fifth-to-sixth bit therefore has diminishing value and
+does not resolve deep-expert generalization. Seven-bit codes would consume
+255.5625 GiB for routed experts alone, so further bit-width search is physically
+ineligible for a 256 GiB companion once required resident state and headroom
+are included. Close this affine/global-Hessian width ladder; continue through a
+non-affine representation or a separately measured companion arithmetic path.
+No throughput-model constant changes because no executable bank or endpoint
+was measured.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
