@@ -25,6 +25,9 @@ class CodeQatOptimizerPreflightTests(unittest.TestCase):
         self.assertEqual(select_trial(trials)["learning_rate"], LEARNING_RATES[0])
         trials[-1]["train_metrics"]["relative_l2"] = 0.01
         self.assertEqual(select_trial(trials)["learning_rate"], LEARNING_RATES[-1])
+        self.assertEqual(
+            select_trial([_trial(0.02, 0.01)], (0.02,))["learning_rate"], 0.02
+        )
 
     def test_gate_requires_improvement_and_bounded_code_changes(self):
         initial = {"relative_l2": 0.04}
@@ -38,4 +41,3 @@ class CodeQatOptimizerPreflightTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

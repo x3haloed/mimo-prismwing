@@ -75,8 +75,10 @@ STEPS = 32
 SAFETY_INTERVAL = 8
 
 
-def select_trial(trials: list[dict]) -> dict:
-    if [row.get("learning_rate") for row in trials] != list(LEARNING_RATES):
+def select_trial(
+    trials: list[dict], expected_learning_rates: tuple[float, ...] = LEARNING_RATES
+) -> dict:
+    if [row.get("learning_rate") for row in trials] != list(expected_learning_rates):
         raise ValueError("PW-0145 trial authority mismatch")
     return min(
         trials,
@@ -123,6 +125,12 @@ def run(
     pw0144_path: Path,
     output_path: Path,
     commit: str,
+    *,
+    learning_rates: tuple[float, ...] = LEARNING_RATES,
+    evidence_class: str = "pw0145_train_only_code_qat_optimizer_preflight",
+    pass_decision: str = "authorize_frozen_code_qat_validation_confirmation",
+    reject_decision: str = "reject_tested_fixed_grid_code_qat_optimizer_family",
+    extra_source_hashes: dict[str, str] | None = None,
 ) -> dict:
     if output_path.exists():
         raise ValueError(f"refusing to overwrite {output_path}")
@@ -215,7 +223,9 @@ def run(
     if initial_metrics != prior_expert["candidate_calibration_metrics"]:
         raise ValueError("PW-0145 does not reproduce PW-0139 train metric")
     trials = []
-    for learning_rate in LEARNING_RATES:
+    if not learning_rates or any(rate <= 0 for rate in learning_rates):
+        raise ValueError("train-only learning-rate schedule is invalid")
+    for learning_rate in learning_rates:
         offsets, training = train_code_offsets(
             train_inputs,
             train_expected,
@@ -261,12 +271,12 @@ def run(
             f"learning_rate_{learning_rate}_released",
             ["latent offsets", "optimizer state", "trial weights", "trial output"],
         )
-    selected = select_trial(trials)
+    selected = select_trial(trials, learning_rates)
     gate = _gate(initial_metrics, selected)
     decision = (
-        "authorize_frozen_code_qat_validation_confirmation"
+        pass_decision
         if gate["passes"]
-        else "reject_tested_fixed_grid_code_qat_optimizer_family"
+        else reject_decision
     )
     del moe_input, expert_down, train_inputs, train_expected, source_weights
     del hidden, activations, initial_grids, initial_weights, initial_output
@@ -279,7 +289,7 @@ def run(
     safety.checkpoint("final_service_health")
     result = {
         "schema_version": 1,
-        "evidence_class": "pw0145_train_only_code_qat_optimizer_preflight",
+        "evidence_class": evidence_class,
         "revision": REVISION,
         "commit": commit,
         "source_hashes": {
@@ -287,13 +297,14 @@ def run(
             "corpus_manifest_sha256": CORPUS_SHA256,
             "pw0139_report_sha256": PW0139_SHA256,
             "pw0144_report_sha256": PW0144_SHA256,
+            **(extra_source_hashes or {}),
         },
         "layer": LAYER,
         "expert": EXPERT,
         "train_placements": TRAIN_PLACEMENTS,
         "validation_loaded": False,
         "holdout_unsealed": False,
-        "learning_rates": list(LEARNING_RATES),
+        "learning_rates": list(learning_rates),
         "steps": STEPS,
         "initial_train_metrics": initial_metrics,
         "trials": trials,
@@ -345,4 +356,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
