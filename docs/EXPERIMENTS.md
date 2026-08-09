@@ -582,6 +582,15 @@ extra MACs—and advance only to a separately frozen six-bit control. No
 throughput-model constant changes because no executable bank or endpoint was
 measured.
 
+PW-0148 freezes the next code-capacity point without changing the numerical
+control or fidelity thresholds. Six-bit codes plus F16 affine metadata require
+19,660,800 bytes/expert (`0.781059` of source), or 236,558,745,600 bytes for
+the routed bank before padding. Continue only if all three experts clear the
+same `2%/5%` validation gates, improve six-bit round-to-nearest and immutable
+PW-0147 five-bit controls, preserve all authorities, and add no MACs. The bank
+fits arithmetically in 256 GiB but leaves only about 35.6 GiB for everything
+else, so a fidelity pass remains insufficient to authorize hardware.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
