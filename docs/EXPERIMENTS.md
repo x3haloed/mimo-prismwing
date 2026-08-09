@@ -604,6 +604,16 @@ non-affine representation or a separately measured companion arithmetic path.
 No throughput-model constant changes because no executable bank or endpoint
 was measured.
 
+PW-0149 changes the shared affine-level assumption. Give every 128-weight
+row-group a deterministic 16-centroid F16 codebook and apply the unchanged
+global-Hessian assignment on PW-0148's three controls. The prospective form is
+18,874,368 bytes/expert (`0.749817` of source), or 227,096,395,776 bytes for
+the routed bank, with no added matrix MACs. Continue only if all experts clear
+the unchanged `2%/5%` validation gates and improve both nonuniform
+round-to-nearest train output and immutable six-bit validation. A pass opens
+only an all-validation-expert audit; a failure closes this fixed per-group
+codebook form without claiming that all vector or learned quantizers fail.
+
 ## E6 — MTP and DFlash verification
 
 **Question:** How much accepted work does speculation buy on the actual runtime?
