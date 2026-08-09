@@ -62,6 +62,7 @@ LAST_LOGITS_SHA256 = "c43be0909487235bddfe6e0de69aa42a98339faf43cd6b77d6ef4b5f1a
 EXPECTED_UNEXPECTED_KEYS = {
     f"layers.{layer}.self_attn.attention_sink_bias" for layer in range(5)
 }
+MASK_TOKEN_ID = 151675
 
 
 def configure_sglang_full_head_rope(config: Qwen3Config) -> dict[str, Any]:
@@ -215,6 +216,101 @@ def tensor_capture(output: Path, name: str, value: torch.Tensor) -> dict[str, An
     }
 
 
+def assemble_block_noise_embeddings(
+    anchor: torch.Tensor,
+    target_mask: torch.Tensor,
+    exported_mask: Optional[torch.Tensor] = None,
+) -> tuple[torch.Tensor, dict[str, Any]]:
+    """Assemble one anchor and seven masks while preserving their authority."""
+    if (
+        anchor.ndim != 2
+        or target_mask.ndim != 2
+        or anchor.shape != target_mask.shape
+        or anchor.shape[0] != 1
+        or anchor.dtype != torch.bfloat16
+        or target_mask.dtype != torch.bfloat16
+        or not torch.isfinite(anchor).all()
+        or not torch.isfinite(target_mask).all()
+    ):
+        raise ValueError("DFlash anchor or target mask tensor identity mismatch")
+    target_mask_f32 = target_mask.float()
+    target_mask_hash = hashlib.sha256(
+        target_mask_f32.contiguous().numpy().astype("<f4", copy=False).tobytes()
+    ).hexdigest()
+    if exported_mask is None:
+        mask = target_mask
+        authority = "verified_base_model_embed_tokens_row"
+        exported_used = False
+        comparison = None
+    else:
+        if (
+            exported_mask.shape != target_mask.shape
+            or exported_mask.dtype != torch.bfloat16
+            or not torch.isfinite(exported_mask).all()
+        ):
+            raise ValueError("exported DFlash mask tensor identity mismatch")
+        mask = exported_mask
+        mask_f32 = mask.float()
+        denominator = torch.linalg.vector_norm(target_mask_f32)
+        if denominator <= 0:
+            raise ValueError("base target mask embedding has zero norm")
+        comparison = {
+            "target_row_l2_norm": float(denominator),
+            "exported_l2_norm": float(torch.linalg.vector_norm(mask_f32)),
+            "relative_l2_to_target_row": float(
+                torch.linalg.vector_norm(mask_f32 - target_mask_f32) / denominator
+            ),
+            "cosine_similarity_to_target_row": float(
+                torch.nn.functional.cosine_similarity(mask_f32, target_mask_f32, dim=1)[0]
+            ),
+        }
+        authority = "verified_dflash_exported_mask_embedding"
+        exported_used = True
+
+    noise_embedding = torch.cat([anchor, mask.expand(7, -1)], dim=0).unsqueeze(0)
+    mask_hash = hashlib.sha256(
+        mask.float().contiguous().numpy().astype("<f4", copy=False).tobytes()
+    ).hexdigest()
+    return noise_embedding, {
+        "mask_token_id": MASK_TOKEN_ID,
+        "authority": authority,
+        "exported_mask_embedding_used": exported_used,
+        "widened_f32_sha256": mask_hash,
+        "base_target_row_widened_f32_sha256": target_mask_hash,
+        "comparison_to_base_target_row": comparison,
+    }
+
+
+def load_block_noise_embeddings(
+    shard: Path,
+    block_ids: torch.Tensor,
+    exported_mask_embedding: Optional[Path] = None,
+) -> tuple[torch.Tensor, dict[str, Any]]:
+    """Load the target anchor plus either target-row or shipped draft mask noise."""
+    if block_ids.shape != (1, 8) or block_ids[0, 1:].tolist() != [MASK_TOKEN_ID] * 7:
+        raise ValueError("DFlash initial block mask layout mismatch")
+    with safe_open(shard, framework="pt", device="cpu") as source:
+        embedding = source.get_slice("model.embed_tokens.weight")
+        anchor = embedding[int(block_ids[0, 0]) : int(block_ids[0, 0]) + 1]
+        target_mask = embedding[MASK_TOKEN_ID : MASK_TOKEN_ID + 1]
+
+    exported_mask = None
+    if exported_mask_embedding is not None:
+        payload = torch.load(exported_mask_embedding, map_location="cpu", weights_only=True)
+        if (
+            not isinstance(payload, dict)
+            or payload.keys() != {"mask_token_id", "embedding"}
+            or payload["mask_token_id"] != MASK_TOKEN_ID
+            or not isinstance(payload["embedding"], torch.Tensor)
+            or payload["embedding"].dtype != torch.bfloat16
+            or tuple(payload["embedding"].shape) != (4096,)
+            or not torch.isfinite(payload["embedding"]).all()
+        ):
+            raise ValueError("exported DFlash mask embedding identity mismatch")
+        exported_mask = payload["embedding"].reshape(1, 4096)
+    return assemble_block_noise_embeddings(anchor, target_mask, exported_mask)
+
+
 def run(arguments: argparse.Namespace) -> dict[str, Any]:
     started = time.monotonic()
     torch.set_num_threads(1)
@@ -242,16 +338,28 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     target_hidden = torch.cat(hidden_parts, dim=-1).unsqueeze(0)
     del hidden_parts
     block_ids = initial_block_ids(FIRST_TARGET_TOKEN)
-    with safe_open(shard, framework="pt", device="cpu") as source:
-        embedding = source.get_slice("model.embed_tokens.weight")
-        noise_embedding = torch.cat(
-            [embedding[token : token + 1] for token in block_ids[0].tolist()], dim=0
-        ).unsqueeze(0)
+    exported_mask_embedding = getattr(arguments, "exported_mask_embedding", None)
+    if exported_mask_embedding is not None:
+        expected_mask_path = arguments.dflash_root / "dflash/mask_embedding.pt"
+        if exported_mask_embedding.resolve() != expected_mask_path.resolve():
+            raise ValueError("exported mask path is outside the authenticated DFlash artifact")
+        artifact = json.loads(arguments.artifact_manifest.read_text())
+        mask_record = next(
+            (
+                item
+                for item in artifact.get("verified_files", [])
+                if item.get("path") == "dflash/mask_embedding.pt"
+            ),
+            None,
+        )
+        if mask_record is None:
+            raise ValueError("DFlash artifact manifest lacks mask embedding")
+        verified_file(exported_mask_embedding, {**mask_record, "status": "verified"})
+    noise_embedding, mask_embedding_record = load_block_noise_embeddings(
+        shard, block_ids, exported_mask_embedding
+    )
     if target_hidden.shape != (1, 27, 20480) or noise_embedding.shape != (1, 8, 4096):
         raise ValueError("DFlash frozen input shape mismatch")
-    mask_embedding_hash = hashlib.sha256(
-        noise_embedding[0, 1].float().contiguous().numpy().astype("<f4", copy=False).tobytes()
-    ).hexdigest()
     safety.checkpoint("frozen_inputs_loaded")
 
     DFlashDraftModel = load_published_class(arguments.dflash_root / "dflash/dflash.py")
@@ -350,7 +458,11 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     snapshots = safety.evidence()
     result = {
         "schema_version": 1,
-        "evidence_class": "pw0102_frozen_hidden_dflash_proposal",
+        "evidence_class": (
+            "pw0150_exported_mask_dflash_proposal"
+            if exported_mask_embedding is not None
+            else "pw0102_frozen_hidden_dflash_proposal"
+        ),
         "status": "passed",
         "base_revision": REVISION,
         "dflash_revision": DFLASH_REVISION,
@@ -360,10 +472,13 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
         "context_length": CONTEXT_LENGTH,
         "target_layer_ids": list(TARGET_LAYER_IDS),
         "initial_target_token_id": FIRST_TARGET_TOKEN,
-        "mask_token_id": 151675,
-        "mask_embedding_authority": "verified_base_model_embed_tokens_row",
-        "mask_embedding_widened_f32_sha256": mask_embedding_hash,
-        "exported_mask_embedding_used": False,
+        "mask_token_id": MASK_TOKEN_ID,
+        "mask_embedding_authority": mask_embedding_record["authority"],
+        "mask_embedding_widened_f32_sha256": mask_embedding_record["widened_f32_sha256"],
+        "exported_mask_embedding_used": mask_embedding_record[
+            "exported_mask_embedding_used"
+        ],
+        "mask_embedding": mask_embedding_record,
         "proposed_block_token_ids": proposed_ids,
         "loading_info": {
             "missing_keys": sorted(missing),
@@ -403,6 +518,7 @@ def main() -> int:
     parser.add_argument("--dflash-root", required=True, type=Path)
     parser.add_argument("--sglang-lock", required=True, type=Path)
     parser.add_argument("--sglang-root", required=True, type=Path)
+    parser.add_argument("--exported-mask-embedding", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     arguments = parser.parse_args()
     try:

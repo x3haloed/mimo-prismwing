@@ -7,6 +7,7 @@ import torch
 from transformers import Qwen3Config
 
 from tools.generate_dflash_frozen_proposal import (
+    assemble_block_noise_embeddings,
     configure_sglang_full_head_rope,
     tensor_capture,
     verified_file,
@@ -53,6 +54,30 @@ class FrozenProposalTests(unittest.TestCase):
             self.assertEqual(len((root / "hidden.f32").read_bytes()), 4)
             with self.assertRaises(FileExistsError):
                 tensor_capture(root, "hidden", torch.tensor([[1.0]], dtype=torch.bfloat16))
+
+    def test_exported_mask_replaces_only_masked_positions(self):
+        anchor = torch.tensor([[1, 2, 3, 4]], dtype=torch.bfloat16)
+        target_mask = torch.tensor([[0.5, 0, 0, 0]], dtype=torch.bfloat16)
+        exported_mask = torch.ones((1, 4), dtype=torch.bfloat16)
+        noise, record = assemble_block_noise_embeddings(
+            anchor, target_mask, exported_mask
+        )
+        self.assertEqual(noise.shape, (1, 8, 4))
+        torch.testing.assert_close(noise[0, 0], anchor[0])
+        torch.testing.assert_close(noise[0, 1:], exported_mask.expand(7, -1))
+        self.assertTrue(record["exported_mask_embedding_used"])
+        self.assertGreater(
+            record["comparison_to_base_target_row"]["relative_l2_to_target_row"],
+            1,
+        )
+
+    def test_exported_mask_validation_fails_closed(self):
+        anchor = torch.ones((1, 4), dtype=torch.bfloat16)
+        target_mask = torch.ones((1, 4), dtype=torch.bfloat16)
+        with self.assertRaisesRegex(ValueError, "tensor identity mismatch"):
+            assemble_block_noise_embeddings(
+                anchor, target_mask, torch.ones((1, 5), dtype=torch.bfloat16)
+            )
 
 
 if __name__ == "__main__":
