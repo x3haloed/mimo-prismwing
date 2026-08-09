@@ -397,3 +397,20 @@ analysis. The paper defines expected accepted tokens per cycle as
 a clean target-produced bonus anchor; uses block size 16 in its main
 experiments; and reports a maximum Table 6 `tau=6.33`. These facts constrain
 the published block embodiment, not every possible future long-depth proposer.
+
+## Owned EPYC resident-bank authorities
+
+- Supermicro, H11SSL-i motherboard manual, revision 1.2a, accessed and captured
+  2026-08-09:
+  <https://www.supermicro.com/manuals/motherboard/EPYC7000/MNL-2085.pdf>.
+- Newegg product page for Hynix `HMAA8GL7MMR4N-UH`, 64-GB DDR4-2400 ECC
+  LRDIMM, sold and shipped by A-Tech, observed at `$247.19` on 2026-08-09:
+  <https://www.newegg.com/hynix-64gb/p/0RN-000W-003B5>.
+
+Decision: source authority for PW-0153's physical population and one dated
+procurement falsification, respectively. The manual supports eight memory
+channels/slots, 64-GiB module populations up to 512 GiB, and fewer than eight
+populated channels while recommending a balanced bank; it also requires the
+same DIMM type, size, and speed. The listing is an immutable captured price
+observation for one compatible LRDIMM candidate, not a market-wide lower
+bound, compatibility warranty, complete BOM, or purchase authority.

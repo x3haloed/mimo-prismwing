@@ -265,6 +265,14 @@ Prismwing 50 needs depth at least 125 and leaves only 12 off-path nodes. Retain
 only a separately named `q>=137` or depth-at-least-125 base-aligned proposer;
 its own cheap calibration and complete physical ledger remain prerequisites.
 
+PW-0153 tests a changed physical premise before proposer training: replace the
+owned H11SSL-i host's small memory bank with enough supported, identical
+64-GiB DIMMs to hold every pinned source tensor byte. It will keep a supported
+resident embodiment separate from a dated `$500` procurement decision, bind
+the official DIMM-population rules and a captured compatible-memory listing,
+and rederive PW-0151's `q=137` acceptance prerequisite at the dual-PCIe
+nameplate ceiling. It authorizes no purchase and reports no endpoint TPS.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,
