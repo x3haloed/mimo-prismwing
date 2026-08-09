@@ -1,10 +1,12 @@
 import unittest
 
 from tools.analyze_wide_proposer_prerequisite import (
+    REVISION,
     expected_accepted_positions,
     linear_block_shape,
     solve_conditional_match_probability,
     tree_shape,
+    validate_supplied_proposer_report,
 )
 
 
@@ -35,6 +37,19 @@ class WideProposerPrerequisiteTests(unittest.TestCase):
             expected_accepted_positions(16, 1.01)
         with self.assertRaisesRegex(ValueError, "in \\[1, q\\]"):
             solve_conditional_match_probability(16, 17)
+
+    def test_supplied_proposer_authority_uses_frozen_evidence_class(self):
+        report = {
+            "evidence_class": "pw0150_exported_mask_dflash_control_analysis",
+            "revision": REVISION,
+            "A": 1,
+            "accepted_tokens": 0,
+            "exported_mask_proposed_block_token_ids": [264] + [11] * 7,
+        }
+        self.assertEqual(validate_supplied_proposer_report(report), 8)
+        report["evidence_class"] = "pw0150_exported_mask_dflash_control"
+        with self.assertRaisesRegex(ValueError, "authority mismatch"):
+            validate_supplied_proposer_report(report)
 
 
 if __name__ == "__main__":

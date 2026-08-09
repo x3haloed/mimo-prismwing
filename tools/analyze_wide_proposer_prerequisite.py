@@ -127,6 +127,20 @@ def _named_q137_scenario(pw0151: dict) -> dict:
     return scenario
 
 
+def validate_supplied_proposer_report(pw0150: dict) -> int:
+    proposed = pw0150.get("exported_mask_proposed_block_token_ids", [])
+    if (
+        pw0150.get("evidence_class")
+        != "pw0150_exported_mask_dflash_control_analysis"
+        or pw0150.get("revision") != REVISION
+        or pw0150.get("A") != 1
+        or pw0150.get("accepted_tokens") != 0
+        or len(proposed) != 8
+    ):
+        raise ValueError("PW-0150 supplied proposer authority mismatch")
+    return len(proposed)
+
+
 def _authenticate_sources(pw0151_path: Path, pw0150_path: Path, pdf_path: Path) -> tuple[dict, dict]:
     expected = {
         pw0151_path: PW0151_SHA256,
@@ -141,14 +155,7 @@ def _authenticate_sources(pw0151_path: Path, pw0150_path: Path, pdf_path: Path) 
     pw0151 = json.loads(pw0151_path.read_text())
     pw0150 = json.loads(pw0150_path.read_text())
     _named_q137_scenario(pw0151)
-    if (
-        pw0150.get("evidence_class") != "pw0150_exported_dflash_mask_control"
-        or pw0150.get("revision") != REVISION
-        or pw0150.get("A") != 1
-        or pw0150.get("accepted_tokens") != 0
-        or len(pw0150.get("exported_mask_proposed_block_token_ids", [])) != 8
-    ):
-        raise ValueError("PW-0150 supplied proposer authority mismatch")
+    validate_supplied_proposer_report(pw0150)
     return pw0151, pw0150
 
 
