@@ -289,7 +289,7 @@ def run(
         "gates_passed": True,
         "platform": platform.platform(),
         "complete_wall_ms": (time.perf_counter() - started) * 1000.0,
-        "safety": safety.summary(),
+        "safety": safety.evidence(),
     }
     atomic_write_new(output_path, canonical_json(report))
     return report

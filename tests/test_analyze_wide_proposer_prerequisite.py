@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock
 
 from tools.analyze_wide_proposer_prerequisite import (
     REVISION,
@@ -8,6 +9,7 @@ from tools.analyze_wide_proposer_prerequisite import (
     tree_shape,
     validate_supplied_proposer_report,
 )
+from tools.host_safety import HostReading, HostSafetyMonitor
 
 
 class WideProposerPrerequisiteTests(unittest.TestCase):
@@ -50,6 +52,24 @@ class WideProposerPrerequisiteTests(unittest.TestCase):
         report["evidence_class"] = "pw0150_exported_mask_dflash_control"
         with self.assertRaisesRegex(ValueError, "authority mismatch"):
             validate_supplied_proposer_report(report)
+
+    def test_safety_monitor_publication_interface_is_evidence(self):
+        reading = HostReading(
+            system_memory_free_percent=100,
+            swap_used_bytes=0,
+            throttled_pages=0,
+            process_resident_bytes=1,
+            process_physical_footprint_bytes=1,
+            process_peak_resident_bytes=1,
+            protected_service_pids={},
+        )
+        probe = Mock()
+        probe.read.return_value = reading
+        probe.allocator_pressure_relief.return_value = 0
+        monitor = HostSafetyMonitor(probe=probe)
+        monitor.checkpoint("analysis")
+        self.assertEqual(len(monitor.evidence()), 2)
+        self.assertEqual(monitor.evidence()[-1]["phase"], "analysis")
 
 
 if __name__ == "__main__":
