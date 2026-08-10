@@ -783,3 +783,17 @@ and reported-acceptance authority for PW-0173. These papers bind the audited
 released configurations, not MiMo behavior. Their cross-model acceptance
 means and GPU speedups are not Prismwing measurements or universal proposer
 bounds.
+
+## Approximate speculative suffix-reuse authority
+
+- Feng et al., *Approximate Speculative Decoding*, arXiv:2608.03447, accessed
+  and captured 2026-08-10: <https://arxiv.org/pdf/2608.03447>.
+
+The immutable PDF capture hashes to
+`76813e2e94d7be83d964df710729897e728cf7f25e9c330a3cf5aa502ff91724`.
+
+Decision: primary mechanism, released-configuration, verifier-budget,
+accepted-length, changed-trajectory, task-score, and throughput authority for
+PW-0174. The paper's cross-model results do not establish MiMo behavior,
+Prismwing's hosted distributional gates, native modality fidelity, long-context
+capability, or endpoint TPS.

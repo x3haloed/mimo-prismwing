@@ -532,6 +532,23 @@ unproven research branch; do not infer feasibility, impossibility, endpoint
 TPS, or purchase authority. The authoritative report hashes to
 `15ec2cfa3ea80a3914ce500f3cb8288a2149cc1948469aeecde04922f6f7a16d`.
 
+PW-0174 closes the current L3 mismatch-acceptance loophole without
+generalizing to an unbuilt scaled verifier. Approximate Speculative Decoding's
+primary `DSpark-14B-block7` configuration has a favorable maximum path of
+eight with a target bonus, 48 below PW-0170's minimum `A=56`. Its request
+budget `B=8` is cumulative regret, not proposal depth. Mean accepted length
+rises only from 3.85 to 4.20; the 7.78% mean and 15.26% maximum reported
+throughput gains are cross-model paper results, not Prismwing TPS.
+
+The paper also does not qualify the changed trajectories for Prismwing's L3
+target. It reports over 95% hash divergence on named tasks and a worst task
+point change of -1.52 percentage points, while omitting the hosted top-20
+distributional gate, native modalities, one-million context, required paired
+confidence intervals, and MiMo execution. Reject the released configuration;
+retain only a separately scaled MiMo-specific `q>=137` ASD branch with the full
+validation protocol as unproven. The authoritative report hashes to
+`2a8bbcc3d70740501fea245e33b28313d23447cfdde205c139f86981e4f4dd6e`.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,
