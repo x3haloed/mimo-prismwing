@@ -836,6 +836,7 @@ pub struct GlobalAttentionOracleCandidate {
     pub retained_positions: usize,
     pub retained_probability_mass: f64,
     pub reference_l2: f64,
+    pub candidate_l2: f64,
     pub error_l2: f64,
     pub relative_l2: f64,
     pub maximum_absolute_error: f32,
@@ -2563,11 +2564,13 @@ fn oracle_sparse_attention_candidate(
         return Err("global attention oracle produced non-finite output".to_owned());
     }
     let mut reference_squared = 0.0_f64;
+    let mut candidate_squared = 0.0_f64;
     let mut error_squared = 0.0_f64;
     let mut maximum_absolute_error = 0.0_f32;
     let mut bit_exact_values = 0_usize;
     for (&expected, &actual) in reference.iter().zip(&candidate) {
         reference_squared += f64::from(expected) * f64::from(expected);
+        candidate_squared += f64::from(actual) * f64::from(actual);
         let difference = actual - expected;
         error_squared += f64::from(difference) * f64::from(difference);
         maximum_absolute_error = maximum_absolute_error.max(difference.abs());
@@ -2580,6 +2583,7 @@ fn oracle_sparse_attention_candidate(
         retained_positions,
         retained_probability_mass,
         reference_l2,
+        candidate_l2: candidate_squared.sqrt(),
         error_l2,
         relative_l2: error_l2 / reference_l2.max(1.0e-20),
         maximum_absolute_error,

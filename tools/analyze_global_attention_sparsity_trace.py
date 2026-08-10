@@ -162,6 +162,7 @@ def _validate_raw(raw: dict) -> None:
             numeric = (
                 candidate.get("retained_probability_mass"),
                 candidate.get("reference_l2"),
+                candidate.get("candidate_l2"),
                 candidate.get("error_l2"),
                 candidate.get("relative_l2"),
                 candidate.get("maximum_absolute_error"),

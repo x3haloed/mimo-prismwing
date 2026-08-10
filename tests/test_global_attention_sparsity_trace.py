@@ -22,6 +22,7 @@ class GlobalAttentionSparsityTraceTests(unittest.TestCase):
                             "retained_fraction": fraction,
                             "retained_probability_mass": 0.8 + index * 0.1,
                             "reference_l2": 2.0,
+                            "candidate_l2": 2.0 - relative,
                             "error_l2": 2.0 * relative,
                             "relative_l2": relative,
                             "maximum_absolute_error": relative / 2,
