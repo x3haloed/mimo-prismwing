@@ -2968,6 +2968,26 @@ equivalent, before repeating the coverage walk. No throughput-model constant
 changes, and no Gate-8 or endpoint claim follows from these no-manifest safe
 stops.
 
+PW-0157 supersedes only PW-0156's tie-authority blocker. A hash-pinned fixture
+from the actual PyTorch 2.13.0 CPU build proves Prismwing's libc++ bridge exact
+on adversarial tied rows, including unsorted output order. The 512-position
+original control and bounded one-shot K/V-release runtime preserve every
+route-semantic field. Boundary ties occur 3, 9, 12, 23, and 63 times across
+the exact 512, 1,024, 2,048, 4,096, and 8,000 position walks; they are now
+authorized and explicitly counted rather than ignored.
+
+Distinct `(layer, expert)` coverage is 2,980, 3,572, 4,456, 4,585, and 4,903.
+At 8K, the impossible 660-record offline-residency grant still leaves 4,243
+records or `106,804,660,224` source bytes, but the observation remains 4,100
+records below the predeclared four-lane rejection point. Retain four-lane 8K
+storage capacity only as a conditional arithmetic envelope. This does not
+measure storage, CUDA, prefill time, or endpoint TPS and does not reverse
+PW-0158's complete-system rejection. The authoritative analysis hashes to
+`e7df87bb326e543b5b500c698eae1700d2fd204d6b2d2a833736706456955cfc`.
+Gate 8 passes at 69% minimum free memory, `3,967,156,224`-byte peak RSS, zero
+swap growth or throttling, and stable services. No accepted-token or
+throughput-model performance constant changes.
+
 PW-0158 supersedes the assumption that PW-0151/PW-0154's surviving two-P100
 8K decode envelope could remain a complete target-faithful hardware candidate
 without first closing the one-million-token capability slice. At exactly one
