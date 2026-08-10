@@ -225,3 +225,15 @@ after release, and present protected services. This authorizes one final
 512-position oracle walk against PW-0157. The short pruning errors remain
 diagnostic only; they do not adjudicate the 20%-history mechanism, report
 accepted tokens, or establish endpoint TPS.
+
+The first production preflight after the smoke also failed closed before
+opening the checkpoint. The analyzer's semantic authority hashes parsed JSON
+numbers and produces
+`c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872`;
+the Rust runtime hashes the typed F32 payload and produces
+`9cf63371f63d063aa95ef2f6825119b58412b8fed7ecdee4b07ff5b7dfb7a0dc`.
+Those are two canonicalizations of the same authenticated route values, not a
+route mismatch. Pin and report both explicitly; use the typed-F32 hash for the
+runtime raw-report guard and retain the parsed-JSON hash for cross-manifest
+analyzer comparison. Preserve the rejected `raw-004` launch and infer no model
+result from it.

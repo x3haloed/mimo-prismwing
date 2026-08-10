@@ -45,7 +45,7 @@ const PW0157_PREFIX512_INPUT_SHA256: &str =
 const PW0157_PREFIX512_ROUTES_SHA256: &str =
     "eff0dd3c993d132bd2ef66008c42c10e7b6b0b604ccad93ba0c72f894023a903";
 const PW0157_PREFIX512_SEMANTIC_ROUTES_SHA256: &str =
-    "c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872";
+    "9cf63371f63d063aa95ef2f6825119b58412b8fed7ecdee4b07ff5b7dfb7a0dc";
 const GLOBAL_ATTENTION_ORACLE_FRACTIONS: [f64; 7] =
     [0.01, 0.05, 0.10, 0.20, 0.210_561_390_436_831_78, 0.25, 1.0];
 const GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS: [usize; 15] = [
@@ -8771,7 +8771,10 @@ fn run_global_attention_sparsity_trace_internal(
     if require_pinned_authority
         && expected_semantic_layer_routes_sha256 != PW0157_PREFIX512_SEMANTIC_ROUTES_SHA256
     {
-        return Err("PW-0157 semantic route authority mismatch".to_owned());
+        return Err(format!(
+            "PW-0157 semantic route authority mismatch: pinned {}, derived {}",
+            PW0157_PREFIX512_SEMANTIC_ROUTES_SHA256, expected_semantic_layer_routes_sha256
+        ));
     }
     let complete_started = Instant::now();
     let disk_bytes_read_before = process_disk_bytes_read()?;

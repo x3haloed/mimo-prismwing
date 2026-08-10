@@ -32,6 +32,7 @@ INPUT_SHA256 = "9a8e422acb7b8762d86419adfe3234831614eee8a9f24c63648dccc4575d9e78
 CONTAMINATED_PW0157_ROUTES_SHA256 = "eff0dd3c993d132bd2ef66008c42c10e7b6b0b604ccad93ba0c72f894023a903"
 CONTAMINATED_CONTROL_ROUTES_SHA256 = "67e09adf08254ea2440c0067813970639188132629f22d4a03332f205014e320"
 ROUTES_SHA256 = "c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872"
+RUNTIME_ROUTES_SHA256 = "9cf63371f63d063aa95ef2f6825119b58412b8fed7ecdee4b07ff5b7dfb7a0dc"
 FRACTIONS = (0.01, 0.05, 0.1, 0.2, 0.21056139043683178, 0.25, 1.0)
 GLOBAL_LAYERS = (0, 5, 11, 17, 23, 29, 35, 41, 47)
 SAMPLE_POSITIONS = tuple(range(63, 512, 32))
@@ -197,6 +198,11 @@ def _authenticate(paths: dict[str, Path], commit: str) -> tuple[dict, dict, dict
         "pw0157_timing_contaminated_route_sha256": CONTAMINATED_PW0157_ROUTES_SHA256,
         "same_shape_control_timing_contaminated_route_sha256": CONTAMINATED_CONTROL_ROUTES_SHA256,
         "semantic_route_sha256": ROUTES_SHA256,
+        "runtime_f32_semantic_route_sha256": RUNTIME_ROUTES_SHA256,
+        "canonicalization": (
+            "semantic_route_sha256 hashes parsed JSON numeric values in the analyzer; "
+            "runtime_f32_semantic_route_sha256 hashes the runtime's typed F32 payload"
+        ),
         "semantic_route_rows_compared": 47 * 512,
         "ordered_expert_rows_bit_exact": 47 * 512,
         "route_weight_rows_bit_exact": 47 * 512,
@@ -221,7 +227,7 @@ def _validate_raw(raw: dict) -> None:
         or raw.get("route_authority_sha256") != PW0157_SHA256
         or raw.get("traced_prefix_positions") != 512
         or raw.get("input_token_ids_sha256") != INPUT_SHA256
-        or raw.get("semantic_layer_routes_sha256") != ROUTES_SHA256
+        or raw.get("semantic_layer_routes_sha256") != RUNTIME_ROUTES_SHA256
         or tuple(raw.get("observed_global_layers", ())) != GLOBAL_LAYERS
         or tuple(raw.get("sampled_absolute_query_positions", ())) != SAMPLE_POSITIONS
         or raw.get("observed_heads_per_sample") != HEADS

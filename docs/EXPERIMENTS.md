@@ -425,6 +425,12 @@ and
 This authorizes the final 512-position oracle walk; it does not itself decide
 the pruning mechanism or establish endpoint TPS.
 
+The production preflight additionally distinguishes the analyzer's parsed-JSON
+semantic hash (`c0e5c8fd...c69872`) from the runtime's typed-F32 semantic hash
+(`9cf63371...b7a0dc`). Both bind the same authenticated route values under
+different numeric canonicalizations. Pin both explicitly and reject any raw
+report that does not carry the runtime value.
+
 PW-0163 closes the strongest conventional 32-GB AMD PCIe counterexample found
 in the current search. MI100's 92.3-TFLOPS BF16 Matrix peak plus the EPYC's
 impossible concurrent peak still needs `2,301.8085` seconds for mandatory 1M

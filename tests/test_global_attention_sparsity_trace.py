@@ -10,6 +10,7 @@ from tools.analyze_global_attention_sparsity_trace import (
     PW0157_SHA256,
     REVISION,
     ROUTES_SHA256,
+    RUNTIME_ROUTES_SHA256,
     SAMPLE_POSITIONS,
     VERIFICATION_SHA256,
     _validate_raw,
@@ -57,6 +58,7 @@ class GlobalAttentionSparsityTraceTests(unittest.TestCase):
         self.assertEqual(EXPECTED_OBSERVATIONS, 8_640)
         self.assertEqual(FRACTIONS[3], 0.2)
         self.assertEqual(FRACTIONS[4], 0.21056139043683178)
+        self.assertNotEqual(ROUTES_SHA256, RUNTIME_ROUTES_SHA256)
 
     def test_raw_identity_requires_corpus_and_checkpoint_receipt_hashes(self) -> None:
         raw = {
@@ -68,7 +70,7 @@ class GlobalAttentionSparsityTraceTests(unittest.TestCase):
             "route_authority_sha256": PW0157_SHA256,
             "traced_prefix_positions": 512,
             "input_token_ids_sha256": INPUT_SHA256,
-            "semantic_layer_routes_sha256": ROUTES_SHA256,
+            "semantic_layer_routes_sha256": RUNTIME_ROUTES_SHA256,
             "observed_global_layers": list(GLOBAL_LAYERS),
             "sampled_absolute_query_positions": list(SAMPLE_POSITIONS),
             "observed_heads_per_sample": 64,

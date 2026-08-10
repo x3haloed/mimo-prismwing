@@ -3517,3 +3517,12 @@ capture necessarily perturbs this source runtime; capture embodiment and
 allocation topology matter. It authorizes the final 512-position oracle walk,
 but the 64-position candidate errors remain diagnostic and change no pruning,
 throughput, or purchase decision.
+
+PW-0162's production preflight exposed one more authority distinction before
+opening weights: hashing parsed JSON route numbers is not byte-identical to
+hashing the runtime's typed F32 route payload. The authenticated PW-0157 route
+values hash to `c0e5c8fd...c69872` under analyzer JSON canonicalization and
+`9cf63371...b7a0dc` under runtime F32 canonicalization. Pin both with explicit
+names. Use the latter for the runtime raw-report guard and the former for
+cross-manifest analyzer comparison; do not call their expected difference
+route drift.
