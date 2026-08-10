@@ -6,6 +6,7 @@ from tools.analyze_active_a770_le_bom import (
     power_ledger,
     validate_dimensions,
     validate_market,
+    validate_listing_images,
     validate_power,
 )
 
@@ -84,6 +85,36 @@ class ActiveA770LimitedEditionBomTests(unittest.TestCase):
         power["power_connectors"] = "3x8-pin"
         with self.assertRaisesRegex(ValueError, "power_connectors"):
             validate_power(power)
+
+    def test_listing_images_bind_box_and_card_but_not_function(self) -> None:
+        hashes = (
+            "da65a27c20d54a6e00d2058b71c518521d14ee8e8f7841d178e7a814dc9319a3",
+            "dd9b6a26ea5e8f06aaacd40c314ce46a6bb16026a5e8a21f3a7a6ad191789330",
+            "9658830c4bbea8c094318ec770c4ba712d7220874147bc02b483d84ac3ad2f99",
+            "1711a34b9557a00579906f8762f31840e17c511879391a7deae1f94352517f50",
+        )
+        source = {
+            "evidence_class": (
+                "human_verified_semantic_transcription_of_authenticated_active_listing_images"
+            ),
+            "listing_url": "https://www.ebay.com/itm/168591709192",
+            "images": [
+                {"sha256": hashes[0], "observation": "box"},
+                {
+                    "sha256": hashes[1],
+                    "observation": "product code 21P01J00BA and 8-pin plus one 6-pin",
+                },
+                {"sha256": hashes[2], "observation": "card"},
+                {"sha256": hashes[3], "observation": "ARC A770 Limited Edition"},
+            ],
+            "actual_component_serial_authenticated": False,
+            "component_function_authenticated": False,
+            "purchase_authorized": False,
+        }
+        validate_listing_images(source, hashes)
+        source["component_function_authenticated"] = True
+        with self.assertRaisesRegex(ValueError, "listing-image"):
+            validate_listing_images(source, hashes)
 
 
 if __name__ == "__main__":
