@@ -164,6 +164,8 @@ def _validate_raw(raw: dict) -> None:
         or tuple(raw.get("sampled_absolute_query_positions", ())) != SAMPLE_POSITIONS
         or raw.get("observed_heads_per_sample") != HEADS
         or tuple(raw.get("retained_fractions", ())) != FRACTIONS
+        or raw.get("batch_size") != 1
+        or raw.get("concurrency") != 1
         or raw.get("accepted_tokens") != 0
         or raw.get("performance_claim") is not None
         or raw.get("exactness") != "target_faithful_source_state_with_noncausal_L3_shadow_only"
@@ -171,6 +173,19 @@ def _validate_raw(raw: dict) -> None:
         != "source_bf16_probabilities_f32_retained_mass_and_renormalization_source_four_lane_f32_reduction_final_bf16"
     ):
         raise ValueError("raw trace identity mismatch")
+    complete_wall_ms = raw.get("complete_wall_ms")
+    ledger = raw.get("ledger")
+    if (
+        not isinstance(complete_wall_ms, (int, float))
+        or not math.isfinite(complete_wall_ms)
+        or complete_wall_ms <= 0.0
+        or not isinstance(ledger, dict)
+        or not isinstance(ledger.get("actual_process_disk_bytes_read"), int)
+        or ledger["actual_process_disk_bytes_read"] < 0
+        or not isinstance(ledger.get("peak_resident_bytes"), int)
+        or ledger["peak_resident_bytes"] <= 0
+    ):
+        raise ValueError("raw trace timing or ledger mismatch")
     observations = raw.get("observations")
     if not isinstance(observations, list) or len(observations) != EXPECTED_OBSERVATIONS:
         raise ValueError("raw observation count mismatch")
@@ -207,6 +222,16 @@ def _validate_raw(raw: dict) -> None:
                 or candidate.get("retained_positions")
                 != max(1, math.ceil(FRACTIONS[index] * observation["visible_positions"]))
                 or any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in numeric)
+                or any(value < 0.0 for value in numeric)
+                or candidate.get("total_values") != 128
+                or not isinstance(candidate.get("bit_exact_values"), int)
+                or not 0 <= candidate["bit_exact_values"] <= candidate["total_values"]
+                or not math.isclose(
+                    candidate["relative_l2"],
+                    candidate["error_l2"] / max(candidate["reference_l2"], 1.0e-20),
+                    rel_tol=1.0e-12,
+                    abs_tol=1.0e-15,
+                )
             ):
                 raise ValueError("raw candidate value mismatch")
         control = observation["candidates"][-1]

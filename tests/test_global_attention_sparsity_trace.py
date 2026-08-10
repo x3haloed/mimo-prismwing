@@ -72,10 +72,14 @@ class GlobalAttentionSparsityTraceTests(unittest.TestCase):
             "sampled_absolute_query_positions": list(SAMPLE_POSITIONS),
             "observed_heads_per_sample": 64,
             "retained_fractions": list(FRACTIONS),
+            "batch_size": 1,
+            "concurrency": 1,
             "accepted_tokens": 0,
             "performance_claim": None,
             "exactness": "target_faithful_source_state_with_noncausal_L3_shadow_only",
             "candidate_numerics": "source_bf16_probabilities_f32_retained_mass_and_renormalization_source_four_lane_f32_reduction_final_bf16",
+            "complete_wall_ms": 1.0,
+            "ledger": {"actual_process_disk_bytes_read": 0, "peak_resident_bytes": 1},
             "observations": [],
         }
         with self.assertRaisesRegex(ValueError, "raw observation count mismatch"):
@@ -86,6 +90,14 @@ class GlobalAttentionSparsityTraceTests(unittest.TestCase):
         raw["fixture_sha256"] = CORPUS_SHA256
         raw["checkpoint_verification_sha256"] = "0" * 64
         with self.assertRaisesRegex(ValueError, "raw trace identity mismatch"):
+            _validate_raw(raw)
+        raw["checkpoint_verification_sha256"] = VERIFICATION_SHA256
+        raw["batch_size"] = 2
+        with self.assertRaisesRegex(ValueError, "raw trace identity mismatch"):
+            _validate_raw(raw)
+        raw["batch_size"] = 1
+        raw["complete_wall_ms"] = float("nan")
+        with self.assertRaisesRegex(ValueError, "raw trace timing or ledger mismatch"):
             _validate_raw(raw)
 
     def test_gate8_enforces_peak_rss_as_well_as_footprint(self) -> None:
