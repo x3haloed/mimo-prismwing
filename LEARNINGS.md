@@ -3120,3 +3120,33 @@ Gate 8 passes at 44% minimum free memory, 41,091,072-byte peak RSS,
 20,694,336-byte maximum physical footprint, zero swap growth or throttling,
 and stable services. PW-0164 reports zero accepted tokens and no endpoint TPS;
 no measured throughput-model constant changes.
+
+PW-0165 closes the strongest currently in-stock AMD consumer card below the
+complete hardware cap. Granting RX 9060 XT's full official 103-TFLOPS dense
+half-precision Matrix rate to BF16/F32 accumulation, plus the EPYC's impossible
+concurrent peak, gives a `2,064.3998`-second lower bound for mandatory 1M
+matrices and ordinary attention. That is `264.3998` seconds beyond the entire
+gate before softmax, routing, source-FP8 decode, memory, storage, or dispatch.
+The same rate rejects the favorable dense FP16 L3 diagnostic. Permanently
+reject ordinary-dense 1M RX 9060 XT regardless of future price.
+
+AMD's 205-TFLOPS structured-sparse rate is a real but separate physical clue.
+It would yield an ideal `1,040.9414` seconds, but the authenticated RDNA4 ISA
+requires two zero elements per four for the sparse form. Unchanged Prismwing
+weights do not admit that premise. Retain explicit 2:4 weight modification as
+a named modified-representation branch; do not report the sparse nameplate as
+source performance.
+
+Exact BF16 1M KV exceeds 16 decimal GB by `7,065,559,040` bytes. The 160-W
+GPU plus 170-W CPU leaves 402 W under the authenticated 732-W +12-V PSU label,
+and the card uses one 8-pin input, but those are not installation proof. AMD's
+16-GB SEP was `$349`; a dated new in-stock retailer row is `$449.99` with free
+shipping before unknown tax, leaving only `$50.01` for the rest of the complete
+BOM.
+
+The authoritative report hashes to
+`7ce474e66fca10bb87b3a5c016f689792119539b87c54438245473e153999d58`.
+Gate 8 passes at 49% minimum free memory, 40,108,032-byte peak RSS,
+20,252,288-byte maximum physical footprint, zero swap growth or throttling,
+and stable services. PW-0165 reports zero accepted tokens and no endpoint TPS;
+no measured throughput-model constant changes.
