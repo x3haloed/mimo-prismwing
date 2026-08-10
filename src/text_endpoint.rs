@@ -812,6 +812,7 @@ pub struct PrefillRouteCoverageTraceReport {
     pub layer_routes_sha256: String,
     pub numerics: &'static str,
     pub layer_traces: Vec<LayerRouteTrace>,
+    pub released_layer_kv_cache_bytes: u64,
     pub coverage: PrefillRouteCoverageLedger,
     pub ledger: EndpointLedger,
     pub safety_snapshots: Vec<SafetySnapshot>,
@@ -1020,6 +1021,7 @@ struct NativeDecodeStep {
     top_logits: Vec<(u32, f32)>,
     full_logits: Vec<f32>,
     traces: Vec<LayerRouteTrace>,
+    released_kv_cache_bytes: u64,
     wall_ms: f64,
 }
 
@@ -1267,6 +1269,25 @@ impl LayerKvCache {
             return Err("retained K/V cache identity mismatch".to_owned());
         }
         Ok(())
+    }
+
+    fn release_one_shot_storage(&mut self) -> Result<u64, String> {
+        self.validate()?;
+        let released_values = self
+            .keys
+            .len()
+            .checked_add(self.values.len())
+            .ok_or("K/V cache release value count overflow")?;
+        let released_bytes = released_values
+            .checked_mul(std::mem::size_of::<f32>())
+            .and_then(|bytes| u64::try_from(bytes).ok())
+            .ok_or("K/V cache release byte count overflow")?;
+        self.keys = Vec::new();
+        self.values = Vec::new();
+        self.positions = 0;
+        self.kv_heads = 0;
+        self.validate()?;
+        Ok(released_bytes)
     }
 }
 
@@ -3266,6 +3287,7 @@ fn decode_step(
         captures.embedding = hidden.clone();
     }
     let mut traces = Vec::with_capacity(48);
+    let mut released_kv_cache_bytes = 0_u64;
     if caches.len() != 48 {
         return Err("text endpoint requires exactly 48 K/V caches".to_owned());
     }
@@ -3421,6 +3443,11 @@ fn decode_step(
                 "layer {layer}: PW-0112 route semantics mismatch: {mismatch}"
             ));
         }
+        if matches!(output, DecodeOutput::RoutesOnly) {
+            released_kv_cache_bytes = released_kv_cache_bytes
+                .checked_add(cache.release_one_shot_storage()?)
+                .ok_or("released K/V cache byte ledger overflow")?;
+        }
         traces.push(trace);
         checkpoint.release_file_pages()?;
         safety.checkpoint(&format!("layer_{layer}_complete"), true)?;
@@ -3431,6 +3458,7 @@ fn decode_step(
             top_logits: Vec::new(),
             full_logits: Vec::new(),
             traces,
+            released_kv_cache_bytes,
             wall_ms: started.elapsed().as_secs_f64() * 1000.0,
         });
     }
@@ -3456,6 +3484,7 @@ fn decode_step(
         top_logits: top,
         full_logits: last_logits,
         traces,
+        released_kv_cache_bytes,
         wall_ms: started.elapsed().as_secs_f64() * 1000.0,
     })
 }
@@ -8041,6 +8070,7 @@ pub fn run_prefill_route_coverage_trace(
         layer_routes_sha256: sha256_hex(&route_bytes),
         numerics: "dynamic_fp8_e4m3fn_per_token_group_128_bf16_boundaries",
         layer_traces: step.traces,
+        released_layer_kv_cache_bytes: step.released_kv_cache_bytes,
         coverage,
         ledger,
         safety_snapshots: safety.snapshots,
@@ -8268,6 +8298,25 @@ mod tests {
         let mut corrupted = valid;
         corrupted.keys.pop();
         assert!(corrupted.validate().is_err());
+    }
+
+    #[test]
+    fn one_shot_cache_release_returns_to_empty_valid_state() {
+        let mut cache = LayerKvCache {
+            keys: vec![0.0; 3 * 8 * QK_HEAD_DIM],
+            values: vec![0.0; 3 * 8 * V_HEAD_DIM],
+            positions: 3,
+            kv_heads: 8,
+        };
+        assert_eq!(
+            cache.release_one_shot_storage().expect("valid release"),
+            ((3 * 8 * QK_HEAD_DIM + 3 * 8 * V_HEAD_DIM) * std::mem::size_of::<f32>()) as u64
+        );
+        assert!(cache.validate().is_ok());
+        assert_eq!(cache.positions, 0);
+        assert_eq!(cache.kv_heads, 0);
+        assert!(cache.keys.is_empty());
+        assert!(cache.values.is_empty());
     }
 
     #[test]
