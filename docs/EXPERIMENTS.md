@@ -287,6 +287,17 @@ retain two-to-four lanes plus the exact cache, but not as a runtime or purchase:
 aggregate-HBM sharding, sustained I/O, prefill, 1M KV, CUDA, and the complete
 `$500` BOM remain unproven.
 
+PW-0155 closes the logical install topology but rejects the captured shopping
+list as purchase authority. H11SSL-i slots 2/4/6 are x16 and support
+`x4x4x4x4`, so two double-width P100s plus one passive four-drive carrier are
+logically placeable. The named subtotal is `$403.38`, but tax, destination
+shipping, original PSU cables, exact SSD identity, dongle construction,
+cooler fit, and sustained reads are unresolved. More seriously, two 250-W
+cards plus the 170-W CPU leave only 62 W under the PSU's combined 732-W +12-V
+label, while one P100 auxiliary input is specified up to the full 20-A label
+of one rail. Preserve the topology as conditional, authorize no purchase, and
+measure 8K route coverage before asking for physical validation.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

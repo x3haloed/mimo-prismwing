@@ -2913,3 +2913,30 @@ pages, and stable services. One failed invocation published no manifest and
 corrected an eight-versus-nine full-attention-layer count by deriving it from
 the pinned config. PW-0154 reports zero accepted tokens, no endpoint TPS, and
 no throughput-model constant changes.
+
+PW-0155 supersedes the assumption that PW-0154's four storage lanes require
+four separate PCIe adapter cards. The owned H11SSL-i exposes x16 slots 2, 4,
+and 6, each with `x4x4x4x4` bifurcation, so two double-width P100s can
+logically coexist with one passive four-drive M.2 carrier. This proves a lane
+topology only; chassis, cooler, connector, and obstruction clearance remain
+physical gates.
+
+The authenticated PSU/P100 ledger tightens the branch. Two 250-W P100 board
+limits plus the EPYC's 170-W TDP total 670 W, only 62 W below the NEX750B's
+732-W combined +12-V label before the board, memory, drives, fans, and
+transients. NVIDIA permits up to 240 W/20 A at each card's CPU-style 8-pin
+input, equal to one entire labeled PSU rail, and specifies the
+`030-0571-000` dual-PCIe dongle. Full-power execution therefore remains
+unproven until original cable inventory, pinout, rail assignment, staged wall
+power, temperature, ECC, and throttling evidence exists.
+
+The dated named component subtotal is `$403.38`, but its `$96.62` arithmetic
+margin excludes unknown tax/shipping and any missing original cables. The SSD
+listing contradicts itself on model identity, the cheap dongles are unbranded,
+and sustained reads and cooling fit are unmeasured. Reject this captured list
+as purchase authority while retaining the two-P100/quad-NVMe architecture as
+conditional. The authoritative manifest hashes to
+`226603fb2b44e1162a038f51bae47520238150f3b26e39e1cf33c7420b88b064`.
+Gate 8 passes with 67% minimum free memory, 45,236,224-byte peak RSS, zero swap
+growth or new throttled pages, and stable services. PW-0155 reports zero
+accepted tokens, no endpoint TPS, and no throughput-model constant changes.

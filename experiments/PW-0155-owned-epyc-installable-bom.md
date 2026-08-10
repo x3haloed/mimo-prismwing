@@ -1,7 +1,7 @@
 # PW-0155 — Owned EPYC two-P100 installable-BOM prerequisite
 
-- Status: ready
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -13,7 +13,8 @@
   one passive four-drive M.2 carrier in slot 6 under `x4x4x4x4`; photographed
   EVGA NEX750B; analytical pre-purchase prerequisite only
 - Related records: PW-0151 through PW-0154; E7
-- Implementation commit and dirty state: pending
+- Implementation commit and dirty state:
+  `1d67bcd1ac3795cf76de0f0374898c2777ba6b32`, clean
 
 ## Question and changed premise
 
@@ -72,4 +73,46 @@ facts required to reopen procurement.
 
 ## Result
 
-Pending execution from a clean implementation commit.
+The authoritative `analysis-001` manifest hashes to
+`226603fb2b44e1162a038f51bae47520238150f3b26e39e1cf33c7420b88b064`.
+It authenticates PW-0151/PW-0154, the official H11SSL manual, the official
+P100 product brief, the byte-identical PSU photo transitively through PW-0151,
+and the explicitly weaker dated market transcription.
+
+The logical PCIe layout survives. H11SSL-i slots 2, 4, and 6 are x16 and each
+offers `x4x4x4x4`; a candidate can place double-width P100s in slots 2 and 4
+and a single-slot passive quad-NVMe carrier in slot 6. That proves lane
+availability, not chassis, blower, cable, or obstruction clearance.
+
+The electrical margin is not installation evidence. Two 250-W P100 board
+limits plus the EPYC's 170-W TDP total 670 W, leaving only 62 W below the
+PSU's 732-W combined +12-V label for the motherboard, memory, four drives,
+fans, and transients. NVIDIA specifies up to 240 W/20 A at each P100's CPU
+8-pin auxiliary input, exactly the labeled current of one NEX750B rail. The
+official `030-0571-000` dongle accepts two PCIe feeds, but the captured cheap
+dongles are unbranded and their pinout/construction is not authenticated.
+
+The named cards, four drives, carrier, two dongles, and two cooling kits total
+`$403.38`, leaving `$96.62` before tax, destination shipping, missing original
+EVGA VGA cables, or fit remedies. This is not a complete delivered BOM. The
+drive listing title names `SSDPEKKF256G8L`, while its item specifics name an
+unbranded `KBG40ZNT256G`; it has no authenticated delivered identity,
+sustained-read result, or return path. Cooling fit and temperature also remain
+unproven.
+
+Gate 8 passes across five snapshots with 67% minimum free memory,
+45,236,224-byte peak RSS, 18,220,544-byte maximum physical footprint, zero
+swap growth or new throttled pages, and stable protected services. The first
+clean invocation failed before manifest publication because a binary float
+represented `$403.38` as `$403.38000000000005`; the rerun rounds monetary
+ledgers to cents. Accepted tokens and endpoint TPS remain zero.
+
+## Decision
+
+Reject the captured dated component list as purchase authority. Retain the
+abstract two-P100/quad-NVMe topology as conditional because the motherboard
+supports it and the named subtotal is below cap, but do not buy or energize it.
+Reopen procurement only after exact SSD identity and delivered cost, original
+EVGA cable inventory, authenticated dongles, chassis/cooler clearance, and a
+staged rail/power/thermal validation plan are bound. Continue with the cheaper
+8K route-coverage/prefill falsification before requesting those physical acts.

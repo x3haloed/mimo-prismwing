@@ -414,3 +414,28 @@ populated channels while recommending a balanced bank; it also requires the
 same DIMM type, size, and speed. The listing is an immutable captured price
 observation for one compatible LRDIMM candidate, not a market-wide lower
 bound, compatibility warranty, complete BOM, or purchase authority.
+
+## Owned EPYC installable-BOM authorities
+
+- NVIDIA, Tesla P100 PCIe GPU Accelerator product brief
+  `PB-08248-001_v01`, accessed and captured 2026-08-09:
+  <https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/tesla-product-literature/NV-tesla-p100-pcie-PB-08248-001-v01.pdf>.
+- Supermicro H11SSL-i manual and PW-0151's authenticated EVGA NEX750B photo
+  and manual, as listed above.
+- Dated moving observations for eBay items 188207963486 (two used P100s),
+  386086936012 (four 256-GB NVMe candidates), 336060640814 (quad-M.2 passive
+  carrier), 405322665251 (claimed `030-0571-000` dongles), and 313527520178
+  (P100 cooling kits), accessed 2026-08-09:
+  <https://www.ebay.com/itm/188207963486>,
+  <https://www.ebay.com/itm/386086936012>,
+  <https://www.ebay.com/itm/336060640814>,
+  <https://www.ebay.com/itm/405322665251>, and
+  <https://www.ebay.com/itm/313527520178>.
+
+Decision: primary physical authority for PW-0155's P100 connector and power
+ledger. NVIDIA specifies 250-W total graphics power, a CPU-style 8-pin input,
+up to 240 W/20 A on that auxiliary rail, and dongle NVPN `030-0571-000` fed by
+two PCIe cables. The market rows are a structured transcription rather than
+immutable seller evidence; one SSD row is internally inconsistent and the
+dongles are unbranded. They support rejecting the captured list as purchase
+authority, not selecting or buying those parts.
