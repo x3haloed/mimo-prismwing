@@ -1,7 +1,7 @@
 # PW-0164 — affordable Blackwell complete-system envelope
 
-- Status: ready
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -18,7 +18,8 @@
 - Hardware candidate: one RTX 5060 Ti 16-GB card in the owned H11SSL-i/EPYC
   host; analytical pre-purchase envelope only
 - Related records: PW-0127, PW-0151, PW-0158, PW-0159, PW-0161, PW-0163; E7
-- Implementation commit and dirty state: pending
+- Implementation commit and dirty state:
+  `171e57fa78fb1625a598df7e1701f3a74a660027`, clean
 
 ## Question and changed premise
 
@@ -90,4 +91,50 @@ or implement CUDA from this analytical result.
 
 ## Result
 
-Pending clean implementation and execution.
+The authoritative `analysis-001` manifest hashes to
+`6e34c7496694db3aca10c105bbc642b440c6e97922100fb083a2f1be1acea856`.
+It authenticates TARGET, the pinned config and arithmetic authorities, the
+owned host, NVIDIA's product page, architecture whitepaper and launch release,
+the dated market transcription, and the clean implementation commit.
+
+RTX 5060 Ti does not rescue ordinary dense one-million-position execution.
+The same-generation dense-rate derivation gives `47.343451433121` TFLOPS for
+BF16 with FP32 accumulation. Even granting that complete ceiling and the
+EPYC's impossible `0.7424`-TFLOPS peak concurrently requires
+`4,453.8213` seconds, missing the entire 1M gate by `2,653.8213` seconds before
+softmax, routing, source-FP8 decode, memory traffic, storage, dispatch, or any
+other work.
+
+The separately named FP16/FP16-accumulate L3 ceiling is
+`94.763634554140` TFLOPS and still needs `2,242.4320` seconds. It misses the
+complete gate by `442.4320` seconds even before omitted work, so this card is
+rejected for ordinary dense 1M execution regardless of numerical fidelity or
+future price. The advertised 759 AI TOPS was correctly excluded: it is not the
+dense BF16 rate and does not authorize sparsity, FP8, or FP4 source changes.
+
+Exact BF16 1M KV alone is `23,065,559,040` bytes, exceeding the 16-decimal-GB
+card by `7,065,559,040` bytes. KV, three arenas, and all common source weights
+total `38,221,107,536` bytes, exceeding VRAM by `22,221,107,536`. This is a
+capacity requirement for host/storage streaming, not an additional permanent
+compute rejection.
+
+The 180-W card plus the 170-W CPU leaves 382 W under the PSU's combined 732-W
++12-V label. That is favorable nameplate margin but not cable, chassis,
+thermal, or measured-load evidence. NVIDIA's official 16-GB launch MSRP was
+`$429`; the dated market row observed `$479.99` but out of stock, with unknown
+shipping and tax. Neither row is complete delivered purchase authority, and
+the arithmetic rejection makes procurement moot for this ordinary-dense mode.
+
+Gate 8 passes across five snapshots with 44% minimum free memory,
+41,091,072-byte peak RSS, 20,694,336-byte maximum physical footprint, zero
+swap growth or new throttled pages, an explicit release boundary, and stable
+protected services. Two failed invocations published no manifest and corrected
+operator paths for config and PW-0127 raw authority. Accepted tokens and
+endpoint TPS remain zero.
+
+## Decision
+
+Permanently reject RTX 5060 Ti for ordinary dense one-million-position
+Prismwing, including the favorable L3 FP16-accumulation diagnostic. Preserve
+RTX 5070 and faster cards, changed attention, and modified-weight modes as
+separate candidates. Authorize no purchase or CUDA runtime.
