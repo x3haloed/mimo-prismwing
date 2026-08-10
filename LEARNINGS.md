@@ -3401,3 +3401,32 @@ Gate 8 passes at 72% minimum free memory, 29,818,880-byte peak RSS,
 an explicit release boundary, and stable services. PW-0174 records zero
 accepted Prismwing tokens, no endpoint TPS, no measured throughput-model
 constant changes, and no purchase authority.
+
+PW-0175 changes the changed-attention prior: PW-0162's probability-ranked
+history oracle does not exhaust structured, causally selectable sparsity.
+MInference is training-free at the weight level, acts on prefill, and performs
+a model-specific offline layer/head pattern search followed by a last-64-query
+online vertical/slash selector. Its released GLM-4-9B-1M configuration has
+1,280 head records and a favorable `1.230279%` selected-causal-pair upper bound
+at one million positions. Charging the online index QK work raises this to
+`1.237959%` of ordinary global-attention work.
+
+The independently reproduced complete two-P100/EPYC allowance leaves
+`21.056139%` of ordinary global work after matrices and sliding attention.
+MInference's released configuration therefore passes a structural continuation
+screen with substantial arithmetic margin. This is not a MiMo or hardware
+result: the GLM head map is not reusable, perfect sparse-kernel efficiency is
+granted, and the sources provide no MiMo pattern, Metal/P100 implementation,
+hosted top-20 gate, or native-modality fidelity. Promote only a MiMo-specific
+source-state oracle that derives its own head patterns and executes the online
+selector before any kernel work.
+
+Quest's released query-aware sparse path is decode-only; its code explicitly
+leaves prefill dense. Reject it as the PW-0158 prefill repair without rejecting
+its decode mechanism. The authoritative PW-0175 manifest hashes to
+`e5ac56b7f710285cdeb0088f9fa750748ad74cbc68cd6d4dcb627061209a37ab`.
+Gate 8 passes at 72% minimum free memory, 50,085,888-byte peak RSS,
+18,613,632-byte maximum physical footprint, zero swap growth or throttling, an
+explicit release boundary, and stable services. PW-0175 records zero accepted
+tokens, no endpoint TPS, no measured throughput-model constant changes, and no
+purchase authority.
