@@ -204,9 +204,12 @@ def run(paths: dict[str, Path], output: Path, commit: str) -> dict:
             "accepted-token timing, or endpoint TPS"
         ),
     }
-    safety.release("parsed source manifests and listing transcriptions")
+    safety.release_checkpoint(
+        "source_reports_released",
+        ["parsed source manifests", "listing transcriptions"],
+    )
     safety.checkpoint("final_service_health")
-    manifest["safety"] = safety.summary()
+    manifest["safety"] = safety.evidence()
     manifest["complete_wall_ms"] = (time.perf_counter() - started) * 1000.0
     atomic_write_new(output, canonical_json(manifest))
     return manifest
