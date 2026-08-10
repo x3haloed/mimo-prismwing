@@ -164,9 +164,10 @@ def _authenticate(paths: dict[str, Path]) -> tuple[dict[str, str], dict, dict, d
     ):
         raise ValueError("PW-0168 prior hardware authority mismatch")
     product = normalized_html(paths["product_html"])
+    product_raw = paths["product_html"].read_text(errors="strict")
     if (
         "GUNNIR Intel Arc A770 Photon 16G OC" not in product
-        or "b50afd47-862c-40a4-8212-44a087a01cd7.jpg" not in product
+        or "b50afd47-862c-40a4-8212-44a087a01cd7.jpg" not in product_raw
     ):
         raise ValueError("PW-0168 official product-page identity mismatch")
     validate_spec(spec, expected["spec_panel"])
