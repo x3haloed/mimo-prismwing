@@ -16,7 +16,9 @@
   diagnostic; the oracle output never enters model state
 - Related records: PW-0020 through PW-0029, PW-0112, PW-0151, PW-0157 through
   PW-0161; E7
-- Implementation commit and dirty state: pending
+- Implementation commit and dirty state:
+  `13931013b2bd71c97c1389ea8e533dc842547d27`; clean at control and smoke
+  launch
 
 ## Question and changed premise
 
@@ -191,8 +193,35 @@ routes, bit-exact offline replay, the single frozen query at position 63, and
 Gate 8. This smoke gate is an instrumentation check only and cannot adjudicate
 the 20%-history mechanism.
 
-The control passed Gate 8: minimum free memory was `73%`, maximum physical
-footprint `841,980,032` bytes, peak RSS `933,265,408` bytes, zero swap growth,
-zero new throttled pages, `374,131,456` bytes after checkpoint release, and all
-protected services remained resident. It reports zero accepted tokens and no
-endpoint TPS.
+The first attempted short-control launch failed closed before opening the
+checkpoint because the prefill trace did not yet admit the contract's
+64-position prefix. Commit `13931013b2bd71c97c1389ea8e533dc842547d27`
+adds that bounded prefix and a regression test. A subsequent walk used a later
+PW-0156 corpus variant by mistake; authentication rejects its manifest
+`a8682fa8531d5f11a36d94d0f005356e2fd997311e5565e33300ec5ca9219d1a`
+because its fixture hash is not the frozen PW-0157 authority. Preserve both
+failures and infer no observer result from either.
+
+The corrected 64-position no-capture authority uses the frozen original
+fixture and hashes to
+`d6b1483b0d6161611f58b2746edcd5f356f503c337bf590fcee2989f3d436f66`.
+It completes in `755.362564` seconds across all 48 layers and 3,008 semantic
+route rows. Gate 8 passes at 70% minimum free memory, 618,176,960-byte maximum
+physical footprint, 735,625,216-byte peak RSS, zero swap growth or throttling,
+91,064,000 bytes after release, and present protected services. Its routes are
+not asserted to equal a 64-row slice of the 512-position authority: changing
+the sequence shape changes source numerical execution. It is authoritative
+only for the same-commit, same-shape instrumentation smoke.
+
+The mmap-backed capture smoke then passes. Its manifest hashes to
+`07adc240519642719c49c822aa25a1e7b38581d7ac629ddde5e0a5690e8013aa`;
+the exact same-shape semantic route payload hashes to
+`1a3243870b3dd6609e52f404381f2ef6daa14161517a4a92ba96e467f8e41ed8`.
+All 576 sampled head-queries and 4,032 candidate rows are present, and the
+100% offline replay is bit-exact for all 73,728 output values. Gate 8 passes at
+70% minimum free memory, 636,015,936-byte maximum footprint,
+726,384,640-byte peak RSS, zero swap growth or throttling, 334,923,968 bytes
+after release, and present protected services. This authorizes one final
+512-position oracle walk against PW-0157. The short pruning errors remain
+diagnostic only; they do not adjudicate the 20%-history mechanism, report
+accepted tokens, or establish endpoint TPS.

@@ -415,6 +415,16 @@ manifest hashes to
 This attributes the remaining drift to the capture path rather than the
 rebuilt source runtime and keeps the mmap smoke repair justified.
 
+That fixed-offset anonymous-mmap capture passes the 64-position same-shape
+smoke: all 3,008 route rows remain exact and the 100% offline replay is
+bit-exact across 73,728 captured values. The authority and capture manifests
+hash to
+`d6b1483b0d6161611f58b2746edcd5f356f503c337bf590fcee2989f3d436f66`
+and
+`07adc240519642719c49c822aa25a1e7b38581d7ac629ddde5e0a5690e8013aa`.
+This authorizes the final 512-position oracle walk; it does not itself decide
+the pruning mechanism or establish endpoint TPS.
+
 PW-0163 closes the strongest conventional 32-GB AMD PCIe counterexample found
 in the current search. MI100's 92.3-TFLOPS BF16 Matrix peak plus the EPYC's
 impossible concurrent peak still needs `2,301.8085` seconds for mandatory 1M

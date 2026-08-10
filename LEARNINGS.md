@@ -3503,3 +3503,17 @@ path is. Gate 8 passes with 71% minimum free memory, 562,126,144-byte maximum
 footprint, 839,761,920-byte peak RSS, zero swap growth or throttling, and
 383,928,960 bytes after release. Continue only through the mmap-backed short
 smoke; this still changes no pruning or throughput conclusion.
+
+The fixed-offset anonymous-mmap capture passes that required same-commit,
+same-shape 64-position smoke. The frozen-original no-capture authority hashes
+to `d6b1483b0d6161611f58b2746edcd5f356f503c337bf590fcee2989f3d436f66`;
+the capture manifest hashes to
+`07adc240519642719c49c822aa25a1e7b38581d7ac629ddde5e0a5690e8013aa`.
+All 3,008 source route rows remain exact under the observer, and offline 100%
+replay is bit-exact for all 73,728 captured output values. Gate 8 passes for
+both runs with at least 70% free memory, no swap growth or throttling, and
+resident protected services. This supersedes the belief that any bounded
+capture necessarily perturbs this source runtime; capture embodiment and
+allocation topology matter. It authorizes the final 512-position oracle walk,
+but the 64-position candidate errors remain diagnostic and change no pruning,
+throughput, or purchase decision.
