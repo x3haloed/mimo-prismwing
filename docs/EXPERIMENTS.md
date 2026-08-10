@@ -378,6 +378,22 @@ owned Debian 13 installation is not a supported ROCm 7.1 MI100 OS. Reject the
 captured procurement and source-oriented runtime; retain only a future
 price-triggered FP16 L3 hypothesis and authorize no HIP implementation.
 
+PW-0164 closes the strongest NVIDIA Blackwell tier officially launched below
+the complete hardware cap rather than treating older Ampere/Volta/CDNA results
+as representative. RTX 5060 Ti's advertised 759 AI TOPS is not dense BF16.
+Scaling the official same-generation RTX 5070 dense rates by its 36 SMs and
+2.57-GHz boost gives `47.3435`-TFLOPS BF16/FP32-accumulate and
+`94.7636`-TFLOPS FP16/FP16-accumulate ceilings. With the EPYC's impossible
+peak granted concurrently, complete 1M matrices plus ordinary attention need
+`4,453.8213` and `2,242.4320` seconds respectively. Both exceed the 1,800-
+second gate before every omitted cost, permanently rejecting ordinary-dense
+RTX 5060 Ti regardless of future price. Exact 1M BF16 KV alone also exceeds
+16 decimal GB by `7,065,559,040` bytes. The 180-W card has favorable PSU
+nameplate margin; official `$429` MSRP and a dated `$479.99` out-of-stock row
+do not establish a delivered BOM. Preserve RTX 5070+, changed attention, and
+modified low-bit modes as separate branches; authorize no purchase or CUDA
+implementation.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

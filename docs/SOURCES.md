@@ -541,3 +541,36 @@ form, and 300-W peak power. ROCm 7.1's supported MI100 distributions exclude
 the owned host's current Debian 13 installation. The market row supports
 rejecting one dated card-only ledger, not inferring future prices, delivered
 identity, device health, cooling, fit, tax, or purchase authority.
+
+## Affordable Blackwell envelope authorities
+
+- NVIDIA, GeForce RTX 5060 family specifications, accessed and captured
+  2026-08-10:
+  <https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5060-family/>.
+- NVIDIA, *NVIDIA RTX Blackwell GPU Architecture*, accessed and captured
+  2026-08-10:
+  <https://images.nvidia.com/aem-dam/Solutions/geforce/blackwell/nvidia-rtx-blackwell-gpu-architecture.pdf>.
+- NVIDIA, *NVIDIA Blackwell GeForce RTX Arrives for Every Gamer, Starting at
+  $299*, official launch release captured 2026-08-10:
+  <https://nvidianews.nvidia.com/_gallery/download_pdf/67fe58ae3d63325f115ecd52/>.
+- Dated semantic transcription of NVIDIA Marketplace's out-of-stock GIGABYTE
+  WindForce RTX 5060 Ti 16-GB page, observed 2026-08-10 after direct archival
+  retrieval timed out:
+  <https://marketplace.nvidia.com/en-us/consumer/graphics-cards/gigabyte-windforce-geforce-rtx-5060-ti-gv-n506twf2-16gd/>.
+
+The product page hashes to
+`238d00c79c20939e5208e1a6507a6949e00e21ab3c3c3cc79d25b97eb0af20fd`;
+the architecture whitepaper hashes to
+`906ff2a409d7a7e4cbc56f5d3a179d574120d19aaba99520670e1a0c064595fa`;
+the launch release hashes to
+`76ca4fce0315435079d72f3725174b704b9b8990b3be7d89591471333a418394`;
+and the explicitly weaker market transcription hashes to
+`98400749a4ca60351ff71b0450bf545ee542691051e783426c2c183219774cf6`.
+
+Decision: technical and moving-market authority for PW-0164. NVIDIA binds RTX
+5060 Ti to 4,608 CUDA cores, 2.57-GHz boost, 16/8-GB GDDR7 forms, 180-W total
+graphics power, and one 8-pin or qualifying Gen-5 power cable. The same-
+generation architecture table distinguishes dense BF16/FP32-accumulate and
+FP16/FP16-accumulate rates from sparsity-enhanced values. The launch release
+binds the 16-GB MSRP to `$429`; the market transcription preserves a `$479.99`
+out-of-stock observation and is not delivered-cost or purchase authority.
