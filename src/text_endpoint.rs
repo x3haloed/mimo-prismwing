@@ -824,6 +824,25 @@ pub struct PrefillRouteCoverageTraceReport {
 }
 
 #[derive(Debug, Serialize)]
+pub struct PrefillRouteCoverageFailureReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub fixture_sha256: String,
+    pub checkpoint_verification_sha256: String,
+    pub corpus_positions: usize,
+    pub traced_prefix_positions: usize,
+    pub input_token_ids_sha256: String,
+    pub numerics: &'static str,
+    pub error: String,
+    pub cleanup_errors: Vec<String>,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub accepted_tokens: usize,
+    pub performance_claim: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct CorpusCaptureRecord {
     pub file: String,
     pub shape: Vec<usize>,
@@ -7997,7 +8016,7 @@ pub fn run_prefill_route_coverage_trace(
         serde_json::to_vec(&input_token_ids).map_err(|error| error.to_string())?;
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
     let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
-    let step = decode_step(
+    let step = match decode_step(
         &checkpoint,
         &config,
         &input_token_ids,
@@ -8007,7 +8026,48 @@ pub fn run_prefill_route_coverage_trace(
         None,
         None,
         DecodeOutput::RoutesOnly,
-    )?;
+    ) {
+        Ok(step) => step,
+        Err(error) => {
+            let mut cleanup_errors = Vec::new();
+            drop(caches);
+            if let Err(cleanup_error) = checkpoint.release_file_pages() {
+                cleanup_errors.push(format!("checkpoint page release: {cleanup_error}"));
+            }
+            drop(checkpoint);
+            if let Err(cleanup_error) = safety.checkpoint("failed_run_checkpoint_released", true) {
+                cleanup_errors.push(format!("release safety checkpoint: {cleanup_error}"));
+            }
+            if let Err(cleanup_error) = safety.checkpoint("failed_run_final_service_health", true) {
+                cleanup_errors.push(format!("service-health checkpoint: {cleanup_error}"));
+            }
+            let failure = PrefillRouteCoverageFailureReport {
+                schema_version: 1,
+                semantic: "mimo_target_faithful_prefill_route_coverage_failed_trace",
+                revision: REVISION,
+                commit: commit.to_owned(),
+                fixture_sha256: sha256_hex(&fixture_bytes),
+                checkpoint_verification_sha256: verification_sha256,
+                corpus_positions: 8_000,
+                traced_prefix_positions,
+                input_token_ids_sha256: sha256_hex(&input_token_ids_bytes),
+                numerics: "dynamic_fp8_e4m3fn_per_token_group_128_bf16_boundaries",
+                error: error.clone(),
+                cleanup_errors,
+                safety_snapshots: safety.snapshots,
+                accepted_tokens: 0,
+                performance_claim: None,
+            };
+            fs::create_dir(output_dir).map_err(|write_error| {
+                format!("{error}; preserve failure directory: {write_error}")
+            })?;
+            let bytes = serde_json::to_vec_pretty(&failure)
+                .map_err(|write_error| format!("{error}; serialize failure: {write_error}"))?;
+            write_create_new(&output_dir.join("failure.json"), &bytes)
+                .map_err(|write_error| format!("{error}; preserve failure: {write_error}"))?;
+            return Err(error);
+        }
+    };
     if step.output_token != 0
         || !step.top_logits.is_empty()
         || !step.full_logits.is_empty()
