@@ -60,12 +60,12 @@ class GlobalAttentionSparsityTraceTests(unittest.TestCase):
 
     def test_raw_identity_requires_corpus_and_checkpoint_receipt_hashes(self) -> None:
         raw = {
-            "schema_version": 2,
+            "schema_version": 3,
             "semantic": "mimo_target_faithful_global_attention_sparsity_shadow_trace",
             "revision": REVISION,
             "fixture_sha256": CORPUS_SHA256,
             "checkpoint_verification_sha256": VERIFICATION_SHA256,
-            "pw0157_prefix512_sha256": PW0157_SHA256,
+            "route_authority_sha256": PW0157_SHA256,
             "traced_prefix_positions": 512,
             "input_token_ids_sha256": INPUT_SHA256,
             "semantic_layer_routes_sha256": ROUTES_SHA256,

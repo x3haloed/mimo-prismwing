@@ -172,6 +172,14 @@ same-commit 512-position no-capture control is therefore the next cheap
 discriminator. No fourth oracle walk is authorized without emitting the
 actual semantic hash and exact expert/weight mismatch counts.
 
+The successor capture implementation uses one anonymous mmap with fixed
+offsets and fixed-size identity bitmaps instead of 36 heap-backed tensor and
+metadata vectors. Before another 512-position attempt, a same-commit
+64-position no-capture authority and capture run must pass exact semantic
+routes, bit-exact offline replay, the single frozen query at position 63, and
+Gate 8. This smoke gate is an instrumentation check only and cannot adjudicate
+the 20%-history mechanism.
+
 The control passed Gate 8: minimum free memory was `73%`, maximum physical
 footprint `841,980,032` bytes, peak RSS `933,265,408` bytes, zero swap growth,
 zero new throttled pages, `374,131,456` bytes after checkpoint release, and all

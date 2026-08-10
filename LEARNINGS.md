@@ -3489,4 +3489,7 @@ Do not guess whether the remaining cause is capture allocation/copy behavior,
 binary code generation, or Accelerate variability: run a same-commit
 no-capture control and make the next fail-closed message quantify actual hash,
 expert, route-weight, absolute, and ULP drift. This remains a correctness
-repair with no pruning, throughput, or purchase decision.
+repair with no pruning, throughput, or purchase decision. The next bounded
+repair removes heap-backed capture vectors in favor of one fixed-offset
+anonymous mmap and must pass a same-commit 64-position control/capture smoke
+before another full walk.

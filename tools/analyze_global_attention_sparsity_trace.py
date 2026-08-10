@@ -213,12 +213,12 @@ def _authenticate(paths: dict[str, Path], commit: str) -> tuple[dict, dict, dict
 
 def _validate_raw(raw: dict) -> None:
     if (
-        raw.get("schema_version") != 2
+        raw.get("schema_version") != 3
         or raw.get("semantic") != "mimo_target_faithful_global_attention_sparsity_shadow_trace"
         or raw.get("revision") != REVISION
         or raw.get("fixture_sha256") != CORPUS_SHA256
         or raw.get("checkpoint_verification_sha256") != VERIFICATION_SHA256
-        or raw.get("pw0157_prefix512_sha256") != PW0157_SHA256
+        or raw.get("route_authority_sha256") != PW0157_SHA256
         or raw.get("traced_prefix_positions") != 512
         or raw.get("input_token_ids_sha256") != INPUT_SHA256
         or raw.get("semantic_layer_routes_sha256") != ROUTES_SHA256

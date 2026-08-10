@@ -405,7 +405,9 @@ This is still an instrument failure, not a pruning result. Run a same-commit
 no-capture control to distinguish capture effects from changed-binary or
 Accelerate drift, and require any successor failure to report the actual hash,
 expert mismatches, route-weight mismatches, maximum absolute error, and ULP
-error rather than failing opaquely.
+error rather than failing opaquely. Replace heap-backed capture storage with a
+single fixed-offset anonymous mmap and require a same-commit 64-position
+no-capture/capture smoke pass before another full walk.
 
 PW-0163 closes the strongest conventional 32-GB AMD PCIe counterexample found
 in the current search. MI100's 92.3-TFLOPS BF16 Matrix peak plus the EPYC's

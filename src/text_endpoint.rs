@@ -14,6 +14,7 @@ use crate::staged_metal_expert::{
     MetalNativeRoutedLayerTomography, NoCopyProjectionBacking, RoutedNoCopyExpert,
     RoutedTransactionTomography,
 };
+use memmap2::MmapMut;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -50,6 +51,10 @@ const GLOBAL_ATTENTION_ORACLE_FRACTIONS: [f64; 7] =
 const GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS: [usize; 15] = [
     63, 95, 127, 159, 191, 223, 255, 287, 319, 351, 383, 415, 447, 479, 511,
 ];
+const GLOBAL_ATTENTION_CAPTURE_LAYERS: usize = 9;
+const GLOBAL_ATTENTION_CAPTURE_SAMPLES: usize = GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS.len();
+const GLOBAL_ATTENTION_CAPTURE_IDENTITIES: usize =
+    GLOBAL_ATTENTION_CAPTURE_LAYERS * GLOBAL_ATTENTION_CAPTURE_SAMPLES * HEADS;
 const CHAT_PROMPT: &str = "<|im_start|>system\nYou are MiMo, a helpful AI assistant engineered by Xiaomi.<|im_end|><|im_start|>user\nHello<|im_end|><|im_start|>assistant\n<think></think>";
 const CHAT_PROMPT_IDS: [u32; 27] = [
     151_644, 8948, 198, 2610, 525, 20_740, 25_612, 11, 264, 10_950, 15_235, 17_847, 44_936, 553,
@@ -274,6 +279,13 @@ struct SemanticLayerRouteTrace<'a> {
     route_weights_by_position: &'a [Vec<f32>],
 }
 
+#[derive(Deserialize, Serialize)]
+struct OwnedSemanticLayerRouteTrace {
+    layer: usize,
+    selected_experts_by_position: Vec<Vec<u32>>,
+    route_weights_by_position: Vec<Vec<f32>>,
+}
+
 fn semantic_layer_routes_sha256(traces: &[LayerRouteTrace]) -> Result<String, String> {
     let semantic = traces
         .iter()
@@ -284,6 +296,24 @@ fn semantic_layer_routes_sha256(traces: &[LayerRouteTrace]) -> Result<String, St
         })
         .collect::<Vec<_>>();
     let bytes = serde_json::to_vec(&semantic).map_err(|error| error.to_string())?;
+    Ok(sha256_hex(&bytes))
+}
+
+fn authority_semantic_layer_routes_sha256(authority: &Value) -> Result<String, String> {
+    let traces = authority["layer_traces"]
+        .as_array()
+        .ok_or("route authority has no layer traces")?
+        .iter()
+        .map(|trace| {
+            serde_json::from_value::<OwnedSemanticLayerRouteTrace>(serde_json::json!({
+                "layer": trace["layer"],
+                "selected_experts_by_position": trace["selected_experts_by_position"],
+                "route_weights_by_position": trace["route_weights_by_position"],
+            }))
+            .map_err(|error| format!("route authority semantic payload: {error}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let bytes = serde_json::to_vec(&traces).map_err(|error| error.to_string())?;
     Ok(sha256_hex(&bytes))
 }
 
@@ -985,19 +1015,13 @@ struct GlobalAttentionSparsityObserver {
 }
 
 #[derive(Debug)]
-struct GlobalAttentionLayerCapture {
-    layer: usize,
-    queries: Vec<f32>,
-    keys: Vec<f32>,
-    values: Vec<f32>,
-    references: Vec<f32>,
-    inputs_captured: bool,
-    references_captured: Vec<bool>,
-}
-
-#[derive(Debug)]
 struct GlobalAttentionCaptureBuffer {
-    layers: Vec<GlobalAttentionLayerCapture>,
+    layers: [usize; GLOBAL_ATTENTION_CAPTURE_LAYERS],
+    context: usize,
+    sample_count: usize,
+    storage: MmapMut,
+    inputs_captured: [bool; GLOBAL_ATTENTION_CAPTURE_LAYERS],
+    references_captured: [bool; GLOBAL_ATTENTION_CAPTURE_IDENTITIES],
 }
 
 #[derive(Debug, Serialize)]
@@ -1008,7 +1032,7 @@ pub struct GlobalAttentionSparsityTraceReport {
     pub commit: String,
     pub fixture_sha256: String,
     pub checkpoint_verification_sha256: String,
-    pub pw0157_prefix512_sha256: &'static str,
+    pub route_authority_sha256: String,
     pub traced_prefix_positions: usize,
     pub input_token_ids_sha256: String,
     pub semantic_layer_routes_sha256: String,
@@ -2770,43 +2794,96 @@ impl GlobalAttentionSparsityObserver {
 }
 
 impl GlobalAttentionCaptureBuffer {
-    fn new(observed_layers: &[usize]) -> Result<Self, String> {
-        if observed_layers.len() != 9
+    fn new(observed_layers: &[usize], context: usize) -> Result<Self, String> {
+        if observed_layers.len() != GLOBAL_ATTENTION_CAPTURE_LAYERS
             || observed_layers
                 .iter()
                 .copied()
                 .collect::<BTreeSet<_>>()
                 .len()
                 != observed_layers.len()
+            || !(64..=512).contains(&context)
         {
             return Err("global attention capture layer identity mismatch".to_owned());
         }
-        let sampled_queries = GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS.len() * HEADS;
+        let layers: [usize; GLOBAL_ATTENTION_CAPTURE_LAYERS] = observed_layers
+            .try_into()
+            .map_err(|_| "global attention capture layer count mismatch")?;
+        let sample_count =
+            GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS.partition_point(|&position| position < context);
+        if sample_count == 0 {
+            return Err("global attention capture has no sampled query".to_owned());
+        }
+        let layer_values = sample_count
+            .checked_mul(HEADS * QK_HEAD_DIM + HEADS * V_HEAD_DIM)
+            .and_then(|values| values.checked_add(context * 4 * (QK_HEAD_DIM + V_HEAD_DIM)))
+            .ok_or("global attention capture size overflow")?;
+        let storage_bytes = GLOBAL_ATTENTION_CAPTURE_LAYERS
+            .checked_mul(layer_values)
+            .and_then(|values| values.checked_mul(std::mem::size_of::<f32>()))
+            .ok_or("global attention capture byte size overflow")?;
         Ok(Self {
-            layers: observed_layers
-                .iter()
-                .map(|&layer| GlobalAttentionLayerCapture {
-                    layer,
-                    queries: vec![
-                        0.0;
-                        GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS.len()
-                            * HEADS
-                            * QK_HEAD_DIM
-                    ],
-                    keys: vec![0.0; 512 * 4 * QK_HEAD_DIM],
-                    values: vec![0.0; 512 * 4 * V_HEAD_DIM],
-                    references: vec![0.0; sampled_queries * V_HEAD_DIM],
-                    inputs_captured: false,
-                    references_captured: vec![false; sampled_queries],
-                })
-                .collect(),
+            layers,
+            context,
+            sample_count,
+            storage: MmapMut::map_anon(storage_bytes)
+                .map_err(|error| format!("global attention anonymous capture map: {error}"))?,
+            inputs_captured: [false; GLOBAL_ATTENTION_CAPTURE_LAYERS],
+            references_captured: [false; GLOBAL_ATTENTION_CAPTURE_IDENTITIES],
         })
     }
 
-    fn layer_mut(&mut self, layer: usize) -> Option<&mut GlobalAttentionLayerCapture> {
-        self.layers
-            .iter_mut()
-            .find(|capture| capture.layer == layer)
+    fn layer_values(&self) -> usize {
+        self.sample_count * HEADS * (QK_HEAD_DIM + V_HEAD_DIM)
+            + self.context * 4 * (QK_HEAD_DIM + V_HEAD_DIM)
+    }
+
+    fn layer_index(&self, layer: usize) -> Option<usize> {
+        self.layers.iter().position(|&candidate| candidate == layer)
+    }
+
+    fn ranges(
+        &self,
+        layer_index: usize,
+    ) -> (
+        std::ops::Range<usize>,
+        std::ops::Range<usize>,
+        std::ops::Range<usize>,
+        std::ops::Range<usize>,
+    ) {
+        let base = layer_index * self.layer_values();
+        let query_end = base + self.sample_count * HEADS * QK_HEAD_DIM;
+        let key_end = query_end + self.context * 4 * QK_HEAD_DIM;
+        let value_end = key_end + self.context * 4 * V_HEAD_DIM;
+        let reference_end = value_end + self.sample_count * HEADS * V_HEAD_DIM;
+        (
+            base..query_end,
+            query_end..key_end,
+            key_end..value_end,
+            value_end..reference_end,
+        )
+    }
+
+    fn storage_f32(&self) -> &[f32] {
+        // SAFETY: anonymous mappings are page-aligned, the mapping length was
+        // constructed as an exact multiple of `size_of::<f32>()`, and this
+        // immutable view cannot outlive the mapping owned by `self`.
+        unsafe {
+            std::slice::from_raw_parts(
+                self.storage.as_ptr().cast::<f32>(),
+                self.storage.len() / std::mem::size_of::<f32>(),
+            )
+        }
+    }
+
+    fn storage_f32_mut(&mut self) -> &mut [f32] {
+        // SAFETY: as above, with exclusive access enforced by `&mut self`.
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                self.storage.as_mut_ptr().cast::<f32>(),
+                self.storage.len() / std::mem::size_of::<f32>(),
+            )
+        }
     }
 
     fn capture_inputs(
@@ -2817,29 +2894,36 @@ impl GlobalAttentionCaptureBuffer {
         queries: &[f32],
         cache: &LayerKvCache,
     ) -> Result<(), String> {
-        let Some(capture) = self.layer_mut(layer) else {
+        let Some(layer_index) = self.layer_index(layer) else {
             return Ok(());
         };
+        let (query_range, key_range, value_range, _) = self.ranges(layer_index);
         if prior != 0
-            || rows != 512
-            || cache.positions != 512
+            || rows != self.context
+            || cache.positions != self.context
             || cache.kv_heads != 4
-            || queries.len() != 512 * HEADS * QK_HEAD_DIM
-            || cache.keys.len() != capture.keys.len()
-            || cache.values.len() != capture.values.len()
-            || capture.inputs_captured
+            || queries.len() != self.context * HEADS * QK_HEAD_DIM
+            || cache.keys.len() != key_range.len()
+            || cache.values.len() != value_range.len()
+            || self.inputs_captured[layer_index]
         {
             return Err("global attention passive capture shape mismatch".to_owned());
         }
-        capture.keys.copy_from_slice(&cache.keys);
-        capture.values.copy_from_slice(&cache.values);
-        for (sample, &position) in GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS.iter().enumerate() {
+        let sample_count = self.sample_count;
+        let storage = self.storage_f32_mut();
+        storage[key_range].copy_from_slice(&cache.keys);
+        storage[value_range].copy_from_slice(&cache.values);
+        for (sample, &position) in GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS
+            .iter()
+            .take(sample_count)
+            .enumerate()
+        {
             let source_start = position * HEADS * QK_HEAD_DIM;
-            let destination_start = sample * HEADS * QK_HEAD_DIM;
-            capture.queries[destination_start..destination_start + HEADS * QK_HEAD_DIM]
+            let destination_start = query_range.start + sample * HEADS * QK_HEAD_DIM;
+            storage[destination_start..destination_start + HEADS * QK_HEAD_DIM]
                 .copy_from_slice(&queries[source_start..source_start + HEADS * QK_HEAD_DIM]);
         }
-        capture.inputs_captured = true;
+        self.inputs_captured[layer_index] = true;
         Ok(())
     }
 
@@ -2850,47 +2934,59 @@ impl GlobalAttentionCaptureBuffer {
         head: usize,
         reference: &[f32],
     ) -> Result<(), String> {
-        let Some(capture) = self.layer_mut(layer) else {
+        let Some(layer_index) = self.layer_index(layer) else {
             return Ok(());
         };
-        if !GlobalAttentionSparsityObserver::should_sample(absolute_query_position) {
+        let Ok(sample) = GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS[..self.sample_count]
+            .binary_search(&absolute_query_position)
+        else {
             return Ok(());
-        }
-        let sample = (absolute_query_position - 63) / 32;
-        let identity = sample * HEADS + head;
-        if head >= HEADS
-            || sample >= GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS.len()
-            || reference.len() != V_HEAD_DIM
-            || capture.references_captured[identity]
-        {
+        };
+        let identity = (layer_index * self.sample_count + sample) * HEADS + head;
+        if head >= HEADS || reference.len() != V_HEAD_DIM || self.references_captured[identity] {
             return Err("global attention passive reference capture mismatch".to_owned());
         }
-        let start = identity * V_HEAD_DIM;
-        capture.references[start..start + V_HEAD_DIM].copy_from_slice(reference);
-        capture.references_captured[identity] = true;
+        let (_, _, _, reference_range) = self.ranges(layer_index);
+        let start = reference_range.start + (sample * HEADS + head) * V_HEAD_DIM;
+        self.storage_f32_mut()[start..start + V_HEAD_DIM].copy_from_slice(reference);
+        self.references_captured[identity] = true;
         Ok(())
     }
 
     fn analyze(self) -> Result<GlobalAttentionSparsityObserver, String> {
         let mut observer = GlobalAttentionSparsityObserver::default();
-        for capture in self.layers {
-            if !capture.inputs_captured
-                || capture.references_captured.iter().any(|captured| !captured)
+        for layer_index in 0..GLOBAL_ATTENTION_CAPTURE_LAYERS {
+            let identity_start = layer_index * self.sample_count * HEADS;
+            let identity_end = identity_start + self.sample_count * HEADS;
+            if !self.inputs_captured[layer_index]
+                || self.references_captured[identity_start..identity_end]
+                    .iter()
+                    .any(|captured| !captured)
             {
                 return Err("global attention passive capture is incomplete".to_owned());
             }
-            for (sample, &position) in GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS.iter().enumerate() {
+            let (query_range, key_range, value_range, reference_range) = self.ranges(layer_index);
+            let storage = self.storage_f32();
+            let queries = &storage[query_range];
+            let captured_keys = &storage[key_range];
+            let captured_values = &storage[value_range];
+            let references = &storage[reference_range];
+            for (sample, &position) in GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS
+                .iter()
+                .take(self.sample_count)
+                .enumerate()
+            {
                 for head in 0..HEADS {
                     let kv_head = head / (HEADS / 4);
                     let query_start = (sample * HEADS + head) * QK_HEAD_DIM;
-                    let query = &capture.queries[query_start..query_start + QK_HEAD_DIM];
+                    let query = &queries[query_start..query_start + QK_HEAD_DIM];
                     let mut keys = Vec::with_capacity(position + 1);
                     let mut values = Vec::with_capacity(position + 1);
                     for key_position in 0..=position {
                         let key_start = (key_position * 4 + kv_head) * QK_HEAD_DIM;
-                        keys.push(&capture.keys[key_start..key_start + QK_HEAD_DIM]);
+                        keys.push(&captured_keys[key_start..key_start + QK_HEAD_DIM]);
                         let value_start = (key_position * 4 + kv_head) * V_HEAD_DIM;
-                        values.push(&capture.values[value_start..value_start + V_HEAD_DIM]);
+                        values.push(&captured_values[value_start..value_start + V_HEAD_DIM]);
                     }
                     let mut trace = AttentionHeadTrace::default();
                     let recomputed = causal_attention_head_with_dtype(
@@ -2903,8 +2999,7 @@ impl GlobalAttentionCaptureBuffer {
                         Some(&mut trace),
                     )?;
                     let reference_start = (sample * HEADS + head) * V_HEAD_DIM;
-                    let reference =
-                        &capture.references[reference_start..reference_start + V_HEAD_DIM];
+                    let reference = &references[reference_start..reference_start + V_HEAD_DIM];
                     if recomputed
                         .iter()
                         .zip(reference)
@@ -2916,7 +3011,7 @@ impl GlobalAttentionCaptureBuffer {
                         );
                     }
                     observer.observe(
-                        capture.layer,
+                        self.layers[layer_index],
                         position,
                         head,
                         &trace.probabilities,
@@ -8592,25 +8687,82 @@ pub fn run_global_attention_sparsity_trace(
     output_dir: &Path,
     commit: &str,
 ) -> Result<GlobalAttentionSparsityTraceReport, String> {
+    run_global_attention_sparsity_trace_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+        pw0157_prefix512_path,
+        output_dir,
+        commit,
+        512,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_global_attention_capture_smoke(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    route_authority_path: &Path,
+    output_dir: &Path,
+    commit: &str,
+) -> Result<GlobalAttentionSparsityTraceReport, String> {
+    run_global_attention_sparsity_trace_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+        route_authority_path,
+        output_dir,
+        commit,
+        64,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_global_attention_sparsity_trace_internal(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    route_authority_path: &Path,
+    output_dir: &Path,
+    commit: &str,
+    traced_prefix_positions: usize,
+    require_pinned_authority: bool,
+) -> Result<GlobalAttentionSparsityTraceReport, String> {
     if output_dir.exists() {
         return Err(format!("refusing to overwrite {}", output_dir.display()));
     }
-    let authority_bytes = fs::read(pw0157_prefix512_path)
-        .map_err(|error| format!("{}: {error}", pw0157_prefix512_path.display()))?;
-    if sha256_hex(&authority_bytes) != PW0157_PREFIX512_SHA256 {
+    let authority_bytes = fs::read(route_authority_path)
+        .map_err(|error| format!("{}: {error}", route_authority_path.display()))?;
+    let route_authority_sha256 = sha256_hex(&authority_bytes);
+    if require_pinned_authority && route_authority_sha256 != PW0157_PREFIX512_SHA256 {
         return Err("PW-0157 prefix-512 authority SHA-256 mismatch".to_owned());
     }
     let authority: Value = serde_json::from_slice(&authority_bytes)
-        .map_err(|error| format!("PW-0157 prefix-512 authority: {error}"))?;
+        .map_err(|error| format!("PW-0162 route authority: {error}"))?;
     if authority["semantic"] != "mimo_target_faithful_prefill_route_coverage_rust_trace"
         || authority["revision"] != REVISION
-        || authority["traced_prefix_positions"] != 512
-        || authority["input_token_ids_sha256"] != PW0157_PREFIX512_INPUT_SHA256
-        || authority["layer_routes_sha256"] != PW0157_PREFIX512_ROUTES_SHA256
+        || authority["traced_prefix_positions"] != traced_prefix_positions
         || authority["accepted_tokens"] != 0
         || !authority["performance_claim"].is_null()
+        || (!require_pinned_authority && authority["commit"] != commit)
+        || (require_pinned_authority
+            && (authority["input_token_ids_sha256"] != PW0157_PREFIX512_INPUT_SHA256
+                || authority["layer_routes_sha256"] != PW0157_PREFIX512_ROUTES_SHA256))
     {
-        return Err("PW-0157 prefix-512 authority identity mismatch".to_owned());
+        return Err("PW-0162 route authority identity mismatch".to_owned());
+    }
+    let expected_semantic_layer_routes_sha256 = authority_semantic_layer_routes_sha256(&authority)?;
+    if require_pinned_authority
+        && expected_semantic_layer_routes_sha256 != PW0157_PREFIX512_SEMANTIC_ROUTES_SHA256
+    {
+        return Err("PW-0157 semantic route authority mismatch".to_owned());
     }
     let complete_started = Instant::now();
     let disk_bytes_read_before = process_disk_bytes_read()?;
@@ -8637,11 +8789,13 @@ pub fn run_global_attention_sparsity_trace(
     {
         return Err("PW-0162 fixture or checkpoint authority mismatch".to_owned());
     }
-    let input_token_ids = prompt_token_ids[..512].to_vec();
+    let input_token_ids = prompt_token_ids[..traced_prefix_positions].to_vec();
     let input_token_ids_bytes =
         serde_json::to_vec(&input_token_ids).map_err(|error| error.to_string())?;
     let input_token_ids_sha256 = sha256_hex(&input_token_ids_bytes);
-    if input_token_ids_sha256 != PW0157_PREFIX512_INPUT_SHA256 {
+    if authority["input_token_ids_sha256"] != input_token_ids_sha256
+        || (require_pinned_authority && input_token_ids_sha256 != PW0157_PREFIX512_INPUT_SHA256)
+    {
         return Err("PW-0162 input token identity mismatch".to_owned());
     }
     let observed_global_layers = config
@@ -8653,10 +8807,18 @@ pub fn run_global_attention_sparsity_trace(
     if observed_global_layers.len() != 9 {
         return Err("PW-0162 requires exactly nine global-attention layers".to_owned());
     }
-    let sampled_absolute_query_positions = GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS.to_vec();
+    let sampled_absolute_query_positions = GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS
+        .iter()
+        .copied()
+        .take_while(|position| *position < traced_prefix_positions)
+        .collect::<Vec<_>>();
+    if sampled_absolute_query_positions.is_empty() {
+        return Err("PW-0162 trace contains no sampled query".to_owned());
+    }
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
     let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
-    let mut capture = GlobalAttentionCaptureBuffer::new(&observed_global_layers)?;
+    let mut capture =
+        GlobalAttentionCaptureBuffer::new(&observed_global_layers, traced_prefix_positions)?;
     let step = decode_step(
         &checkpoint,
         &config,
@@ -8677,11 +8839,11 @@ pub fn run_global_attention_sparsity_trace(
         return Err("PW-0162 source walk accounting mismatch".to_owned());
     }
     let semantic_layer_routes_sha256 = semantic_layer_routes_sha256(&step.traces)?;
-    if semantic_layer_routes_sha256 != PW0157_PREFIX512_SEMANTIC_ROUTES_SHA256 {
+    if semantic_layer_routes_sha256 != expected_semantic_layer_routes_sha256 {
         let diagnostic = semantic_route_mismatch_diagnostic(&step.traces, &authority)?;
         return Err(format!(
             "PW-0162 passive capture changed exact source routes: expected {}, actual {}; {diagnostic}",
-            PW0157_PREFIX512_SEMANTIC_ROUTES_SHA256, semantic_layer_routes_sha256
+            expected_semantic_layer_routes_sha256, semantic_layer_routes_sha256
         ));
     }
     let observer = capture.analyze()?;
@@ -8735,14 +8897,14 @@ pub fn run_global_attention_sparsity_trace(
     safety.checkpoint("checkpoint_released", true)?;
     safety.checkpoint("final_service_health", true)?;
     let report = GlobalAttentionSparsityTraceReport {
-        schema_version: 2,
+        schema_version: 3,
         semantic: "mimo_target_faithful_global_attention_sparsity_shadow_trace",
         revision: REVISION,
         commit: commit.to_owned(),
         fixture_sha256: sha256_hex(&fixture_bytes),
         checkpoint_verification_sha256: verification_sha256,
-        pw0157_prefix512_sha256: PW0157_PREFIX512_SHA256,
-        traced_prefix_positions: 512,
+        route_authority_sha256,
+        traced_prefix_positions,
         input_token_ids_sha256,
         semantic_layer_routes_sha256,
         observed_global_layers,
@@ -9235,24 +9397,28 @@ mod tests {
 
     #[test]
     fn global_attention_source_capture_uses_preallocated_storage() {
-        let mut capture = GlobalAttentionCaptureBuffer::new(&(0..9).collect::<Vec<_>>())
+        let mut capture = GlobalAttentionCaptureBuffer::new(&(0..9).collect::<Vec<_>>(), 64)
             .expect("valid capture authority");
-        let before = capture.layers[0]
-            .references
+        assert_eq!(capture.sample_count, 1);
+        let pointer = capture.storage.as_ptr();
+        let length = capture.storage.len();
+        let (_, _, _, reference_range) = capture.ranges(0);
+        let before = capture.storage_f32()[reference_range.clone()]
             .iter()
             .map(|value| value.to_bits())
             .collect::<Vec<_>>();
-        let capacity = capture.layers[0].references.capacity();
         let reference = (0..V_HEAD_DIM)
             .map(|index| index as f32)
             .collect::<Vec<_>>();
         capture
             .capture_reference(0, 63, 0, &reference)
             .expect("bounded reference capture");
-        assert_eq!(capture.layers[0].references.capacity(), capacity);
-        assert_eq!(&capture.layers[0].references[..V_HEAD_DIM], &reference);
+        assert_eq!(capture.storage.as_ptr(), pointer);
+        assert_eq!(capture.storage.len(), length);
+        let stored = &capture.storage_f32()[reference_range];
+        assert_eq!(&stored[..V_HEAD_DIM], &reference);
         assert!(
-            capture.layers[0].references[V_HEAD_DIM..]
+            stored[V_HEAD_DIM..]
                 .iter()
                 .zip(&before[V_HEAD_DIM..])
                 .all(|(actual, expected)| actual.to_bits() == *expected)
@@ -9296,6 +9462,10 @@ mod tests {
                 "route_weights_by_position": [[0.75, 0.25]]
             }]
         });
+        assert_eq!(
+            semantic_layer_routes_sha256(&actual).expect("actual hash"),
+            authority_semantic_layer_routes_sha256(&authority).expect("authority hash")
+        );
         let exact = semantic_route_mismatch_diagnostic(&actual, &authority).expect("diagnostic");
         assert!(exact.contains("expert_rows_changed=0"));
         assert!(exact.contains("weight_values_changed=0"));
