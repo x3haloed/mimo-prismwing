@@ -474,6 +474,23 @@ of the derived A770 ceiling. Passing only retains the card. The authoritative
 report hashes to
 `127a898e54f51044bf68bf58f80d071e98b2e10130f2b008a6fe0d313d2d9db3`.
 
+PW-0170 closes the card-only decode-capacity ambiguity before physical work.
+After reserving all non-routed source tensors, three bounded arenas, and exact
+8K BF16 KV, the A770's 16 decimal GB leaves room for only 25 complete source
+experts. A causal prompt-frequency set avoids just 25 of the real `q=137`
+suffix's 903 union records (`2.76855%`), leaving `22,100,987,904` source bytes.
+Reject the A770 HBM cache as a primary mechanism.
+
+The strongest deliberately impossible envelope grants four independent
+3.5-GB/s lanes, the A770's full derived 131-TFLOPS BF16 peak, and the EPYC's
+impossible peak. It still needs `A=56/137` for 34.3 TPS and `A=81/137` for 50;
+four 2.5-GB/s lanes need `A=77` and `A=113`. Width-eight/16 speculation is
+structurally insufficient. Retain only a base-aligned `q>=137` proposer plus
+four-lane storage as an unmeasured conditional branch. The card leaves
+`$188.29` before tax, carrier/drives, cables, and cooling, so no complete BOM
+or purchase follows. The authoritative report hashes to
+`c8eba5c4348378177d0d297b8eb4713fd9be71aa2f5a7c2790895c35859af5af`.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

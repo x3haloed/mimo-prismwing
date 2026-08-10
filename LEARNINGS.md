@@ -3280,3 +3280,32 @@ PW-0169 reports zero
 accepted tokens, no endpoint TPS, and no measured throughput-model constant
 changes. Prefer this candidate for physical and checkout evidence; do not
 purchase from the report.
+
+PW-0170 supersedes the residual implication that a 16-GB A770 could turn its
+HBM into a meaningful exact expert cache after satisfying common state. Every
+non-routed source tensor, three maximum arenas, and exact 8K BF16 KV consume
+`15,365,427,536` of 16 decimal GB. The remaining `634,572,464` bytes hold only
+25 complete experts. Prompt-frequency calibration avoids 25 of the real
+`q=137` suffix's 903 union records, or `2.76855%`, leaving 878 records and
+`22,100,987,904` source bytes. Reject the HBM cache as a primary mechanism.
+
+The stronger A770 arithmetic does reduce but does not remove the speculation
+prerequisite. Four ideal 2.5-GB/s lanes plus full derived A770 and impossible
+EPYC compute need `A=77/137` for 34.3 TPS and `A=113/137` for 50. Four ideal
+3.5-GB/s lanes need `A=56/137` and `A=81/137`; the latter's diagnostic
+independent conditional match probability is `0.9914746`. Width-eight/16
+blocks cannot provide these values in one target transaction. Retain only a
+new base-aligned `q>=137` proposer combined with four measured storage lanes,
+not the supplied or published proposer shapes.
+
+The active card's `$311.71` item-plus-rendered-shipping observation leaves
+`$188.29` before actual tax, four drives/carrier, compatible cables, and
+cooling. The owned host has no NVMe. This remains credible room, not a complete
+BOM. Installed A770 BF16/ReBAR-off/oneAPI, sustained storage, proposer,
+physical, electrical, and checkout evidence all remain required. The
+authoritative report hashes to
+`c8eba5c4348378177d0d297b8eb4713fd9be71aa2f5a7c2790895c35859af5af`.
+Gate 8 passes at 65% minimum free memory, 141,000,704-byte peak RSS, zero swap
+growth or throttling, an explicit release boundary, and stable services.
+PW-0170 reports zero accepted tokens, no endpoint TPS, and no measured
+throughput-model constant changes.

@@ -1,7 +1,8 @@
 # PW-0170 — single-A770 storage and acceptance envelope
 
-- Status: ready
-- Disposition: unexecuted
+- Status: completed
+- Disposition: conditional; HBM cache rejected as a primary mechanism and
+  only a four-lane wide-verification nameplate envelope retained
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -12,7 +13,9 @@
 - Hardware: analytical pre-purchase envelope for the active used Intel Arc
   A770 Limited Edition 16GB candidate and the owned EPYC host
 - Related records: PW-0112, PW-0151 through PW-0155, PW-0167, PW-0169
-- Implementation commit and dirty state: pending
+- Implementation commits and dirty state: contract
+  `9c8b3b6e72ce85e84df9cfbabf56ba6eedca0bbb`; corrected analyzer and clean
+  execution `89fe0a7d117ea32f2aa6c73f6d6b45ba7a63e774`
 
 ## Question and changed premise
 
@@ -62,4 +65,42 @@ nameplate bandwidth is TPS, and no purchase is authorized.
 
 ## Result
 
-Pending clean execution.
+The clean authenticated analyzer emitted
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0170/analysis-001/manifest.json`,
+which hashes to
+`c8eba5c4348378177d0d297b8eb4713fd9be71aa2f5a7c2790895c35859af5af`.
+It binds TARGET, config, the complete remote-header census, the real PW-0112
+route trace, and PW-0152/PW-0154/PW-0155/PW-0169 by SHA-256.
+
+Mandatory A770 resident state totals `15,365,427,536` bytes: every non-routed
+source tensor (`12,814,555,472`), three maximum arenas (`2,340,993,024`), and
+exact 8K BF16 KV (`209,879,040`). Only `634,572,464` bytes remain. Exactly 25
+complete experts fit, occupying `629,299,200` bytes with `5,273,264` bytes of
+tail. The prompt-calibrated set hits all 25 of PW-0112's 903 suffix union
+records, avoiding only `2.76855%`; 878 records or `22,100,987,904` source
+bytes remain. Reject this cache as a primary mechanism.
+
+Even after granting 131-TFLOPS A770 BF16/F32 accumulation and the EPYC's
+impossible 0.7424-TFLOPS peak, storage dominates. Four 2.5-GB/s lanes need
+`A=77/137` for 34.3 TPS and `A=113/137` for 50. Four 3.5-GB/s lanes need
+`A=56/137` and `A=81/137`. The latter corresponds only diagnostically to a
+constant conditional match probability of `0.9914746`; it is not measured
+acceptance. Width-eight and width-16 blocks cannot reach either strongest
+requirement in one target transaction.
+
+The active card plus observed shipping leaves `$188.29` before tax, four
+drives/carrier, compatible PSU cables, and cooling. No complete delivered BOM
+exists, and the host owns no NVMe lanes. Retain only the four-lane `q=137`
+nameplate branch pending installed A770 compute/ReBAR-off/oneAPI evidence,
+measured sustained storage, a base-aligned wide proposer, exact correction,
+physical/electrical validation, and complete cost.
+
+Gate 8 passes at 65% minimum free memory, 141,000,704-byte peak RSS,
+89,916,864-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. Two prepublication failures
+are preserved: the wrong census path receipt hashes to
+`3669aa0603a50d4986a1b0279b8481a1a61cd6cc3db602123e679211b04934b1`,
+and the corrected PW-0155 evidence-class receipt hashes to
+`64e7f4f35622c2a31ee503c7fd77418acdd404b8c0ad379b8b42c7711082bed4`.
+Neither published a manifest. PW-0170 reports zero accepted tokens, no endpoint
+TPS, and no measured throughput-model constant changes.
