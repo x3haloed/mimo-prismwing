@@ -11,7 +11,7 @@
   the owned EPYC host; analytical pre-purchase preflight only
 - Related records: PW-0151, PW-0155, PW-0167, PW-0168; E7
 - Implementation commit and dirty state:
-  `dc4e3dcfba17485540bd5986d84a99b1fceefcca`; clean
+  `2bb8b5c94763c2aee79675f18372d4b05bb86f5f`; clean
 
 ## Question and changed premise
 
@@ -60,7 +60,7 @@ runtime work remains blocked until the reversible installed component benchmark.
 ## Result
 
 The authoritative report hashes to
-`d08060c9fa494245069bb61169c48b0b8484c2c2796fa68b34b5cc89c892bfb9`.
+`127a898e54f51044bf68bf58f80d071e98b2e10130f2b008a6fe0d313d2d9db3`.
 It authenticates TARGET, PW-0151, PW-0167, the byte-identical PSU photo,
 PW-0167's official Intel product capture, Intel's two dated semantic article
 captures, the direct active listing transcription, and all four original
@@ -84,14 +84,24 @@ a component test. The actual delivery checkout and complete BOM remain
 unauthenticated. This is nevertheless materially better cost and fit evidence
 than PW-0168's `$431` pre-tax 300-mm/285-W Photon candidate.
 
-Gate 8 passes at 71% minimum free memory, 31,965,184-byte peak RSS,
-19,236,224-byte maximum physical footprint, zero swap growth or throttling, an
+The installed performance continuation gate is exceptionally narrow. Even
+with the EPYC granted its impossible peak and zero time for every omitted
+operation, the card must sustain `118.238594` BF16/F32-accumulate TFLOPS,
+`90.2585%` of the derived 131-TFLOPS ceiling. Reserving only 30, 60, or 120
+seconds for all other work raises that requirement to `91.7979%`, `93.3904%`,
+or `96.7460%` of peak. Falling below the zero-overhead threshold rejects the
+card; meeting it merely retains the branch.
+
+Gate 8 passes at 71% minimum free memory, 31,195,136-byte peak RSS,
+20,219,264-byte maximum physical footprint, zero swap growth or throttling, an
 explicit release boundary, and stable services. The analyzer reports zero
 accepted tokens, no endpoint TPS, and no measured throughput-model constant
 changes. The earlier image-unbound `analysis-001` report remains preserved at
 SHA-256
 `b6c125f1a8cb937b0bb847936e5b251a9d65cb13f7254ca1ae215d60aa450baa`
-but is superseded by `analysis-002`; neither authenticates component function.
+and image-bound `analysis-002` at
+`d08060c9fa494245069bb61169c48b0b8484c2c2796fa68b34b5cc89c892bfb9`;
+both are superseded by `analysis-003`. None authenticates component function.
 
 ## Decision
 
@@ -100,4 +110,5 @@ yet. Request physical clearance and original EVGA cable photographs plus a
 non-purchasing actual-address checkout total. If those pass while the listing
 remains active, purchase is still a user decision and runtime work still
 requires the reversible installed oneAPI BF16/PCIe/ReBAR-off/on component
-benchmark.
+benchmark. Reject immediately if its source-shape-weighted sustained BF16/F32-
+accumulate throughput is below `118.238594` TFLOPS.
