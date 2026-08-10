@@ -61,7 +61,7 @@ def validate_predecessors(target: str, pw0170: dict, pw0173: dict) -> None:
     if (
         "USD $500 total" not in target
         or "mean Jensen-Shannon divergence at most 0.01" not in target
-        or "L3 — Bounded approximation" not in target
+        or "These thresholds define behavioral near-equivalence, not bit identity" not in target
     ):
         raise ValueError("PW-0174 TARGET authority mismatch")
     scenarios = {

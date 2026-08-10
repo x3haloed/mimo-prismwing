@@ -30,7 +30,10 @@ class ApproximateSpeculativeSuffixReuseTests(unittest.TestCase):
             adjudicate(observation)
 
     def test_predecessor_minimum_A_fails_closed(self) -> None:
-        target = "USD $500 total; mean Jensen-Shannon divergence at most 0.01; L3 — Bounded approximation"
+        target = (
+            "USD $500 total; mean Jensen-Shannon divergence at most 0.01; "
+            "These thresholds define behavioral near-equivalence, not bit identity"
+        )
         pw0170 = {
             "storage_scenarios": [
                 {
