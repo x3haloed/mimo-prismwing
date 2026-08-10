@@ -408,6 +408,20 @@ unknown tax and has favorable 160-W/one-8-pin PSU nameplates, but no complete
 BOM follows. Reject ordinary-dense RX 9060 XT permanently; preserve explicit
 2:4 weight modification, FP8, changed attention, and faster cards separately.
 
+PW-0166 closes the affordable Intel Xe2 counterexample without mislabeling
+Arc's official 233-INT8-TOPS row as BF16. Pinned Intel IGC DPAS semantics assign
+two operations per BF16 channel versus four per INT8 channel, while the Xe2
+scheduler models equal same-size DPAS latency and occupancy independent of
+precision. The resulting source-oriented B580 ceiling is 116.5-TFLOPS
+BF16/F32-accumulate. Even with the EPYC's impossible peak concurrently,
+mandatory 1M matrices plus ordinary attention need `1,826.6923` seconds,
+missing the complete gate by `26.6923` seconds before all omitted work.
+Exact BF16 KV alone exceeds 12 decimal GB by `11,065,559,040` bytes. The
+190-W board has favorable PSU nameplate margin and an official `$249` launch
+price, but neither proves installation or a delivered BOM. Permanently reject
+ordinary-dense B580; preserve changed attention, modified weights, faster Xe2
+products, and multi-card execution, and authorize no purchase or oneAPI work.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

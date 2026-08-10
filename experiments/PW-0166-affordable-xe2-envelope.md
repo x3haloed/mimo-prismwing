@@ -1,14 +1,14 @@
 # PW-0166 — affordable Xe2 complete-system envelope
 
-- Status: ready
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`; config
   `292a60e74ae9a6d53422b31b21468ce2111c0ab3f7f7a4f4e9c7cd5133b96587`;
-  PW-0127, PW-0151, PW-0158, and PW-0161 authorities to be authenticated at
-  execution; official Intel B-series product page
+  authenticated PW-0127, PW-0151, PW-0158, and PW-0161 authorities; official
+  Intel B-series product page
   `f823f01910776e04f4ac5b3bb151b960cb857c96630ca9cbead15a86986679c8`;
   oneAPI Xe architecture page
   `ae4b7eaa179b7eabb5383b951f7b6bd8ae27058f727c724a534acc835899881f`;
@@ -25,7 +25,8 @@
 - Hardware candidate: one Intel Arc B580 12-GB card in the owned EPYC host;
   analytical pre-purchase envelope only
 - Related records: PW-0127, PW-0151, PW-0158, PW-0161, PW-0164, PW-0165; E7
-- Implementation commit and dirty state: pending
+- Implementation commit and dirty state:
+  `924bc76acc6967a61e203dd0869efb0de12dd485`, clean
 
 ## Question and changed premise
 
@@ -57,7 +58,7 @@ call the 233-TOPS marketing row BF16.
 
 ## Contract
 
-1. Authenticate TARGET, config, PW-0127, PW-0151, PW-0158, PW-0161, all six
+1. Authenticate TARGET, config, PW-0127, PW-0151, PW-0158, PW-0161, all five
    official Intel captures, and both pinned IGC files by SHA-256. Fail closed
    on source or compiler drift.
 2. Bind B580 to Xe2-HPG, XMX, 12 GB, 233 peak INT8 TOPS, 190 W, and official
@@ -94,4 +95,37 @@ no purchase or oneAPI runtime from analytical evidence.
 
 ## Result
 
-Pending authenticated execution.
+The authenticated analyzer derives a `116.5`-TFLOPS BF16/F32-accumulate
+ceiling from Intel's official 233-INT8-TOPS B580 row and the pinned IGC DPAS
+semantics and Xe2 scheduler. Mandatory one-million-position matrices plus
+ordinary attention total `214,165,790,024,007,680` operations. Even granting
+the owned EPYC's impossible `0.7424`-TFLOPS peak concurrently, their lower
+bound is `1,826.6923060599893` seconds, already `26.692306059989278` seconds
+beyond the complete TTFT gate before every omitted operation, transfer, or
+runtime cost.
+
+Exact BF16 1M KV exceeds the card's 12-decimal-GB capacity by
+`11,065,559,040` bytes. KV, three maximum layer arenas, and non-routed source
+tensors exceed it by `26,221,107,536` bytes, so even a hypothetical arithmetic
+survivor would require host or storage streaming. The official `$249` launch
+price is not a delivered BOM. The 190-W board plus 170-W CPU leaves 372 W
+below the authenticated 732-W combined +12-V PSU label, but nameplates do not
+prove cabling, fit, cooling, or measured load.
+
+Permanently reject ordinary-dense source-oriented B580 at one million
+positions. Do not authorize purchase or oneAPI implementation. Preserve
+changed attention, modified weights, faster Xe2 products, and multi-card
+systems as distinct branches. Two earlier fail-closed analyzer invocations
+published no output: one exposed an over-literal Xe2 HTML guard, and one was
+given a mismatched expanded commit. The corrected clean invocation alone
+published the authoritative report at
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0166/analysis-001/manifest.json`,
+SHA-256
+`30908aee4e494aa12c31223ba6b2072684f3c1a954e300d9b55566b978591bce`.
+
+Gate 8 passes with 73% minimum free memory, 36,192,256-byte peak RSS,
+19,416,576-byte maximum physical footprint, zero swap growth or throttling,
+an explicit source-payload release boundary, and stable protected services.
+The experiment reports zero accepted tokens, no endpoint TPS, and no changes
+to measured throughput-model constants; `116.5` TFLOPS is a derived candidate
+ceiling, not achieved performance.

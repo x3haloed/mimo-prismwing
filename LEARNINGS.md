@@ -3150,3 +3150,31 @@ Gate 8 passes at 49% minimum free memory, 40,108,032-byte peak RSS,
 20,252,288-byte maximum physical footprint, zero swap growth or throttling,
 and stable services. PW-0165 reports zero accepted tokens and no endpoint TPS;
 no measured throughput-model constant changes.
+
+PW-0166 supersedes the remaining uncertainty that Intel Arc B580's unpublished
+BF16 peak might leave an affordable ordinary-dense Xe2 path open. Intel's
+pinned compiler semantics assign two BF16 operations per DPAS channel versus
+four for INT8, and its Xe2 scheduler models equal same-size DPAS latency and
+occupancy independent of precision. Combined with Intel's official
+233-INT8-TOPS row, the strongest source-oriented BF16/F32-accumulate ceiling is
+therefore 116.5 TFLOPS, not 233.
+
+Mandatory one-million-position matrices plus ordinary attention total
+`214,165,790,024,007,680` operations. Even granting that ceiling and the owned
+EPYC's impossible peak concurrently yields a `1,826.6923`-second floor,
+already `26.6923` seconds beyond the complete gate before every omitted cost.
+Permanently reject B580 for ordinary-dense 1M execution regardless of future
+price. This does not reject changed attention, modified weights, faster Xe2
+products, or multi-card systems.
+
+Exact BF16 1M KV exceeds 12 decimal GB by `11,065,559,040` bytes. The 190-W
+board plus 170-W CPU leaves 372 W under the authenticated PSU's 732-W combined
++12-V label, but this is not installation proof. The official `$249` launch
+price is not a delivered BOM, and no purchase or oneAPI implementation is
+authorized. The authoritative report hashes to
+`30908aee4e494aa12c31223ba6b2072684f3c1a954e300d9b55566b978591bce`.
+Gate 8 passes at 73% minimum free memory, 36,192,256-byte peak RSS,
+19,416,576-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0166 reports zero
+accepted tokens, no endpoint TPS, and no measured throughput-model constant
+changes; 116.5 TFLOPS is a derived ceiling rather than achieved performance.

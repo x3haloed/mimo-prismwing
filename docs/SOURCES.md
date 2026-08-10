@@ -605,3 +605,45 @@ and a 450-W minimum PSU. The ISA distinguishes dense BF16/F32-accumulate WMMA
 from the sparse form requiring two zero elements per four. The release binds
 16-GB SEP to `$349`; the market row records a new in-stock `$449.99` card with
 free shipping before unknown tax and is not delivered purchase authority.
+
+## Affordable Xe2 envelope authorities
+
+- Intel, Arc B-series desktop product specifications, accessed and captured
+  2026-08-10:
+  <https://www.intel.com/content/www/us/en/products/details/discrete-gpus/arc/desktop/b-series.html>.
+- Intel, *AI Data Types and Native Hardware Support*, accessed and captured
+  2026-08-10:
+  <https://www.intel.com/content/www/us/en/support/articles/000098346/graphics.html>.
+- Intel, *Intel Xe GPU Architecture*, accessed and captured 2026-08-10:
+  <https://www.intel.com/content/www/us/en/docs/oneapi/optimization-guide-gpu/2025-2/intel-xe-gpu-architecture.html>.
+- Intel, *Intel Arc B-Series Graphics Quick Reference Guide*, and official
+  B-series launch release, accessed and captured 2026-08-10:
+  <https://download.intel.com/newsroom/2024/client-computing/Intel-Arc-B-Series-Graphics-Quick-Reference-Guide.pdf>
+  and
+  <https://download.intel.com/newsroom/archive/2025/en-us-2024-12-03-intel-launches-arc-bseries-graphics-cards.pdf>.
+- Intel Graphics Compiler commit
+  `2eefea9414f2064b2250045305b28a2f73d4f644`, pinned 2026-08-10:
+  <https://github.com/intel/intel-graphics-compiler/tree/2eefea9414f2064b2250045305b28a2f73d4f644>.
+
+The product page hashes to
+`f823f01910776e04f4ac5b3bb151b960cb857c96630ca9cbead15a86986679c8`;
+the datatype page hashes to
+`79c9b9a32ccb7d1869777d85384cd06ddc4b2238218eead74cd03c978a40f3d1`;
+the Xe architecture page hashes to
+`ae4b7eaa179b7eabb5383b951f7b6bd8ae27058f727c724a534acc835899881f`;
+the QRG hashes to
+`6957f49863018e0226b126f5500a97304ff7cab2a9fe61e75019cc7db51b1d4e`;
+and the launch release hashes to
+`597c943c6a4a7ab6d929a4f47c6731fe45427d1b5715bd7369765f8b3437e934`.
+At the pinned IGC commit, the DPAS specification hashes to
+`79ba16ab6716e9099aaaf88875d7213c1a2581601aae8fd7e20fcd70d7737170`
+and the Xe2 scheduling table hashes to
+`17502f5b5050ec5538ae3424d09d07a6aea5d32f92b01d71b221bb58f60800c6`.
+
+Decision: technical and launch-price authority for PW-0166. Intel binds B580
+to Xe2-HPG, 20 Xe cores, 160 XMX engines, 12 GB, 190-W total board power,
+233 peak INT8 XMX TOPS, BF16 and INT8 XMX support, and a `$249` launch price.
+The pinned compiler sources bind BF16 and INT8 DPAS operations per channel and
+the precision-independent Xe2 scheduling premise used to derive a
+source-oriented BF16 ceiling. They do not establish delivered cost, installed
+oneAPI performance, fit, cabling, cooling, or purchase authority.
