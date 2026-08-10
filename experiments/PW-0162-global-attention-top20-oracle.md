@@ -9,6 +9,8 @@
   `292a60e74ae9a6d53422b31b21468ce2111c0ab3f7f7a4f4e9c7cd5133b96587`;
   PW-0157 512-prefix route authority
   `32fa8954e875e6c8c53b5092827820940f51225d2bf24322caf5b782295004b9`;
+  same-shape observer-disabled control
+  `480b02816b293ed8a2275e3c2810ee940fa0916db31fd1d730d6331e9f00a025`;
   PW-0158 and PW-0161 analysis manifests to be authenticated at execution
 - Execution mode: target-faithful source pass with a non-causal shadow L3
   diagnostic; the oracle output never enters model state
@@ -59,7 +61,10 @@ one million, or waive hosted and capability gates.
 1. Authenticate TARGET, config, checkpoint verification, the frozen original
    PW-0156 fixture, PW-0157's exact 512-prefix route authority, PW-0158's global
    attention ledger, and PW-0161's complete arithmetic by SHA-256. Require the
-   same 512 input-token hash and exact route-trace hash after observation.
+   same 512 input-token hash and exact semantic-route hash after observation.
+   Semantic route identity includes layer number, ordered selected experts, and
+   ordered route weights only; it excludes attention/cache/union/timing
+   metadata.
 2. Add a deterministic tiny correctness fixture before the real walk. Given
    frozen probabilities and value rows, require exact retained-count rounding,
    descending-probability selection with lower-index tie choice, original-index
@@ -75,9 +80,9 @@ one million, or waive hosted and capability gates.
    absolute error without aggregating away the raw distribution. Record the
    favorable F32 renormalization grant in the raw evidence identity.
 5. Require the 100% control to reproduce every observed source head output
-   bit-exactly. Require the observer run's route hash to equal PW-0157's exact
-   route hash. Either failure invalidates the experiment rather than rejecting
-   pruning.
+   bit-exactly. Require the observer run's semantic-route hash to equal
+   PW-0157's exact semantic-route hash. Either failure invalidates the
+   experiment rather than rejecting pruning.
 6. The 20% continuation gate requires aggregate relative L2 at most 1%, every
    global layer at most 2%, and head-query relative-L2 p99 at most 5%. These are
    phase-A falsification thresholds, not TARGET acceptance thresholds. Report
@@ -112,4 +117,33 @@ one-million-token gates.
 
 ## Result
 
-Pending implementation and execution after PW-0157 releases the shared host.
+The first observer run at commit
+`e02139cb2687e9d2a4844c5e390bb3c2ba156926` correctly failed closed with
+`PW-0162 shadow observer changed exact source routes`, but the follow-up
+observer-disabled same-shape control proved that this was a guard defect, not
+observer interference. The control completed in `1,677.895583` seconds and
+its raw manifest hashes to
+`480b02816b293ed8a2275e3c2810ee940fa0916db31fd1d730d6331e9f00a025`.
+Its old `layer_routes_sha256` was
+`234b4a078d6bd24fa85b91ffa7365923f43e5531effe3d5980738976c4599710`,
+different from PW-0157's
+`eff0dd3c993d132bd2ef66008c42c10e7b6b0b604ccad93ba0c72f894023a903`.
+However, direct comparison found all `24,064 = 47 * 512` ordered expert rows
+and route-weight rows bit-exact. The old hash covered the entire
+`LayerRouteTrace`, including nondeterministic `wall_ms`, and therefore could
+not be a cross-run route identity.
+
+The corrected semantic payload hashes only layer number, ordered expert IDs,
+and ordered route weights. Both the authenticated PW-0157 authority and the
+control produce
+`c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872`.
+A deterministic fixture now requires timing-only changes to preserve that hash
+and a route change to alter it. No pruning result, endpoint TPS, or mechanism
+decision is inferred from the invalid first observer attempt. The corrected
+oracle execution remains pending on the final clean implementation commit.
+
+The control passed Gate 8: minimum free memory was `73%`, maximum physical
+footprint `841,980,032` bytes, peak RSS `933,265,408` bytes, zero swap growth,
+zero new throttled pages, `374,131,456` bytes after checkpoint release, and all
+protected services remained resident. It reports zero accepted tokens and no
+endpoint TPS.

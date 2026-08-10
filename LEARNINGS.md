@@ -3450,3 +3450,22 @@ Gate 8 passes at 72% minimum free memory, 50,085,888-byte peak RSS,
 explicit release boundary, and stable services. PW-0175 records zero accepted
 tokens, no endpoint TPS, no measured throughput-model constant changes, and no
 purchase authority.
+
+PW-0162 found that a content hash is only as semantic as its payload. The
+first global-attention oracle walk failed its route non-interference guard, but
+the observer-disabled same-shape control also produced a different
+`layer_routes_sha256` from PW-0157. Direct comparison then showed that every
+one of the `47 * 512 = 24,064` ordered expert rows and route-weight rows was
+bit-exact. The hash had included the entire `LayerRouteTrace`, particularly
+per-layer `wall_ms`, so it was guaranteed to drift across executions without
+any model-state change.
+
+The repaired authority hashes only layer number, ordered selected experts, and
+ordered route weights. Both authenticated traces produce
+`c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872`;
+a deterministic fixture proves timing changes preserve that identity while a
+route change does not. The observer-disabled control manifest hashes to
+`480b02816b293ed8a2275e3c2810ee940fa0916db31fd1d730d6331e9f00a025`
+and passes Gate 8. This is a correctness repair, not evidence for or against
+20%-history pruning, and it changes no throughput-model constant or purchase
+decision. Rerun PW-0162 under the corrected semantic guard.

@@ -375,6 +375,23 @@ before tax, independently exceeding the complete cap before cable, cooling,
 or storage. Reject both captured purchases and retain only a price-triggered
 V100S L3 hypothesis; authorize no hardware or CUDA implementation.
 
+PW-0162 tests the most favorable numerical version of the cheap two-P100
+changed-attention premise: retain the source attention probabilities' largest
+20% of visible rows, renormalize them in F32, and compare the resulting value
+output on all 64 heads at 15 positions in each of the nine global layers. Its
+first full observer walk exposed a correctness-fixture defect before producing
+a pruning result. `layer_routes_sha256` covered complete route-trace records,
+including nondeterministic per-layer `wall_ms`, so a cross-run equality check
+failed even when every route was identical. A same-shape observer-disabled
+control proves all 24,064 ordered expert rows and route-weight rows bit-exact;
+its authenticated manifest hashes to
+`480b02816b293ed8a2275e3c2810ee940fa0916db31fd1d730d6331e9f00a025`.
+Repair route identity to cover only layer, ordered expert IDs, and ordered
+weights; both authorities then hash to
+`c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872`.
+Make no pruning decision from the invalid first observer attempt; rerun the
+unchanged numerical oracle under the corrected fail-closed guard.
+
 PW-0163 closes the strongest conventional 32-GB AMD PCIe counterexample found
 in the current search. MI100's 92.3-TFLOPS BF16 Matrix peak plus the EPYC's
 impossible concurrent peak still needs `2,301.8085` seconds for mandatory 1M

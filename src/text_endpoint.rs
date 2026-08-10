@@ -43,6 +43,8 @@ const PW0157_PREFIX512_INPUT_SHA256: &str =
     "9a8e422acb7b8762d86419adfe3234831614eee8a9f24c63648dccc4575d9e78";
 const PW0157_PREFIX512_ROUTES_SHA256: &str =
     "eff0dd3c993d132bd2ef66008c42c10e7b6b0b604ccad93ba0c72f894023a903";
+const PW0157_PREFIX512_SEMANTIC_ROUTES_SHA256: &str =
+    "c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872";
 const GLOBAL_ATTENTION_ORACLE_FRACTIONS: [f64; 7] =
     [0.01, 0.05, 0.10, 0.20, 0.210_561_390_436_831_78, 0.25, 1.0];
 const CHAT_PROMPT: &str = "<|im_start|>system\nYou are MiMo, a helpful AI assistant engineered by Xiaomi.<|im_end|><|im_start|>user\nHello<|im_end|><|im_start|>assistant\n<think></think>";
@@ -260,6 +262,26 @@ pub struct LayerRouteTrace {
     #[serde(rename = "U")]
     pub expert_union_factor: f64,
     pub wall_ms: f64,
+}
+
+#[derive(Serialize)]
+struct SemanticLayerRouteTrace<'a> {
+    layer: usize,
+    selected_experts_by_position: &'a [Vec<u32>],
+    route_weights_by_position: &'a [Vec<f32>],
+}
+
+fn semantic_layer_routes_sha256(traces: &[LayerRouteTrace]) -> Result<String, String> {
+    let semantic = traces
+        .iter()
+        .map(|trace| SemanticLayerRouteTrace {
+            layer: trace.layer,
+            selected_experts_by_position: &trace.selected_experts_by_position,
+            route_weights_by_position: &trace.route_weights_by_position,
+        })
+        .collect::<Vec<_>>();
+    let bytes = serde_json::to_vec(&semantic).map_err(|error| error.to_string())?;
+    Ok(sha256_hex(&bytes))
 }
 
 #[derive(Debug, Serialize)]
@@ -869,7 +891,7 @@ pub struct GlobalAttentionSparsityTraceReport {
     pub pw0157_prefix512_sha256: &'static str,
     pub traced_prefix_positions: usize,
     pub input_token_ids_sha256: String,
-    pub layer_routes_sha256: String,
+    pub semantic_layer_routes_sha256: String,
     pub observed_global_layers: Vec<usize>,
     pub sampled_absolute_query_positions: Vec<usize>,
     pub observed_heads_per_sample: usize,
@@ -8384,9 +8406,8 @@ pub fn run_global_attention_sparsity_trace(
     {
         return Err("PW-0162 source walk accounting mismatch".to_owned());
     }
-    let route_bytes = serde_json::to_vec(&step.traces).map_err(|error| error.to_string())?;
-    let layer_routes_sha256 = sha256_hex(&route_bytes);
-    if layer_routes_sha256 != PW0157_PREFIX512_ROUTES_SHA256 {
+    let semantic_layer_routes_sha256 = semantic_layer_routes_sha256(&step.traces)?;
+    if semantic_layer_routes_sha256 != PW0157_PREFIX512_SEMANTIC_ROUTES_SHA256 {
         return Err("PW-0162 shadow observer changed exact source routes".to_owned());
     }
     let expected_observations =
@@ -8439,7 +8460,7 @@ pub fn run_global_attention_sparsity_trace(
     safety.checkpoint("checkpoint_released", true)?;
     safety.checkpoint("final_service_health", true)?;
     let report = GlobalAttentionSparsityTraceReport {
-        schema_version: 1,
+        schema_version: 2,
         semantic: "mimo_target_faithful_global_attention_sparsity_shadow_trace",
         revision: REVISION,
         commit: commit.to_owned(),
@@ -8448,7 +8469,7 @@ pub fn run_global_attention_sparsity_trace(
         pw0157_prefix512_sha256: PW0157_PREFIX512_SHA256,
         traced_prefix_positions: 512,
         input_token_ids_sha256,
-        layer_routes_sha256,
+        semantic_layer_routes_sha256,
         observed_global_layers,
         sampled_absolute_query_positions,
         observed_heads_per_sample: HEADS,
@@ -8935,6 +8956,24 @@ mod tests {
             oracle_sparse_attention_candidate(&probabilities, &value_views, &reference, 0.0)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn semantic_route_hash_excludes_timing_but_not_route_data() {
+        let trace = |wall_ms, expert| LayerRouteTrace {
+            layer: 1,
+            attention: "sliding",
+            cache_length: 2,
+            selected_experts_by_position: vec![vec![expert, 7]],
+            route_weights_by_position: vec![vec![0.75, 0.25]],
+            expert_union_factor: 2.0,
+            wall_ms,
+        };
+        let baseline = semantic_layer_routes_sha256(&[trace(1.0, 3)]).expect("valid route");
+        let timing_only = semantic_layer_routes_sha256(&[trace(9_999.0, 3)]).expect("valid route");
+        let changed_route = semantic_layer_routes_sha256(&[trace(1.0, 4)]).expect("valid route");
+        assert_eq!(baseline, timing_only);
+        assert_ne!(baseline, changed_route);
     }
 
     #[test]
