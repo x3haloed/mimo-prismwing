@@ -3178,3 +3178,32 @@ Gate 8 passes at 73% minimum free memory, 36,192,256-byte peak RSS,
 an explicit release boundary, and stable services. PW-0166 reports zero
 accepted tokens, no endpoint TPS, and no measured throughput-model constant
 changes; 116.5 TFLOPS is a derived ceiling rather than achieved performance.
+
+PW-0167 reverses the broader inference that affordable Intel consumer cards
+have no ordinary-dense one-million arithmetic survivor. Intel's official A770
+row gives 262 dense INT8 XMX TOPS, and its Xe-HPG architecture specifies 4,096
+INT8 versus 2,048 FP16/BF16 operations per Xe-core-cycle. The resulting
+source-oriented ceiling is 131 TFLOPS. Mandatory 1M matrices plus ordinary
+attention total `214,165,790,024,007,680` operations; granting that ceiling and
+the EPYC's impossible peak concurrently yields a `1,625.6406`-second floor,
+leaving `174.3594` seconds inside the gate before every omitted cost. Retain
+A770 as an arithmetic survivor only, not as an achieved endpoint.
+
+Exact BF16 1M KV still exceeds 16 decimal GB by `7,065,559,040` bytes, and KV
+plus three arenas and common source tensors exceeds it by `22,221,107,536`, so
+layer-major or host/storage streaming is mandatory. The 225-W card plus 170-W
+CPU leaves 337 W under the photographed NEX750B's authenticated 732-W combined
++12-V label, but this is not installation proof. The owned H11SSL-i lacks
+supported native Resizable BAR, Intel requires it for optimal Arc performance,
+and the listed oneAPI client-GPU Linux systems do not include the owned Debian
+13 environment. Two dated sub-`$500` used sales are not an active complete BOM.
+
+The authoritative report hashes to
+`0ff6f2cb1017cb6589b8c5705e7adda349fc2637721e3ddc8c695f051dff2c01`.
+Gate 8 passes at 70% minimum free memory, 34,635,776-byte peak RSS,
+21,087,488-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0167 reports zero
+accepted tokens, no endpoint TPS, and no measured throughput-model constant
+changes; 131 TFLOPS remains a derived ceiling. Require an active complete BOM
+and reversible installed oneAPI BF16/PCIe/ReBAR-off/on component evidence
+before purchase or runtime work.

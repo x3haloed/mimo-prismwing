@@ -422,6 +422,20 @@ price, but neither proves installation or a delivered BOM. Permanently reject
 ordinary-dense B580; preserve changed attention, modified weights, faster Xe2
 products, and multi-card execution, and authorize no purchase or oneAPI work.
 
+PW-0167 tests the older 16-GB Arc A770 rather than assuming Xe2's generation
+name makes B580 the stronger source-oriented candidate. Intel publishes 262
+dense INT8 XMX TOPS for A770 and a 4,096:2,048 INT8-to-BF16 operation ratio for
+Xe-HPG, deriving a favorable 131-TFLOPS BF16 ceiling. With the EPYC's impossible
+peak concurrently, mandatory 1M matrices plus ordinary attention need
+`1,625.6406` seconds, leaving `174.3594` seconds before omitted costs. A770 is
+therefore retained as an arithmetic survivor, not promoted as performance.
+Exact 1M BF16 KV exceeds its 16 GB by `7,065,559,040` bytes, so layer-major or
+host/storage streaming is required. The owned H11SSL-i lacks native ReBAR,
+Intel warns ReBAR is needed for optimal Arc performance, and the owned Debian
+13 system is outside Intel's listed client-GPU Linux matrix. Require an active
+complete sub-`$500` BOM and reversible installed oneAPI BF16, PCIe, and
+ReBAR-off/on component evidence before purchase or implementation.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,
