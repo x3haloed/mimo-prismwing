@@ -1,7 +1,7 @@
 # PW-0153 — Owned EPYC source-resident bank envelope
 
-- Status: planned
-- Disposition: pending
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -17,6 +17,8 @@
   replacement source-resident DRAM bank and PW-0151's two-P100 direct-FP32
   compute survivor; analytical pre-purchase bound only
 - Related records: PW-0112, PW-0127, PW-0151, PW-0152; E7
+- Implementation commit and dirty state:
+  `729149845a485e4512422ded63a40eef3e9727a6`, clean
 
 ## Question and changed premise
 
@@ -89,8 +91,53 @@ dated, compatible, complete-BOM observation; do not erase the physical result.
 
 ## Result
 
-Pending execution.
+The authoritative `analysis-003` manifest hashes to
+`b11989c53cb93da52140e61c5d16b0152ffc80322184451c08a63c66712444c4`.
+It authenticates the complete remote-header census, PW-0151, the official
+manual PDF, the dated Newegg page capture, and the clean implementation commit.
+
+Every pinned tensor category totals `315,683,674,448` bytes, or `294.0033`
+GiB. Five 64-GiB modules provide 320 GiB and only `25.9967` GiB raw headroom;
+that is the byte minimum, but the manual does not explicitly enumerate a
+five-module population. Six provide 384 GiB and `89.9967` GiB headroom; the
+manual enumerates six as unbalanced and not recommended. Eight provide a
+balanced 512-GiB population and `217.9967` GiB headroom. The existing four
+4-GiB DIMMs cannot be added because the manual requires the same type, size,
+and speed.
+
+The physically resident premise materially changes decode arithmetic. Granting
+five DDR4-2400 channels `96.0 GB/s` and two PCIe-3-x16 links an aggregate
+encoding-adjusted `31.508 GB/s`, PCIe is the idealized bottleneck. PW-0151's
+real `q=137` selected payload transfers in `0.72142` seconds; adding its
+`0.20994`-second two-P100 direct-FP32 compute floor gives `0.93137` seconds.
+The 34.3-TPS prerequisite falls from `A>=86` to `A>=32/137`; Prismwing 50
+falls from `A>=125` to `A>=47/137`. These are impossible nameplate ceilings,
+not measured throughput. The unchanged matrix-only 8K prefill floor remains
+`12.2596` seconds for two P100s.
+
+The dated project ledger rejects procurement. The captured active listing is
+`$247.19` per Hynix `HMAA8GL7MMR4N-UH` 64-GB DDR4-2400 LRDIMM, sold and
+shipped by A-Tech with an add-to-cart control. Five total `$1,235.95`, so RAM
+alone exceeds the complete `$500` cap by `$735.95`. Adding PW-0151's two used
+P100 card-only subtotal yields `$1,384.69`, or `$884.69` over cap, before tax,
+shipping, compatible power cables/adapters, forced-air cooling, or physical
+validation. No purchase is authorized.
+
+Gate 8 passes across five snapshots with 66% minimum free memory,
+139,083,776-byte peak RSS, 85,919,360-byte maximum physical footprint, zero
+swap growth, zero new throttled pages, and stable protected services. The
+first invocation failed closed on an incorrect assumed census evidence class;
+the second failed on an operator-supplied commit typo. Neither published a
+manifest. Both empty stdout artifacts are preserved externally. Accepted
+tokens and endpoint TPS remain zero, and no throughput-model constant changes.
 
 ## Decision
 
-Pending execution.
+Reject the dated source-resident procurement branch under the `$500` cap. This
+is not a permanent market-wide impossibility result: the physically resident
+architecture survives, and its idealized acceptance prerequisite is much less
+extreme. Reopen project admissibility only with a new dated, compatible,
+complete BOM—preferably an explicitly supported six- or eight-module
+population—whose total including accelerators, cabling, cooling, tax, and
+shipping fits the cap. Do not train a resident-only proposer or buy hardware
+from this report.

@@ -2846,3 +2846,38 @@ The authoritative manifest hashes to
 Gate 8 passes with 66% minimum free memory, 30,867,456-byte peak RSS, zero swap
 growth or new throttled pages, and stable services. PW-0152 reports zero
 accepted tokens and no endpoint TPS; no throughput-model constant changes.
+
+PW-0153 supersedes the assumption that source-resident DRAM would leave
+PW-0151's extreme storage-driven acceptance prerequisite unchanged. The pinned
+checkpoint census contains `315,683,674,448` tensor bytes (`294.0033` GiB), so
+five 64-GiB modules are the byte minimum with only `25.9967` GiB raw headroom.
+The official EPYC-7001 population table does not explicitly enumerate five;
+six is enumerated as unbalanced and not recommended, while eight is balanced.
+The existing four 4-GiB modules cannot be mixed into the replacement bank
+because the manual requires the same DIMM type, size, and speed.
+
+At the explicitly impossible ceiling of five DDR4-2400 channels and two
+encoding-adjusted PCIe-3-x16 links, PCIe limits PW-0151's real `q=137` expert
+payload to a `0.72142`-second transfer. Adding the two-P100 matrix floor gives
+`0.93137` seconds, reducing the 34.3-TPS requirement to `A>=32/137` and the
+50-TPS requirement to `A>=47/137`. Preserve resident expert memory as a
+physically meaningful architecture; do not report these nameplates as measured
+bandwidth or endpoint throughput.
+
+The dated procurement embodiment is nevertheless rejected under the `$500`
+incremental cap. The authenticated active listing asks `$247.19` per compatible
+64-GiB module, so the five-module byte minimum is `$1,235.95`, already `$735.95`
+over the complete cap. With PW-0151's two P100 card-only subtotal, named parts
+reach `$1,384.69` before cables, forced-air cooling, tax, shipping, or physical
+validation. This falsifies the captured 2026-08-09 procurement branch, not all
+future used-market opportunities. Reopen only from a new dated compatible
+complete BOM; do not buy or train a resident-only proposer from PW-0153.
+
+The authoritative manifest hashes to
+`b11989c53cb93da52140e61c5d16b0152ffc80322184451c08a63c66712444c4`.
+Gate 8 passes with 66% minimum free memory, 139,083,776-byte peak RSS,
+85,919,360-byte maximum physical footprint, zero swap growth or new throttled
+pages, and stable services. Two failed invocations published no manifest and
+are preserved externally: one corrected the assumed census evidence class and
+one corrected an operator commit typo. PW-0153 reports zero accepted tokens,
+no endpoint TPS, and no throughput-model constant changes.
