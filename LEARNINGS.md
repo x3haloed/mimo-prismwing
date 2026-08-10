@@ -3480,3 +3480,13 @@ Q/K/V and reference-output storage, perform copies only during source
 execution, require the exact route hash, then require bit-exact offline replay
 before computing oracle errors. This repair changes no throughput-model
 constant, architecture disposition, or purchase authority.
+
+The preallocated copy-only attempt still failed exact route identity after
+`1,679` seconds. Moving observer arithmetic offline is therefore necessary but
+not sufficient for observational passivity. The failure manifest hashes to
+`026f116129543b02285d81e20bb0a3a7746c91623f4403a0aa10f262b9d87189`.
+Do not guess whether the remaining cause is capture allocation/copy behavior,
+binary code generation, or Accelerate variability: run a same-commit
+no-capture control and make the next fail-closed message quantify actual hash,
+expert, route-weight, absolute, and ULP drift. This remains a correctness
+repair with no pruning, throughput, or purchase decision.

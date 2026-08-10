@@ -158,8 +158,19 @@ and sampled source head outputs. It performs no oracle arithmetic until after
 the exact semantic-route guard passes. Offline replay must reproduce every
 captured source head output bit-exactly before candidate errors are accepted.
 A deterministic fixture proves sampled writes reuse fixed-capacity storage and
-reject duplicate identities. The repaired execution remains pending on its
-clean implementation commit.
+reject duplicate identities.
+
+That passive-capture attempt ran at commit
+`5a7b41c262a89747a9cca4ea14908e3ab436b6b9` for `1,679` seconds and still
+failed the semantic route guard before oracle analysis. Its failure manifest
+hashes to
+`026f116129543b02285d81e20bb0a3a7746c91623f4403a0aa10f262b9d87189`.
+This proves that moving sorting, renormalization, and candidate reductions
+offline was insufficient. It does not yet attribute the drift to capture
+preallocation/copies versus changed-binary or Accelerate behavior. A
+same-commit 512-position no-capture control is therefore the next cheap
+discriminator. No fourth oracle walk is authorized without emitting the
+actual semantic hash and exact expert/weight mismatch counts.
 
 The control passed Gate 8: minimum free memory was `73%`, maximum physical
 footprint `841,980,032` bytes, peak RSS `933,265,408` bytes, zero swap growth,

@@ -287,6 +287,107 @@ fn semantic_layer_routes_sha256(traces: &[LayerRouteTrace]) -> Result<String, St
     Ok(sha256_hex(&bytes))
 }
 
+fn semantic_route_mismatch_diagnostic(
+    actual: &[LayerRouteTrace],
+    authority: &Value,
+) -> Result<String, String> {
+    let expected = authority["layer_traces"]
+        .as_array()
+        .ok_or("route authority has no layer traces")?;
+    if expected.len() != actual.len() {
+        return Err("route authority layer count mismatch".to_owned());
+    }
+    let mut expert_rows_changed = 0_usize;
+    let mut expert_values_changed = 0_usize;
+    let mut weight_values_changed = 0_usize;
+    let mut maximum_weight_absolute_error = 0.0_f32;
+    let mut maximum_weight_ulp_error = 0_u32;
+    let mut first_expert_mismatch = None;
+    let mut first_weight_mismatch = None;
+    for (layer, (actual_trace, expected_trace)) in actual.iter().zip(expected).enumerate() {
+        let expected_experts = expected_trace["selected_experts_by_position"]
+            .as_array()
+            .ok_or("route authority expert rows missing")?;
+        let expected_weights = expected_trace["route_weights_by_position"]
+            .as_array()
+            .ok_or("route authority weight rows missing")?;
+        if actual_trace.layer != layer
+            || expected_trace["layer"].as_u64() != Some(layer as u64)
+            || expected_experts.len() != actual_trace.selected_experts_by_position.len()
+            || expected_weights.len() != actual_trace.route_weights_by_position.len()
+        {
+            return Err(format!("layer {layer}: route authority shape mismatch"));
+        }
+        for position in 0..expected_experts.len() {
+            let expected_expert_row = expected_experts[position]
+                .as_array()
+                .ok_or("route authority expert row malformed")?;
+            let expected_weight_row = expected_weights[position]
+                .as_array()
+                .ok_or("route authority weight row malformed")?;
+            let actual_expert_row = &actual_trace.selected_experts_by_position[position];
+            let actual_weight_row = &actual_trace.route_weights_by_position[position];
+            if expected_expert_row.len() != actual_expert_row.len()
+                || expected_weight_row.len() != actual_weight_row.len()
+            {
+                return Err(format!(
+                    "layer {layer} position {position}: route row shape mismatch"
+                ));
+            }
+            let mut row_changed = false;
+            for (index, (&actual_expert, expected_expert)) in actual_expert_row
+                .iter()
+                .zip(expected_expert_row)
+                .enumerate()
+            {
+                let expected_expert = expected_expert
+                    .as_u64()
+                    .ok_or("route authority expert value malformed")?
+                    as u32;
+                if actual_expert != expected_expert {
+                    row_changed = true;
+                    expert_values_changed += 1;
+                    first_expert_mismatch.get_or_insert((
+                        layer,
+                        position,
+                        index,
+                        expected_expert,
+                        actual_expert,
+                    ));
+                }
+            }
+            expert_rows_changed += usize::from(row_changed);
+            for (index, (&actual_weight, expected_weight)) in actual_weight_row
+                .iter()
+                .zip(expected_weight_row)
+                .enumerate()
+            {
+                let expected_weight = expected_weight
+                    .as_f64()
+                    .ok_or("route authority weight value malformed")?
+                    as f32;
+                if actual_weight.to_bits() != expected_weight.to_bits() {
+                    weight_values_changed += 1;
+                    maximum_weight_absolute_error =
+                        maximum_weight_absolute_error.max((actual_weight - expected_weight).abs());
+                    maximum_weight_ulp_error = maximum_weight_ulp_error
+                        .max(actual_weight.to_bits().abs_diff(expected_weight.to_bits()));
+                    first_weight_mismatch.get_or_insert((
+                        layer,
+                        position,
+                        index,
+                        expected_weight.to_bits(),
+                        actual_weight.to_bits(),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(format!(
+        "expert_rows_changed={expert_rows_changed}, expert_values_changed={expert_values_changed}, weight_values_changed={weight_values_changed}, maximum_weight_absolute_error={maximum_weight_absolute_error:e}, maximum_weight_ulp_error={maximum_weight_ulp_error}, first_expert_mismatch={first_expert_mismatch:?}, first_weight_mismatch={first_weight_mismatch:?}"
+    ))
+}
+
 #[derive(Debug, Serialize)]
 pub struct DecodeStepReport {
     pub input_token_id: u32,
@@ -8577,7 +8678,11 @@ pub fn run_global_attention_sparsity_trace(
     }
     let semantic_layer_routes_sha256 = semantic_layer_routes_sha256(&step.traces)?;
     if semantic_layer_routes_sha256 != PW0157_PREFIX512_SEMANTIC_ROUTES_SHA256 {
-        return Err("PW-0162 passive capture changed exact source routes".to_owned());
+        let diagnostic = semantic_route_mismatch_diagnostic(&step.traces, &authority)?;
+        return Err(format!(
+            "PW-0162 passive capture changed exact source routes: expected {}, actual {}; {diagnostic}",
+            PW0157_PREFIX512_SEMANTIC_ROUTES_SHA256, semantic_layer_routes_sha256
+        ));
     }
     let observer = capture.analyze()?;
     let expected_observations =
@@ -9171,6 +9276,37 @@ mod tests {
         let changed_route = semantic_layer_routes_sha256(&[trace(1.0, 4)]).expect("valid route");
         assert_eq!(baseline, timing_only);
         assert_ne!(baseline, changed_route);
+    }
+
+    #[test]
+    fn semantic_route_mismatch_diagnostic_localizes_values_and_ulps() {
+        let mut actual = vec![LayerRouteTrace {
+            layer: 0,
+            attention: "global",
+            cache_length: 1,
+            selected_experts_by_position: vec![vec![3, 7]],
+            route_weights_by_position: vec![vec![0.75, 0.25]],
+            expert_union_factor: 2.0,
+            wall_ms: 1.0,
+        }];
+        let authority = serde_json::json!({
+            "layer_traces": [{
+                "layer": 0,
+                "selected_experts_by_position": [[3, 7]],
+                "route_weights_by_position": [[0.75, 0.25]]
+            }]
+        });
+        let exact = semantic_route_mismatch_diagnostic(&actual, &authority).expect("diagnostic");
+        assert!(exact.contains("expert_rows_changed=0"));
+        assert!(exact.contains("weight_values_changed=0"));
+        actual[0].selected_experts_by_position[0][1] = 8;
+        actual[0].route_weights_by_position[0][0] = f32::from_bits(0.75_f32.to_bits() + 1);
+        let changed = semantic_route_mismatch_diagnostic(&actual, &authority).expect("diagnostic");
+        assert!(changed.contains("expert_rows_changed=1"));
+        assert!(changed.contains("expert_values_changed=1"));
+        assert!(changed.contains("weight_values_changed=1"));
+        assert!(changed.contains("maximum_weight_ulp_error=1"));
+        assert!(changed.contains("first_expert_mismatch=Some((0, 0, 1, 7, 8))"));
     }
 
     #[test]

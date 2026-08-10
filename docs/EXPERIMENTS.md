@@ -398,7 +398,14 @@ defect, not a pruning result. The repaired instrument only copies sampled
 Q/K/V and source outputs into preallocated bounded storage during the source
 walk, verifies exact routes, and performs all replay and oracle arithmetic
 offline. Require bit-exact replay of the captured source outputs before
-adjudicating the candidate.
+adjudicating the candidate. The resulting passive-capture run still changed
+the semantic route hash after `1,679` seconds. Its failure manifest hashes to
+`026f116129543b02285d81e20bb0a3a7746c91623f4403a0aa10f262b9d87189`.
+This is still an instrument failure, not a pruning result. Run a same-commit
+no-capture control to distinguish capture effects from changed-binary or
+Accelerate drift, and require any successor failure to report the actual hash,
+expert mismatches, route-weight mismatches, maximum absolute error, and ULP
+error rather than failing opaquely.
 
 PW-0163 closes the strongest conventional 32-GB AMD PCIe counterexample found
 in the current search. MI100's 92.3-TFLOPS BF16 Matrix peak plus the EPYC's
