@@ -156,7 +156,7 @@ def authenticate(paths: dict[str, Path]) -> tuple[dict, list[list[list[int]]], d
         or trace.get("revision") != REVISION
         or pw0152.get("evidence_class") != "pw0152_wide_proposer_acceptance_prerequisite"
         or pw0154.get("evidence_class") != "pw0154_prompt_calibrated_p100_hbm_cache_bound"
-        or pw0155.get("evidence_class") != "pw0155_owned_epyc_installable_bom"
+        or pw0155.get("evidence_class") != "pw0155_owned_epyc_installable_bom_prerequisite"
         or pw0169.get("evidence_class") != "pw0169_active_a770_limited_edition_bom_preflight"
         or pw0169.get("exact_board", {}).get("product") != "Intel Arc A770 Limited Edition 16GB"
         or pw0169.get("cost", {}).get("observed_item_plus_shipping_usd")
