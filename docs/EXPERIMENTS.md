@@ -468,8 +468,11 @@ no seller returns. Four authenticated listing images bind the box's 16-GB
 Retain physical clearance, original EVGA cables/pinout,
 actual checkout, cooling, ReBAR, supported oneAPI, and installed performance as
 gates. Prefer this listing over PW-0168 but authorize neither purchase nor
-implementation. The authoritative report hashes to
-`d08060c9fa494245069bb61169c48b0b8484c2c2796fa68b34b5cc89c892bfb9`.
+implementation. The installed kill threshold is `118.238594` sustained
+BF16/F32-accumulate TFLOPS even when all omitted work costs zero, `90.2585%`
+of the derived A770 ceiling. Passing only retains the card. The authoritative
+report hashes to
+`127a898e54f51044bf68bf58f80d071e98b2e10130f2b008a6fe0d313d2d9db3`.
 
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8

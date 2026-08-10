@@ -3257,15 +3257,25 @@ not a component test; the listing has no seller returns. Clearance, original
 EVGA cables and pinout, actual checkout, cooling, native ReBAR, supported
 oneAPI placement, and installed performance remain open. The authoritative
 report hashes to
-`d08060c9fa494245069bb61169c48b0b8484c2c2796fa68b34b5cc89c892bfb9`.
+`127a898e54f51044bf68bf58f80d071e98b2e10130f2b008a6fe0d313d2d9db3`.
 It binds all four original listing images: the box label independently shows
 the 16-GB `21P01J00BA` identity, and the card photos match the Limited Edition
 form and connectors. Images do not prove function. The earlier image-unbound
 report
 `b6c125f1a8cb937b0bb847936e5b251a9d65cb13f7254ca1ae215d60aa450baa`
-is preserved and superseded. Gate 8 passes at 71% minimum free memory,
-31,965,184-byte peak RSS, 19,236,224-byte maximum physical footprint, zero swap
-growth or throttling, an explicit release boundary, and stable services.
+and image-bound report
+`d08060c9fa494245069bb61169c48b0b8484c2c2796fa68b34b5cc89c892bfb9`
+are preserved and superseded.
+
+The installed continuation gate requires at least `118.238594` sustained
+BF16/F32-accumulate TFLOPS even with the EPYC at its impossible peak and zero
+time for every omitted operation. That is `90.2585%` of A770's derived ceiling;
+30, 60, and 120 seconds reserved for everything else raise it to `91.7979%`,
+`93.3904%`, and `96.7460%`. This makes a source-shape-weighted component
+benchmark a cheap kill gate, not performance proof. Gate 8 passes at 71%
+minimum free memory, 31,195,136-byte peak RSS, 20,219,264-byte maximum physical
+footprint, zero swap growth or throttling, an explicit release boundary, and
+stable services.
 PW-0169 reports zero
 accepted tokens, no endpoint TPS, and no measured throughput-model constant
 changes. Prefer this candidate for physical and checkout evidence; do not
