@@ -1,7 +1,7 @@
 # PW-0176 — MiMo 64K structured sparse-prefill layer-0 oracle
 
-- Status: ready
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Model/reference: MiMo revision
@@ -11,6 +11,9 @@
   outputs with shadow L3 released vertical-slash candidates; no candidate state
   enters the model
 - Related records: PW-0158, PW-0160 through PW-0162, PW-0175; E7
+- Implementation commit and dirty state:
+  `71ff2992dd0bdd4332e105a8fe27e3fc8558a4d5`; clean at final fixture,
+  runtime, and analysis
 
 ## Realization and compression contract
 
@@ -139,3 +142,39 @@ uses a BF16 vector, and the only expanded matrix is the FP8 QKV weight. Repair
 that ledger expectation with a direct regression test, regenerate the
 commit-bound fixture, and rerun. Preserve `raw-001` as an invalid analyzer-
 contract attempt and infer no structured-sparsity result from it.
+
+The repaired execution is valid and deterministic. `fixture-002` hashes to
+`d7c45847e2106a0ce5161a6e35fb87160888ea0eeebadf73b7040130ecd12526`;
+`raw-002` hashes to
+`1d6c4b4fd607fee439b170da0e26e4a9f1c380231a6baa47b009a7fd0061c9a9`;
+analysis hashes to
+`3176fed9199aba3d30ac1916d96ce1b8d5b55fbb005561b16b769873097da0da`.
+The first and second source walks have identical token, QKV, sampled-query,
+selector-query, key, value, pair, and complete observation payloads. The final
+walk completes 64 bounded QKV chunks and all selector/sample work in
+`273.078736` seconds. All 1,536 head-query identities are present and the
+full-selection control is bit-exact for all 196,608 output values.
+
+No uniform released pair passes. The widest `(1000,6096)` pair is strongest
+overall and consumes `20.599935%` effective work, but its aggregate relative
+L2 is `0.055171`, its maximum position error is `0.884388`, and head-query
+p99 is `0.723112`, versus limits of `0.010000`, `0.020000`, and `0.050000`.
+Its final-question band is promising at `0.008556` aggregate error, but the
+early band is `0.258773` and the interval band is `0.030050`; the required
+slice cannot be hidden by the favorable tail.
+
+Even the noncausal best-released-pair-per-head-query oracle fails. It chooses
+the lowest exact error independently for every evaluated head-query, yet
+reaches only `0.047658` aggregate relative L2, `0.721474` maximum position
+error, and `0.435570` p99. Because every fixed layer/head assignment of these
+five released pairs is a restriction of that oracle, kill all such
+combinations on the mandatory MiMo layer-0 64K slice. This does not reject a
+trained or repaired selector with different widths or a different mechanism.
+
+Gate 8 passes across 136 snapshots at 70% minimum free memory,
+790,664,192-byte maximum physical footprint, 815,284,224-byte peak RSS, zero
+swap growth or throttling, 23,102,976 bytes after release, and stable
+protected services. The result records zero accepted tokens and no endpoint
+TPS. No throughput-model constant changes: PW-0175's work fractions and the
+`21.056139%` two-P100 ceiling reproduce; PW-0176 kills the released numerical
+mechanism inside that allowance.
