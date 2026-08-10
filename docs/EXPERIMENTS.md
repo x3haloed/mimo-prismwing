@@ -276,6 +276,15 @@ branch is rejected: five captured compatible modules cost `$1,235.95`, already
 `$735.95` over the entire cap before accelerators or installation. This is not
 a permanent market-wide price bound and authorizes no purchase.
 
+PW-0154 tests a smaller exact residency embodiment that may avoid PW-0153's
+DRAM cost: reserve both candidate P100s' aggregate HBM for every non-routed
+source tensor, three bounded layer arenas, and the exact 8K BF16 KV state, then
+fill the remaining integer expert slots using frequency learned only from
+PW-0112's 87-position prompt. Apply that frozen set to the following
+137-position suffix and rederive one- through four-lane storage and acceptance
+requirements from union misses. Aggregate HBM and lane nameplates are only
+necessary ceilings; no purchase, CUDA runtime, or endpoint TPS follows.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,
