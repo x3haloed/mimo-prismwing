@@ -11,7 +11,7 @@
   the owned EPYC host; analytical pre-purchase preflight only
 - Related records: PW-0151, PW-0155, PW-0167, PW-0168; E7
 - Implementation commit and dirty state:
-  `c073a6dfe3890b4ed6103326094e2b6b36f3f8bf`; clean
+  `dc4e3dcfba17485540bd5986d84a99b1fceefcca`; clean
 
 ## Question and changed premise
 
@@ -60,13 +60,16 @@ runtime work remains blocked until the reversible installed component benchmark.
 ## Result
 
 The authoritative report hashes to
-`b6c125f1a8cb937b0bb847936e5b251a9d65cb13f7254ca1ae215d60aa450baa`.
+`d08060c9fa494245069bb61169c48b0b8484c2c2796fa68b34b5cc89c892bfb9`.
 It authenticates TARGET, PW-0151, PW-0167, the byte-identical PSU photo,
 PW-0167's official Intel product capture, Intel's two dated semantic article
-captures, and the direct active listing transcription.
+captures, the direct active listing transcription, and all four original
+listing images plus their image-bound semantic transcription.
 
 The exact listing identifies MPN `21P01J00BA`, matching Intel's Limited Edition
-A770 16-GB board. Intel specifies 225-W TBP, required 8-pin plus 6-pin inputs,
+A770 16-GB board. The photographed box label independently shows the 16-GB
+identity and product code; the card photos match the Limited Edition form and
+expected inputs. Intel specifies 225-W TBP, required 8-pin plus 6-pin inputs,
 279.9-mm length including the I/O bracket, 126.36-mm maximum width including
 the connector and bracket, and 42-mm maximum bracket-inclusive height. The GPU
 plus the 170-W EPYC total 395 W by nameplate, leaving 337 W below the NEX750B's
@@ -81,11 +84,14 @@ a component test. The actual delivery checkout and complete BOM remain
 unauthenticated. This is nevertheless materially better cost and fit evidence
 than PW-0168's `$431` pre-tax 300-mm/285-W Photon candidate.
 
-Gate 8 passes at 71% minimum free memory, 32,636,928-byte peak RSS,
-19,957,312-byte maximum physical footprint, zero swap growth or throttling, an
+Gate 8 passes at 71% minimum free memory, 31,965,184-byte peak RSS,
+19,236,224-byte maximum physical footprint, zero swap growth or throttling, an
 explicit release boundary, and stable services. The analyzer reports zero
 accepted tokens, no endpoint TPS, and no measured throughput-model constant
-changes.
+changes. The earlier image-unbound `analysis-001` report remains preserved at
+SHA-256
+`b6c125f1a8cb937b0bb847936e5b251a9d65cb13f7254ca1ae215d60aa450baa`
+but is superseded by `analysis-002`; neither authenticates component function.
 
 ## Decision
 
