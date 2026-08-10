@@ -21,6 +21,8 @@ except ModuleNotFoundError:
 REVISION = "63651580ca774f8504f676040460aed3e1244ac1"
 TARGET_SHA256 = "91fe6e0441bb0a0e1ab0852db60fb575d131b61ff069002c9c333f9b776e4950"
 CONFIG_SHA256 = "292a60e74ae9a6d53422b31b21468ce2111c0ab3f7f7a4f4e9c7cd5133b96587"
+CORPUS_SHA256 = "3b5bc4e8f41fed2a13867bc96ea8236d1630bf994eee5608a8366f1f846a79d5"
+VERIFICATION_SHA256 = "9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03"
 PW0157_SHA256 = "32fa8954e875e6c8c53b5092827820940f51225d2bf24322caf5b782295004b9"
 PW0158_SHA256 = "3b5b94cae112bee558ec46566ec09652c58bd434c3f47bebd3e0bc7c533fd315"
 PW0161_SHA256 = "fc438d593d8ac99be3cc426496feb830256ffc48c75d58fc8bb9d6b09a2c6c8f"
@@ -80,10 +82,39 @@ def summarize_candidates(observations: list[dict], fraction_index: int) -> dict:
     }
 
 
+def validate_safety(snapshots: object) -> None:
+    if not isinstance(snapshots, list) or len(snapshots) < 4:
+        raise ValueError("missing Gate-8 safety snapshots")
+    phases = {snapshot.get("phase") for snapshot in snapshots}
+    if not {"process_start", "checkpoint_released", "final_service_health"} <= phases:
+        raise ValueError("missing Gate-8 release or service-health phase")
+    baseline_services = {
+        name for name, pids in snapshots[0].get("protected_service_pids", {}).items() if pids
+    }
+    for snapshot in snapshots:
+        current_services = {
+            name for name, pids in snapshot.get("protected_service_pids", {}).items() if pids
+        }
+        if (
+            snapshot.get("system_memory_free_percent", -1) < 20
+            or snapshot.get("process_physical_footprint_bytes", 1 << 63) > 8 * 1024**3
+            or snapshot.get("process_peak_resident_bytes", 1 << 63) > 8 * 1024**3
+            or snapshot.get("swap_growth_bytes", 1 << 63) > 512 * 1024**2
+            or snapshot.get("new_throttled_pages", 1) != 0
+            or not baseline_services <= current_services
+        ):
+            raise ValueError("Gate-8 safety violation in raw trace")
+    release = next(row for row in snapshots if row["phase"] == "checkpoint_released")
+    if release["process_physical_footprint_bytes"] > 4 * 1024**3:
+        raise ValueError("Gate-8 post-release footprint violation")
+
+
 def _authenticate(paths: dict[str, Path], commit: str) -> tuple[dict, dict]:
     fixed = {
         "target": TARGET_SHA256,
         "config": CONFIG_SHA256,
+        "corpus": CORPUS_SHA256,
+        "verification": VERIFICATION_SHA256,
         "pw0157": PW0157_SHA256,
         "pw0158": PW0158_SHA256,
         "pw0161": PW0161_SHA256,
@@ -123,6 +154,8 @@ def _validate_raw(raw: dict) -> None:
         raw.get("schema_version") != 1
         or raw.get("semantic") != "mimo_target_faithful_global_attention_sparsity_shadow_trace"
         or raw.get("revision") != REVISION
+        or raw.get("fixture_sha256") != CORPUS_SHA256
+        or raw.get("checkpoint_verification_sha256") != VERIFICATION_SHA256
         or raw.get("pw0157_prefix512_sha256") != PW0157_SHA256
         or raw.get("traced_prefix_positions") != 512
         or raw.get("input_token_ids_sha256") != INPUT_SHA256
@@ -184,30 +217,7 @@ def _validate_raw(raw: dict) -> None:
             raise ValueError("100% oracle control mismatch")
     if identities != expected:
         raise ValueError("raw observation identities mismatch")
-    snapshots = raw.get("safety_snapshots")
-    if not isinstance(snapshots, list) or len(snapshots) < 4:
-        raise ValueError("missing Gate-8 safety snapshots")
-    phases = {snapshot.get("phase") for snapshot in snapshots}
-    if not {"process_start", "checkpoint_released", "final_service_health"} <= phases:
-        raise ValueError("missing Gate-8 release or service-health phase")
-    baseline_services = {
-        name for name, pids in snapshots[0].get("protected_service_pids", {}).items() if pids
-    }
-    for snapshot in snapshots:
-        current_services = {
-            name for name, pids in snapshot.get("protected_service_pids", {}).items() if pids
-        }
-        if (
-            snapshot.get("system_memory_free_percent", -1) < 20
-            or snapshot.get("process_physical_footprint_bytes", 1 << 63) > 8 * 1024**3
-            or snapshot.get("swap_growth_bytes", 1 << 63) > 512 * 1024**2
-            or snapshot.get("new_throttled_pages", 1) != 0
-            or not baseline_services <= current_services
-        ):
-            raise ValueError("Gate-8 safety violation in raw trace")
-    release = next(row for row in snapshots if row["phase"] == "checkpoint_released")
-    if release["process_physical_footprint_bytes"] > 4 * 1024**3:
-        raise ValueError("Gate-8 post-release footprint violation")
+    validate_safety(raw.get("safety_snapshots"))
 
 
 def run(paths: dict[str, Path], output: Path, commit: str) -> dict:
@@ -269,6 +279,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("target", type=Path)
     parser.add_argument("config", type=Path)
+    parser.add_argument("corpus", type=Path)
+    parser.add_argument("verification", type=Path)
     parser.add_argument("pw0157", type=Path)
     parser.add_argument("pw0158", type=Path)
     parser.add_argument("pw0161", type=Path)
@@ -280,7 +292,16 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    names = ("target", "config", "pw0157", "pw0158", "pw0161", "raw")
+    names = (
+        "target",
+        "config",
+        "corpus",
+        "verification",
+        "pw0157",
+        "pw0158",
+        "pw0161",
+        "raw",
+    )
     manifest = run({name: getattr(args, name) for name in names}, args.output, args.commit)
     print(canonical_json(manifest), end="")
 
