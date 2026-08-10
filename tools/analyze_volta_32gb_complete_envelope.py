@@ -291,9 +291,10 @@ def run(paths: dict[str, Path], output: Path, commit: str) -> dict:
         "platform": platform.platform(),
         "complete_wall_ms": (time.perf_counter() - started) * 1_000,
     }
-    safety.checkpoint("source_payloads_released", release_boundary=True, released_resources=[
-        "official specification text", "market transcription", "prior manifests"
-    ])
+    safety.release_checkpoint(
+        "source_payloads_released",
+        ["official specification text", "market transcription", "prior manifests"],
+    )
     safety.checkpoint("final_service_health")
     manifest["safety"] = safety.snapshots
     atomic_write_new(output, canonical_json(manifest))
