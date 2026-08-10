@@ -22,9 +22,9 @@
 PW-0158 rejects ordinary dense one-million-token attention on two inexpensive
 P100s, but it does not reject every accelerator below the project cap. A
 12-GB RTX 3080 is the narrow current-market counterexample worth testing: its
-Ampere Tensor Cores support BF16, its favorable dense BF16/FP16-class roofline
-is approximately 123 TFLOPS, and recent used prices approach the residual
-budget. It has much less memory than two P100s, but one card removes
+Ampere Tensor Cores support BF16, its favorable dense FP16-with-FP16-accumulate
+roofline is approximately 122.6 TFLOPS, and recent used prices approach the
+residual budget. It has much less memory than two P100s, but one card removes
 cross-device sharding and leaves materially more electrical margin.
 
 Test the complete causal envelope before requesting a purchase. It is not
@@ -41,9 +41,10 @@ global and 39 sliding attention layers, all source heads/dimensions, all source
 experts, native modality paths, and every TARGET gate. No sparsity or
 summarization is granted in the primary arithmetic screen.
 
-Authorized embodiment boundary: grant Ampere BF16 Tensor Core execution and
-perfect utilization as a favorable L3 numerical ceiling. This does not promote
-the reduction topology or establish target fidelity. The 8K route/storage
+Authorized embodiment boundary: use dense Ampere BF16 Tensor Core execution
+with FP32 accumulation as the source-oriented control. Report dense FP16 with
+FP16 accumulation separately as a favorable L3 numerical ceiling. Neither
+nameplate promotes the reduction topology or establishes target fidelity. The 8K route/storage
 screen keeps exact source-FP8 expert records and may preload only complete
 records into HBM. A compressed KV mode is reported separately; it cannot be
 used to claim source-exact 1M residency or fidelity.
@@ -63,13 +64,16 @@ electrical limits must be respected.
    source-identity drift.
 2. Freeze exactly one million input positions. Charge two operations per
    PW-0127 MAC for every position and add PW-0158's exact ordinary attention
-   work. Grant 123 TFLOPS continuously, perfect Tensor Core occupancy, and
-   zero cost for softmax, RoPE, cache traffic, routing, storage, dispatch,
-   protocol, and every other operation. Report the remaining wall budget
-   inside 1,800 seconds. Kill the candidate if this favorable sum alone
-   exceeds the gate.
-3. For the 8K TTFT slice, add the same matrix and attention work at 123 TFLOPS
-   to exact source-expert installation. Grant the card all 12 decimal GB of
+   work. Derive both dense rates from the official 8,960-core, 1.71-GHz card
+   geometry and GA10x per-SM Tensor throughput: about 61.3 TFLOPS for BF16 with
+   FP32 accumulation and 122.6 TFLOPS for FP16 with FP16 accumulation. Grant
+   perfect occupancy and zero cost for softmax, RoPE, cache traffic, routing,
+   storage, dispatch, protocol, and every other operation. Report both floors
+   and their remaining 1,800-second budgets. Kill the source-oriented control
+   if its sum exceeds the gate; keep the FP16 mode visibly L3 and unqualified.
+3. For the 8K TTFT slice, give exact source-expert installation the faster L3
+   FP16 arithmetic ceiling, which is most favorable to the storage candidate.
+   Grant the card all 12 decimal GB of
    HBM, free streaming of every non-routed tensor, exact BF16 8K KV, and
    PW-0128's three maximum layer arenas. Convert the remainder to complete
    25,171,968-byte expert slots.
@@ -100,11 +104,13 @@ electrical limits must be respected.
 
 ## Promotion and kill rule
 
-Reject the RTX 3080 12-GB candidate outright if the favorable 1M arithmetic
-floor exceeds 1,800 seconds. Otherwise, reject the captured procurement branch
-if the minimum storage-lane BOM plus a functional active card exceeds `$500`
-before or after any known delivery charge; an already-sold bargain only defines
-a reopening price and is not an available BOM.
+Reject the target-faithful/source-oriented RTX 3080 12-GB arithmetic control if
+its BF16-with-FP32-accumulate 1M floor exceeds 1,800 seconds. Treat the faster
+FP16-with-FP16-accumulate result only as an L3 branch requiring every fidelity
+gate. Independently reject the captured procurement branch if the minimum
+storage-lane BOM plus a functional active card exceeds `$500` before or after
+any known delivery charge; an already-sold bargain only defines a reopening
+price and is not an available BOM.
 
 Passing both checks retains only a pre-purchase candidate. Runtime work still
 requires a frozen CUDA toolchain, deterministic BF16 correctness fixtures,
@@ -117,3 +123,19 @@ delivered card price that would reopen it.
 
 Pending completion of PW-0157, source capture, implementation, and execution
 from a clean commit.
+
+## Precision-rate correction before authoritative execution
+
+The first clean analyzer implementation incorrectly labeled 123 TFLOPS as a
+dense BF16 rate. Inspection of the already frozen official GA102 whitepaper
+showed that the 10-GB RTX 3080's published dense BF16-with-FP32-accumulate rate
+is 59.5 TFLOPS, while 119 TFLOPS is either dense FP16-with-FP16-accumulate or
+the structured-sparse BF16 figure. Scaling the same official SM equation from
+68 to the 12-GB card's 70 SMs gives 61.2864 and 122.5728 TFLOPS, respectively.
+
+The erroneous `analysis-001` is preserved externally and must not be cited as
+evidence. Its manifest hashes to
+`01d8cfdf8d6603fcec3c867b8eed14a71bacf2ad9734539d5479b3c3136fd48e`.
+This amendment is committed before the corrected analyzer and authoritative
+execution. No threshold changes; the correction separates two numerical modes
+that the first implementation conflated.
