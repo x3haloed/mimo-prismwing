@@ -39,7 +39,10 @@ POSITIONS_8K = 8_000
 POSITIONS_1M = 1_000_000
 TTFT_8K_SECONDS = 15.0
 TTFT_1M_SECONDS = 1_800.0
-GRANTED_TENSOR_FLOPS = 123e12
+CUDA_CORES = 8_960
+CUDA_CORES_PER_SM = 128
+BOOST_HZ = 1.71e9
+DENSE_FP16_FMA_PER_SM_CLOCK = 512
 MANDATORY_MACS_PER_TOKEN = 14_820_573_184
 EXPERT_BYTES = 25_171_968
 HBM_BYTES = 12_000_000_000
@@ -51,7 +54,25 @@ EPYC_TDP_WATTS = 170
 PSU_12V_WATTS = 732
 
 
-def arithmetic_floor(config: dict, positions: int, peak_flops: float = GRANTED_TENSOR_FLOPS) -> dict:
+def ampere_tensor_rates() -> dict:
+    if CUDA_CORES % CUDA_CORES_PER_SM:
+        raise ValueError("CUDA core count does not resolve to complete SMs")
+    sms = CUDA_CORES // CUDA_CORES_PER_SM
+    fp16_fp16 = sms * DENSE_FP16_FMA_PER_SM_CLOCK * 2 * BOOST_HZ
+    bf16_fp32 = fp16_fp16 / 2
+    return {
+        "cuda_cores": CUDA_CORES,
+        "cuda_cores_per_sm": CUDA_CORES_PER_SM,
+        "streaming_multiprocessors": sms,
+        "boost_hz": BOOST_HZ,
+        "dense_fp16_fma_per_sm_clock": DENSE_FP16_FMA_PER_SM_CLOCK,
+        "dense_bf16_tensor_fp32_accumulate_flops_per_second": bf16_fp32,
+        "dense_fp16_tensor_fp16_accumulate_flops_per_second": fp16_fp16,
+        "structured_sparsity_granted": False,
+    }
+
+
+def arithmetic_floor(config: dict, positions: int, peak_flops: float, mode: str) -> dict:
     if peak_flops <= 0:
         raise ValueError("peak FLOPS must be positive")
     attention = attention_ledger(config, positions)
@@ -63,7 +84,8 @@ def arithmetic_floor(config: dict, positions: int, peak_flops: float = GRANTED_T
         "mandatory_matrix_flops": matrix_flops,
         "mandatory_attention_flops": attention["mandatory_attention_flops"],
         "mandatory_matrix_plus_attention_flops": total,
-        "granted_dense_bf16_tensor_flops_per_second": peak_flops,
+        "numerical_mode": mode,
+        "granted_tensor_flops_per_second": peak_flops,
         "matrix_plus_attention_floor_seconds": seconds,
     }
 
@@ -231,11 +253,29 @@ def run(paths: dict[str, Path], output: Path, commit: str) -> dict:
     safety = HostSafetyMonitor()
     config, route, market, throughput = _authenticate(paths)
     safety.checkpoint("source_evidence_authenticated")
-    one_million = arithmetic_floor(config, POSITIONS_1M)
-    eight_k = arithmetic_floor(config, POSITIONS_8K)
-    one_million["ttft_limit_seconds"] = TTFT_1M_SECONDS
-    one_million["remaining_complete_prefill_budget_seconds"] = TTFT_1M_SECONDS - one_million["matrix_plus_attention_floor_seconds"]
-    one_million["passes_favorable_arithmetic_floor"] = one_million["matrix_plus_attention_floor_seconds"] <= TTFT_1M_SECONDS
+    rates = ampere_tensor_rates()
+    one_million_bf16 = arithmetic_floor(
+        config,
+        POSITIONS_1M,
+        rates["dense_bf16_tensor_fp32_accumulate_flops_per_second"],
+        "source_oriented_dense_bf16_with_fp32_accumulate",
+    )
+    one_million_l3 = arithmetic_floor(
+        config,
+        POSITIONS_1M,
+        rates["dense_fp16_tensor_fp16_accumulate_flops_per_second"],
+        "L3_dense_fp16_with_fp16_accumulate_unqualified",
+    )
+    for row in (one_million_bf16, one_million_l3):
+        row["ttft_limit_seconds"] = TTFT_1M_SECONDS
+        row["remaining_complete_prefill_budget_seconds"] = TTFT_1M_SECONDS - row["matrix_plus_attention_floor_seconds"]
+        row["passes_favorable_arithmetic_floor"] = row["matrix_plus_attention_floor_seconds"] <= TTFT_1M_SECONDS
+    eight_k = arithmetic_floor(
+        config,
+        POSITIONS_8K,
+        rates["dense_fp16_tensor_fp16_accumulate_flops_per_second"],
+        "L3_dense_fp16_with_fp16_accumulate_favorable_storage_bound",
+    )
     capacity = optimistic_hbm_expert_capacity()
     scenarios = storage_lane_scenarios(route["coverage"]["distinct_layer_expert_records"], eight_k["matrix_plus_attention_floor_seconds"])
     minimum_lanes = next((row["lanes"] for row in scenarios if row["passes_15_second_gate"]), None)
@@ -252,7 +292,11 @@ def run(paths: dict[str, Path], output: Path, commit: str) -> dict:
         "revision": REVISION,
         "commit": commit,
         "source_hashes": {f"{name}_sha256": sha256_file(path) for name, path in paths.items()},
-        "one_million_arithmetic_ceiling": one_million,
+        "ampere_tensor_rate_derivation": rates,
+        "one_million_arithmetic_ceilings": {
+            "source_oriented_bf16_fp32_accumulate": one_million_bf16,
+            "l3_fp16_fp16_accumulate": one_million_l3,
+        },
         "eight_k_arithmetic_floor": eight_k,
         "optimistic_8k_hbm_capacity": capacity,
         "eight_k_storage_lane_scenarios": scenarios,
@@ -275,15 +319,15 @@ def run(paths: dict[str, Path], output: Path, commit: str) -> dict:
             "pw0020_turbo4_status": turbo["status"],
             "compressed_kv_exactness": "L3_unqualified_for_accumulated_target_fidelity",
         },
-        "decision": "reject_captured_active_rtx3080_12gb_three_lane_bom;retain_only_price_triggered_unproven_ampere_architecture",
+        "decision": "reject_source_oriented_bf16_rtx3080_12gb_and_captured_active_three_lane_bom;retain_only_price_triggered_unproven_L3_fp16_architecture",
         "purchase_authorized": False,
         "gates_passed": False,
         "A": 0,
         "accepted_tokens": 0,
         "performance_claim": None,
         "limitations": [
-            "123-TFLOPS dense BF16 Tensor rate is a favorable roofline rather than measured MiMo performance",
-            "Ampere numerical topology has not passed source or hosted fidelity gates",
+            "61.2864-TFLOPS dense BF16/FP32-accumulate and 122.5728-TFLOPS dense FP16/FP16-accumulate rates are rooflines rather than measured MiMo performance",
+            "the faster FP16 accumulation topology is L3 and has not passed source or hosted fidelity gates",
             "three 3.5-GB/s lanes are granted nameplates; the captured drives have ambiguous identity and no sustained-read evidence",
             "the active market subtotal exceeds the cap before unknown tax, cables, or other missing installation parts",
             "exact 1M BF16 KV does not fit 12-GB HBM; compressed KV remains an L3 quality candidate",

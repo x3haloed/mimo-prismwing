@@ -1,6 +1,7 @@
 import unittest
 
 from tools.analyze_ampere_12gb_complete_envelope import (
+    ampere_tensor_rates,
     arithmetic_floor,
     cost_ledger,
     optimistic_hbm_expert_capacity,
@@ -31,11 +32,21 @@ def market_fixture():
 
 
 class Ampere12gbCompleteEnvelopeTests(unittest.TestCase):
-    def test_one_million_arithmetic_narrowly_survives_favorable_peak(self):
-        row = arithmetic_floor(pinned_geometry(), 1_000_000)
+    def test_ampere_rates_separate_bf16_and_fp16_accumulation(self):
+        rates = ampere_tensor_rates()
+        self.assertEqual(rates["streaming_multiprocessors"], 70)
+        self.assertEqual(rates["dense_bf16_tensor_fp32_accumulate_flops_per_second"], 61_286_400_000_000.0)
+        self.assertEqual(rates["dense_fp16_tensor_fp16_accumulate_flops_per_second"], 122_572_800_000_000.0)
+        self.assertFalse(rates["structured_sparsity_granted"])
+
+    def test_one_million_bf16_fails_while_l3_fp16_narrowly_survives(self):
+        rates = ampere_tensor_rates()
+        bf16 = arithmetic_floor(pinned_geometry(), 1_000_000, rates["dense_bf16_tensor_fp32_accumulate_flops_per_second"], "bf16")
+        row = arithmetic_floor(pinned_geometry(), 1_000_000, rates["dense_fp16_tensor_fp16_accumulate_flops_per_second"], "fp16")
         self.assertEqual(row["mandatory_matrix_flops"], 29_641_146_368_000_000)
         self.assertEqual(row["mandatory_attention_flops"], 184_524_643_656_007_680)
-        self.assertAlmostEqual(row["matrix_plus_attention_floor_seconds"], 1741.18528474803)
+        self.assertAlmostEqual(row["matrix_plus_attention_floor_seconds"], 1747.253795491395)
+        self.assertGreater(bf16["matrix_plus_attention_floor_seconds"], 1800)
         self.assertLess(row["matrix_plus_attention_floor_seconds"], 1800)
 
     def test_twelve_gb_holds_only_375_optimistic_experts_at_8k(self):
@@ -44,11 +55,12 @@ class Ampere12gbCompleteEnvelopeTests(unittest.TestCase):
         self.assertLess(row["unallocated_tail_bytes"], 25_171_968)
 
     def test_first_4096_positions_already_require_three_lanes(self):
-        arithmetic = arithmetic_floor(pinned_geometry(), 8_000)
+        rates = ampere_tensor_rates()
+        arithmetic = arithmetic_floor(pinned_geometry(), 8_000, rates["dense_fp16_tensor_fp16_accumulate_flops_per_second"], "fp16")
         rows = storage_lane_scenarios(4585, arithmetic["matrix_plus_attention_floor_seconds"])
         self.assertFalse(rows[1]["passes_15_second_gate"])
         self.assertTrue(rows[2]["passes_15_second_gate"])
-        self.assertAlmostEqual(rows[1]["serial_8k_ttft_floor_seconds"], 17.176131974380674)
+        self.assertAlmostEqual(rows[1]["serial_8k_ttft_floor_seconds"], 17.18323145035923)
 
     def test_active_bom_is_over_cap_before_tax(self):
         row = cost_ledger(market_fixture(), 3)
