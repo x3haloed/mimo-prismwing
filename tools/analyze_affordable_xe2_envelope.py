@@ -181,7 +181,12 @@ def _authenticate(paths: dict[str, Path]) -> dict[str, str]:
         if value not in product:
             raise ValueError(f"official B580 product fact missing: {value}")
     architecture = normalized_html(paths["architecture"])
-    for value in ("Xe2-HPG", "Intel® Arc™ B580 Graphics", "BattleMage", "Matrix Engine"):
+    for value in (
+        "Architecture X e 2-HPG",
+        "GPU Model Intel ® Arc TM B580 Graphics",
+        "BattleMage",
+        "Matrix Engine (XMX Support or DPAS)",
+    ):
         if value not in architecture:
             raise ValueError(f"official Xe2 architecture fact missing: {value}")
     datatypes = normalized_html(paths["datatypes"])
