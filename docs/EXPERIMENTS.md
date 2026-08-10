@@ -635,6 +635,20 @@ PW-0158 prefill repair. No runtime, fidelity, endpoint TPS, or purchase is
 promoted. The authoritative manifest hashes to
 `e5ac56b7f710285cdeb0088f9fa750748ad74cbc68cd6d4dcb627061209a37ab`.
 
+PW-0176 executes that MiMo-specific oracle on a deterministic 65,536-token
+layer-0 slice and rejects all combinations of the five released MInference
+pairs. The strongest uniform `(1000,6096)` pair uses `20.599935%` effective
+work but reaches `0.055171` aggregate relative L2, `0.884388` maximum-position
+error, and `0.723112` p99. Even an impossible best-pair choice at every exact
+head-query fails at `0.047658`, `0.721474`, and `0.435570`. Therefore no fixed
+layer/head assignment over the released pairs can pass; retain only trained
+or repaired selectors with different widths or mechanisms as distinct
+research. Raw and analysis evidence hash to
+`1d6c4b4fd607fee439b170da0e26e4a9f1c380231a6baa47b009a7fd0061c9a9`
+and
+`3176fed9199aba3d30ac1916d96ce1b8d5b55fbb005561b16b769873097da0da`.
+No throughput-model constant or endpoint TPS changes.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

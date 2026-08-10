@@ -3548,3 +3548,31 @@ footprint, 1,104,789,504-byte peak RSS, zero swap growth or throttling, and
 endpoint TPS, and no measured throughput-model constant change. It rejects
 this numerical mechanism, not learned linear/recurrent attention, changed
 weights, retrieval with repair, or faster future hardware.
+
+PW-0176 closes the released MInference vertical/slash pair family on a real
+MiMo 64K layer-0 slice. The strongest uniform pair, `(1000,6096)`, fits the
+two-P100 complete-system allowance at `20.599935%` effective work but yields
+`0.055171` aggregate relative L2, `0.884388` maximum position error, and
+`0.723112` head-query p99, versus `0.010000`, `0.020000`, and `0.050000`
+limits. Its final-question band passes aggregate error at `0.008556`, while
+early and interval bands fail at `0.258773` and `0.030050`; late-context
+success cannot substitute for the mandatory complete slice.
+
+The strictly more favorable noncausal best-pair-per-head-query oracle also
+fails at `0.047658` aggregate error, `0.721474` maximum position error, and
+`0.435570` p99. Every fixed layer/head map over these five released pairs is a
+restriction of that oracle, so kill all such combinations rather than fitting
+a map. This supersedes PW-0175's numerical-promotion premise for the released
+pair family, not for trained/repaired selectors with different widths or
+mechanisms.
+
+The two final source walks are numerically byte-identical. Fixture, raw, and
+analysis manifests hash to
+`d7c45847e2106a0ce5161a6e35fb87160888ea0eeebadf73b7040130ecd12526`,
+`1d6c4b4fd607fee439b170da0e26e4a9f1c380231a6baa47b009a7fd0061c9a9`,
+and
+`3176fed9199aba3d30ac1916d96ce1b8d5b55fbb005561b16b769873097da0da`.
+Gate 8 passes at 70% minimum free memory, 790,664,192-byte maximum footprint,
+815,284,224-byte peak RSS, zero swap growth or throttling, and 23,102,976
+bytes after release. PW-0176 records zero accepted tokens, no endpoint TPS,
+and no throughput-model constant change.

@@ -14,9 +14,13 @@ use crate::staged_metal_expert::{
     MetalNativeRoutedLayerTomography, NoCopyProjectionBacking, RoutedNoCopyExpert,
     RoutedTransactionTomography,
 };
+use crate::structured_sparse::{
+    VerticalSlashSelection, selected_positions_for_query, vertical_slash_selection,
+};
 use memmap2::MmapMut;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::os::unix::fs::MetadataExt;
@@ -48,6 +52,15 @@ const PW0157_PREFIX512_SEMANTIC_ROUTES_SHA256: &str =
     "9cf63371f63d063aa95ef2f6825119b58412b8fed7ecdee4b07ff5b7dfb7a0dc";
 const GLOBAL_ATTENTION_ORACLE_FRACTIONS: [f64; 7] =
     [0.01, 0.05, 0.10, 0.20, 0.210_561_390_436_831_78, 0.25, 1.0];
+const PW0176_TOKEN_IDS_SHA256: &str =
+    "7a5c2d35b51d6a05b6d445d575bd08d68fed91a8997ec1e13cdc4c31e71cc507";
+const PW0176_MINFERENCE_FORWARD_SHA256: &str =
+    "b368e765fcc2021591f7cdf970e4e1a71731ed66f19e97023a13b70a02e6edc2";
+const PW0176_ANALYSIS_SHA256: &str =
+    "e5ac56b7f710285cdeb0088f9fa750748ad74cbc68cd6d4dcb627061209a37ab";
+const PW0176_WORK_CEILING: f64 = 0.210_561_390_436_831_78;
+const PW0176_PAIRS: [(usize, usize); 5] =
+    [(30, 800), (100, 800), (500, 700), (3500, 100), (1000, 6096)];
 const GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS: [usize; 15] = [
     63, 95, 127, 159, 191, 223, 255, 287, 319, 351, 383, 415, 447, 479, 511,
 ];
@@ -1052,6 +1065,118 @@ pub struct GlobalAttentionSparsityTraceReport {
     pub performance_claim: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct Pw0176FixtureManifest {
+    schema_version: u32,
+    experiment: String,
+    semantic: String,
+    revision: String,
+    commit: String,
+    token_file: String,
+    token_file_sha256: String,
+    generation: Pw0176FixtureGeneration,
+    sources: BTreeMap<String, Pw0176FixtureSource>,
+    accepted_tokens: usize,
+    performance_claim: Option<String>,
+    endpoint_tps: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Pw0176FixtureGeneration {
+    seed: String,
+    prompt_tokens: usize,
+    token_id_encoding: String,
+    token_ids_sha256: String,
+    token_payload_bytes: usize,
+    decode_reencode_exact: bool,
+    needle_token_offset: usize,
+    question_token_offset: usize,
+    sample_positions: Vec<usize>,
+    sample_position_bands: BTreeMap<String, Vec<usize>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Pw0176FixtureSource {
+    path: String,
+    sha256: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct StructuredSparsePair {
+    pub vertical_size: usize,
+    pub slash_size: usize,
+    pub effective_work_fraction: f64,
+    pub within_complete_system_work_ceiling: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StructuredSparseCandidateObservation {
+    pub vertical_size: usize,
+    pub slash_size: usize,
+    pub selected_positions: usize,
+    pub selected_fraction: f64,
+    pub candidate_l2: f64,
+    pub error_l2: f64,
+    pub relative_l2: f64,
+    pub maximum_absolute_error: f32,
+    pub bit_exact_values: usize,
+    pub total_values: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StructuredSparseObservation {
+    pub absolute_query_position: usize,
+    pub band: String,
+    pub head: usize,
+    pub visible_positions: usize,
+    pub reference_l2: f64,
+    pub full_selection_bit_exact_values: usize,
+    pub candidates: Vec<StructuredSparseCandidateObservation>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StructuredSparsePhaseTiming {
+    pub phase: String,
+    pub wall_ms: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StructuredSparseTraceReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub fixture_manifest_sha256: String,
+    pub fixture_commit: String,
+    pub checkpoint_verification_sha256: String,
+    pub authority_fixture_sha256: String,
+    pub token_ids_sha256: String,
+    pub qkv_sha256: String,
+    pub query_samples_sha256: String,
+    pub selector_queries_sha256: String,
+    pub keys_sha256: String,
+    pub values_sha256: String,
+    pub positions: usize,
+    pub chunk_positions: usize,
+    pub qkv_chunks: usize,
+    pub sampled_absolute_query_positions: Vec<usize>,
+    pub observed_heads_per_sample: usize,
+    pub selector_last_queries: usize,
+    pub pairs: Vec<StructuredSparsePair>,
+    pub observations: Vec<StructuredSparseObservation>,
+    pub phase_timings: Vec<StructuredSparsePhaseTiming>,
+    pub ledger: EndpointLedger,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub complete_wall_ms: f64,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    pub exactness: &'static str,
+    pub limitations: &'static str,
+    pub performance_claim: Option<String>,
+    pub endpoint_tps: Option<f64>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CorpusCaptureRecord {
     pub file: String,
@@ -1149,11 +1274,13 @@ struct RouteAuthorityLedger {
 #[derive(Debug, Serialize)]
 pub struct SafetySnapshot {
     pub phase: String,
+    pub release_boundary: bool,
     pub system_memory_free_percent: u64,
     pub swap_used_bytes: u64,
     pub swap_growth_bytes: u64,
     pub throttled_pages: u64,
     pub new_throttled_pages: u64,
+    pub process_resident_bytes: u64,
     pub process_physical_footprint_bytes: u64,
     pub process_peak_resident_bytes: u64,
     pub malloc_pressure_relief_bytes: u64,
@@ -1821,11 +1948,13 @@ impl SafetyMonitor {
         let new_throttled = throttled.saturating_sub(self.baseline_throttled_pages);
         let snapshot = SafetySnapshot {
             phase: phase.to_owned(),
+            release_boundary: relieve,
             system_memory_free_percent: memory_free,
             swap_used_bytes: swap,
             swap_growth_bytes: swap_growth,
             throttled_pages: throttled,
             new_throttled_pages: new_throttled,
+            process_resident_bytes: usage.resident_size,
             process_physical_footprint_bytes: usage.phys_footprint,
             process_peak_resident_bytes: peak,
             malloc_pressure_relief_bytes: relief,
@@ -2336,11 +2465,22 @@ fn full_qkv_linear(
     rows: usize,
     ledger: &mut EndpointLedger,
 ) -> Result<Vec<f32>, String> {
-    const OUTPUT_ROWS: usize = HEADS * QK_HEAD_DIM + 4 * QK_HEAD_DIM + 4 * V_HEAD_DIM;
     if rows == 0 || input.len() != rows * HIDDEN {
         return Err(format!("{weight_name}: full-QKV input shape mismatch"));
     }
-    let output = {
+    let decoded = decode_full_qkv_weight(checkpoint, weight_name, ledger)?;
+    let output = full_qkv_linear_decoded(weight_name, input, rows, &decoded, ledger)?;
+    release_matrix_transients(checkpoint)?;
+    Ok(output)
+}
+
+fn decode_full_qkv_weight(
+    checkpoint: &Checkpoint,
+    weight_name: &str,
+    ledger: &mut EndpointLedger,
+) -> Result<Vec<f32>, String> {
+    const OUTPUT_ROWS: usize = HEADS * QK_HEAD_DIM + 4 * QK_HEAD_DIM + 4 * V_HEAD_DIM;
+    let decoded = {
         let weight = checkpoint.tensor(weight_name)?;
         let scale_name = format!("{weight_name}_scale_inv");
         let scale = checkpoint.tensor(&scale_name)?;
@@ -2384,20 +2524,39 @@ fn full_qkv_linear(
             .checked_add(weight.metadata.data_bytes + scale.metadata.data_bytes)
             .ok_or("logical byte ledger overflow")?;
         ledger.fp8_matrices_expanded += 1;
-        let quantized = dynamic_fp8_activations(input, rows, HIDDEN)?;
-        ledger.dynamic_activation_groups += quantized.scales.len() as u64;
-        ledger.dynamic_activation_values += quantized.encoded.len() as u64;
-        let mut output = accelerate_sgemm_right_transposed(
-            &quantized.dequantized,
-            &decoded,
-            rows,
-            OUTPUT_ROWS,
-            HIDDEN,
-        )?;
-        round_bf16_values(&mut output);
-        output
+        decoded
     };
-    release_matrix_transients(checkpoint)?;
+    Ok(decoded)
+}
+
+fn full_qkv_linear_decoded(
+    weight_name: &str,
+    input: &[f32],
+    rows: usize,
+    decoded: &[f32],
+    ledger: &mut EndpointLedger,
+) -> Result<Vec<f32>, String> {
+    const OUTPUT_ROWS: usize = HEADS * QK_HEAD_DIM + 4 * QK_HEAD_DIM + 4 * V_HEAD_DIM;
+    if rows == 0
+        || input.len() != rows * HIDDEN
+        || decoded.len() != OUTPUT_ROWS * HIDDEN
+        || decoded.iter().any(|value| !value.is_finite())
+    {
+        return Err(format!(
+            "{weight_name}: decoded full-QKV projection shape mismatch"
+        ));
+    }
+    let quantized = dynamic_fp8_activations(input, rows, HIDDEN)?;
+    ledger.dynamic_activation_groups += quantized.scales.len() as u64;
+    ledger.dynamic_activation_values += quantized.encoded.len() as u64;
+    let mut output = accelerate_sgemm_right_transposed(
+        &quantized.dequantized,
+        decoded,
+        rows,
+        OUTPUT_ROWS,
+        HIDDEN,
+    )?;
+    round_bf16_values(&mut output);
     Ok(output)
 }
 
@@ -8940,6 +9099,608 @@ fn run_global_attention_sparsity_trace_internal(
     Ok(report)
 }
 
+fn pw0176_frozen_samples() -> Vec<usize> {
+    let mut positions = vec![63, 127, 255];
+    positions.extend((4095..65_536).step_by(4096));
+    positions.extend([65_509, 65_515, 65_520, 65_525, 65_530, 65_535]);
+    positions.sort_unstable();
+    positions.dedup();
+    positions
+}
+
+fn pw0176_work_fraction(vertical_size: usize, slash_size: usize) -> Result<f64, String> {
+    const POSITIONS: u64 = 65_536;
+    const INDEX_QUERIES: u64 = 64;
+    const QK_FLOPS: u64 = 384;
+    const ATTENTION_PAIR_FLOPS: u64 = 640;
+    let retained = u64::try_from(vertical_size + slash_size)
+        .map_err(|_| "PW-0176 retained width overflow")?
+        .min(POSITIONS);
+    let dense_pairs = POSITIONS * (POSITIONS + 1) / 2;
+    let selected_pairs = retained * (retained + 1) / 2 + (POSITIONS - retained) * retained;
+    Ok(
+        (selected_pairs * ATTENTION_PAIR_FLOPS + INDEX_QUERIES * POSITIONS * QK_FLOPS) as f64
+            / (dense_pairs * ATTENTION_PAIR_FLOPS) as f64,
+    )
+}
+
+fn pw0176_hash_f32(values: &[f32]) -> String {
+    let mut digest = Sha256::new();
+    for value in values {
+        digest.update(value.to_le_bytes());
+    }
+    format!("{:x}", digest.finalize())
+}
+
+fn pw0176_pytorch_f32_causal_softmax_rows(
+    scores: &[f32],
+    last_queries: usize,
+    context: usize,
+) -> Result<Vec<f32>, String> {
+    if last_queries == 0
+        || last_queries > context
+        || scores.len() != last_queries * context
+        || scores.iter().any(|value| !value.is_finite())
+    {
+        return Err("PW-0176 selector score shape or value mismatch".to_owned());
+    }
+    let query_start = context - last_queries;
+    let mut probabilities = vec![0.0_f32; scores.len()];
+    for row in 0..last_queries {
+        let visible = query_start + row + 1;
+        let source = &scores[row * context..row * context + visible];
+        let maximum = source.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let centered = source
+            .iter()
+            .map(|score| *score - maximum)
+            .collect::<Vec<_>>();
+        let row_probabilities = pytorch_arm_softmax_f32(&centered)?;
+        probabilities[row * context..row * context + visible].copy_from_slice(&row_probabilities);
+    }
+    Ok(probabilities)
+}
+
+fn pw0176_update_f32_hash(digest: &mut Sha256, values: &[f32]) {
+    for value in values {
+        digest.update(value.to_le_bytes());
+    }
+}
+
+fn pw0176_require_no_other_runtime() -> Result<(), String> {
+    let output = command_output("/bin/ps", &["-axo", "pid=,comm="])?;
+    let current = std::process::id();
+    let others = output
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.trim().splitn(2, char::is_whitespace);
+            let pid = fields.next()?.parse::<u32>().ok()?;
+            let command = fields.next()?.trim();
+            (pid != current && Path::new(command).file_name()?.to_str()? == "prismwing")
+                .then_some(pid)
+        })
+        .collect::<Vec<_>>();
+    if !others.is_empty() {
+        return Err(format!(
+            "PW-0176 refuses concurrent Prismwing runtimes: {others:?}"
+        ));
+    }
+    Ok(())
+}
+
+fn pw0176_load_fixture(
+    manifest_path: &Path,
+    commit: &str,
+) -> Result<(Vec<u8>, Pw0176FixtureManifest, Vec<u32>), String> {
+    let manifest_bytes =
+        fs::read(manifest_path).map_err(|error| format!("{}: {error}", manifest_path.display()))?;
+    let manifest: Pw0176FixtureManifest = serde_json::from_slice(&manifest_bytes)
+        .map_err(|error| format!("PW-0176 fixture manifest: {error}"))?;
+    let samples = pw0176_frozen_samples();
+    let expected_bands = BTreeMap::from([
+        ("early".to_owned(), vec![63, 127, 255]),
+        (
+            "interval".to_owned(),
+            (4095..65_536).step_by(4096).collect::<Vec<_>>(),
+        ),
+        (
+            "final_question".to_owned(),
+            vec![65_509, 65_515, 65_520, 65_525, 65_530, 65_535],
+        ),
+    ]);
+    if manifest.schema_version != 1
+        || manifest.experiment != "PW-0176"
+        || manifest.semantic != "mimo_64k_structured_sparse_oracle_token_authority"
+        || manifest.revision != REVISION
+        || manifest.commit != commit
+        || manifest.token_file != "token-ids.u32le"
+        || manifest.token_file_sha256 != PW0176_TOKEN_IDS_SHA256
+        || manifest.generation.seed != "pw0160-million-token-reference-v1"
+        || manifest.generation.prompt_tokens != 65_536
+        || manifest.generation.token_id_encoding != "little-endian u32"
+        || manifest.generation.token_ids_sha256 != PW0176_TOKEN_IDS_SHA256
+        || manifest.generation.token_payload_bytes != 65_536 * 4
+        || !manifest.generation.decode_reencode_exact
+        || manifest.generation.needle_token_offset != 32
+        || manifest.generation.question_token_offset != 65_509
+        || manifest.generation.sample_positions != samples
+        || manifest.generation.sample_position_bands != expected_bands
+        || manifest.accepted_tokens != 0
+        || manifest.performance_claim.is_some()
+        || manifest.endpoint_tps.is_some()
+        || manifest
+            .sources
+            .get("minference_forward")
+            .is_none_or(|source| source.sha256 != PW0176_MINFERENCE_FORWARD_SHA256)
+        || manifest
+            .sources
+            .get("pw0175_analysis")
+            .is_none_or(|source| source.sha256 != PW0176_ANALYSIS_SHA256)
+    {
+        return Err("PW-0176 fixture semantic identity mismatch".to_owned());
+    }
+    for (name, source) in &manifest.sources {
+        if source.sha256.len() != 64 || hash_file(Path::new(&source.path))? != source.sha256 {
+            return Err(format!("PW-0176 fixture source drift: {name}"));
+        }
+    }
+    let parent = manifest_path
+        .parent()
+        .ok_or("PW-0176 fixture manifest has no parent")?;
+    let token_path = parent.join(&manifest.token_file);
+    let token_bytes =
+        fs::read(&token_path).map_err(|error| format!("{}: {error}", token_path.display()))?;
+    if token_bytes.len() != 65_536 * 4 || sha256_hex(&token_bytes) != PW0176_TOKEN_IDS_SHA256 {
+        return Err("PW-0176 token payload identity mismatch".to_owned());
+    }
+    let token_ids = token_bytes
+        .chunks_exact(4)
+        .map(|bytes| u32::from_le_bytes(bytes.try_into().expect("four-byte token ID")))
+        .collect::<Vec<_>>();
+    if token_ids.len() != 65_536 || token_ids.iter().any(|token| *token >= 152_576) {
+        return Err("PW-0176 token payload shape or vocabulary mismatch".to_owned());
+    }
+    Ok((manifest_bytes, manifest, token_ids))
+}
+
+fn pw0176_attention_for_positions(
+    query: &[f32],
+    keys: &[f32],
+    values: &[f32],
+    kv_head: usize,
+    positions: &[usize],
+) -> Result<Vec<f32>, String> {
+    if query.len() != QK_HEAD_DIM
+        || kv_head >= 4
+        || positions.is_empty()
+        || positions.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err("PW-0176 attention position shape mismatch".to_owned());
+    }
+    let key_rows = positions
+        .iter()
+        .map(|&position| {
+            let offset = (position * 4 + kv_head) * QK_HEAD_DIM;
+            keys.get(offset..offset + QK_HEAD_DIM)
+                .ok_or("PW-0176 key position is out of range")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let value_rows = positions
+        .iter()
+        .map(|&position| {
+            let offset = (position * 4 + kv_head) * V_HEAD_DIM;
+            values
+                .get(offset..offset + V_HEAD_DIM)
+                .ok_or("PW-0176 value position is out of range")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    causal_attention_head_bf16(
+        query,
+        &key_rows,
+        &value_rows,
+        1.0 / (QK_HEAD_DIM as f32).sqrt(),
+        None,
+    )
+}
+
+fn pw0176_candidate_metrics(
+    vertical_size: usize,
+    slash_size: usize,
+    selected_positions: usize,
+    visible_positions: usize,
+    reference: &[f32],
+    candidate: &[f32],
+) -> Result<StructuredSparseCandidateObservation, String> {
+    if reference.len() != V_HEAD_DIM
+        || candidate.len() != V_HEAD_DIM
+        || selected_positions == 0
+        || selected_positions > visible_positions
+        || reference
+            .iter()
+            .chain(candidate)
+            .any(|value| !value.is_finite())
+    {
+        return Err("PW-0176 candidate metric shape or value mismatch".to_owned());
+    }
+    let mut reference_squared = 0.0_f64;
+    let mut candidate_squared = 0.0_f64;
+    let mut error_squared = 0.0_f64;
+    let mut maximum_absolute_error = 0.0_f32;
+    let mut bit_exact_values = 0;
+    for (&expected, &actual) in reference.iter().zip(candidate) {
+        reference_squared += f64::from(expected) * f64::from(expected);
+        candidate_squared += f64::from(actual) * f64::from(actual);
+        let difference = actual - expected;
+        error_squared += f64::from(difference) * f64::from(difference);
+        maximum_absolute_error = maximum_absolute_error.max(difference.abs());
+        bit_exact_values += usize::from(expected.to_bits() == actual.to_bits());
+    }
+    let reference_l2 = reference_squared.sqrt();
+    let error_l2 = error_squared.sqrt();
+    Ok(StructuredSparseCandidateObservation {
+        vertical_size,
+        slash_size,
+        selected_positions,
+        selected_fraction: selected_positions as f64 / visible_positions as f64,
+        candidate_l2: candidate_squared.sqrt(),
+        error_l2,
+        relative_l2: error_l2 / reference_l2.max(1.0e-20),
+        maximum_absolute_error,
+        bit_exact_values,
+        total_values: reference.len(),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_structured_sparse_layer0_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    authority_fixture_path: &Path,
+    pw0176_fixture_manifest_path: &Path,
+    output_dir: &Path,
+    commit: &str,
+) -> Result<StructuredSparseTraceReport, String> {
+    const POSITIONS: usize = 65_536;
+    const CHUNK: usize = 1024;
+    const LAST_QUERIES: usize = 64;
+    const Q_SIZE: usize = HEADS * QK_HEAD_DIM;
+    const K_SIZE: usize = 4 * QK_HEAD_DIM;
+    const V_SIZE: usize = 4 * V_HEAD_DIM;
+    const QKV_ROWS: usize = Q_SIZE + K_SIZE + V_SIZE;
+    if output_dir.exists() {
+        return Err(format!("refusing to overwrite {}", output_dir.display()));
+    }
+    if commit.len() != 40 {
+        return Err("PW-0176 requires a full producing commit".to_owned());
+    }
+    pw0176_require_no_other_runtime()?;
+    let complete_started = Instant::now();
+    let disk_bytes_read_before = process_disk_bytes_read()?;
+    let (fixture_manifest_bytes, fixture_manifest, token_ids) =
+        pw0176_load_fixture(pw0176_fixture_manifest_path, commit)?;
+    let fixture_manifest_sha256 = sha256_hex(&fixture_manifest_bytes);
+    let EndpointAuthority {
+        fixture_bytes: authority_fixture_bytes,
+        fixture: authority_fixture,
+        mut safety,
+        config,
+        checkpoint,
+        verification_sha256,
+        ..
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        authority_fixture_path,
+    )?;
+    if authority_fixture.schema_version != 5
+        || config.hybrid_layer_pattern.first() != Some(&0)
+        || config.rope_theta != 10_000_000.0
+        || token_ids.len() != POSITIONS
+    {
+        return Err("PW-0176 source authority identity mismatch".to_owned());
+    }
+    safety.checkpoint("pw0176_fixture_and_checkpoint_authenticated", true)?;
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
+    let norm = bf16_vector(
+        &checkpoint,
+        "model.layers.0.input_layernorm.weight",
+        HIDDEN,
+        &mut ledger,
+    )?;
+    let decoded_qkv = decode_full_qkv_weight(
+        &checkpoint,
+        "model.layers.0.self_attn.qkv_proj.weight",
+        &mut ledger,
+    )?;
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("pw0176_qkv_weight_decoded", true)?;
+
+    let qkv_started = Instant::now();
+    let sample_positions = pw0176_frozen_samples();
+    let sample_set = sample_positions.iter().copied().collect::<BTreeSet<_>>();
+    let mut sample_queries = BTreeMap::<usize, Vec<f32>>::new();
+    let mut selector_queries = Vec::with_capacity(LAST_QUERIES * Q_SIZE);
+    let mut keys = Vec::with_capacity(POSITIONS * K_SIZE);
+    let mut values = Vec::with_capacity(POSITIONS * V_SIZE);
+    let mut qkv_digest = Sha256::new();
+    let mut qkv_chunks = 0;
+    for start in (0..POSITIONS).step_by(CHUNK) {
+        let end = (start + CHUNK).min(POSITIONS);
+        let rows = end - start;
+        let hidden = embedding(&checkpoint, &token_ids[start..end], &mut ledger)?;
+        let normalized = rms_norm(&hidden, rows, &norm, config.layernorm_epsilon)?;
+        let qkv = full_qkv_linear_decoded(
+            "model.layers.0.self_attn.qkv_proj.weight",
+            &normalized,
+            rows,
+            &decoded_qkv,
+            &mut ledger,
+        )?;
+        pw0176_update_f32_hash(&mut qkv_digest, &qkv);
+        for row in 0..rows {
+            let position = start + row;
+            let source = &qkv[row * QKV_ROWS..(row + 1) * QKV_ROWS];
+            let mut query = source[..Q_SIZE].to_vec();
+            apply_rope(&mut query, HEADS, position, config.rope_theta);
+            if sample_set.contains(&position) {
+                if sample_queries.insert(position, query.clone()).is_some() {
+                    return Err("PW-0176 duplicated a sampled query".to_owned());
+                }
+            }
+            if position >= POSITIONS - LAST_QUERIES {
+                selector_queries.extend_from_slice(&query);
+            }
+            let mut key = source[Q_SIZE..Q_SIZE + K_SIZE].to_vec();
+            apply_rope(&mut key, 4, position, config.rope_theta);
+            keys.extend(key);
+            values.extend(
+                source[Q_SIZE + K_SIZE..]
+                    .iter()
+                    .map(|value| round_bf16(value * config.attention_value_scale)),
+            );
+        }
+        drop(qkv);
+        drop(normalized);
+        drop(hidden);
+        qkv_chunks += 1;
+        safety.checkpoint(&format!("pw0176_qkv_chunk_{qkv_chunks:03}_released"), true)?;
+    }
+    let qkv_sha256 = format!("{:x}", qkv_digest.finalize());
+    if qkv_chunks != POSITIONS / CHUNK
+        || sample_queries.len() != sample_positions.len()
+        || selector_queries.len() != LAST_QUERIES * Q_SIZE
+        || keys.len() != POSITIONS * K_SIZE
+        || values.len() != POSITIONS * V_SIZE
+        || keys.iter().chain(&values).any(|value| !value.is_finite())
+    {
+        return Err("PW-0176 Q/K/V coverage or value mismatch".to_owned());
+    }
+    let query_samples_flat = sample_positions
+        .iter()
+        .flat_map(|position| {
+            sample_queries
+                .get(position)
+                .expect("sample coverage checked")
+                .iter()
+                .copied()
+        })
+        .collect::<Vec<_>>();
+    let query_samples_sha256 = pw0176_hash_f32(&query_samples_flat);
+    let selector_queries_sha256 = pw0176_hash_f32(&selector_queries);
+    let keys_sha256 = pw0176_hash_f32(&keys);
+    let values_sha256 = pw0176_hash_f32(&values);
+    let qkv_wall_ms = qkv_started.elapsed().as_secs_f64() * 1000.0;
+    drop(query_samples_flat);
+    drop(decoded_qkv);
+    safety.checkpoint("pw0176_qkv_projection_complete", true)?;
+
+    let pairs = PW0176_PAIRS
+        .iter()
+        .map(|&(vertical_size, slash_size)| {
+            let effective_work_fraction = pw0176_work_fraction(vertical_size, slash_size)?;
+            Ok(StructuredSparsePair {
+                vertical_size,
+                slash_size,
+                effective_work_fraction,
+                within_complete_system_work_ceiling: effective_work_fraction <= PW0176_WORK_CEILING,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    if pairs
+        .iter()
+        .any(|pair| !pair.within_complete_system_work_ceiling)
+    {
+        return Err("PW-0176 released pair exceeds the complete-system work ceiling".to_owned());
+    }
+
+    let selector_started = Instant::now();
+    let mut observations = Vec::with_capacity(sample_positions.len() * HEADS);
+    let scale = 1.0_f32 / (QK_HEAD_DIM as f32).sqrt();
+    for head in 0..HEADS {
+        let kv_head = head / (HEADS / 4);
+        let mut selector_scores = vec![0.0_f32; LAST_QUERIES * POSITIONS];
+        for row in 0..LAST_QUERIES {
+            let query_position = POSITIONS - LAST_QUERIES + row;
+            let query_offset = row * Q_SIZE + head * QK_HEAD_DIM;
+            let query = &selector_queries[query_offset..query_offset + QK_HEAD_DIM];
+            for key_position in 0..=query_position {
+                let key_offset = (key_position * 4 + kv_head) * QK_HEAD_DIM;
+                let dot = pytorch_bf16_specialized_vector_dot_f32(
+                    query,
+                    &keys[key_offset..key_offset + QK_HEAD_DIM],
+                );
+                selector_scores[row * POSITIONS + key_position] =
+                    round_bf16(round_bf16(dot) * scale);
+            }
+        }
+        let selector_probabilities =
+            pw0176_pytorch_f32_causal_softmax_rows(&selector_scores, LAST_QUERIES, POSITIONS)?;
+        let selections = PW0176_PAIRS
+            .iter()
+            .map(|&(vertical, slash)| {
+                vertical_slash_selection(
+                    &selector_probabilities,
+                    LAST_QUERIES,
+                    POSITIONS,
+                    vertical,
+                    slash,
+                )
+            })
+            .collect::<Result<Vec<VerticalSlashSelection>, _>>()?;
+        let full_selection = vertical_slash_selection(
+            &selector_probabilities,
+            LAST_QUERIES,
+            POSITIONS,
+            POSITIONS,
+            POSITIONS,
+        )?;
+        drop(selector_scores);
+        drop(selector_probabilities);
+
+        for &position in &sample_positions {
+            let all_positions = (0..=position).collect::<Vec<_>>();
+            let query_row = sample_queries
+                .get(&position)
+                .ok_or("PW-0176 sampled query disappeared")?;
+            let query = &query_row[head * QK_HEAD_DIM..(head + 1) * QK_HEAD_DIM];
+            let reference =
+                pw0176_attention_for_positions(query, &keys, &values, kv_head, &all_positions)?;
+            let full_positions = selected_positions_for_query(position, &full_selection)?;
+            if full_positions != all_positions {
+                return Err("PW-0176 full-selection position control failed".to_owned());
+            }
+            let full =
+                pw0176_attention_for_positions(query, &keys, &values, kv_head, &full_positions)?;
+            let full_selection_bit_exact_values = reference
+                .iter()
+                .zip(&full)
+                .filter(|(left, right)| left.to_bits() == right.to_bits())
+                .count();
+            if full_selection_bit_exact_values != V_HEAD_DIM {
+                return Err("PW-0176 full-selection numerical control failed".to_owned());
+            }
+            let reference_l2 = reference
+                .iter()
+                .map(|value| f64::from(*value) * f64::from(*value))
+                .sum::<f64>()
+                .sqrt();
+            let candidates = PW0176_PAIRS
+                .iter()
+                .zip(&selections)
+                .map(|(&(vertical_size, slash_size), selection)| {
+                    let selected = selected_positions_for_query(position, selection)?;
+                    let candidate =
+                        pw0176_attention_for_positions(query, &keys, &values, kv_head, &selected)?;
+                    pw0176_candidate_metrics(
+                        vertical_size,
+                        slash_size,
+                        selected.len(),
+                        all_positions.len(),
+                        &reference,
+                        &candidate,
+                    )
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let band = fixture_manifest
+                .generation
+                .sample_position_bands
+                .iter()
+                .find_map(|(band, positions)| positions.contains(&position).then(|| band.clone()))
+                .ok_or("PW-0176 sample band is missing")?;
+            observations.push(StructuredSparseObservation {
+                absolute_query_position: position,
+                band,
+                head,
+                visible_positions: position + 1,
+                reference_l2,
+                full_selection_bit_exact_values,
+                candidates,
+            });
+        }
+        safety.checkpoint(&format!("pw0176_selector_head_{head:02}_released"), true)?;
+    }
+    let selector_wall_ms = selector_started.elapsed().as_secs_f64() * 1000.0;
+    let expected_identities = sample_positions
+        .iter()
+        .flat_map(|&position| (0..HEADS).map(move |head| (position, head)))
+        .collect::<BTreeSet<_>>();
+    let observed_identities = observations
+        .iter()
+        .map(|row| (row.absolute_query_position, row.head))
+        .collect::<BTreeSet<_>>();
+    if observations.len() != sample_positions.len() * HEADS
+        || observed_identities != expected_identities
+        || observations.iter().any(|row| {
+            row.candidates.len() != PW0176_PAIRS.len()
+                || row.full_selection_bit_exact_values != V_HEAD_DIM
+        })
+    {
+        return Err("PW-0176 observation coverage failed".to_owned());
+    }
+    safety.checkpoint("pw0176_observations_complete", true)?;
+    ledger.actual_process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_bytes_read_before)
+        .ok_or("process disk byte counter moved backwards")?;
+    ledger.peak_resident_bytes = peak_resident_bytes()?;
+    drop(selector_queries);
+    drop(sample_queries);
+    drop(keys);
+    drop(values);
+    checkpoint.release_file_pages()?;
+    drop(checkpoint);
+    safety.checkpoint("pw0176_checkpoint_and_buffers_released", true)?;
+    safety.checkpoint("pw0176_final_service_health", true)?;
+    let report = StructuredSparseTraceReport {
+        schema_version: 1,
+        semantic: "mimo_target_faithful_layer0_structured_sparse_shadow_trace",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        fixture_manifest_sha256,
+        fixture_commit: fixture_manifest.commit,
+        checkpoint_verification_sha256: verification_sha256,
+        authority_fixture_sha256: sha256_hex(&authority_fixture_bytes),
+        token_ids_sha256: PW0176_TOKEN_IDS_SHA256.to_owned(),
+        qkv_sha256,
+        query_samples_sha256,
+        selector_queries_sha256,
+        keys_sha256,
+        values_sha256,
+        positions: POSITIONS,
+        chunk_positions: CHUNK,
+        qkv_chunks,
+        sampled_absolute_query_positions: sample_positions,
+        observed_heads_per_sample: HEADS,
+        selector_last_queries: LAST_QUERIES,
+        pairs,
+        observations,
+        phase_timings: vec![
+            StructuredSparsePhaseTiming {
+                phase: "bounded_source_qkv".to_owned(),
+                wall_ms: qkv_wall_ms,
+            },
+            StructuredSparsePhaseTiming {
+                phase: "selector_and_sampled_attention".to_owned(),
+                wall_ms: selector_wall_ms,
+            },
+        ],
+        ledger,
+        safety_snapshots: safety.snapshots,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        exactness: "target_faithful_source_layer0_qkv_and_dense_samples_with_noncausal_L3_shadow_only",
+        limitations: "single artificial 64K text prefix and source layer 0 only; no downstream state, route, logit, modality, endpoint, TPS, hardware, or purchase claim",
+        performance_claim: None,
+        endpoint_tps: None,
+    };
+    fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
+    let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(&output_dir.join("manifest.json"), &bytes)?;
+    Ok(report)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_full_prefix_trace(
     checkpoint_root: &Path,
@@ -10419,6 +11180,67 @@ mod tests {
         assert_eq!(fault_regression.minor_faults, -7);
         assert_eq!(fault_regression.major_faults, -1);
         assert!(before.checked_delta(after).is_err());
+    }
+
+    #[test]
+    fn pw0176_samples_and_complete_system_work_are_frozen() {
+        let samples = pw0176_frozen_samples();
+        assert_eq!(samples.len(), 24);
+        assert_eq!(&samples[..3], &[63, 127, 255]);
+        assert_eq!(
+            &samples[samples.len() - 6..],
+            &[65_509, 65_515, 65_520, 65_525, 65_530, 65_535]
+        );
+        let expected = [
+            ((30, 800), 0.026_340_859_133_157_844),
+            ((100, 800), 0.028_448_877_943_292_053),
+            ((500, 700), 0.037_457_400_465_338_284),
+            ((3500, 100), 0.108_016_861_092_064_4),
+            ((1000, 6096), 0.205_999_346_549_349_04),
+        ];
+        for ((vertical, slash), fraction) in expected {
+            let actual = pw0176_work_fraction(vertical, slash).expect("work fraction");
+            assert!((actual - fraction).abs() <= f64::EPSILON);
+            assert!(actual <= PW0176_WORK_CEILING);
+        }
+    }
+
+    #[test]
+    fn pw0176_candidate_metrics_preserve_exact_control() {
+        let reference = (0..V_HEAD_DIM)
+            .map(|index| round_bf16((index as f32 - 64.0) / 17.0))
+            .collect::<Vec<_>>();
+        let exact = pw0176_candidate_metrics(128, 128, 256, 256, &reference, &reference)
+            .expect("exact candidate");
+        assert_eq!(exact.relative_l2, 0.0);
+        assert_eq!(exact.maximum_absolute_error, 0.0);
+        assert_eq!(exact.bit_exact_values, V_HEAD_DIM);
+        assert_eq!(exact.selected_fraction, 1.0);
+        assert!(pw0176_candidate_metrics(1, 1, 257, 256, &reference, &reference).is_err());
+    }
+
+    #[test]
+    fn pw0176_selector_softmax_matches_independent_pytorch_fixture_bits() {
+        const CONTEXT: usize = 140;
+        const LAST_QUERIES: usize = 64;
+        let query_start = CONTEXT - LAST_QUERIES;
+        let mut scores = vec![900.0_f32; CONTEXT * LAST_QUERIES];
+        for row in 0..LAST_QUERIES {
+            let query_position = query_start + row;
+            for key in 0..=query_position {
+                scores[row * CONTEXT + key] =
+                    ((row * 37 + key * 17) % 29) as f32 / 8.0 - 14.0 / 8.0;
+            }
+        }
+        for (row, key, value) in [(0, 0, 7.0), (17, 31, 8.0), (63, 80, 9.0), (63, 139, 10.0)] {
+            scores[row * CONTEXT + key] = value;
+        }
+        let probabilities = pw0176_pytorch_f32_causal_softmax_rows(&scores, LAST_QUERIES, CONTEXT)
+            .expect("selector softmax");
+        assert_eq!(
+            pw0176_hash_f32(&probabilities),
+            "496ae2cb603018a6f77f43e9d70705beb364052ce7755f17bb0de7b2112f2a77"
+        );
     }
 
     #[test]

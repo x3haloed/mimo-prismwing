@@ -19,6 +19,8 @@ mod routed_layer_artifact;
 #[cfg(target_os = "macos")]
 mod staged_metal_expert;
 #[cfg(target_os = "macos")]
+mod structured_sparse;
+#[cfg(target_os = "macos")]
 mod text_endpoint;
 #[cfg(target_os = "macos")]
 pub use metal_io_acquisition::{MetalIoAcquisitionReport, benchmark_metal_io_acquisition};
@@ -37,16 +39,17 @@ pub use text_endpoint::{
     Layer1ExpertTraceReport, Layer1RoutingTraceReport, Layer4MetalDiagnosticReport,
     MetalIncrementalTextReport, MetalNativeRoutedLayerBenchmarkReport, PrefillRouteCoverageLedger,
     PrefillRouteCoverageTraceReport, RouteOnlyTraceReport, RoutedLayerArtifactBenchmarkReport,
-    RoutedLayerArtifactBuildReport, RoutedMixtureActivationCorpusReport, TextEndpointReport,
-    TwoBarrierRoutedLayerBenchmarkReport, benchmark_layer4_metal_native_transaction,
-    benchmark_layer4_metal_ready_artifact, benchmark_layer4_two_barrier_transaction,
-    build_layer4_metal_ready_artifact, run_full_prefix_trace, run_global_attention_capture_smoke,
-    run_global_attention_sparsity_trace, run_layer4_metal_diagnostic,
-    run_metal_incremental_text_endpoint, run_metal_native_distribution_probe,
-    run_prefill_route_coverage_trace, run_real_layer0_trace, run_real_layer1_expert_trace,
-    run_real_layer1_routing_trace, run_real_layer2_trace, run_real_layer4_trace,
-    run_real_layer7_trace, run_real_routed_layer_trace, run_route_only_trace,
-    run_routed_mixture_activation_corpus, run_slow_text_endpoint, run_weight_install_tomography,
+    RoutedLayerArtifactBuildReport, RoutedMixtureActivationCorpusReport,
+    StructuredSparseTraceReport, TextEndpointReport, TwoBarrierRoutedLayerBenchmarkReport,
+    benchmark_layer4_metal_native_transaction, benchmark_layer4_metal_ready_artifact,
+    benchmark_layer4_two_barrier_transaction, build_layer4_metal_ready_artifact,
+    run_full_prefix_trace, run_global_attention_capture_smoke, run_global_attention_sparsity_trace,
+    run_layer4_metal_diagnostic, run_metal_incremental_text_endpoint,
+    run_metal_native_distribution_probe, run_prefill_route_coverage_trace, run_real_layer0_trace,
+    run_real_layer1_expert_trace, run_real_layer1_routing_trace, run_real_layer2_trace,
+    run_real_layer4_trace, run_real_layer7_trace, run_real_routed_layer_trace,
+    run_route_only_trace, run_routed_mixture_activation_corpus, run_slow_text_endpoint,
+    run_structured_sparse_layer0_trace, run_weight_install_tomography,
 };
 
 const MAX_HEADER_BYTES: u64 = 256 * 1024 * 1024;
