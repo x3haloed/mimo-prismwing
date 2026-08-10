@@ -3,6 +3,7 @@ import unittest
 from tools.analyze_active_a770_le_bom import (
     cost_ledger,
     physical_ledger,
+    performance_continuation_ledger,
     power_ledger,
     validate_dimensions,
     validate_market,
@@ -115,6 +116,31 @@ class ActiveA770LimitedEditionBomTests(unittest.TestCase):
         source["component_function_authenticated"] = True
         with self.assertRaisesRegex(ValueError, "listing-image"):
             validate_listing_images(source, hashes)
+
+    def test_installed_benchmark_threshold_requires_over_ninety_percent_peak(self) -> None:
+        pw0167 = {
+            "arithmetic": {
+                "mandatory_matrix_plus_attention_flops": 214_165_790_024_007_680,
+                "granted_concurrent_epyc_flops_per_second": 742_400_000_000,
+                "derived_bf16_f32acc_operations_per_second": 131_000_000_000_000,
+                "remaining_1m_ttft_seconds": 174.35943155728387,
+            }
+        }
+        ledger = performance_continuation_ledger(pw0167)
+        self.assertAlmostEqual(
+            ledger["minimum_device_bf16_f32acc_tflops_at_zero_other_cost"],
+            118.23859445778204,
+        )
+        self.assertAlmostEqual(
+            ledger["minimum_fraction_of_derived_device_peak_at_zero_other_cost"],
+            0.9025846905174202,
+        )
+        self.assertGreater(
+            ledger["reserved_other_work_sensitivities"]["120"][
+                "required_fraction_of_derived_device_peak"
+            ],
+            0.96,
+        )
 
 
 if __name__ == "__main__":
