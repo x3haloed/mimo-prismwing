@@ -1,7 +1,7 @@
 # PW-0163 — MI100 32-GB complete-system envelope
 
-- Status: ready
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -18,7 +18,8 @@
 - Hardware candidate: one AMD Instinct MI100 32-GB PCIe card in the owned
   H11SSL-i/EPYC host; analytical pre-purchase envelope only
 - Related records: PW-0127, PW-0151, PW-0158, PW-0159, PW-0161; E7
-- Implementation commit and dirty state: pending
+- Implementation commit and dirty state:
+  `9f43873c04f80b2687261d2a887bbd3bdf2af18a`, clean
 
 ## Question and changed premise
 
@@ -104,4 +105,51 @@ cheap listing promotes an endpoint.
 
 ## Result
 
-Pending authenticated analysis from a clean implementation commit.
+The authoritative `analysis-001` manifest hashes to
+`dcc6a60955e8dfd67a3f1da582b33b332bfa31ece45a70d4606df8e367bcb145`.
+It authenticates TARGET, the pinned config and arithmetic authorities, the
+owned host, AMD's product page and brochure, ROCm 7.1 requirements, the dated
+market transcription, and the clean implementation commit.
+
+MI100 does not rescue source-oriented ordinary dense one-million-position
+execution. Granting its complete 92.3-TFLOPS BF16 Matrix peak and the EPYC's
+impossible 0.7424-TFLOPS peak concurrently still needs `2,301.8085` seconds,
+missing the entire 1M TTFT gate by `501.8085` seconds before softmax, routing,
+storage, cache traffic, dispatch, protocol, or any other work. Direct FP32 and
+FP32 Matrix are slower. Reject this source-oriented embodiment permanently.
+
+The 184.6-TFLOPS FP16 ceiling reaches an idealized `1,155.5143` seconds and
+leaves `644.4857` seconds, but it is only an L3 numerical hypothesis. It does
+not prove source-BF16 fidelity, a HIP kernel, or full-path performance.
+
+The 32-decimal-GB capacity ledger matches the prior 32-GB forms: exact 1M BF16
+KV, three arenas, and all non-routed tensors total `38,221,107,536` bytes,
+exceeding HBM by `6,221,107,536`. Even streaming every non-routed tensor for
+free leaves only 261 complete expert slots. The card's 300-W TDP plus the
+170-W CPU leaves 262 W below the PSU's 732-W combined +12-V label, but the
+passive full-height dual-slot card still lacks authenticated auxiliary cabling,
+clearance, airflow, and measured-load evidence.
+
+The captured used, tested-working 32-GB listing is `$999.00` with free
+shipping before unknown tax: the card alone exceeds the complete cap by
+`$499.00` before cooling, cabling, storage, or OS work. ROCm 7.1 does not list
+the owned Debian 13 installation for MI100; a supported Ubuntu/RHEL/SLES
+installation is an additional deployment prerequisite, not a permanent
+hardware rejection.
+
+Gate 8 passes across five snapshots with 51% minimum free memory,
+32,210,944-byte peak RSS, 21,103,936-byte maximum physical footprint, zero
+swap growth or new throttled pages, an explicit release boundary, and stable
+protected services. The first clean invocation published no manifest because
+the operator supplied a mistyped commit hash; the exact-commit rerun passed.
+Accepted tokens and endpoint TPS remain zero.
+
+## Decision
+
+Reject source-oriented ordinary-dense MI100 execution on the complete 1M
+arithmetic lower bound. Reject the captured procurement branch because the
+card alone costs almost twice the complete cap. Retain FP16 only as a future
+price-triggered L3 hypothesis requiring a complete delivered BOM, supported OS,
+physical installation evidence, measured HIP implementation, and all fidelity,
+capability, modality, and long-context gates. Authorize no purchase or runtime
+implementation.
