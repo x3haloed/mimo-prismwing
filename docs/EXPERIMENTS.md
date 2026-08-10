@@ -366,6 +366,18 @@ before tax, independently exceeding the complete cap before cable, cooling,
 or storage. Reject both captured purchases and retain only a price-triggered
 V100S L3 hypothesis; authorize no hardware or CUDA implementation.
 
+PW-0163 closes the strongest conventional 32-GB AMD PCIe counterexample found
+in the current search. MI100's 92.3-TFLOPS BF16 Matrix peak plus the EPYC's
+impossible concurrent peak still needs `2,301.8085` seconds for mandatory 1M
+matrices plus ordinary attention, permanently rejecting the source-oriented
+control before all omitted work. Its 184.6-TFLOPS FP16 peak is an L3-only
+arithmetic survivor at `1,155.5143` seconds. Exact KV, arenas, and common
+weights exceed 32 decimal GB by `6,221,107,536` bytes. The captured active used
+card is `$999.00` before tax, already `$499.00` over the complete cap, and the
+owned Debian 13 installation is not a supported ROCm 7.1 MI100 OS. Reject the
+captured procurement and source-oriented runtime; retain only a future
+price-triggered FP16 L3 hypothesis and authorize no HIP implementation.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

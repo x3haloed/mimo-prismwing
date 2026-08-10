@@ -512,3 +512,32 @@ binds the 250-W passive dual-slot form, CPU 8-pin auxiliary input, and dongle
 NVPN `030-0571-000`. The market rows support rejecting two dated card-only
 ledgers, not inferring future prices, delivered identity, device health,
 cooling, fit, tax, or purchase authority.
+
+## Thirty-two-GB CDNA envelope authorities
+
+- AMD, *AMD Instinct MI100 Accelerator* product page and product brochure,
+  accessed and captured 2026-08-10:
+  <https://www.amd.com/en/products/accelerators/instinct/mi100.html> and
+  <https://www.amd.com/content/dam/amd/en/documents/instinct-business-docs/product-briefs/instinct-mi100-brochure.pdf>.
+- AMD, ROCm 7.1 Linux system requirements, accessed and captured 2026-08-10:
+  <https://rocm.docs.amd.com/projects/install-on-linux/en/docs-7.1.0/reference/system-requirements.html>.
+- Dated semantic transcription for active eBay item 285796378466, a used MI100
+  32-GB card observed 2026-08-10 after direct archival fetch returned HTTP 403:
+  <https://www.ebay.com/itm/285796378466>.
+
+The official product page hashes to
+`9d0b74dc18ac8afcced3a9efbca17f77f6fd4b148c6823c11a5f479d8f9cbcc6`;
+the brochure hashes to
+`ad383b0c0d2bcb8c719ddcf09ed5a4d7a0afeb901c3b51bb2490fa3e65e6dc2e`;
+the ROCm requirements hash to
+`dead3ad053cde897c83aa33d58f096b1a9b25878abbe82dbcd5206c3f86d3772`;
+and the explicitly weaker market transcription hashes to
+`bfdc3bcd99685518f810f4d7f5caaa7d6563511cc1f62dfed3f317f2d0bd9022`.
+
+Decision: technical, software-support, and moving-market authority for
+PW-0163. AMD binds MI100 to 92.3-TFLOPS BF16, 184.6-TFLOPS FP16, 32 GB HBM2,
+1.2-TB/s nameplate bandwidth, PCIe 3/4 x16, a passive full-height dual-slot
+form, and 300-W peak power. ROCm 7.1's supported MI100 distributions exclude
+the owned host's current Debian 13 installation. The market row supports
+rejecting one dated card-only ledger, not inferring future prices, delivered
+identity, device health, cooling, fit, tax, or purchase authority.
