@@ -3241,3 +3241,26 @@ an explicit release boundary, and stable services. PW-0168 reports zero
 accepted tokens, no endpoint TPS, and no measured throughput-model constant
 changes. Retain the exact card only pending physical and checkout evidence; do
 not purchase from this record.
+
+PW-0169 finds a materially better exact active A770 candidate and supersedes
+PW-0168's Photon as the preferred listing, not as purchase authority. The used
+domestic Intel Limited Edition card identifies MPN `21P01J00BA`; Intel binds
+that form to 225-W TBP, required 8-pin plus 6-pin inputs, 279.9-mm maximum
+bracket-inclusive length, 126.36-mm maximum width, and 42-mm maximum height.
+GPU plus CPU leaves 337 W under the PSU's combined +12-V label.
+
+The active listing shows `$300` plus `$11.71` shipping to the renderer's
+`27709` destination, leaving `$188.29` before actual-destination differences,
+tax, and installation parts. That is credible complete-BOM room, unlike the
+Photon's `$69`, but the seller's working-order statement and original box are
+not a component test; the listing has no seller returns. Clearance, original
+EVGA cables and pinout, actual checkout, cooling, native ReBAR, supported
+oneAPI placement, and installed performance remain open. The authoritative
+report hashes to
+`b6c125f1a8cb937b0bb847936e5b251a9d65cb13f7254ca1ae215d60aa450baa`.
+Gate 8 passes at 71% minimum free memory, 32,636,928-byte peak RSS,
+19,957,312-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0169 reports zero
+accepted tokens, no endpoint TPS, and no measured throughput-model constant
+changes. Prefer this candidate for physical and checkout evidence; do not
+purchase from the report.

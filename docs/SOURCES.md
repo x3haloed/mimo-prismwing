@@ -716,3 +716,32 @@ inputs, 285-W TBP, and 300x118.5x50-mm dimensions. The listing records `$411`
 plus `$20` shipping, four available, and import fees included, but it does not
 authenticate destination tax, delivered complete cost, physical fit, original
 PSU cables, cooling, purchase authority, or installed performance.
+
+## Active A770 Limited Edition authorities
+
+- Intel support article 000092554, Limited Edition dimensions, accessed
+  2026-08-10:
+  <https://www.intel.com/content/www/us/en/support/articles/000092554/graphics.html>.
+- Intel support article 000092523, Limited Edition power connectors and TBP,
+  accessed 2026-08-10:
+  <https://www.intel.com/content/www/us/en/support/articles/000092523/graphics.html>.
+- eBay item `168591709192`, direct active listing observed 2026-08-10:
+  <https://www.ebay.com/itm/168591709192>.
+
+Command-line fetches returned HTTP 403, so the two direct official-page
+semantic captures hash to
+`c7656a01a4aa734b6488309d430eaaf61ad6b48df353d3aeca7a6a357a9eece5`
+and
+`369554f262e5409f7795823b1904ef6767a7af69f7a5c41fba2d445a668450b1`.
+The explicitly weaker moving-market transcription hashes to
+`dd2551749fd8c508d76deea4ea7810ac7ca76a5c181c59df09f9d47e7070d080`.
+PW-0169 additionally authenticates PW-0167's raw Intel product capture.
+
+Decision: exact reference-card dimensions, power, connector, and dated active-
+market authority for PW-0169. Intel binds the A770 Limited Edition to 225-W
+TBP, required 8-pin plus 6-pin inputs, and 279.9x126.36x42-mm maximum extents.
+The used listing identifies MPN `21P01J00BA`, shows `$300` plus `$11.71`
+rendered shipping, domestic location, seller-described working order, and no
+seller returns. It does not prove actual-destination checkout, component
+health, fit, original PSU cables, cooling, purchase authority, or installed
+performance.

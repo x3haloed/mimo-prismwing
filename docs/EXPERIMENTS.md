@@ -456,6 +456,19 @@ authorize neither purchase nor implementation. The authoritative report
 hashes to
 `dfd12ca7bb331003e28241e1c5eac49c579eecfa90cb5216fb41edb8a297f6bd`.
 
+PW-0169 finds a preferred domestic reference-board candidate. Intel's A770
+Limited Edition is 225 W, requires one 8-pin and one 6-pin input, and measures
+279.9x126.36x42 mm at its maximum bracket/connector extents. A direct active
+used listing shows `$300` plus `$11.71` rendered shipping, leaving `$188.29`
+before actual-destination differences, tax, and installation parts. That is
+credible BOM room and the 225-W card leaves 337 W of combined +12-V nameplate
+headroom, but seller-described working order is not validation and there are
+no seller returns. Retain physical clearance, original EVGA cables/pinout,
+actual checkout, cooling, ReBAR, supported oneAPI, and installed performance as
+gates. Prefer this listing over PW-0168 but authorize neither purchase nor
+implementation. The authoritative report hashes to
+`b6c125f1a8cb937b0bb847936e5b251a9d65cb13f7254ca1ae215d60aa450baa`.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,
