@@ -390,7 +390,15 @@ Repair route identity to cover only layer, ordered expert IDs, and ordered
 weights; both authorities then hash to
 `c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872`.
 Make no pruning decision from the invalid first observer attempt; rerun the
-unchanged numerical oracle under the corrected fail-closed guard.
+unchanged numerical oracle under the corrected fail-closed guard. That
+corrected full run then failed the semantic guard genuinely: doing allocation,
+sorting, renormalization, and candidate reductions between source head
+computations changed at least one route. Treat this as a second instrument
+defect, not a pruning result. The repaired instrument only copies sampled
+Q/K/V and source outputs into preallocated bounded storage during the source
+walk, verifies exact routes, and performs all replay and oracle arithmetic
+offline. Require bit-exact replay of the captured source outputs before
+adjudicating the candidate.
 
 PW-0163 closes the strongest conventional 32-GB AMD PCIe counterexample found
 in the current search. MI100's 92.3-TFLOPS BF16 Matrix peak plus the EPYC's

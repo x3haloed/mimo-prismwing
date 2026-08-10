@@ -3468,4 +3468,15 @@ route change does not. The observer-disabled control manifest hashes to
 `480b02816b293ed8a2275e3c2810ee940fa0916db31fd1d730d6331e9f00a025`
 and passes Gate 8. This is a correctness repair, not evidence for or against
 20%-history pruning, and it changes no throughput-model constant or purchase
-decision. Rerun PW-0162 under the corrected semantic guard.
+decision.
+
+The corrected full run then established a second, genuinely causal instrument
+failure: its semantic route hash changed. A dataflow can be shadow-only and
+still fail to be an observationally passive execution boundary when it
+allocates, sorts, renormalizes, and performs large reductions between source
+head computations. Do not infer a pruning result from that failed run. Move
+all candidate work after the authoritative pass: preallocate bounded sampled
+Q/K/V and reference-output storage, perform copies only during source
+execution, require the exact route hash, then require bit-exact offline replay
+before computing oracle errors. This repair changes no throughput-model
+constant, architecture disposition, or purchase authority.

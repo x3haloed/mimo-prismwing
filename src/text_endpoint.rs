@@ -47,6 +47,9 @@ const PW0157_PREFIX512_SEMANTIC_ROUTES_SHA256: &str =
     "c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872";
 const GLOBAL_ATTENTION_ORACLE_FRACTIONS: [f64; 7] =
     [0.01, 0.05, 0.10, 0.20, 0.210_561_390_436_831_78, 0.25, 1.0];
+const GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS: [usize; 15] = [
+    63, 95, 127, 159, 191, 223, 255, 287, 319, 351, 383, 415, 447, 479, 511,
+];
 const CHAT_PROMPT: &str = "<|im_start|>system\nYou are MiMo, a helpful AI assistant engineered by Xiaomi.<|im_end|><|im_start|>user\nHello<|im_end|><|im_start|>assistant\n<think></think>";
 const CHAT_PROMPT_IDS: [u32; 27] = [
     151_644, 8948, 198, 2610, 525, 20_740, 25_612, 11, 264, 10_950, 15_235, 17_847, 44_936, 553,
@@ -878,6 +881,22 @@ pub struct GlobalAttentionOracleObservation {
 #[derive(Debug, Default)]
 struct GlobalAttentionSparsityObserver {
     observations: Vec<GlobalAttentionOracleObservation>,
+}
+
+#[derive(Debug)]
+struct GlobalAttentionLayerCapture {
+    layer: usize,
+    queries: Vec<f32>,
+    keys: Vec<f32>,
+    values: Vec<f32>,
+    references: Vec<f32>,
+    inputs_captured: bool,
+    references_captured: Vec<bool>,
+}
+
+#[derive(Debug)]
+struct GlobalAttentionCaptureBuffer {
+    layers: Vec<GlobalAttentionLayerCapture>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2649,6 +2668,167 @@ impl GlobalAttentionSparsityObserver {
     }
 }
 
+impl GlobalAttentionCaptureBuffer {
+    fn new(observed_layers: &[usize]) -> Result<Self, String> {
+        if observed_layers.len() != 9
+            || observed_layers
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>()
+                .len()
+                != observed_layers.len()
+        {
+            return Err("global attention capture layer identity mismatch".to_owned());
+        }
+        let sampled_queries = GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS.len() * HEADS;
+        Ok(Self {
+            layers: observed_layers
+                .iter()
+                .map(|&layer| GlobalAttentionLayerCapture {
+                    layer,
+                    queries: vec![
+                        0.0;
+                        GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS.len()
+                            * HEADS
+                            * QK_HEAD_DIM
+                    ],
+                    keys: vec![0.0; 512 * 4 * QK_HEAD_DIM],
+                    values: vec![0.0; 512 * 4 * V_HEAD_DIM],
+                    references: vec![0.0; sampled_queries * V_HEAD_DIM],
+                    inputs_captured: false,
+                    references_captured: vec![false; sampled_queries],
+                })
+                .collect(),
+        })
+    }
+
+    fn layer_mut(&mut self, layer: usize) -> Option<&mut GlobalAttentionLayerCapture> {
+        self.layers
+            .iter_mut()
+            .find(|capture| capture.layer == layer)
+    }
+
+    fn capture_inputs(
+        &mut self,
+        layer: usize,
+        prior: usize,
+        rows: usize,
+        queries: &[f32],
+        cache: &LayerKvCache,
+    ) -> Result<(), String> {
+        let Some(capture) = self.layer_mut(layer) else {
+            return Ok(());
+        };
+        if prior != 0
+            || rows != 512
+            || cache.positions != 512
+            || cache.kv_heads != 4
+            || queries.len() != 512 * HEADS * QK_HEAD_DIM
+            || cache.keys.len() != capture.keys.len()
+            || cache.values.len() != capture.values.len()
+            || capture.inputs_captured
+        {
+            return Err("global attention passive capture shape mismatch".to_owned());
+        }
+        capture.keys.copy_from_slice(&cache.keys);
+        capture.values.copy_from_slice(&cache.values);
+        for (sample, &position) in GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS.iter().enumerate() {
+            let source_start = position * HEADS * QK_HEAD_DIM;
+            let destination_start = sample * HEADS * QK_HEAD_DIM;
+            capture.queries[destination_start..destination_start + HEADS * QK_HEAD_DIM]
+                .copy_from_slice(&queries[source_start..source_start + HEADS * QK_HEAD_DIM]);
+        }
+        capture.inputs_captured = true;
+        Ok(())
+    }
+
+    fn capture_reference(
+        &mut self,
+        layer: usize,
+        absolute_query_position: usize,
+        head: usize,
+        reference: &[f32],
+    ) -> Result<(), String> {
+        let Some(capture) = self.layer_mut(layer) else {
+            return Ok(());
+        };
+        if !GlobalAttentionSparsityObserver::should_sample(absolute_query_position) {
+            return Ok(());
+        }
+        let sample = (absolute_query_position - 63) / 32;
+        let identity = sample * HEADS + head;
+        if head >= HEADS
+            || sample >= GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS.len()
+            || reference.len() != V_HEAD_DIM
+            || capture.references_captured[identity]
+        {
+            return Err("global attention passive reference capture mismatch".to_owned());
+        }
+        let start = identity * V_HEAD_DIM;
+        capture.references[start..start + V_HEAD_DIM].copy_from_slice(reference);
+        capture.references_captured[identity] = true;
+        Ok(())
+    }
+
+    fn analyze(self) -> Result<GlobalAttentionSparsityObserver, String> {
+        let mut observer = GlobalAttentionSparsityObserver::default();
+        for capture in self.layers {
+            if !capture.inputs_captured
+                || capture.references_captured.iter().any(|captured| !captured)
+            {
+                return Err("global attention passive capture is incomplete".to_owned());
+            }
+            for (sample, &position) in GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS.iter().enumerate() {
+                for head in 0..HEADS {
+                    let kv_head = head / (HEADS / 4);
+                    let query_start = (sample * HEADS + head) * QK_HEAD_DIM;
+                    let query = &capture.queries[query_start..query_start + QK_HEAD_DIM];
+                    let mut keys = Vec::with_capacity(position + 1);
+                    let mut values = Vec::with_capacity(position + 1);
+                    for key_position in 0..=position {
+                        let key_start = (key_position * 4 + kv_head) * QK_HEAD_DIM;
+                        keys.push(&capture.keys[key_start..key_start + QK_HEAD_DIM]);
+                        let value_start = (key_position * 4 + kv_head) * V_HEAD_DIM;
+                        values.push(&capture.values[value_start..value_start + V_HEAD_DIM]);
+                    }
+                    let mut trace = AttentionHeadTrace::default();
+                    let recomputed = causal_attention_head_with_dtype(
+                        query,
+                        &keys,
+                        &values,
+                        1.0_f32 / (QK_HEAD_DIM as f32).sqrt(),
+                        None,
+                        true,
+                        Some(&mut trace),
+                    )?;
+                    let reference_start = (sample * HEADS + head) * V_HEAD_DIM;
+                    let reference =
+                        &capture.references[reference_start..reference_start + V_HEAD_DIM];
+                    if recomputed
+                        .iter()
+                        .zip(reference)
+                        .any(|(actual, expected)| actual.to_bits() != expected.to_bits())
+                    {
+                        return Err(
+                            "global attention offline replay changed the source reference"
+                                .to_owned(),
+                        );
+                    }
+                    observer.observe(
+                        capture.layer,
+                        position,
+                        head,
+                        &trace.probabilities,
+                        &values,
+                        reference,
+                    )?;
+                }
+            }
+        }
+        Ok(observer)
+    }
+}
+
 fn causal_attention_head_with_dtype(
     query: &[f32],
     keys: &[&[f32]],
@@ -2737,7 +2917,7 @@ fn attention(
     cache: &mut LayerKvCache,
     ledger: &mut EndpointLedger,
     mut captures: Option<&mut Layer0Captures>,
-    mut sparsity_observer: Option<&mut GlobalAttentionSparsityObserver>,
+    mut sparsity_capture: Option<&mut GlobalAttentionCaptureBuffer>,
 ) -> Result<Vec<f32>, String> {
     cache.validate()?;
     let is_swa = config.hybrid_layer_pattern[layer] == 1;
@@ -2785,6 +2965,11 @@ fn attention(
     cache.positions += rows;
     cache.kv_heads = kv_heads;
     cache.validate()?;
+    if !is_swa {
+        if let Some(capture) = sparsity_capture.as_deref_mut() {
+            capture.capture_inputs(layer, prior, rows, &queries, cache)?;
+        }
+    }
     if let Some(captures) = captures.as_deref_mut() {
         captures.query = queries.clone();
         captures.key = cache.keys.clone();
@@ -2826,10 +3011,7 @@ fn attention(
                 values.push(&cache.values[value_offset..value_offset + V_HEAD_DIM]);
             }
             let mut head_trace = AttentionHeadTrace::default();
-            let observe = !is_swa
-                && sparsity_observer.is_some()
-                && GlobalAttentionSparsityObserver::should_sample(prior + row);
-            let head_output = if captures.is_some() || observe {
+            let head_output = if captures.is_some() {
                 causal_attention_head_with_dtype(
                     query,
                     &keys,
@@ -2854,18 +3036,10 @@ fn attention(
                     .attention_probabilities
                     .extend(head_trace.probabilities.iter().copied());
             }
-            if observe {
-                sparsity_observer
-                    .as_deref_mut()
-                    .ok_or("global attention oracle observer disappeared")?
-                    .observe(
-                        layer,
-                        prior + row,
-                        head,
-                        &head_trace.probabilities[..values.len()],
-                        &values,
-                        &head_output,
-                    )?;
+            if !is_swa {
+                if let Some(capture) = sparsity_capture.as_deref_mut() {
+                    capture.capture_reference(layer, prior + row, head, &head_output)?;
+                }
             }
             let destination = &mut result[row * HEADS * V_HEAD_DIM + head * V_HEAD_DIM
                 ..row * HEADS * V_HEAD_DIM + (head + 1) * V_HEAD_DIM];
@@ -3491,7 +3665,7 @@ fn decode_step(
     safety: &mut SafetyMonitor,
     mut full_captures: Option<&mut FullPrefixCaptures>,
     mut metal: Option<(&BoundedMetalExpertRuntime, &mut MetalExpertLedger, bool)>,
-    mut sparsity_observer: Option<&mut GlobalAttentionSparsityObserver>,
+    mut sparsity_capture: Option<&mut GlobalAttentionCaptureBuffer>,
     output: DecodeOutput,
 ) -> Result<NativeDecodeStep, String> {
     let started = Instant::now();
@@ -3525,7 +3699,7 @@ fn decode_step(
             cache,
             ledger,
             None,
-            sparsity_observer.as_deref_mut(),
+            sparsity_capture.as_deref_mut(),
         )?;
         let post_attention = hidden
             .iter()
@@ -8378,15 +8552,10 @@ pub fn run_global_attention_sparsity_trace(
     if observed_global_layers.len() != 9 {
         return Err("PW-0162 requires exactly nine global-attention layers".to_owned());
     }
-    let sampled_absolute_query_positions = (63..=511).step_by(32).collect::<Vec<_>>();
-    if sampled_absolute_query_positions.len() != 15
-        || sampled_absolute_query_positions.last() != Some(&511)
-    {
-        return Err("PW-0162 sampled-position contract drifted".to_owned());
-    }
+    let sampled_absolute_query_positions = GLOBAL_ATTENTION_ORACLE_QUERY_POSITIONS.to_vec();
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
     let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
-    let mut observer = GlobalAttentionSparsityObserver::default();
+    let mut capture = GlobalAttentionCaptureBuffer::new(&observed_global_layers)?;
     let step = decode_step(
         &checkpoint,
         &config,
@@ -8396,7 +8565,7 @@ pub fn run_global_attention_sparsity_trace(
         &mut safety,
         None,
         None,
-        Some(&mut observer),
+        Some(&mut capture),
         DecodeOutput::RoutesOnly,
     )?;
     if step.output_token != 0
@@ -8408,8 +8577,9 @@ pub fn run_global_attention_sparsity_trace(
     }
     let semantic_layer_routes_sha256 = semantic_layer_routes_sha256(&step.traces)?;
     if semantic_layer_routes_sha256 != PW0157_PREFIX512_SEMANTIC_ROUTES_SHA256 {
-        return Err("PW-0162 shadow observer changed exact source routes".to_owned());
+        return Err("PW-0162 passive capture changed exact source routes".to_owned());
     }
+    let observer = capture.analyze()?;
     let expected_observations =
         observed_global_layers.len() * sampled_absolute_query_positions.len() * HEADS;
     let observed_identities = observer
@@ -8956,6 +9126,33 @@ mod tests {
             oracle_sparse_attention_candidate(&probabilities, &value_views, &reference, 0.0)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn global_attention_source_capture_uses_preallocated_storage() {
+        let mut capture = GlobalAttentionCaptureBuffer::new(&(0..9).collect::<Vec<_>>())
+            .expect("valid capture authority");
+        let before = capture.layers[0]
+            .references
+            .iter()
+            .map(|value| value.to_bits())
+            .collect::<Vec<_>>();
+        let capacity = capture.layers[0].references.capacity();
+        let reference = (0..V_HEAD_DIM)
+            .map(|index| index as f32)
+            .collect::<Vec<_>>();
+        capture
+            .capture_reference(0, 63, 0, &reference)
+            .expect("bounded reference capture");
+        assert_eq!(capture.layers[0].references.capacity(), capacity);
+        assert_eq!(&capture.layers[0].references[..V_HEAD_DIM], &reference);
+        assert!(
+            capture.layers[0].references[V_HEAD_DIM..]
+                .iter()
+                .zip(&before[V_HEAD_DIM..])
+                .all(|(actual, expected)| actual.to_bits() == *expected)
+        );
+        assert!(capture.capture_reference(0, 63, 0, &reference).is_err());
     }
 
     #[test]

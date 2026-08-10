@@ -139,8 +139,27 @@ control produce
 `c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872`.
 A deterministic fixture now requires timing-only changes to preserve that hash
 and a route change to alter it. No pruning result, endpoint TPS, or mechanism
-decision is inferred from the invalid first observer attempt. The corrected
-oracle execution remains pending on the final clean implementation commit.
+decision is inferred from the invalid first observer attempt.
+
+The corrected full execution at commit
+`a9abb396bb9a44b21a874633d42a8417dc1d1ff2` then failed the semantic guard
+after `27` minutes with `PW-0162 shadow observer changed exact source routes`.
+Unlike the first failure, the repaired hash makes this genuine observer
+interference. The measuring instrument performed allocations, sorting,
+renormalization, and repeated attention reductions between authoritative head
+computations. Its nominally shadow-only dataflow was therefore not a passive
+execution boundary. This invalidates the instrument; it is still not evidence
+for or against pruning.
+
+The next implementation preallocates bounded Q/K/V and reference-output
+storage before the source walk. During the authoritative pass it only copies
+the nine global layers' 15 sampled query rows, their 512-position K/V state,
+and sampled source head outputs. It performs no oracle arithmetic until after
+the exact semantic-route guard passes. Offline replay must reproduce every
+captured source head output bit-exactly before candidate errors are accepted.
+A deterministic fixture proves sampled writes reuse fixed-capacity storage and
+reject duplicate identities. The repaired execution remains pending on its
+clean implementation commit.
 
 The control passed Gate 8: minimum free memory was `73%`, maximum physical
 footprint `841,980,032` bytes, peak RSS `933,265,408` bytes, zero swap growth,
