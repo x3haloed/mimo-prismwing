@@ -296,7 +296,7 @@ def run(paths: dict[str, Path], output: Path, commit: str) -> dict:
         ["official specification text", "market transcription", "prior manifests"],
     )
     safety.checkpoint("final_service_health")
-    manifest["safety"] = safety.snapshots
+    manifest["safety"] = [snapshot.to_dict() for snapshot in safety.snapshots]
     atomic_write_new(output, canonical_json(manifest))
     return manifest
 
