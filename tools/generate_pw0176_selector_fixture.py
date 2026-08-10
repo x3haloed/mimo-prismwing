@@ -53,7 +53,8 @@ def build() -> dict:
     for index in range(100):
         slash[index] = math.inf
     vertical_positions = sorted(descending(vertical, VERTICAL_SIZE))
-    slash_distances = sorted(descending(slash, SLASH_SIZE))
+    slash_source_indices = descending(list(reversed(slash)), SLASH_SIZE)
+    slash_distances = sorted(CONTEXT - 1 - index for index in slash_source_indices)
 
     def selected(query_position: int) -> list[int]:
         result = [position for position in vertical_positions if position <= query_position]

@@ -97,7 +97,14 @@ pub(crate) fn vertical_slash_selection(
         *score = f32::INFINITY;
     }
     let mut vertical_positions = descending_indices(&vertical_scores, vertical_size)?;
-    let mut slash_distances = descending_indices(&slash_scores, slash_size)?;
+    // MInference ranks the output of `sum_all_diagonal_matrix` before converting
+    // source diagonal index `i` to distance `(context - 1) - i`. Preserve the
+    // frozen lower-original-index tie rule in that source index space.
+    let slash_source_scores = slash_scores.iter().rev().copied().collect::<Vec<_>>();
+    let mut slash_distances = descending_indices(&slash_source_scores, slash_size)?
+        .into_iter()
+        .map(|source_index| context - 1 - source_index)
+        .collect::<Vec<_>>();
     vertical_positions.sort_unstable();
     slash_distances.sort_unstable();
     Ok(VerticalSlashSelection {
@@ -192,9 +199,10 @@ mod tests {
             selected.slash_distances[..100],
             (0..100).collect::<Vec<_>>()
         );
-        // Both non-forced observations are distance 58. The next unforced zero tie
-        // is distance 100, proving lower-index selection after the forced prefix.
-        assert_eq!(selected.slash_distances[100], 100);
+        // Both observations fall inside the forced recent region. The next
+        // all-zero tie chooses source diagonal index zero, which maps to the
+        // largest distance and proves source-index rather than distance-index tie order.
+        assert_eq!(selected.slash_distances[100], 139);
     }
 
     #[test]
