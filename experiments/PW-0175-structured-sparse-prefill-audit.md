@@ -9,7 +9,7 @@
   attention ledger; TARGET L3 behavioral gates
 - Execution mode: primary-source L3 mechanism and released-configuration
   audit; no model execution or endpoint claim
-- Related records: PW-0158, PW-0160, PW-0162; E7
+- Related records: PW-0158, PW-0160 through PW-0162; E7
 
 ## Question and changed premise
 
@@ -39,9 +39,10 @@ report Prismwing TPS.
 
 ## Contract
 
-1. Authenticate TARGET, PW-0158's authoritative manifest, immutable PDF
-   captures of MInference 1.0 and Quest, and immutable captures of the exact
-   released source revisions used for the audit. Bind every input by SHA-256.
+1. Authenticate TARGET, PW-0158's authoritative attention manifest,
+   PW-0161's complete two-P100/EPYC arithmetic manifest, immutable PDF captures
+   of MInference 1.0 and Quest, and immutable captures of the exact released
+   source revisions used for the audit. Bind every input by SHA-256.
 2. Extract directly from the primary sources and released code:
    - whether the mechanism changes prefill, decode, or both;
    - whether training or model-specific offline calibration is required;
@@ -55,9 +56,11 @@ report Prismwing TPS.
    `N=1,000,000`. Count `min(position, vertical+slash)` for every position and
    head. Report dynamic-index construction separately and do not treat overlap
    or GPU efficiency as proven savings.
-4. Compare that favorable retained-pair fraction with PW-0158's
-   `21.056139%` global-attention continuation ceiling. Passing this structural
-   comparison only establishes that a MiMo-specific oracle is worth testing.
+4. Reproduce the `21.056139%` global-attention continuation ceiling from
+   PW-0158's attention work and PW-0161's complete arithmetic allowance, then
+   compare the favorable retained-pair fraction with it. Passing this
+   structural comparison only establishes that a MiMo-specific oracle is worth
+   testing.
 5. Reject any released method as the PW-0158 prefill repair when its own code
    explicitly leaves prefill dense. Preserve useful decode-only mechanisms as
    out of this experiment's causal scope.
