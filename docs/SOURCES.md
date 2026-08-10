@@ -797,3 +797,40 @@ accepted-length, changed-trajectory, task-score, and throughput authority for
 PW-0174. The paper's cross-model results do not establish MiMo behavior,
 Prismwing's hosted distributional gates, native modality fidelity, long-context
 capability, or endpoint TPS.
+
+## Structured sparse-prefill authorities
+
+- Jiang et al., *MInference 1.0: Accelerating Pre-filling for Long-Context
+  LLMs via Dynamic Sparse Attention*, arXiv:2407.02490, accessed and captured
+  2026-08-10: <https://arxiv.org/pdf/2407.02490>.
+- Microsoft, MInference repository commit
+  `a4eb395f949ea39e871f9bc586d683390692c6be`, accessed and captured
+  2026-08-10: <https://github.com/microsoft/MInference>.
+- Tang et al., *Quest: Query-Aware Sparsity for Efficient Long-Context LLM
+  Inference*, arXiv:2406.10774, accessed and captured 2026-08-10:
+  <https://arxiv.org/pdf/2406.10774>.
+- MIT HAN Lab, Quest repository commit
+  `01c1623bf9395009520874e989e29f683203b357`, accessed and captured
+  2026-08-10: <https://github.com/mit-han-lab/Quest>.
+
+The immutable MInference paper and complete source archive hash to
+`65ae8b76b24ef6a8752367e8b6067db5541b6c574591c6c3483ac0524d2c3ef6`
+and `3ca80a6fb543925bdc75be8d8e3341d5897736b383e5c59b1691bf5c808e52a5`.
+Its experiment README, selector implementation, and released GLM-4-9B-1M
+pattern map hash to
+`0fc0eb81903765796e53ac54b0b3295f003bf68947aa81c005c42cc57500a90a`,
+`b368e765fcc2021591f7cdf970e4e1a71731ed66f19e97023a13b70a02e6edc2`,
+and `6d35602b9a4f161e5d593392b883a2ca6c85bf20356e8612f55a49a47c50aa2c`.
+
+The immutable Quest paper and complete source archive hash to
+`ea98687fe7176d2ffaedc21634a9ba412fa582d43d530fcd98236c8d69fef5a5`
+and `07c941cf133bdbd9c87afc711059a5083d577039acc0fca3c8dd3b52b8040f4a`.
+Its README and prefill/decode orchestration capture hash to
+`fa698d2a67ef5f369afcc587d039dec1c7773c5f2270f4c7e5b63b6bf6b04d83`
+and `69fd75256a3985ffe23921e89aa498af17b3fd2225318b7951afd7b0a15c55a6`.
+
+Decision: primary mechanism, released-code scope, head-map parameter, and
+source-configuration authority for PW-0175. MInference supplies a structural
+prefill research prior, not a MiMo configuration or measured Prismwing rate.
+Quest's released source binds its sparse mechanism to decode and leaves
+prefill dense; this does not reject Quest for decode.

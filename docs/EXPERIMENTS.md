@@ -549,6 +549,22 @@ retain only a separately scaled MiMo-specific `q>=137` ASD branch with the full
 validation protocol as unproven. The authoritative report hashes to
 `2a8bbcc3d70740501fea245e33b28313d23447cfdde205c139f86981e4f4dd6e`.
 
+PW-0175 reopens structured sparse prefill as a distinct changed-attention
+branch rather than generalizing PW-0162's probability-ranked oracle. The
+released GLM-4-9B-1M MInference head map retains a favorable `1.230279%` of
+causal pairs at one million positions; charging the last-64-query online index
+QK pass raises effective work to `1.237959%`. The independently reproduced
+two-P100/EPYC full-system ceiling permits `21.056139%` of ordinary global work.
+
+This arithmetic promotes only a MiMo-specific source-state oracle. Derive
+MiMo's patterns per layer/head, reproduce the online selector, and test output,
+route, logit, long-text, and native-modality fidelity before kernel work. Do
+not copy GLM's map or infer P100/Metal speed. Quest's released sparse path is
+decode-only and explicitly leaves prefill dense, so reject it only as the
+PW-0158 prefill repair. No runtime, fidelity, endpoint TPS, or purchase is
+promoted. The authoritative manifest hashes to
+`e5ac56b7f710285cdeb0088f9fa750748ad74cbc68cd6d4dcb627061209a37ab`.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

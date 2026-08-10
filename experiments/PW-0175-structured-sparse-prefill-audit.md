@@ -1,7 +1,8 @@
 # PW-0175 — structured sparse-prefill continuation audit
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: conditional — promote a MiMo-specific MInference-style oracle;
+  reject released Quest as the PW-0158 prefill repair
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Model/reference: MiMo revision
@@ -10,6 +11,8 @@
 - Execution mode: primary-source L3 mechanism and released-configuration
   audit; no model execution or endpoint claim
 - Related records: PW-0158, PW-0160 through PW-0162; E7
+- Implementation commit and dirty state:
+  `ef6be18ff16c8f9c8fe0e1839a6e83a1e148ab46`, clean
 
 ## Question and changed premise
 
@@ -89,4 +92,42 @@ and preserve only distinctly trained L4 attention replacements as unproven.
 
 ## Result
 
-Unexecuted. No conclusion may be drawn from this record yet.
+The clean authoritative execution produced a manifest with SHA-256
+`e5ac56b7f710285cdeb0088f9fa750748ad74cbc68cd6d4dcb627061209a37ab`.
+It authenticates TARGET, PW-0158, PW-0161, both primary papers, both complete
+released-source archives, the exact GLM-4-9B-1M head map, and the critical
+released selector/orchestration files.
+
+PW-0158 and PW-0161 independently reproduce the full-system continuation
+ceiling. Two P100 advertised FP16 peaks plus the EPYC's impossible peak grant
+`68,656,320,000,000,000` FLOPs in 1,800 seconds. After mandatory matrices and
+sliding attention, `38,810,714,295,992,320` FLOPs remain for global attention,
+exactly `21.056139043683178%` of the ordinary global work.
+
+The released GLM-4-9B-1M MInference configuration contains 1,280
+layer/head records, all using vertical-slash masks. Without deduplicating
+vertical/slash overlap, `min(position, vertical+slash)` retains at most
+`7,873,793,997,845` of `640,000,640,000,000` causal pairs, or
+`1.2302790818841993%`. Charging its last-64-query online index pass at the QK
+dot cost raises the favorable effective fraction to `1.2379590742042071%`.
+This has substantial structural margin below `21.056139%`, even though perfect
+kernel efficiency remains an explicit grant.
+
+Promote a separate MiMo-specific source-state oracle that derives every
+layer/head pattern from MiMo Q/K and then executes the released online
+selector. Do not reuse GLM's map. The follow-up must test source output, route,
+logit, long-text, and native-modality fidelity before kernel work. MInference
+publishes no MiMo configuration, Metal/P100 kernel, hosted top-20 gate, or
+native-modality evidence, so no fidelity, runtime, or performance default is
+promoted.
+
+Quest is rejected only as PW-0158's prefill repair: its released code states
+that prefill optimization is unsupported and uses dense FlashInfer prefill.
+Its query-aware sparse decode mechanism remains outside this experiment and is
+not rejected for decode.
+
+Gate 8 passes with 72% minimum free memory, 50,085,888-byte peak RSS,
+18,613,632-byte maximum physical footprint, zero swap growth or throttling, an
+explicit release boundary, and stable protected services. PW-0175 records zero
+accepted Prismwing tokens, no endpoint TPS, no measured throughput-model
+constant changes, and no purchase authority.
