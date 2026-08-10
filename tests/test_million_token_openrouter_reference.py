@@ -8,6 +8,7 @@ from tools.million_token_openrouter_reference import (
     PROVIDER,
     build_probe,
     needle_code,
+    summarize_http_error_body,
     validate_endpoint_metadata,
     validate_response,
 )
@@ -100,6 +101,25 @@ class MillionTokenOpenRouterReferenceTests(unittest.TestCase):
     def test_http_200_api_error_is_not_misclassified_as_provider_drift(self):
         with self.assertRaisesRegex(ValueError, "API error 502: Error"):
             validate_response({"error": {"code": 502, "message": "Error"}}, {"needle_code": needle_code()})
+
+    def test_rate_limit_summary_excludes_user_identity(self):
+        body = json.dumps({
+            "error": {
+                "code": 429,
+                "message": "Provider returned error",
+                "metadata": {
+                    "provider_name": "Parasail",
+                    "is_byok": False,
+                    "limit_source": "upstream_provider_shared_pool",
+                    "remedy_hint": "Retry shortly",
+                },
+            },
+            "user_id": "must-not-enter-summary",
+        }).encode()
+        summary = summarize_http_error_body(body)
+        self.assertEqual(summary["provider_name"], "Parasail")
+        self.assertEqual(summary["limit_source"], "upstream_provider_shared_pool")
+        self.assertNotIn("user_id", summary)
 
 
 if __name__ == "__main__":

@@ -486,6 +486,25 @@ def validate_response(response: Any, generation: dict[str, Any]) -> dict[str, An
     }
 
 
+def summarize_http_error_body(body: bytes) -> dict[str, Any] | None:
+    try:
+        parsed = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    error = parsed.get("error") if isinstance(parsed, dict) else None
+    if not isinstance(error, dict):
+        return None
+    metadata = error.get("metadata") if isinstance(error.get("metadata"), dict) else {}
+    return {
+        "code": error.get("code"),
+        "message": error.get("message"),
+        "provider_name": metadata.get("provider_name"),
+        "is_byok": metadata.get("is_byok"),
+        "limit_source": metadata.get("limit_source"),
+        "remedy_hint": metadata.get("remedy_hint"),
+    }
+
+
 def capture(output: Path, key_path: Path, timeout_seconds: float) -> Path:
     prepared = verify_prepared(output)
     if require_clean_commit() != prepared.get("commit"):
@@ -504,6 +523,9 @@ def capture(output: Path, key_path: Path, timeout_seconds: float) -> Path:
     response_headers: dict[str, str] = {}
     elapsed_ns: int | None = None
     error: dict[str, Any] | None = None
+    error_body_file: str | None = None
+    error_body_sha256: str | None = None
+    error_body_summary: dict[str, Any] | None = None
     validation: dict[str, Any] | None = None
     try:
         response_bytes, response_headers, elapsed_ns = post_chat(
@@ -519,7 +541,15 @@ def capture(output: Path, key_path: Path, timeout_seconds: float) -> Path:
         status = "passed"
     except HTTPError as caught:
         body = caught.read()
-        atomic_write_new(attempt / "http-error-body.bin", body)
+        error_body_file = "http-error-body.bin"
+        error_body_sha256 = sha256_bytes(body)
+        error_body_summary = summarize_http_error_body(body)
+        atomic_write_new(attempt / error_body_file, body)
+        response_headers = {
+            key.lower(): value
+            for key, value in caught.headers.items()
+            if key.lower() in {"content-type", "x-request-id", "retry-after"}
+        }
         error = {"type": "HTTPError", "status": caught.code, "message": str(caught)}
     except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError, HostSafetyViolation) as caught:
         error = {"type": type(caught).__name__, "message": str(caught)}
@@ -546,6 +576,9 @@ def capture(output: Path, key_path: Path, timeout_seconds: float) -> Path:
         "elapsed_ns": elapsed_ns,
         "validation": validation,
         "error": error,
+        "error_body_file": error_body_file,
+        "error_body_sha256": error_body_sha256,
+        "error_body_summary": error_body_summary,
         "safety_snapshots": safety.evidence(),
         "accepted_tokens": 0,
         "performance_claim": False,
