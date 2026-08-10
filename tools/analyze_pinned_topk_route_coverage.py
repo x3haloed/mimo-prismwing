@@ -21,13 +21,16 @@ except ModuleNotFoundError:
 
 
 REVISION = "63651580ca774f8504f676040460aed3e1244ac1"
-RUNTIME_COMMIT = "f677893a12fc5631ddcdecf8fc407b7d1178c3f5"
+ORIGINAL_RUNTIME_COMMIT = "f677893a12fc5631ddcdecf8fc407b7d1178c3f5"
+KV_RELEASE_EQUIVALENCE_COMMIT = "7c0bf18390fcf064258e9486a6ee467d77f0d035"
+FAILURE_PRESERVING_RUNTIME_COMMIT = "6368ae80e67e73e008751c5add20780e86b02b0d"
 TOPK_FIXTURE_SHA256 = "5c232ccc5823aeff1e91e0e674c78d635ed8ef4ffbaa4fef2135d76d58bc2243"
 CORPUS_FIXTURE_SHA256 = "3b5bc4e8f41fed2a13867bc96ea8236d1630bf994eee5608a8366f1f846a79d5"
 VERIFICATION_SHA256 = "9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03"
+FAILURE_RECEIPT_SHA256 = "3f24f9e22ae30a68c885e1dd9dc0ffc0d06ce6fd0177ff8b27ace3ade9988140"
 PREFIXES = (512, 1024, 2048, 4096, 8000)
+ORIGINAL_PREFIX_512_SHA256 = "32fa8954e875e6c8c53b5092827820940f51225d2bf24322caf5b782295004b9"
 FROZEN_PREFIX_HASHES = {
-    512: "32fa8954e875e6c8c53b5092827820940f51225d2bf24322caf5b782295004b9",
     1024: "f5e0e67a06ffd3867ecec84c38311ef9f0f409a63d7b12ebe26d5fa1fca61004",
     2048: "ce0e07bdcf0d5f2aacc366224ab402b7666df249e1e738eb3fda0f32ed9dba2a",
     4096: "658d2635e8aee4e97ce5a10d7eb1ac347b722f251b663c163814707d3d3f77cc",
@@ -39,6 +42,10 @@ MAXIMUM_STREAMABLE_RECORDS = 8_342
 FIRST_DECISIVE_RECORD_COUNT = 9_003
 GIB = 1024**3
 MIB = 1024**2
+KV_CACHE_BYTES_PER_POSITION = (
+    len(GLOBAL_LAYERS) * 4 * (192 + 128) * 4
+    + (48 - len(GLOBAL_LAYERS)) * 8 * (192 + 128) * 4
+)
 
 
 def compact_sha256(value: object) -> str:
@@ -78,6 +85,29 @@ def validate_topk_fixture(fixture: dict) -> None:
             or any(not 0 <= index < 256 for index in row["selected_experts"])
         ):
             raise ValueError("pinned top-k fixture case shape mismatch")
+
+
+def validate_failure_receipt(receipt: dict) -> None:
+    terminal = receipt.get("terminal_result", {})
+    recovery = receipt.get("external_post_stop_recovery_observation", {})
+    if (
+        receipt.get("schema_version") != 1
+        or receipt.get("evidence_class")
+        != "pw0157_failed_host_safety_stop_operator_receipt"
+        or receipt.get("status") != "invalid_no_coverage_manifest"
+        or receipt.get("revision") != REVISION
+        or receipt.get("runtime_commit") != ORIGINAL_RUNTIME_COMMIT
+        or receipt.get("traced_prefix_positions") != 8000
+        or terminal.get("exit_code") != 1
+        or terminal.get("stderr")
+        != "error: safety stop at layer_32_complete: post-phase footprint limit exceeded\n"
+        or receipt.get("published_output_files") != []
+        or receipt.get("accepted_tokens") != 0
+        or receipt.get("performance_claim") is not None
+        or recovery.get("process_absent") is not True
+        or recovery.get("throttled_pages") != 0
+    ):
+        raise ValueError("failed 8K safety-stop receipt mismatch")
 
 
 def validate_safety(snapshots: object) -> dict:
@@ -243,13 +273,19 @@ def compare_route_prefix(
     }
 
 
-def validate_manifest(manifest: dict, positions: int, corpus: dict) -> tuple[dict, list[dict]]:
+def validate_manifest(
+    manifest: dict,
+    positions: int,
+    corpus: dict,
+    expected_runtime_commit: str,
+    require_kv_release: bool,
+) -> tuple[dict, list[dict]]:
     expected_input_sha256 = compact_sha256(corpus["expected_prompt_token_ids"][:positions])
     if (
         manifest.get("schema_version") != 1
         or manifest.get("semantic") != "mimo_target_faithful_prefill_route_coverage_rust_trace"
         or manifest.get("revision") != REVISION
-        or manifest.get("commit") != RUNTIME_COMMIT
+        or manifest.get("commit") != expected_runtime_commit
         or manifest.get("fixture_sha256") != CORPUS_FIXTURE_SHA256
         or manifest.get("checkpoint_verification_sha256") != VERIFICATION_SHA256
         or manifest.get("corpus_positions") != 8000
@@ -263,6 +299,13 @@ def validate_manifest(manifest: dict, positions: int, corpus: dict) -> tuple[dic
         or manifest.get("performance_claim") is not None
     ):
         raise ValueError(f"prefix-{positions} manifest identity mismatch")
+    released_kv_bytes = manifest.get("released_layer_kv_cache_bytes")
+    expected_released_kv_bytes = positions * KV_CACHE_BYTES_PER_POSITION
+    if require_kv_release:
+        if released_kv_bytes != expected_released_kv_bytes:
+            raise ValueError(f"prefix-{positions} K/V release ledger mismatch")
+    elif released_kv_bytes is not None:
+        raise ValueError(f"prefix-{positions} original control unexpectedly reports K/V release")
     observed = validate_route_rows(manifest, positions)
     coverage = manifest.get("coverage", {})
     distinct = len(observed)
@@ -305,15 +348,46 @@ def validate_manifest(manifest: dict, positions: int, corpus: dict) -> tuple[dic
         "pytorch_topk_boundary_tie_rows": ledger["pytorch_topk_boundary_tie_rows"],
         "actual_process_disk_bytes_read": ledger.get("actual_process_disk_bytes_read"),
         "complete_wall_ms": manifest["complete_wall_ms"],
+        "released_layer_kv_cache_bytes": released_kv_bytes,
         "safety": safety,
     }
     return summary, manifest["layer_traces"]
+
+
+def compare_kv_release_control(control: list[dict], candidate: list[dict]) -> dict:
+    if len(control) != len(candidate):
+        raise ValueError("K/V release control layer inventory mismatch")
+    fields = (
+        "layer",
+        "attention",
+        "cache_length",
+        "selected_experts_by_position",
+        "route_weights_by_position",
+        "expert_union_factor",
+    )
+    mismatches = []
+    for control_layer, candidate_layer in zip(control, candidate, strict=True):
+        for field in fields:
+            if control_layer.get(field) != candidate_layer.get(field):
+                mismatches.append({"layer": control_layer.get("layer"), "field": field})
+    if mismatches:
+        raise ValueError(f"K/V release changed route semantics: {mismatches[:4]}")
+    return {
+        "positions": 512,
+        "compared_layers": len(control),
+        "compared_fields": list(fields),
+        "exact": True,
+        "excluded_nondeterministic_fields": ["wall_ms"],
+        "interpretation": "post-layer_one-shot_cache_release_preserves_every_route_semantic_field",
+    }
 
 
 def run(
     topk_fixture_path: Path,
     corpus_path: Path,
     verification_path: Path,
+    failure_receipt_path: Path,
+    original_prefix_512_path: Path,
     manifest_paths: list[Path],
     output: Path,
     commit: str,
@@ -329,6 +403,9 @@ def run(
         raise ValueError("corpus fixture SHA-256 mismatch")
     if sha256_file(verification_path) != VERIFICATION_SHA256:
         raise ValueError("checkpoint verification SHA-256 mismatch")
+    if sha256_file(failure_receipt_path) != FAILURE_RECEIPT_SHA256:
+        raise ValueError("failed 8K safety-stop receipt SHA-256 mismatch")
+    validate_failure_receipt(json.loads(failure_receipt_path.read_text()))
     topk_fixture = json.loads(topk_fixture_path.read_text())
     validate_topk_fixture(topk_fixture)
     corpus = json.loads(corpus_path.read_text())
@@ -344,7 +421,20 @@ def run(
         "topk_fixture": TOPK_FIXTURE_SHA256,
         "corpus_fixture": CORPUS_FIXTURE_SHA256,
         "checkpoint_verification": VERIFICATION_SHA256,
+        "failed_8k_safety_stop_receipt": FAILURE_RECEIPT_SHA256,
     }
+    original_512_hash = sha256_file(original_prefix_512_path)
+    if original_512_hash != ORIGINAL_PREFIX_512_SHA256:
+        raise ValueError("original prefix-512 control SHA-256 mismatch")
+    original_512 = json.loads(original_prefix_512_path.read_text())
+    original_512_summary, original_512_routes = validate_manifest(
+        original_512,
+        512,
+        corpus,
+        ORIGINAL_RUNTIME_COMMIT,
+        False,
+    )
+    source_hashes["original_prefix_512_control"] = original_512_hash
     summaries = []
     previous_routes = None
     previous_positions = None
@@ -355,7 +445,29 @@ def run(
         if positions in FROZEN_PREFIX_HASHES and actual_hash != FROZEN_PREFIX_HASHES[positions]:
             raise ValueError(f"frozen prefix-{positions} manifest SHA-256 mismatch")
         manifest = json.loads(path.read_text())
-        summary, routes = validate_manifest(manifest, positions, corpus)
+        uses_kv_release = positions in (512, 8000)
+        expected_runtime_commit = {
+            512: KV_RELEASE_EQUIVALENCE_COMMIT,
+            8000: FAILURE_PRESERVING_RUNTIME_COMMIT,
+        }.get(positions, ORIGINAL_RUNTIME_COMMIT)
+        summary, routes = validate_manifest(
+            manifest,
+            positions,
+            corpus,
+            expected_runtime_commit,
+            uses_kv_release,
+        )
+        if positions == 512:
+            summary["kv_release_equivalence"] = compare_kv_release_control(
+                original_512_routes, routes
+            )
+            if (
+                summary["distinct_layer_expert_records"]
+                != original_512_summary["distinct_layer_expert_records"]
+                or summary["pytorch_topk_boundary_tie_rows"]
+                != original_512_summary["pytorch_topk_boundary_tie_rows"]
+            ):
+                raise ValueError("K/V release changed prefix-512 coverage accounting")
         if previous_routes is not None:
             summary["comparison_with_previous_prefix"] = compare_route_prefix(
                 previous_routes, routes, previous_positions
@@ -380,7 +492,11 @@ def run(
         "evidence_class": "pw0157_pinned_pytorch_topk_route_coverage",
         "revision": REVISION,
         "analyzer_commit": commit,
-        "runtime_commit": RUNTIME_COMMIT,
+        "runtime_commits": {
+            "original_prefixes_512_1024_2048_4096": ORIGINAL_RUNTIME_COMMIT,
+            "kv_release_equivalence_prefix_512": KV_RELEASE_EQUIVALENCE_COMMIT,
+            "failure_preserving_prefix_8000": FAILURE_PRESERVING_RUNTIME_COMMIT,
+        },
         "source_hashes": source_hashes,
         "prefixes": summaries,
         "final_coverage": {
@@ -404,7 +520,9 @@ def run(
         "performance_claim": None,
         "endpoint_tps": None,
         "limitations": (
-            "exact source route coverage and optimistic storage capacity only; not measured storage, "
+            "exact source route coverage and optimistic storage capacity only; the 512-position "
+            "control proves post-layer K/V release preserves route semantics across the bounded "
+            "runtime change; not measured storage, "
             "CUDA, full-capability hardware, prefill latency, accepted decode, or endpoint TPS"
         ),
     }
@@ -417,6 +535,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("topk_fixture", type=Path)
     parser.add_argument("corpus", type=Path)
     parser.add_argument("verification", type=Path)
+    parser.add_argument("failure_receipt", type=Path)
+    parser.add_argument("original_prefix_512", type=Path)
     for positions in PREFIXES:
         parser.add_argument(f"prefix_{positions}", type=Path)
     parser.add_argument("output", type=Path)
@@ -431,6 +551,8 @@ def main() -> None:
         args.topk_fixture,
         args.corpus,
         args.verification,
+        args.failure_receipt,
+        args.original_prefix_512,
         paths,
         args.output,
         args.commit,

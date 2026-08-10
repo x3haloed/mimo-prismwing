@@ -1,7 +1,9 @@
 import unittest
 
 from tools.analyze_pinned_topk_route_coverage import (
+    KV_CACHE_BYTES_PER_POSITION,
     compare_route_prefix,
+    compare_kv_release_control,
     compact_sha256,
     validate_route_rows,
 )
@@ -21,6 +23,20 @@ def trace(layer: int, positions: int, selected: list[list[int]]) -> dict:
 
 
 class PinnedTopkRouteCoverageTests(unittest.TestCase):
+    def test_kv_release_byte_ledger_covers_all_pinned_attention_layers(self) -> None:
+        self.assertEqual(KV_CACHE_BYTES_PER_POSITION, 445_440)
+
+    def test_kv_release_control_ignores_only_timing(self) -> None:
+        control = [trace(layer, 1, [list(range(8))]) for layer in range(48)]
+        candidate = [dict(row) for row in control]
+        for row in candidate:
+            row["wall_ms"] = 9.0
+        self.assertTrue(compare_kv_release_control(control, candidate)["exact"])
+        candidate[7] = dict(candidate[7])
+        candidate[7]["selected_experts_by_position"] = [list(range(1, 9))]
+        with self.assertRaisesRegex(ValueError, "changed route semantics"):
+            compare_kv_release_control(control, candidate)
+
     def test_rust_compatible_token_hash_is_compact_json(self) -> None:
         self.assertEqual(
             compact_sha256([1, 20, 300]),
