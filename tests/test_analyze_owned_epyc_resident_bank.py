@@ -1,6 +1,7 @@
 import unittest
 
 from tools.analyze_owned_epyc_resident_bank import (
+    CENSUS_EVIDENCE_CLASS,
     DIMM_PRICE_USD,
     EXPECTED_TENSOR_BYTES,
     capacity_row,
@@ -53,6 +54,12 @@ class OwnedEpycResidentBankTests(unittest.TestCase):
     def test_invalid_capacity_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "positive"):
             capacity_row(0)
+
+    def test_census_evidence_class_is_not_overstated(self):
+        self.assertEqual(
+            CENSUS_EVIDENCE_CLASS,
+            "pinned_remote_headers_not_local_payload_verification",
+        )
 
 
 if __name__ == "__main__":

@@ -26,6 +26,7 @@ except ModuleNotFoundError:
 
 
 REVISION = "63651580ca774f8504f676040460aed3e1244ac1"
+CENSUS_EVIDENCE_CLASS = "pinned_remote_headers_not_local_payload_verification"
 CENSUS_SHA256 = "8ac4a179c7b0a06baee05e380dc76acd0a1a64cff4d3e2abe9572ce59afb5c52"
 PW0151_SHA256 = "d6919e47f0f4495ccac2ad56ebcfe6662b3309aebd3296c6b546a50836829cb1"
 MANUAL_SHA256 = "ec9a6b57cba938f74f555a731a0642df76ba83cdb350e51b855f6d0f9ad2dd1a"
@@ -146,7 +147,7 @@ def _authenticate_sources(
     census = json.loads(census_path.read_text())
     pw0151 = json.loads(pw0151_path.read_text())
     if (
-        census.get("evidence_class") != "remote_header_census"
+        census.get("evidence_class") != CENSUS_EVIDENCE_CLASS
         or census.get("revision") != REVISION
         or census.get("tensor_data_bytes") != EXPECTED_TENSOR_BYTES
         or sum(row["data_bytes"] for row in census.get("categories", {}).values())
