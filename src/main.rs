@@ -23,7 +23,7 @@ use prismwing::{
     run_real_layer0_trace, run_real_layer1_expert_trace, run_real_layer1_routing_trace,
     run_real_layer2_trace, run_real_layer4_trace, run_real_layer7_trace,
     run_real_routed_layer_trace, run_route_only_trace, run_routed_mixture_activation_corpus,
-    run_slow_text_endpoint,
+    run_slow_text_endpoint, run_structured_sparse_layer0_trace,
 };
 use std::path::PathBuf;
 use tokenizers::Tokenizer;
@@ -46,6 +46,10 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing global-attention-sparsity-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <pw0157-prefix512-manifest.json> <output-dir> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing structured-sparse-layer0-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <authority-fixture.json> <pw0176-fixture-manifest.json> <output-dir> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -636,6 +640,30 @@ fn main() {
                     &verification,
                     &fixture,
                     &pw0157_prefix512,
+                    &output,
+                    &arguments[8],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output.join("manifest.json")))
+                })
+            }
+            #[cfg(target_os = "macos")]
+            Some("structured-sparse-layer0-trace") if arguments.len() == 9 => {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let authority_fixture = PathBuf::from(&arguments[5]);
+                let pw0176_fixture = PathBuf::from(&arguments[6]);
+                let output = PathBuf::from(&arguments[7]);
+                run_structured_sparse_layer0_trace(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &authority_fixture,
+                    &pw0176_fixture,
                     &output,
                     &arguments[8],
                 )
