@@ -517,6 +517,21 @@ pending checkout, physical parts, installed storage/A770 measurements, and a
 base-aligned proposer. The authoritative report hashes to
 `2b38a618c0364ce2c11a7d93b2bf57e357c38d8cc5f3edfc2da954a6795da564`.
 
+PW-0173 tests whether newer released speculators remove PW-0170's proposer
+gap. They do not. After granting one target bonus, the published EAGLE-3,
+P-EAGLE, AngelSpec DFly, and BASTION configurations have maximum accepted
+paths of 9, 6, 8, and 17 tokens respectively. BASTION is strongest but remains
+39 tokens below the least demanding retained requirement, `A=56`. Its largest
+reported slice mean of 10.60 is 5.283x below `A=56` and 10.660x below the
+slow-storage Prismwing-50 requirement `A=113`, but these cross-model ratios are
+diagnostic rather than bounds.
+
+Reject all four audited released configurations as direct Prismwing proposers.
+Retain only a separately trained or scaled MiMo-specific `q>=137` form as an
+unproven research branch; do not infer feasibility, impossibility, endpoint
+TPS, or purchase authority. The authoritative report hashes to
+`15ec2cfa3ea80a3914ce500f3cb8288a2149cc1948469aeecde04922f6f7a16d`.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

@@ -755,3 +755,31 @@ code and Limited Edition form but do not prove function. It does not prove
 actual-destination checkout, component
 health, fit, original PSU cables, cooling, purchase authority, or installed
 performance.
+
+## Current speculative-decoding horizon authorities
+
+- Li et al., *EAGLE-3: Scaling up Inference Acceleration of Large Language
+  Models via Training-Time Test*, arXiv:2503.01840, accessed and captured
+  2026-08-10: <https://arxiv.org/pdf/2503.01840>.
+- Hui et al., *P-EAGLE: Parallel-Drafting EAGLE with Scalable Training*,
+  arXiv:2602.01469, accessed and captured 2026-08-10:
+  <https://arxiv.org/pdf/2602.01469>.
+- Liu et al., *AngelSpec: Towards Real-World High Performance Inference with
+  Speculative Decoding*, arXiv:2607.25852, accessed and captured 2026-08-10:
+  <https://arxiv.org/pdf/2607.25852>.
+- Oh et al., *Bastion: Budget-Aware Speculative Decoding with Tree-structured
+  Block Diffusion Drafting*, arXiv:2605.29727, accessed and captured
+  2026-08-10: <https://arxiv.org/pdf/2605.29727>.
+
+The immutable PDF captures hash respectively to
+`8a178337a1b05067907167dd81a43a7184596d71d4b795d6a0c73e6235fe1a27`,
+`35310a5280cd01e9c4d85be65aef9506728a69b17f09560ade26716a86dfbcd7`,
+`5eac19e3ac72136bdeab1f4d18e83c9e7a99ec34babe63514b812efebb69e324`,
+and
+`90d3c6045f7e177838e8de81cb760ca6f3250b86a01ae62ab76fb8a9a08386d9`.
+
+Decision: primary architecture, configured-depth, tree-budget, prerequisite,
+and reported-acceptance authority for PW-0173. These papers bind the audited
+released configurations, not MiMo behavior. Their cross-model acceptance
+means and GPU speedups are not Prismwing measurements or universal proposer
+bounds.

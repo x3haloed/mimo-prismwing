@@ -1,7 +1,8 @@
 # PW-0173 — current speculator horizon audit
 
-- Status: ready
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected for all audited released configurations; unbuilt
+  MiMo-specific `q>=137` branch remains unproven
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Model/reference: MiMo revision
@@ -11,7 +12,8 @@
   no model execution or endpoint claim
 - Related records: PW-0044, PW-0102, PW-0103, PW-0152, PW-0169 through
   PW-0172; E2 and E7
-- Implementation commit and dirty state: pending
+- Implementation commit and dirty state:
+  `cbaf46798a5b244d91c28a87d4962dfdafda2066`, clean
 
 ## Question and changed premise
 
@@ -77,5 +79,36 @@ impossible from this audit.
 
 ## Result
 
-Pending source capture, fail-closed analyzer, and execution from a clean
-implementation commit.
+Completed from the clean implementation commit. The authoritative manifest
+hashes to
+`15ec2cfa3ea80a3914ce500f3cb8288a2149cc1948469aeecde04922f6f7a16d`.
+It authenticates PW-0170 and immutable captures of all four primary papers.
+
+Every audited released configuration is structurally too short. The analyzer
+grants a target bonus even where source conventions differ:
+
+| Configuration | Published depth | Favorable maximum path | Largest reported slice mean |
+| --- | ---: | ---: | ---: |
+| EAGLE-3 | 8 | 9 | 7.54 |
+| P-EAGLE | 5 | 6 | 4.50 |
+| AngelSpec DFly | 7 draft positions | 8 | 6.42 |
+| BASTION | block 16 | 17 | 10.60 |
+
+BASTION is the strongest structural control and still falls 39 tokens short
+of PW-0170's least demanding `A=56` branch. Its best reported slice mean is
+only a cross-model prior: PW-0170's `A={56,77,81,113}` requirements are
+`{5.2830,7.2642,7.6415,10.6604}` times that mean. Those ratios do not bound a
+hypothetical scaled or MiMo-trained proposer.
+
+Reject EAGLE-3, P-EAGLE, the released AngelSpec block-eight forms, and BASTION
+as direct PW-0170 proposers. The only residual speculation branch is a newly
+trained or scaled MiMo-specific `q>=137` proposer with exact target correction;
+its feasibility is not established. None of the audited projects publishes a
+MiMo-compatible draft checkpoint, and all neural forms require target-specific
+weights and target hidden-state or distribution access.
+
+Gate 8 passes with 72% minimum free memory, 35,520,512-byte peak RSS,
+17,728,896-byte maximum physical footprint, zero swap growth or throttling, an
+explicit release boundary, and stable protected services. This source audit
+records zero accepted Prismwing tokens, no endpoint TPS, no measured
+throughput-model constant changes, and no purchase authority.

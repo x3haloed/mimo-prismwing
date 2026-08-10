@@ -3353,3 +3353,26 @@ Gate 8 passes at 72% minimum free memory, 29,163,520-byte peak RSS,
 an explicit release boundary, and stable services. PW-0172 records zero
 accepted tokens, no endpoint TPS, and no measured throughput-model constant
 changes; authorize no purchase.
+
+PW-0173 closes the implication that a newer released speculative-decoding
+configuration can directly supply PW-0170's missing horizon. After favorably
+granting one target bonus token, EAGLE-3, P-EAGLE, AngelSpec DFly, and BASTION
+have maximum published paths of 9, 6, 8, and 17 tokens. The strongest is still
+39 tokens short of PW-0170's least demanding `A=56` requirement. Reject all
+four audited configurations as direct Prismwing proposers.
+
+BASTION's largest reported slice mean accepted length is 10.60. The retained
+`A={56,77,81,113}` requirements are 5.2830x, 7.2642x, 7.6415x, and 10.6604x
+that value. This is a cross-model research prior, not a MiMo bound: preserve a
+newly trained or scaled MiMo-specific `q>=137` proposer as an explicitly
+unproven residual branch. No audited project publishes compatible MiMo draft
+weights, and the neural configurations require target-specific training and
+hidden-state or distribution access.
+
+The authoritative report hashes to
+`15ec2cfa3ea80a3914ce500f3cb8288a2149cc1948469aeecde04922f6f7a16d`.
+Gate 8 passes at 72% minimum free memory, 35,520,512-byte peak RSS,
+17,728,896-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0173 records zero
+accepted Prismwing tokens, no endpoint TPS, no measured throughput-model
+constant changes, and no purchase authority.
