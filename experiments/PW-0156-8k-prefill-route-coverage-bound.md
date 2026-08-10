@@ -1,7 +1,7 @@
 # PW-0156 — 8K prefill route-coverage storage bound
 
-- Status: ready
-- Disposition: unexecuted
+- Status: completed
+- Disposition: inconclusive
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -16,7 +16,8 @@
 - Hardware/runtime: Apple M1 shared 16 GiB; internal SSD; source-FP8
   target-faithful route-only reference; evidence generation only
 - Related records: PW-0112, PW-0128, PW-0151, PW-0154, PW-0155; E7
-- Implementation commit and dirty state: pending
+- Implementation commit and dirty state:
+  `6f0c0075cb9c3c1f17fdee81e5bd8940d21a9c84`; clean at execution
 
 ## Question and changed premise
 
@@ -127,4 +128,30 @@ manifest lands. Do not add another corpus after observing the panel.
 
 ## Result
 
-Pending execution from a clean implementation commit.
+The closed five-member panel produced no authoritative 512-position manifest.
+Each run failed closed when the eighth and ninth router logits were exactly
+tied under the source-FP8 route computation:
+
+| Frozen LEARNINGS token window | First tied causal position |
+| --- | ---: |
+| 8,000 | 509 |
+| 16,000 | 309 |
+| 24,000 | 20 |
+| 32,000 | 146 |
+| 40,000 | 423 |
+
+The earlier primary and alternate fixtures stopped at positions 466 and 261.
+No run published a manifest, coverage count, Gate-8 pass, or endpoint metric.
+This is the required safe outcome: PyTorch does not promise stable indices for
+tied `topk` elements, and selecting either tied expert would change all later
+hidden states and routes. The custom C++ `nth_element` result is therefore not
+an authority for this claim.
+
+PW-0156 neither reaches nor clears the 9,003-record kill gate. Preserve the
+two-P100/four-lane prefill branch as conditional, with its 8K route coverage
+unknown. Do not add another text corpus to evade the observed ties. A renewed
+walk must obtain tied route indices from the pinned source-framework execution
+itself, or first prove an implementation exactly reproduces that authority;
+hosted OpenRouter output cannot supply internal expert selections. The
+verified-install device-drift repair remains promoted independently because it
+is covered by its exact receipt-identity tests.

@@ -298,6 +298,18 @@ label, while one P100 auxiliary input is specified up to the full 20-A label
 of one rail. Preserve the topology as conditional, authorize no purchase, and
 measure 8K route coverage before asking for physical validation.
 
+PW-0156 attempts the next cheap falsification: count monotonic distinct
+`(layer, expert)` records over an exact 8K causal prefill and reject the
+four-lane source-FP8 branch at 9,003 records. It is inconclusive. The primary,
+alternate, and all five pre-frozen panel corpora encounter exact eighth/ninth
+router-logit ties before the contracted 512-position prefix; the panel stops
+are 509, 309, 20, 146, and 423. Because PyTorch does not promise stable tied
+`topk` indices, the C++ selection cannot authorize downstream states. No
+manifest, coverage result, Gate-8 pass, or endpoint metric was published.
+Do not search further corpora. Retain the hardware branch conditionally and
+renew this walk only with source-framework route-index authority or a proven
+exact equivalent.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

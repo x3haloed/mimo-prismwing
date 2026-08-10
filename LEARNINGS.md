@@ -2940,3 +2940,20 @@ conditional. The authoritative manifest hashes to
 Gate 8 passes with 67% minimum free memory, 45,236,224-byte peak RSS, zero swap
 growth or new throttled pages, and stable services. PW-0155 reports zero
 accepted tokens, no endpoint TPS, and no throughput-model constant changes.
+
+PW-0156 establishes that exact source-FP8 router boundary ties are not rare
+enough to ignore in long causal route traces. The primary and alternate 8K
+fixtures stopped at causal positions 466 and 261. A closed, pre-frozen panel
+then stopped at positions 509, 309, 20, 146, and 423. None produced the
+contracted 512-position manifest, so there is no observed distinct-expert
+count and no evidence for either side of the 9,003-record four-lane prefill
+gate.
+
+Supersede the assumption that custom `nth_element` tie choice can serve as an
+exact PyTorch routing authority merely because untied fixtures agree. A tied
+expert changes all downstream hidden states; prompt selection cannot repair
+that semantic gap. Preserve the two-P100/four-lane branch as conditional and
+require actual source-framework route indices, or a separately proven exact
+equivalent, before repeating the coverage walk. No throughput-model constant
+changes, and no Gate-8 or endpoint claim follows from these no-manifest safe
+stops.
