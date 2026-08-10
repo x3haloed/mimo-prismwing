@@ -491,6 +491,19 @@ four-lane storage as an unmeasured conditional branch. The card leaves
 or purchase follows. The authoritative report hashes to
 `c8eba5c4348378177d0d297b8eb4713fd9be71aa2f5a7c2790895c35859af5af`.
 
+PW-0171 tests that remaining procurement premise against exact active storage.
+Four quantity-available used Samsung PM981a 256-GB drives, one observed order
+shipping fee, and an active quad-M.2 passive-bifurcation carrier total at least
+`$208.10`. With PW-0169's `$311.71` card observation, the favorable lower
+bound is `$519.81`, already `$19.81` over the complete cap before tax, GPU
+cables, or cooling. Reject this exact active BOM and supersede the claim that
+`$188.29` is credible complete-BOM room. Capacity and nameplate are adequate:
+four drives provide 1.024 decimal TB and Samsung specifies 3,500 MB/s read per
+drive, but neither sustained concurrent bandwidth nor platform bifurcation is
+measured. Retain only a price-triggered or already-owned-storage reopening;
+authorize no purchase. The authoritative report hashes to
+`14549b38ee1daee523fd5a76ca9654cdcf7aa6284c651fb36eccac68908b28d3`.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,
