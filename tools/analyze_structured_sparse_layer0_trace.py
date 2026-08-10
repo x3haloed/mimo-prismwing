@@ -286,10 +286,15 @@ def validate_raw(raw: dict, commit: str) -> None:
     ):
         if not isinstance(raw.get(name), str) or len(raw[name]) != 64:
             raise ValueError(f"PW-0176 raw hash missing: {name}")
+    validate_ledger_and_timing(raw)
+    validate_observations_and_safety(raw)
+
+
+def validate_ledger_and_timing(raw: dict) -> None:
     ledger = raw.get("ledger", {})
     if (
         ledger.get("fp8_matrices_expanded") != 1
-        or ledger.get("bf16_matrices_expanded") != 1
+        or ledger.get("bf16_matrices_expanded") != 0
         or ledger.get("dynamic_activation_values") != 65_536 * 4096
         or not isinstance(ledger.get("actual_process_disk_bytes_read"), int)
         or ledger.get("peak_resident_bytes", 0) <= 0
@@ -298,6 +303,9 @@ def validate_raw(raw: dict, commit: str) -> None:
         or raw["complete_wall_ms"] <= 0.0
     ):
         raise ValueError("PW-0176 raw ledger or timing mismatch")
+
+
+def validate_observations_and_safety(raw: dict) -> None:
     observations = raw.get("observations")
     if not isinstance(observations, list) or len(observations) != EXPECTED_OBSERVATIONS:
         raise ValueError("PW-0176 raw observation count mismatch")

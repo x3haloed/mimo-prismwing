@@ -1,6 +1,6 @@
 # PW-0176 — MiMo 64K structured sparse-prefill layer-0 oracle
 
-- Status: planned
+- Status: ready
 - Disposition: unexecuted
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
@@ -119,4 +119,23 @@ adjudicating structured sparsity.
 
 ## Result
 
-Unexecuted. No conclusion may be drawn from this record yet.
+The first fixture at commit
+`d32406fd07f94bc1963dfeb1dac5bc3ed8a0da5c` successfully renders and
+round-trips exactly 65,536 token IDs. Its manifest hashes to
+`9ab288863be5bf27b1339d803eae90cd7297be0b35bbd08e2981e5c50dbba4a5`;
+the external token payload hashes to
+`7a5c2d35b51d6a05b6d445d575bd08d68fed91a8997ec1e13cdc4c31e71cc507`.
+Fixture Gate 8 passes at 70% minimum free memory, 300,010,368-byte maximum
+physical footprint, 568,328,192-byte peak RSS, zero swap growth or
+throttling, and resident protected services.
+
+The corresponding source walk completed all 64 QKV chunks, 64 selector
+heads, 1,536 sampled head-queries, and bit-exact full-selection controls. Its
+raw manifest hashes to
+`897a6ffe20863b6ecc64040d58fd5e8e930c99c759e1a29e4a0f8edd612adc9c`.
+The frozen analyzer correctly refused to adjudicate it because it expected
+one expanded BF16 matrix while the runtime ledger recorded zero: layer-0 RMS
+uses a BF16 vector, and the only expanded matrix is the FP8 QKV weight. Repair
+that ledger expectation with a direct regression test, regenerate the
+commit-bound fixture, and rerun. Preserve `raw-001` as an invalid analyzer-
+contract attempt and infer no structured-sparsity result from it.

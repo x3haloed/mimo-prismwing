@@ -5,11 +5,28 @@ from tools.analyze_structured_sparse_layer0_trace import (
     nearest_rank,
     summarize_best_pair_per_head_query_oracle,
     summarize_pair,
+    validate_ledger_and_timing,
     validate_safety,
 )
 
 
 class StructuredSparseLayer0AnalyzerTests(unittest.TestCase):
+    def test_ledger_counts_the_qkv_matrix_but_not_the_rms_vector(self):
+        raw = {
+            "ledger": {
+                "fp8_matrices_expanded": 1,
+                "bf16_matrices_expanded": 0,
+                "dynamic_activation_values": 65_536 * 4096,
+                "actual_process_disk_bytes_read": 1,
+                "peak_resident_bytes": 1,
+            },
+            "complete_wall_ms": 1.0,
+        }
+        validate_ledger_and_timing(raw)
+        raw["ledger"]["bf16_matrices_expanded"] = 1
+        with self.assertRaisesRegex(ValueError, "ledger or timing"):
+            validate_ledger_and_timing(raw)
+
     def test_nearest_rank_is_conservative(self):
         self.assertEqual(nearest_rank([4.0, 1.0, 3.0, 2.0], 0.50), 2.0)
         self.assertEqual(nearest_rank([4.0, 1.0, 3.0, 2.0], 0.99), 4.0)
