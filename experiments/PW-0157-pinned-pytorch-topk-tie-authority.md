@@ -1,14 +1,18 @@
 # PW-0157 — pinned PyTorch top-k tie authority
 
-- Status: ready
-- Disposition: unexecuted
+- Status: completed
+- Disposition: correctness-repair
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Model/reference: PyTorch `2.13.0`, commit
   `cf30153c4c131c8164ee7798e5022d810682e2cb`; MiMo revision
   `63651580ca774f8504f676040460aed3e1244ac1`
 - Related records: PW-0063, PW-0091, PW-0156
-- Implementation commit and dirty state: pending
+- Implementation commits: pinned top-k bridge and bounded walk
+  `f677893a12fc5631ddcdecf8fc407b7d1178c3f5`; one-shot K/V release
+  `7c0bf18390fcf064258e9486a6ee467d77f0d035`; failure-preserving 8K
+  runtime `6368ae80e67e73e008751c5add20780e86b02b0d`; clean analyzer
+  `72b970244d8c8513d683d4c4d632493ecf76c10f`
 
 ## Hypothesis and changed premise
 
@@ -57,4 +61,33 @@ fixture authority, not an inference dependency.
 
 ## Result
 
-Pending implementation and execution from a clean commit.
+The correctness repair passes. The hash-pinned PyTorch 2.13.0/libc++ fixture
+and native bridge agree exactly on all five adversarial tied rows, including
+unsorted index order. The real walks observed 3, 9, 12, 23, and 63 top-k
+boundary-tied rows at prefixes 512, 1,024, 2,048, 4,096, and 8,000. PW-0156's
+blanket tie rejection is therefore superseded only for this pinned executable
+authority.
+
+The 512-position original control and one-shot K/V-release walk match every
+route-semantic field exactly. The bounded runtime then completed all 8,000
+positions and touched 4,903 distinct `(layer, expert)` records. After the
+impossible grant of 660 perfectly chosen resident records, 4,243 records or
+`106,804,660,224` source bytes remain to stream. This is 4,100 records below
+the predeclared 9,003-record rejection boundary, so retain only the optimistic
+four-lane 8K storage-capacity condition. It is not a measured storage result
+and does not reverse PW-0158's complete two-P100 rejection.
+
+The five exact distinct-record observations are 2,980, 3,572, 4,456, 4,585,
+and 4,903. The 8K walk took `19,765.815` seconds; this timing is diagnostic CPU
+oracle time, not prefill TPS or hardware performance. It read
+`132,160,770,048` process bytes and peaked at `3,967,156,224` bytes RSS.
+Gate 8 passes with 69% minimum free memory, `3,866,898,752` bytes maximum
+physical footprint, zero swap growth or throttling, a
+`1,990,219,520`-byte post-release footprint, and stable protected services.
+
+Raw 8K evidence hashes to
+`8cfc737df848f4a98cb0774c7367d1e95f5311e051dd5787842712ca6c2fd163`.
+The authoritative offline analysis hashes to
+`e7df87bb326e543b5b500c698eae1700d2fd204d6b2d2a833736706456955cfc`.
+PW-0157 reports zero accepted tokens, no endpoint TPS, no purchase authority,
+and no promoted runtime default.

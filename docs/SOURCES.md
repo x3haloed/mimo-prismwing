@@ -605,3 +605,232 @@ and a 450-W minimum PSU. The ISA distinguishes dense BF16/F32-accumulate WMMA
 from the sparse form requiring two zero elements per four. The release binds
 16-GB SEP to `$349`; the market row records a new in-stock `$449.99` card with
 free shipping before unknown tax and is not delivered purchase authority.
+
+## Affordable Xe2 envelope authorities
+
+- Intel, Arc B-series desktop product specifications, accessed and captured
+  2026-08-10:
+  <https://www.intel.com/content/www/us/en/products/details/discrete-gpus/arc/desktop/b-series.html>.
+- Intel, *AI Data Types and Native Hardware Support*, accessed and captured
+  2026-08-10:
+  <https://www.intel.com/content/www/us/en/support/articles/000098346/graphics.html>.
+- Intel, *Intel Xe GPU Architecture*, accessed and captured 2026-08-10:
+  <https://www.intel.com/content/www/us/en/docs/oneapi/optimization-guide-gpu/2025-2/intel-xe-gpu-architecture.html>.
+- Intel, *Intel Arc B-Series Graphics Quick Reference Guide*, and official
+  B-series launch release, accessed and captured 2026-08-10:
+  <https://download.intel.com/newsroom/2024/client-computing/Intel-Arc-B-Series-Graphics-Quick-Reference-Guide.pdf>
+  and
+  <https://download.intel.com/newsroom/archive/2025/en-us-2024-12-03-intel-launches-arc-bseries-graphics-cards.pdf>.
+- Intel Graphics Compiler commit
+  `2eefea9414f2064b2250045305b28a2f73d4f644`, pinned 2026-08-10:
+  <https://github.com/intel/intel-graphics-compiler/tree/2eefea9414f2064b2250045305b28a2f73d4f644>.
+
+The product page hashes to
+`f823f01910776e04f4ac5b3bb151b960cb857c96630ca9cbead15a86986679c8`;
+the datatype page hashes to
+`79c9b9a32ccb7d1869777d85384cd06ddc4b2238218eead74cd03c978a40f3d1`;
+the Xe architecture page hashes to
+`ae4b7eaa179b7eabb5383b951f7b6bd8ae27058f727c724a534acc835899881f`;
+the QRG hashes to
+`6957f49863018e0226b126f5500a97304ff7cab2a9fe61e75019cc7db51b1d4e`;
+and the launch release hashes to
+`597c943c6a4a7ab6d929a4f47c6731fe45427d1b5715bd7369765f8b3437e934`.
+At the pinned IGC commit, the DPAS specification hashes to
+`79ba16ab6716e9099aaaf88875d7213c1a2581601aae8fd7e20fcd70d7737170`
+and the Xe2 scheduling table hashes to
+`17502f5b5050ec5538ae3424d09d07a6aea5d32f92b01d71b221bb58f60800c6`.
+
+Decision: technical and launch-price authority for PW-0166. Intel binds B580
+to Xe2-HPG, 20 Xe cores, 160 XMX engines, 12 GB, 190-W total board power,
+233 peak INT8 XMX TOPS, BF16 and INT8 XMX support, and a `$249` launch price.
+The pinned compiler sources bind BF16 and INT8 DPAS operations per channel and
+the precision-independent Xe2 scheduling premise used to derive a
+source-oriented BF16 ceiling. They do not establish delivered cost, installed
+oneAPI performance, fit, cabling, cooling, or purchase authority.
+
+## Affordable Xe-HPG envelope authorities
+
+- Intel, Arc A770 16-GB product specifications, accessed and captured
+  2026-08-10:
+  <https://www.intel.com/content/www/us/en/products/sku/229151/intel-arc-a770-graphics-16gb/specifications.html>.
+- Intel, *Intel Xe GPU Architecture* (Xe-HPG section), accessed and captured
+  2026-08-10:
+  <https://www.intel.com/content/www/us/en/docs/oneapi/optimization-guide-gpu/2024-1/xe-arch.html>.
+- Intel, *Intel Arc A-Series Graphics — Desktop Quick Start Guide*, accessed
+  and captured 2026-08-10:
+  <https://www.intel.com/content/www/us/en/support/articles/000091128/graphics/intel-arc-dedicated-graphics-family.html>.
+- Intel, oneAPI 2026 system requirements, accessed and captured 2026-08-10:
+  <https://www.intel.com/content/www/us/en/developer/articles/release-notes/oneapi-toolkit/2026.html>.
+- Supermicro FAQ 42887, H11SSL-i Resizable BAR support, accessed and captured
+  2026-08-10:
+  <https://www.supermicro.com/en/support/faqs/faq.php?faq=42887>.
+- Dated semantic transcriptions of eBay items `358221920938` and
+  `137194058039`, observed sold at `$245` and `$215.50` respectively on
+  2026-08-10 after direct fetches returned HTTP 403.
+
+The A770 product page hashes to
+`b4691de4514c938e8c0d386a6d1fa6583b96479b4c11ad4aed2726ac1527eccd`;
+the Xe-HPG architecture page hashes to
+`0bc5fddeb681428ce63a8972b6b5eb53a002ea4e7eb6541fab52898f62771d0b`;
+the Arc quick-start page hashes to
+`c7402269d97f457527b7de660dc87adbd62e1284ce0afc57a97fc246f0fb9133`;
+the oneAPI requirements page hashes to
+`58c984149a1e39359c0211826da1a288a610bc97e0b2646668b988d79cb8cec2`;
+the Supermicro FAQ hashes to
+`4441674b68b105dcd82df6bfb938e7781af6e84aa45e0ac566b3ff7ba9b36794`;
+the owned-host inventory hashes to
+`b8b84a557eabea9c1781186357cf0f2f4fbf75ca7c8a74656beff26fac15978b`;
+and the explicitly weaker sold-market transcription hashes to
+`e1774ad682ed47ee897831df47719164850dc0ba6c8136e9c3821cd708ee4385`.
+
+Decision: technical, platform, and historical-price authority for PW-0167.
+Intel binds A770 to Xe-HPG, 512 XMX engines, 262 dense INT8 XMX TOPS, 16 GB,
+560 GB/s, PCIe 4.0 x16, 225-W total board power, and oneAPI support. Xe-HPG's
+published datatype ratio supports the derived 131-TFLOPS BF16 ceiling.
+Supermicro binds the owned H11 generation to absent native ReBAR support;
+Intel binds ReBAR and supported client-GPU Linux prerequisites. The sold rows
+do not establish active inventory, a delivered BOM, installation, or measured
+oneAPI performance.
+
+## Active A770 Photon exact-board authorities
+
+- GUNNIR, A770 Photon 16G OC product page and official specification panel,
+  accessed and captured 2026-08-10:
+  <https://www.gunnir.cn/home/product?id=8052c305-0ca4-4630-aafb-97ba53463d98&modelid=d5512409-d36e-475e-8343-37a5301eb47f>.
+- eBay item `127017511242`, dated semantic transcription observed 2026-08-10
+  after a direct command-line fetch returned HTTP 403:
+  <https://www.ebay.com/itm/127017511242>.
+
+The official product HTML hashes to
+`44830fe78ed6971bca45a19df127175419256486318b89147f67202f291a8e1d`;
+the specification panel hashes to
+`75149fac3b91f3447967121a4ea704b31f7be289611924f442ce2870f7a313e7`;
+its image-bound semantic transcription hashes to
+`bc34e4a4e2bb6c76186d82318f3df92c1ad3d8fc8ebfdeb0f959dc15656921d0`;
+and the explicitly weaker moving-market transcription hashes to
+`c8f040b06ac9e6d776b5ce0d4333090b4bf7087569c73dee0670c8f2c0773836`.
+
+Decision: exact-board identity, dimension, connector, TBP, and dated active-
+market authority for PW-0168. GUNNIR binds this Photon to 16 GB, two 8-pin
+inputs, 285-W TBP, and 300x118.5x50-mm dimensions. The listing records `$411`
+plus `$20` shipping, four available, and import fees included, but it does not
+authenticate destination tax, delivered complete cost, physical fit, original
+PSU cables, cooling, purchase authority, or installed performance.
+
+## Active A770 Limited Edition authorities
+
+- Intel support article 000092554, Limited Edition dimensions, accessed
+  2026-08-10:
+  <https://www.intel.com/content/www/us/en/support/articles/000092554/graphics.html>.
+- Intel support article 000092523, Limited Edition power connectors and TBP,
+  accessed 2026-08-10:
+  <https://www.intel.com/content/www/us/en/support/articles/000092523/graphics.html>.
+- eBay item `168591709192`, direct active listing observed 2026-08-10:
+  <https://www.ebay.com/itm/168591709192>.
+
+Command-line fetches returned HTTP 403, so the two direct official-page
+semantic captures hash to
+`c7656a01a4aa734b6488309d430eaaf61ad6b48df353d3aeca7a6a357a9eece5`
+and
+`369554f262e5409f7795823b1904ef6767a7af69f7a5c41fba2d445a668450b1`.
+The explicitly weaker moving-market transcription hashes to
+`dd2551749fd8c508d76deea4ea7810ac7ca76a5c181c59df09f9d47e7070d080`.
+The four original listing images hash respectively to
+`da65a27c20d54a6e00d2058b71c518521d14ee8e8f7841d178e7a814dc9319a3`,
+`dd9b6a26ea5e8f06aaacd40c314ce46a6bb16026a5e8a21f3a7a6ad191789330`,
+`9658830c4bbea8c094318ec770c4ba712d7220874147bc02b483d84ac3ad2f99`,
+and
+`1711a34b9557a00579906f8762f31840e17c511879391a7deae1f94352517f50`;
+their image-bound semantic transcription hashes to
+`f8555eab28b8e5bade3aef7b29b7a04b9edff7101f75c52b092d6de7bf1d8d41`.
+PW-0169 additionally authenticates PW-0167's raw Intel product capture.
+
+Decision: exact reference-card dimensions, power, connector, and dated active-
+market authority for PW-0169. Intel binds the A770 Limited Edition to 225-W
+TBP, required 8-pin plus 6-pin inputs, and 279.9x126.36x42-mm maximum extents.
+The used listing identifies MPN `21P01J00BA`, shows `$300` plus `$11.71`
+rendered shipping, domestic location, seller-described working order, and no
+seller returns. The box and card images independently bind the 16-GB product
+code and Limited Edition form but do not prove function. It does not prove
+actual-destination checkout, component
+health, fit, original PSU cables, cooling, purchase authority, or installed
+performance.
+
+## Current speculative-decoding horizon authorities
+
+- Li et al., *EAGLE-3: Scaling up Inference Acceleration of Large Language
+  Models via Training-Time Test*, arXiv:2503.01840, accessed and captured
+  2026-08-10: <https://arxiv.org/pdf/2503.01840>.
+- Hui et al., *P-EAGLE: Parallel-Drafting EAGLE with Scalable Training*,
+  arXiv:2602.01469, accessed and captured 2026-08-10:
+  <https://arxiv.org/pdf/2602.01469>.
+- Liu et al., *AngelSpec: Towards Real-World High Performance Inference with
+  Speculative Decoding*, arXiv:2607.25852, accessed and captured 2026-08-10:
+  <https://arxiv.org/pdf/2607.25852>.
+- Oh et al., *Bastion: Budget-Aware Speculative Decoding with Tree-structured
+  Block Diffusion Drafting*, arXiv:2605.29727, accessed and captured
+  2026-08-10: <https://arxiv.org/pdf/2605.29727>.
+
+The immutable PDF captures hash respectively to
+`8a178337a1b05067907167dd81a43a7184596d71d4b795d6a0c73e6235fe1a27`,
+`35310a5280cd01e9c4d85be65aef9506728a69b17f09560ade26716a86dfbcd7`,
+`5eac19e3ac72136bdeab1f4d18e83c9e7a99ec34babe63514b812efebb69e324`,
+and
+`90d3c6045f7e177838e8de81cb760ca6f3250b86a01ae62ab76fb8a9a08386d9`.
+
+Decision: primary architecture, configured-depth, tree-budget, prerequisite,
+and reported-acceptance authority for PW-0173. These papers bind the audited
+released configurations, not MiMo behavior. Their cross-model acceptance
+means and GPU speedups are not Prismwing measurements or universal proposer
+bounds.
+
+## Approximate speculative suffix-reuse authority
+
+- Feng et al., *Approximate Speculative Decoding*, arXiv:2608.03447, accessed
+  and captured 2026-08-10: <https://arxiv.org/pdf/2608.03447>.
+
+The immutable PDF capture hashes to
+`76813e2e94d7be83d964df710729897e728cf7f25e9c330a3cf5aa502ff91724`.
+
+Decision: primary mechanism, released-configuration, verifier-budget,
+accepted-length, changed-trajectory, task-score, and throughput authority for
+PW-0174. The paper's cross-model results do not establish MiMo behavior,
+Prismwing's hosted distributional gates, native modality fidelity, long-context
+capability, or endpoint TPS.
+
+## Structured sparse-prefill authorities
+
+- Jiang et al., *MInference 1.0: Accelerating Pre-filling for Long-Context
+  LLMs via Dynamic Sparse Attention*, arXiv:2407.02490, accessed and captured
+  2026-08-10: <https://arxiv.org/pdf/2407.02490>.
+- Microsoft, MInference repository commit
+  `a4eb395f949ea39e871f9bc586d683390692c6be`, accessed and captured
+  2026-08-10: <https://github.com/microsoft/MInference>.
+- Tang et al., *Quest: Query-Aware Sparsity for Efficient Long-Context LLM
+  Inference*, arXiv:2406.10774, accessed and captured 2026-08-10:
+  <https://arxiv.org/pdf/2406.10774>.
+- MIT HAN Lab, Quest repository commit
+  `01c1623bf9395009520874e989e29f683203b357`, accessed and captured
+  2026-08-10: <https://github.com/mit-han-lab/Quest>.
+
+The immutable MInference paper and complete source archive hash to
+`65ae8b76b24ef6a8752367e8b6067db5541b6c574591c6c3483ac0524d2c3ef6`
+and `3ca80a6fb543925bdc75be8d8e3341d5897736b383e5c59b1691bf5c808e52a5`.
+Its experiment README, selector implementation, and released GLM-4-9B-1M
+pattern map hash to
+`0fc0eb81903765796e53ac54b0b3295f003bf68947aa81c005c42cc57500a90a`,
+`b368e765fcc2021591f7cdf970e4e1a71731ed66f19e97023a13b70a02e6edc2`,
+and `6d35602b9a4f161e5d593392b883a2ca6c85bf20356e8612f55a49a47c50aa2c`.
+
+The immutable Quest paper and complete source archive hash to
+`ea98687fe7176d2ffaedc21634a9ba412fa582d43d530fcd98236c8d69fef5a5`
+and `07c941cf133bdbd9c87afc711059a5083d577039acc0fca3c8dd3b52b8040f4a`.
+Its README and prefill/decode orchestration capture hash to
+`fa698d2a67ef5f369afcc587d039dec1c7773c5f2270f4c7e5b63b6bf6b04d83`
+and `69fd75256a3985ffe23921e89aa498af17b3fd2225318b7951afd7b0a15c55a6`.
+
+Decision: primary mechanism, released-code scope, head-map parameter, and
+source-configuration authority for PW-0175. MInference supplies a structural
+prefill research prior, not a MiMo configuration or measured Prismwing rate.
+Quest's released source binds its sparse mechanism to decode and leaves
+prefill dense; this does not reject Quest for decode.

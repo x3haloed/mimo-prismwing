@@ -27,6 +27,13 @@ carrying estimates forward.
 **Pass:** every source tensor is assigned exactly once and totals match source
 indices and hashes.
 
+PW-0002 now passes for the pinned revision. A complete local SHA-256 receipt
+binds all 39 locked files with no omissions, and an independent local Rust
+header census assigns all 73,530 tensors. Its category counts and
+`315,683,674,448` tensor bytes exactly reproduce the earlier remote-header
+census. Preserve these receipts as L0 authorities and fail closed on revision,
+layout, count, or byte-total drift; no throughput constant changes.
+
 ## E1 — Official tiny and sampled forward fixtures
 
 **Question:** Can the MiMo architecture be reproduced before optimization?
@@ -310,13 +317,15 @@ Do not search further corpora. Retain the hardware branch conditionally and
 renew this walk only with source-framework route-index authority or a proven
 exact equivalent.
 
-PW-0157 tests that exact equivalent before adding any new corpus. The pinned
-PyTorch CPU source and Prismwing bridge both use libc++ `nth_element` over the
-same pair representation and strict comparator. Freeze adversarial tied rows
-from the actual PyTorch 2.13.0 build, require exact unsorted index order from
-the bridge, record real tie incidence, and only then rerun PW-0156's original
-512-position fixture. This is a correctness-authority repair, not permission
-to choose a convenient deterministic tie policy.
+PW-0157 closes that exact-equivalent question. The pinned PyTorch 2.13.0 CPU
+fixture and Prismwing's libc++ bridge match every tied unsorted index exactly;
+the original 512-position control and one-shot K/V-release runtime also match
+every route-semantic field. Exact walks through 512, 1,024, 2,048, 4,096, and
+8,000 positions touch 2,980, 3,572, 4,456, 4,585, and 4,903 distinct
+`(layer, expert)` records. The final count is 4,100 below the 9,003-record
+four-lane rejection boundary. Retain only that optimistic 8K storage-capacity
+condition; it neither measures the storage path nor repairs PW-0158's complete
+two-P100 million-context rejection.
 
 PW-0158 closes a separate full-capability prerequisite before the surviving
 two-P100 component envelope can motivate purchase. At exactly one million
@@ -407,6 +416,156 @@ that premise. Exact 1M BF16 KV alone exceeds 16 decimal GB by
 unknown tax and has favorable 160-W/one-8-pin PSU nameplates, but no complete
 BOM follows. Reject ordinary-dense RX 9060 XT permanently; preserve explicit
 2:4 weight modification, FP8, changed attention, and faster cards separately.
+
+PW-0166 closes the affordable Intel Xe2 counterexample without mislabeling
+Arc's official 233-INT8-TOPS row as BF16. Pinned Intel IGC DPAS semantics assign
+two operations per BF16 channel versus four per INT8 channel, while the Xe2
+scheduler models equal same-size DPAS latency and occupancy independent of
+precision. The resulting source-oriented B580 ceiling is 116.5-TFLOPS
+BF16/F32-accumulate. Even with the EPYC's impossible peak concurrently,
+mandatory 1M matrices plus ordinary attention need `1,826.6923` seconds,
+missing the complete gate by `26.6923` seconds before all omitted work.
+Exact BF16 KV alone exceeds 12 decimal GB by `11,065,559,040` bytes. The
+190-W board has favorable PSU nameplate margin and an official `$249` launch
+price, but neither proves installation or a delivered BOM. Permanently reject
+ordinary-dense B580; preserve changed attention, modified weights, faster Xe2
+products, and multi-card execution, and authorize no purchase or oneAPI work.
+
+PW-0167 tests the older 16-GB Arc A770 rather than assuming Xe2's generation
+name makes B580 the stronger source-oriented candidate. Intel publishes 262
+dense INT8 XMX TOPS for A770 and a 4,096:2,048 INT8-to-BF16 operation ratio for
+Xe-HPG, deriving a favorable 131-TFLOPS BF16 ceiling. With the EPYC's impossible
+peak concurrently, mandatory 1M matrices plus ordinary attention need
+`1,625.6406` seconds, leaving `174.3594` seconds before omitted costs. A770 is
+therefore retained as an arithmetic survivor, not promoted as performance.
+Exact 1M BF16 KV exceeds its 16 GB by `7,065,559,040` bytes, so layer-major or
+host/storage streaming is required. The owned H11SSL-i lacks native ReBAR,
+Intel warns ReBAR is needed for optimal Arc performance, and the owned Debian
+13 system is outside Intel's listed client-GPU Linux matrix. Require an active
+complete sub-`$500` BOM and reversible installed oneAPI BF16, PCIe, and
+ReBAR-off/on component evidence before purchase or implementation.
+
+PW-0168 replaces PW-0167's generic reference-card and sold-market premises
+with one authenticated exact active candidate. GUNNIR specifies its A770
+Photon 16G OC at 285-W TBP, two 8-pin inputs, and 300x118.5x50 mm. The active
+listing shows `$411` plus `$20` shipping, four available, and import fees
+included, leaving `$69` before unknown destination tax and installation parts.
+The 285-W board plus 170-W CPU leaves 277 W under the PSU's combined +12-V
+label, but exact clearance, original-compatible cables and pinout, checkout
+total, cooling, ReBAR, supported oneAPI environment, and installed performance
+remain unproved. Retain the candidate pending physical and checkout evidence;
+authorize neither purchase nor implementation. The authoritative report
+hashes to
+`dfd12ca7bb331003e28241e1c5eac49c579eecfa90cb5216fb41edb8a297f6bd`.
+
+PW-0169 finds a preferred domestic reference-board candidate. Intel's A770
+Limited Edition is 225 W, requires one 8-pin and one 6-pin input, and measures
+279.9x126.36x42 mm at its maximum bracket/connector extents. A direct active
+used listing shows `$300` plus `$11.71` rendered shipping, leaving `$188.29`
+before actual-destination differences, tax, and installation parts. That is
+credible BOM room and the 225-W card leaves 337 W of combined +12-V nameplate
+headroom, but seller-described working order is not validation and there are
+no seller returns. Four authenticated listing images bind the box's 16-GB
+`21P01J00BA` label and the Limited Edition card form, not component function.
+Retain physical clearance, original EVGA cables/pinout,
+actual checkout, cooling, ReBAR, supported oneAPI, and installed performance as
+gates. Prefer this listing over PW-0168 but authorize neither purchase nor
+implementation. The installed kill threshold is `118.238594` sustained
+BF16/F32-accumulate TFLOPS even when all omitted work costs zero, `90.2585%`
+of the derived A770 ceiling. Passing only retains the card. The authoritative
+report hashes to
+`127a898e54f51044bf68bf58f80d071e98b2e10130f2b008a6fe0d313d2d9db3`.
+
+PW-0170 closes the card-only decode-capacity ambiguity before physical work.
+After reserving all non-routed source tensors, three bounded arenas, and exact
+8K BF16 KV, the A770's 16 decimal GB leaves room for only 25 complete source
+experts. A causal prompt-frequency set avoids just 25 of the real `q=137`
+suffix's 903 union records (`2.76855%`), leaving `22,100,987,904` source bytes.
+Reject the A770 HBM cache as a primary mechanism.
+
+The strongest deliberately impossible envelope grants four independent
+3.5-GB/s lanes, the A770's full derived 131-TFLOPS BF16 peak, and the EPYC's
+impossible peak. It still needs `A=56/137` for 34.3 TPS and `A=81/137` for 50;
+four 2.5-GB/s lanes need `A=77` and `A=113`. Width-eight/16 speculation is
+structurally insufficient. Retain only a base-aligned `q>=137` proposer plus
+four-lane storage as an unmeasured conditional branch. The card leaves
+`$188.29` before tax, carrier/drives, cables, and cooling, so no complete BOM
+or purchase follows. The authoritative report hashes to
+`c8eba5c4348378177d0d297b8eb4713fd9be71aa2f5a7c2790895c35859af5af`.
+
+PW-0171 tests that remaining procurement premise against exact active storage.
+Four quantity-available used Samsung PM981a 256-GB drives, one observed order
+shipping fee, and an active quad-M.2 passive-bifurcation carrier total at least
+`$208.10`. With PW-0169's `$311.71` card observation, the favorable lower
+bound is `$519.81`, already `$19.81` over the complete cap before tax, GPU
+cables, or cooling. Reject this exact active BOM and supersede the claim that
+`$188.29` is credible complete-BOM room. Capacity and nameplate are adequate:
+four drives provide 1.024 decimal TB and Samsung specifies 3,500 MB/s read per
+drive, but neither sustained concurrent bandwidth nor platform bifurcation is
+measured. Retain only a price-triggered or already-owned-storage reopening;
+authorize no purchase. The authoritative report hashes to
+`14549b38ee1daee523fd5a76ca9654cdcf7aa6284c651fb36eccac68908b28d3`.
+
+PW-0172 tests PW-0170's slower four-lane alternative rather than generalizing
+PW-0171's rejection. Four active exact-part Samsung PM981 256-GB drives cost
+`$115.96` with free observed shipping. With the `$39.99` carrier and
+PW-0169's `$311.71` card observation, the pre-tax subtotal is `$467.66`,
+leaving `$32.34`. The break-even tax rate is only `7.092883%` if cables and
+cooling are free, so no complete delivered BOM or purchase follows. The retail
+2,800-MB/s specification for the matching base part is 12% above the inherited
+2.5-GB/s grant but is not manufacturer or installed performance evidence.
+Retain only the conditional `q=137`, `A=113` 50-TPS (`A=77` 34.3-TPS) branch
+pending checkout, physical parts, installed storage/A770 measurements, and a
+base-aligned proposer. The authoritative report hashes to
+`2b38a618c0364ce2c11a7d93b2bf57e357c38d8cc5f3edfc2da954a6795da564`.
+
+PW-0173 tests whether newer released speculators remove PW-0170's proposer
+gap. They do not. After granting one target bonus, the published EAGLE-3,
+P-EAGLE, AngelSpec DFly, and BASTION configurations have maximum accepted
+paths of 9, 6, 8, and 17 tokens respectively. BASTION is strongest but remains
+39 tokens below the least demanding retained requirement, `A=56`. Its largest
+reported slice mean of 10.60 is 5.283x below `A=56` and 10.660x below the
+slow-storage Prismwing-50 requirement `A=113`, but these cross-model ratios are
+diagnostic rather than bounds.
+
+Reject all four audited released configurations as direct Prismwing proposers.
+Retain only a separately trained or scaled MiMo-specific `q>=137` form as an
+unproven research branch; do not infer feasibility, impossibility, endpoint
+TPS, or purchase authority. The authoritative report hashes to
+`15ec2cfa3ea80a3914ce500f3cb8288a2149cc1948469aeecde04922f6f7a16d`.
+
+PW-0174 closes the current L3 mismatch-acceptance loophole without
+generalizing to an unbuilt scaled verifier. Approximate Speculative Decoding's
+primary `DSpark-14B-block7` configuration has a favorable maximum path of
+eight with a target bonus, 48 below PW-0170's minimum `A=56`. Its request
+budget `B=8` is cumulative regret, not proposal depth. Mean accepted length
+rises only from 3.85 to 4.20; the 7.78% mean and 15.26% maximum reported
+throughput gains are cross-model paper results, not Prismwing TPS.
+
+The paper also does not qualify the changed trajectories for Prismwing's L3
+target. It reports over 95% hash divergence on named tasks and a worst task
+point change of -1.52 percentage points, while omitting the hosted top-20
+distributional gate, native modalities, one-million context, required paired
+confidence intervals, and MiMo execution. Reject the released configuration;
+retain only a separately scaled MiMo-specific `q>=137` ASD branch with the full
+validation protocol as unproven. The authoritative report hashes to
+`2a8bbcc3d70740501fea245e33b28313d23447cfdde205c139f86981e4f4dd6e`.
+
+PW-0175 reopens structured sparse prefill as a distinct changed-attention
+branch rather than generalizing PW-0162's probability-ranked oracle. The
+released GLM-4-9B-1M MInference head map retains a favorable `1.230279%` of
+causal pairs at one million positions; charging the last-64-query online index
+QK pass raises effective work to `1.237959%`. The independently reproduced
+two-P100/EPYC full-system ceiling permits `21.056139%` of ordinary global work.
+
+This arithmetic promotes only a MiMo-specific source-state oracle. Derive
+MiMo's patterns per layer/head, reproduce the online selector, and test output,
+route, logit, long-text, and native-modality fidelity before kernel work. Do
+not copy GLM's map or infer P100/Metal speed. Quest's released sparse path is
+decode-only and explicitly leaves prefill dense, so reject it only as the
+PW-0158 prefill repair. No runtime, fidelity, endpoint TPS, or purchase is
+promoted. The authoritative manifest hashes to
+`e5ac56b7f710285cdeb0088f9fa750748ad74cbc68cd6d4dcb627061209a37ab`.
 
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8

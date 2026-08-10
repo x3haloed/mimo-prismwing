@@ -34,6 +34,19 @@
       "status": "pinned_remote_header_census_pending_local_payload_verification",
       "provenance": "PW-0002 remote-header census; embeddings excluded from full-scan pass floor"
     },
+    "pw0157_exact_8k_route_coverage": {
+      "positions": 8000,
+      "distinct_layer_expert_records": 4903,
+      "source_expert_bytes_per_record": 25171968,
+      "granted_free_hbm_expert_slots": 660,
+      "minimum_streamed_records_after_offline_residency": 4243,
+      "minimum_streamed_source_expert_bytes": 106804660224,
+      "first_decisive_distinct_record_count": 9003,
+      "headroom_records_below_rejection": 4100,
+      "pytorch_topk_boundary_tie_rows": 63,
+      "status": "retain_four_lane_8k_storage_capacity_only; complete_two_p100_system_rejected_by_pw0158; not_endpoint_tps",
+      "provenance": "PW-0157; runtime 6368ae80e67e73e008751c5add20780e86b02b0d; raw 8cfc737df848f4a98cb0774c7367d1e95f5311e051dd5787842712ca6c2fd163; analyzer 72b970244d8c8513d683d4c4d632493ecf76c10f; analysis e7df87bb326e543b5b500c698eae1700d2fd204d6b2d2a833736706456955cfc; Gate 8 passed"
+    },
     "m1_naive_metal_block_fp8_gemv": {
       "logical_weight_gib_per_second_median": 6.49803545115488,
       "source_fp8_routed_only_tps_diagnostic": 0.737,

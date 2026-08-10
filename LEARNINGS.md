@@ -42,13 +42,23 @@ The original cold-streaming design therefore has independent problems in
 capacity, SSD traffic, executable unified-memory traffic, compute, and 47-stage
 causality.
 
-PW-0002 later pinned the published source representation as block-scaled FP8,
-not the candidate INT4 representation used by the initial design estimate.
-From the source index and pinned 128×128 scale layout, one routed expert occupies
-25,171,968 bytes: three 4096×2048-equivalent FP8 matrices plus three f32 scale
-grids. The 47×256 routed bank therefore occupies 302,869,118,976 bytes, and a
-cold source-FP8 token selects 9,464,659,968 bytes (8.815 GiB). These figures are
-index/config-derived until the full safetensors header census closes PW-0002.
+PW-0002 pins the published source representation as block-scaled FP8, not the
+candidate INT4 representation used by the initial design estimate. The final
+local Rust census independently assigns all 73,530 tensors and reproduces the
+remote-header totals exactly: `315,683,674,448` tensor bytes,
+`315,693,004,496` safetensors-file bytes, and `9,330,048` header/padding bytes.
+The separate local verification receipt binds all 39 files to the pinned
+revision by byte count and SHA-256 with no missing files.
+
+One routed expert occupies 25,171,968 bytes: three
+4096×2048-equivalent FP8 matrices plus three f32 scale grids. The 47×256
+routed bank therefore occupies 302,869,118,976 bytes, and a cold source-FP8
+token selects 9,464,659,968 bytes (8.815 GiB). The local census hashes to
+`82a5916a13d3859b7ad47bea41c5827733b0eb05c3e5b2bb32d6e9244ad4bc17`;
+the verification receipt hashes to
+`9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`.
+PW-0002's L0 gate is closed for this revision, and the existing throughput
+constants remain unchanged because local evidence confirms them exactly.
 
 The earlier 13.5 MiB expert and 4.96 GiB cold-token figures remain useful only
 for the proposed groupwise-INT4 embodiment. They are not source-checkpoint
@@ -2958,6 +2968,26 @@ equivalent, before repeating the coverage walk. No throughput-model constant
 changes, and no Gate-8 or endpoint claim follows from these no-manifest safe
 stops.
 
+PW-0157 supersedes only PW-0156's tie-authority blocker. A hash-pinned fixture
+from the actual PyTorch 2.13.0 CPU build proves Prismwing's libc++ bridge exact
+on adversarial tied rows, including unsorted output order. The 512-position
+original control and bounded one-shot K/V-release runtime preserve every
+route-semantic field. Boundary ties occur 3, 9, 12, 23, and 63 times across
+the exact 512, 1,024, 2,048, 4,096, and 8,000 position walks; they are now
+authorized and explicitly counted rather than ignored.
+
+Distinct `(layer, expert)` coverage is 2,980, 3,572, 4,456, 4,585, and 4,903.
+At 8K, the impossible 660-record offline-residency grant still leaves 4,243
+records or `106,804,660,224` source bytes, but the observation remains 4,100
+records below the predeclared four-lane rejection point. Retain four-lane 8K
+storage capacity only as a conditional arithmetic envelope. This does not
+measure storage, CUDA, prefill time, or endpoint TPS and does not reverse
+PW-0158's complete-system rejection. The authoritative analysis hashes to
+`e7df87bb326e543b5b500c698eae1700d2fd204d6b2d2a833736706456955cfc`.
+Gate 8 passes at 69% minimum free memory, `3,967,156,224`-byte peak RSS, zero
+swap growth or throttling, and stable services. No accepted-token or
+throughput-model performance constant changes.
+
 PW-0158 supersedes the assumption that PW-0151/PW-0154's surviving two-P100
 8K decode envelope could remain a complete target-faithful hardware candidate
 without first closing the one-million-token capability slice. At exactly one
@@ -3150,3 +3180,273 @@ Gate 8 passes at 49% minimum free memory, 40,108,032-byte peak RSS,
 20,252,288-byte maximum physical footprint, zero swap growth or throttling,
 and stable services. PW-0165 reports zero accepted tokens and no endpoint TPS;
 no measured throughput-model constant changes.
+
+PW-0166 supersedes the remaining uncertainty that Intel Arc B580's unpublished
+BF16 peak might leave an affordable ordinary-dense Xe2 path open. Intel's
+pinned compiler semantics assign two BF16 operations per DPAS channel versus
+four for INT8, and its Xe2 scheduler models equal same-size DPAS latency and
+occupancy independent of precision. Combined with Intel's official
+233-INT8-TOPS row, the strongest source-oriented BF16/F32-accumulate ceiling is
+therefore 116.5 TFLOPS, not 233.
+
+Mandatory one-million-position matrices plus ordinary attention total
+`214,165,790,024,007,680` operations. Even granting that ceiling and the owned
+EPYC's impossible peak concurrently yields a `1,826.6923`-second floor,
+already `26.6923` seconds beyond the complete gate before every omitted cost.
+Permanently reject B580 for ordinary-dense 1M execution regardless of future
+price. This does not reject changed attention, modified weights, faster Xe2
+products, or multi-card systems.
+
+Exact BF16 1M KV exceeds 12 decimal GB by `11,065,559,040` bytes. The 190-W
+board plus 170-W CPU leaves 372 W under the authenticated PSU's 732-W combined
++12-V label, but this is not installation proof. The official `$249` launch
+price is not a delivered BOM, and no purchase or oneAPI implementation is
+authorized. The authoritative report hashes to
+`30908aee4e494aa12c31223ba6b2072684f3c1a954e300d9b55566b978591bce`.
+Gate 8 passes at 73% minimum free memory, 36,192,256-byte peak RSS,
+19,416,576-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0166 reports zero
+accepted tokens, no endpoint TPS, and no measured throughput-model constant
+changes; 116.5 TFLOPS is a derived ceiling rather than achieved performance.
+
+PW-0167 reverses the broader inference that affordable Intel consumer cards
+have no ordinary-dense one-million arithmetic survivor. Intel's official A770
+row gives 262 dense INT8 XMX TOPS, and its Xe-HPG architecture specifies 4,096
+INT8 versus 2,048 FP16/BF16 operations per Xe-core-cycle. The resulting
+source-oriented ceiling is 131 TFLOPS. Mandatory 1M matrices plus ordinary
+attention total `214,165,790,024,007,680` operations; granting that ceiling and
+the EPYC's impossible peak concurrently yields a `1,625.6406`-second floor,
+leaving `174.3594` seconds inside the gate before every omitted cost. Retain
+A770 as an arithmetic survivor only, not as an achieved endpoint.
+
+Exact BF16 1M KV still exceeds 16 decimal GB by `7,065,559,040` bytes, and KV
+plus three arenas and common source tensors exceeds it by `22,221,107,536`, so
+layer-major or host/storage streaming is mandatory. The 225-W card plus 170-W
+CPU leaves 337 W under the photographed NEX750B's authenticated 732-W combined
++12-V label, but this is not installation proof. The owned H11SSL-i lacks
+supported native Resizable BAR, Intel requires it for optimal Arc performance,
+and the listed oneAPI client-GPU Linux systems do not include the owned Debian
+13 environment. Two dated sub-`$500` used sales are not an active complete BOM.
+
+The authoritative report hashes to
+`0ff6f2cb1017cb6589b8c5705e7adda349fc2637721e3ddc8c695f051dff2c01`.
+Gate 8 passes at 70% minimum free memory, 34,635,776-byte peak RSS,
+21,087,488-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0167 reports zero
+accepted tokens, no endpoint TPS, and no measured throughput-model constant
+changes; 131 TFLOPS remains a derived ceiling. Require an active complete BOM
+and reversible installed oneAPI BF16/PCIe/ReBAR-off/on component evidence
+before purchase or runtime work.
+
+PW-0168 closes PW-0167's active-inventory uncertainty for one exact board, but
+not its complete-BOM or installation gates. GUNNIR's authenticated Photon 16G
+OC panel specifies two 8-pin inputs, 285-W TBP, and 300x118.5x50-mm dimensions;
+this corrects marketplace metadata claiming three inputs and replaces the
+225-W Intel reference-card premise only for this candidate. The card plus the
+170-W EPYC leaves 277 W under the authenticated 732-W combined +12-V label.
+VGA1/+12V2 and VGA3/+12V4 are a candidate separate-rail plan, not cable or
+pinout proof.
+
+The active new listing shows `$411` plus `$20` shipping, four available, and
+import fees included. It leaves `$69` before unauthenticated destination tax
+and installation parts, so it supersedes only the inference that no active
+sub-cap A770 observation exists. Chassis clearance, original EVGA cables,
+checkout total, cooling, absent native ReBAR, unsupported Debian 13 oneAPI
+placement, and installed performance all remain open. The authoritative report
+hashes to
+`dfd12ca7bb331003e28241e1c5eac49c579eecfa90cb5216fb41edb8a297f6bd`.
+Gate 8 passes at 70% minimum free memory, 31,162,368-byte peak RSS,
+20,252,224-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0168 reports zero
+accepted tokens, no endpoint TPS, and no measured throughput-model constant
+changes. Retain the exact card only pending physical and checkout evidence; do
+not purchase from this record.
+
+PW-0169 finds a materially better exact active A770 candidate and supersedes
+PW-0168's Photon as the preferred listing, not as purchase authority. The used
+domestic Intel Limited Edition card identifies MPN `21P01J00BA`; Intel binds
+that form to 225-W TBP, required 8-pin plus 6-pin inputs, 279.9-mm maximum
+bracket-inclusive length, 126.36-mm maximum width, and 42-mm maximum height.
+GPU plus CPU leaves 337 W under the PSU's combined +12-V label.
+
+The active listing shows `$300` plus `$11.71` shipping to the renderer's
+`27709` destination, leaving `$188.29` before actual-destination differences,
+tax, and installation parts. That is credible complete-BOM room, unlike the
+Photon's `$69`, but the seller's working-order statement and original box are
+not a component test; the listing has no seller returns. Clearance, original
+EVGA cables and pinout, actual checkout, cooling, native ReBAR, supported
+oneAPI placement, and installed performance remain open. The authoritative
+report hashes to
+`127a898e54f51044bf68bf58f80d071e98b2e10130f2b008a6fe0d313d2d9db3`.
+It binds all four original listing images: the box label independently shows
+the 16-GB `21P01J00BA` identity, and the card photos match the Limited Edition
+form and connectors. Images do not prove function. The earlier image-unbound
+report
+`b6c125f1a8cb937b0bb847936e5b251a9d65cb13f7254ca1ae215d60aa450baa`
+and image-bound report
+`d08060c9fa494245069bb61169c48b0b8484c2c2796fa68b34b5cc89c892bfb9`
+are preserved and superseded.
+
+The installed continuation gate requires at least `118.238594` sustained
+BF16/F32-accumulate TFLOPS even with the EPYC at its impossible peak and zero
+time for every omitted operation. That is `90.2585%` of A770's derived ceiling;
+30, 60, and 120 seconds reserved for everything else raise it to `91.7979%`,
+`93.3904%`, and `96.7460%`. This makes a source-shape-weighted component
+benchmark a cheap kill gate, not performance proof. Gate 8 passes at 71%
+minimum free memory, 31,195,136-byte peak RSS, 20,219,264-byte maximum physical
+footprint, zero swap growth or throttling, an explicit release boundary, and
+stable services.
+PW-0169 reports zero
+accepted tokens, no endpoint TPS, and no measured throughput-model constant
+changes. Prefer this candidate for physical and checkout evidence; do not
+purchase from the report.
+
+PW-0170 supersedes the residual implication that a 16-GB A770 could turn its
+HBM into a meaningful exact expert cache after satisfying common state. Every
+non-routed source tensor, three maximum arenas, and exact 8K BF16 KV consume
+`15,365,427,536` of 16 decimal GB. The remaining `634,572,464` bytes hold only
+25 complete experts. Prompt-frequency calibration avoids 25 of the real
+`q=137` suffix's 903 union records, or `2.76855%`, leaving 878 records and
+`22,100,987,904` source bytes. Reject the HBM cache as a primary mechanism.
+
+The stronger A770 arithmetic does reduce but does not remove the speculation
+prerequisite. Four ideal 2.5-GB/s lanes plus full derived A770 and impossible
+EPYC compute need `A=77/137` for 34.3 TPS and `A=113/137` for 50. Four ideal
+3.5-GB/s lanes need `A=56/137` and `A=81/137`; the latter's diagnostic
+independent conditional match probability is `0.9914746`. Width-eight/16
+blocks cannot provide these values in one target transaction. Retain only a
+new base-aligned `q>=137` proposer combined with four measured storage lanes,
+not the supplied or published proposer shapes.
+
+The active card's `$311.71` item-plus-rendered-shipping observation leaves
+`$188.29` before actual tax, four drives/carrier, compatible cables, and
+cooling. The owned host has no NVMe. This remains credible room, not a complete
+BOM. Installed A770 BF16/ReBAR-off/oneAPI, sustained storage, proposer,
+physical, electrical, and checkout evidence all remain required. The
+authoritative report hashes to
+`c8eba5c4348378177d0d297b8eb4713fd9be71aa2f5a7c2790895c35859af5af`.
+Gate 8 passes at 65% minimum free memory, 141,000,704-byte peak RSS, zero swap
+growth or throttling, an explicit release boundary, and stable services.
+PW-0170 reports zero accepted tokens, no endpoint TPS, and no measured
+throughput-model constant changes.
+
+PW-0171 supersedes PW-0169/PW-0170's inference that the A770's remaining
+`$188.29` was credible room for a complete four-lane storage BOM. An active
+quantity-four listing for exact Samsung PM981a 256-GB drives costs `$159.96`,
+and even the favorable lower bound charges only one `$8.15` order shipping
+fee. The active passive-bifurcation quad-M.2 carrier costs `$39.99` delivered.
+Together storage is at least `$208.10`; adding the authenticated `$311.71`
+card observation yields `$519.81`, already `$19.81` over the complete cap
+before tax, GPU cables, or cooling. Reject this exact active BOM.
+
+The physical storage premise itself is not disproved. Four drives provide
+`1,024,000,000,000` decimal bytes, and Samsung specifies 3,500 MB/s sequential
+read for the exact 256-GB model, matching PW-0170's favorable 14-GB/s aggregate
+nameplate. Concurrent sustained reads and platform bifurcation remain
+unmeasured, and a cheaper future or already-owned four-lane set could reopen
+the mechanism. The authoritative report hashes to
+`14549b38ee1daee523fd5a76ca9654cdcf7aa6284c651fb36eccac68908b28d3`.
+Gate 8 passes at 72% minimum free memory, 29,048,832-byte peak RSS,
+17,958,400-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0171 records zero
+accepted tokens, no endpoint TPS, and no measured throughput-model constant
+changes; authorize no purchase.
+
+PW-0172 prevents PW-0171's 3.5-GB/s BOM rejection from being generalized to
+the slower storage branch. An active exact-part listing has six Samsung PM981
+256-GB drives at `$28.99` with free observed shipping. Four drives plus the
+active `$39.99` carrier and PW-0169's `$311.71` card observation total
+`$467.66` before tax, leaving `$32.34` for tax, cables, and cooling. On the
+`$455.95` taxable item subtotal, only a `7.092883%` tax rate consumes all
+remaining room even if installation parts are free. Retain this only as a
+pre-tax BOM; complete delivered cost is not proved.
+
+The retail product page advertises 2,800 MB/s for the matching
+`MZVLB256HAHQ` base part, 12% above PW-0170's 2.5-GB/s-per-lane grant, but this
+is not manufacturer authority or a sustained installed measurement. The
+conditional branch still requires four concurrent measured lanes, working
+bifurcation, the A770 compute gate, and a base-aligned `q=137` proposer with
+`A=113` for 50 TPS (`A=77` for 34.3 TPS). The authoritative report hashes to
+`2b38a618c0364ce2c11a7d93b2bf57e357c38d8cc5f3edfc2da954a6795da564`.
+Gate 8 passes at 72% minimum free memory, 29,163,520-byte peak RSS,
+17,680,000-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0172 records zero
+accepted tokens, no endpoint TPS, and no measured throughput-model constant
+changes; authorize no purchase.
+
+PW-0173 closes the implication that a newer released speculative-decoding
+configuration can directly supply PW-0170's missing horizon. After favorably
+granting one target bonus token, EAGLE-3, P-EAGLE, AngelSpec DFly, and BASTION
+have maximum published paths of 9, 6, 8, and 17 tokens. The strongest is still
+39 tokens short of PW-0170's least demanding `A=56` requirement. Reject all
+four audited configurations as direct Prismwing proposers.
+
+BASTION's largest reported slice mean accepted length is 10.60. The retained
+`A={56,77,81,113}` requirements are 5.2830x, 7.2642x, 7.6415x, and 10.6604x
+that value. This is a cross-model research prior, not a MiMo bound: preserve a
+newly trained or scaled MiMo-specific `q>=137` proposer as an explicitly
+unproven residual branch. No audited project publishes compatible MiMo draft
+weights, and the neural configurations require target-specific training and
+hidden-state or distribution access.
+
+The authoritative report hashes to
+`15ec2cfa3ea80a3914ce500f3cb8288a2149cc1948469aeecde04922f6f7a16d`.
+Gate 8 passes at 72% minimum free memory, 35,520,512-byte peak RSS,
+17,728,896-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0173 records zero
+accepted Prismwing tokens, no endpoint TPS, no measured throughput-model
+constant changes, and no purchase authority.
+
+PW-0174 closes the released L3 mismatch-acceptance loophole left outside
+PW-0173. Approximate Speculative Decoding changes target trajectories by
+accepting bounded low-regret mismatches, but its primary `DSpark-14B-block7`
+configuration can commit at most eight tokens with a favorable target bonus.
+That remains 48 tokens below PW-0170's minimum `A=56`; request regret budget
+`B=8` is not proposal depth. Reject the released configuration as the missing
+proposer.
+
+The mechanism is promising within its actual scope: mean accepted length rises
+from 3.85 to 4.20, with 7.78% mean and 15.26% maximum throughput improvement
+over matched strict verification. But the paper also reports over 95% hash
+divergence on named tasks and a worst task-score point change of -1.52
+percentage points. It does not report Prismwing's hosted top-20 distributional
+gate, native modalities, one-million context, paired capability confidence
+intervals, or MiMo execution. Reject it as sufficient L3 fidelity evidence.
+
+Preserve only a separately scaled MiMo-specific `q>=137` ASD branch with the
+complete validation protocol as unproven. The authoritative report hashes to
+`2a8bbcc3d70740501fea245e33b28313d23447cfdde205c139f86981e4f4dd6e`.
+Gate 8 passes at 72% minimum free memory, 29,818,880-byte peak RSS,
+19,170,816-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0174 records zero
+accepted Prismwing tokens, no endpoint TPS, no measured throughput-model
+constant changes, and no purchase authority.
+
+PW-0175 changes the changed-attention prior: PW-0162's probability-ranked
+history oracle does not exhaust structured, causally selectable sparsity.
+MInference is training-free at the weight level, acts on prefill, and performs
+a model-specific offline layer/head pattern search followed by a last-64-query
+online vertical/slash selector. Its released GLM-4-9B-1M configuration has
+1,280 head records and a favorable `1.230279%` selected-causal-pair upper bound
+at one million positions. Charging the online index QK work raises this to
+`1.237959%` of ordinary global-attention work.
+
+The independently reproduced complete two-P100/EPYC allowance leaves
+`21.056139%` of ordinary global work after matrices and sliding attention.
+MInference's released configuration therefore passes a structural continuation
+screen with substantial arithmetic margin. This is not a MiMo or hardware
+result: the GLM head map is not reusable, perfect sparse-kernel efficiency is
+granted, and the sources provide no MiMo pattern, Metal/P100 implementation,
+hosted top-20 gate, or native-modality fidelity. Promote only a MiMo-specific
+source-state oracle that derives its own head patterns and executes the online
+selector before any kernel work.
+
+Quest's released query-aware sparse path is decode-only; its code explicitly
+leaves prefill dense. Reject it as the PW-0158 prefill repair without rejecting
+its decode mechanism. The authoritative PW-0175 manifest hashes to
+`e5ac56b7f710285cdeb0088f9fa750748ad74cbc68cd6d4dcb627061209a37ab`.
+Gate 8 passes at 72% minimum free memory, 50,085,888-byte peak RSS,
+18,613,632-byte maximum physical footprint, zero swap growth or throttling, an
+explicit release boundary, and stable services. PW-0175 records zero accepted
+tokens, no endpoint TPS, no measured throughput-model constant changes, and no
+purchase authority.
