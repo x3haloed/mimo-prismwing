@@ -574,3 +574,34 @@ generation architecture table distinguishes dense BF16/FP32-accumulate and
 FP16/FP16-accumulate rates from sparsity-enhanced values. The launch release
 binds the 16-GB MSRP to `$429`; the market transcription preserves a `$479.99`
 out-of-stock observation and is not delivered-cost or purchase authority.
+
+## Affordable RDNA4 envelope authorities
+
+- AMD, Radeon RX 9060 XT 16-GB product specifications, accessed and captured
+  2026-08-10:
+  <https://www.amd.com/en/products/graphics/desktops/radeon/9000-series/amd-radeon-rx-9060xt.html>.
+- AMD, *RDNA4 Instruction Set Architecture*, document 70651, accessed and
+  captured 2026-08-10:
+  <https://docs.amd.com/v/u/en-US/rdna4-instruction-set-architecture>.
+- AMD, RX 9060 XT launch release, accessed and captured 2026-08-10:
+  <https://www.amd.com/en/newsroom/press-releases/2025-5-20-amd-introduces-new-radeon-graphics-cards-and-ryzen.html>.
+- Dated semantic transcription of Newegg item `N82E16814150910`, observed
+  2026-08-10:
+  <https://www.newegg.com/xfx-swift-rx-96tsw16bq-radeon-rx-9060-xt-16gb-graphics-card-double-fans/p/N82E16814150910?Item=N82E16814150910&SoldByNewegg=1>.
+
+The product page hashes to
+`9013b9e7dfd1e4ecc805e2756df2838b60f3ee0d69a44d25ff8059671194f4ba`;
+the ISA hashes to
+`96dc97df3468a4e63a13095e2540ba13aaa75cf4635a29516b59760695e25e0c`;
+the launch release hashes to
+`03df4b873908c7e15ef80644888bfa4f1a49999628eda9c4260e34c6c2cdb977`;
+and the explicitly weaker market transcription hashes to
+`79065195a1e523514aa377a91dad8f514db72a504e533b595303699d3148f718`.
+
+Decision: technical, ISA, and moving-market authority for PW-0165. AMD binds
+RX 9060 XT to 103-TFLOPS dense half-precision Matrix and 205-TFLOPS structured-
+sparse Matrix rates, 16 GB GDDR6, 160-W typical board power, one 8-pin input,
+and a 450-W minimum PSU. The ISA distinguishes dense BF16/F32-accumulate WMMA
+from the sparse form requiring two zero elements per four. The release binds
+16-GB SEP to `$349`; the market row records a new in-stock `$449.99` card with
+free shipping before unknown tax and is not delivered purchase authority.
