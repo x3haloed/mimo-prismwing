@@ -310,13 +310,15 @@ Do not search further corpora. Retain the hardware branch conditionally and
 renew this walk only with source-framework route-index authority or a proven
 exact equivalent.
 
-PW-0157 tests that exact equivalent before adding any new corpus. The pinned
-PyTorch CPU source and Prismwing bridge both use libc++ `nth_element` over the
-same pair representation and strict comparator. Freeze adversarial tied rows
-from the actual PyTorch 2.13.0 build, require exact unsorted index order from
-the bridge, record real tie incidence, and only then rerun PW-0156's original
-512-position fixture. This is a correctness-authority repair, not permission
-to choose a convenient deterministic tie policy.
+PW-0157 closes that exact-equivalent question. The pinned PyTorch 2.13.0 CPU
+fixture and Prismwing's libc++ bridge match every tied unsorted index exactly;
+the original 512-position control and one-shot K/V-release runtime also match
+every route-semantic field. Exact walks through 512, 1,024, 2,048, 4,096, and
+8,000 positions touch 2,980, 3,572, 4,456, 4,585, and 4,903 distinct
+`(layer, expert)` records. The final count is 4,100 below the 9,003-record
+four-lane rejection boundary. Retain only that optimistic 8K storage-capacity
+condition; it neither measures the storage path nor repairs PW-0158's complete
+two-P100 million-context rejection.
 
 PW-0158 closes a separate full-capability prerequisite before the surviving
 two-P100 component envelope can motivate purchase. At exactly one million
