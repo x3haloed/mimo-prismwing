@@ -318,6 +318,19 @@ the bridge, record real tie incidence, and only then rerun PW-0156's original
 512-position fixture. This is a correctness-authority repair, not permission
 to choose a convenient deterministic tie policy.
 
+PW-0158 closes a separate full-capability prerequisite before the surviving
+two-P100 component envelope can motivate purchase. At exactly one million
+positions, ordinary QK and weighted-V arithmetic across the pinned nine global
+and 39 sliding layers requires `184,524,643,656,007,680` FLOPs. Granting two
+P100s their combined advertised 37.4-TFLOPS FP16 peak continuously still gives
+an `82.2302`-minute attention-only floor, versus TARGET's complete 30-minute
+prefill limit. Exact BF16 KV is also 23.066 GB; with free streaming of all
+non-routed tensors, only 261 complete expert slots remain after the three
+arenas. Reject the complete ordinary-dense-attention two-P100 embodiment while
+preserving PW-0151/PW-0154 as 8K component evidence. A changed-attention L3/L4
+branch or different complete hardware candidate remains logically open and
+must satisfy every long-context fidelity and capability gate.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

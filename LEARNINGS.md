@@ -2957,3 +2957,30 @@ require actual source-framework route indices, or a separately proven exact
 equivalent, before repeating the coverage walk. No throughput-model constant
 changes, and no Gate-8 or endpoint claim follows from these no-manifest safe
 stops.
+
+PW-0158 supersedes the assumption that PW-0151/PW-0154's surviving two-P100
+8K decode envelope could remain a complete target-faithful hardware candidate
+without first closing the one-million-token capability slice. At exactly one
+million positions, the pinned nine global-attention layers require
+`184,320,184,320,000,000` FLOPs for QK and weighted-V arithmetic alone; the 39
+sliding layers bring mandatory attention work to
+`184,524,643,656,007,680` FLOPs. Even granting both P100s their combined
+advertised 37.4-TFLOPS FP16 peak continuously, perfect scaling, and zero cost
+for every other operation yields an `82.2302`-minute attention-only floor.
+The 30-minute gate would require `102.5137` TFLOPS, or `2.7410x` that favorable
+peak. Reject ordinary dense attention on two P100s for the 1M slice; kernel,
+fusion, storage, and scheduling work cannot repair an arithmetic lower bound
+that already makes them free.
+
+Exact BF16 KV at one million positions is `23,065,559,040` bytes. Together
+with PW-0154's non-routed source tensors and three arenas it exceeds aggregate
+two-P100 HBM by `6,221,107,536` bytes. Even free-streaming every non-routed
+tensor leaves only 261 complete expert slots. The PW-0151/PW-0154 results
+remain useful 8K component evidence but no longer retain the complete
+two-P100 target-faithful embodiment. Changed-attention L3/L4 mechanisms and
+other complete hardware candidates remain open and must preserve the full
+long-context gates. The authoritative report hashes to
+`3b5b94cae112bee558ec46566ec09652c58bd434c3f47bebd3e0bc7c533fd315`.
+Gate 8 passes at 62% minimum free memory, 32,997,376-byte peak RSS, zero swap
+growth or throttling, and stable services. PW-0158 reports zero accepted
+tokens, no endpoint TPS, and no measured throughput-model constant changes.

@@ -1,7 +1,7 @@
 # PW-0158 — million-context two-P100 attention bound
 
-- Status: ready
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -16,7 +16,8 @@
 - Hardware candidate: PW-0151's two P100 PCIe 16-GB cards in the owned
   H11SSL-i/EPYC host; analytical pre-purchase ceiling only
 - Related records: PW-0020, PW-0028, PW-0151, PW-0154 through PW-0157; E7
-- Implementation commit and dirty state: pending
+- Implementation commit and dirty state:
+  `6981410c9c31327639e514708c41587cb4a6e62e`, clean
 
 ## Question and changed premise
 
@@ -113,4 +114,52 @@ an untested approximation fails quality.
 
 ## Result
 
-Pending implementation and execution from a clean commit.
+The authoritative `analysis-001` manifest hashes to
+`3b5b94cae112bee558ec46566ec09652c58bd434c3f47bebd3e0bc7c533fd315`.
+It authenticates TARGET, the pinned config, PW-0151's owned-host analysis, the
+official P100 product brief, and the clean implementation commit.
+
+At exactly one million positions, one global layer has `500,000,500,000`
+causal query/key pairs. Across nine global layers, 64 query heads, and a
+favorable charge of only 640 FLOPs per head/pair for the 192-wide QK dot and
+128-wide weighted-V accumulation, global attention requires
+`184,320,184,320,000,000` FLOPs. The 39 exact 128-position sliding layers add
+`204,459,336,007,680`, for `184,524,643,656,007,680` mandatory attention
+FLOPs total.
+
+Granting both cards their combined advertised 37.4-TFLOPS FP16 peak without
+interruption gives an attention-only floor of `4,933.8140` seconds, or
+`82.2302` minutes. The complete 30-minute gate would require `102.5137`
+effective TFLOPS, `2.7410x` the combined advertised FP16 peak. At the
+source-control combined FP32 peak the same lower bound is `9,920.6798`
+seconds. These floors make all projections, experts, softmax, transfers,
+storage, synchronization, and protocol work free; no ordinary kernel or
+scheduling improvement can recover the missing `3,133.8140` seconds.
+
+The independent capacity ledger also tightens PW-0154. Exact BF16 KV at one
+million positions is `23,065,559,040` bytes. Reserving PW-0154's non-routed
+source tensors and three layer arenas produces a `38,221,107,536`-byte total,
+`6,221,107,536` bytes beyond two P100s' aggregate decimal HBM. Even granting
+free streaming of every non-routed tensor leaves only `6,593,447,936` bytes,
+or 261 complete source experts and a `23,564,288`-byte tail.
+
+Gate 8 passes across five snapshots with 62% minimum free memory,
+32,997,376-byte peak RSS, 19,629,440-byte maximum physical footprint, zero
+swap growth, zero new throttled pages, and stable protected services. The
+report records zero accepted tokens, no performance claim, and no endpoint
+TPS. No measured throughput-model constant changes.
+
+## Decision
+
+Reject the two-P100 ordinary-dense-attention embodiment for TARGET's mandatory
+one-million-token capability slice. This supersedes PW-0151/PW-0154's
+conditional retention when those components are proposed as a complete
+target-faithful two-P100 system; their 8K decode, cache, storage, and physical
+results remain valid component evidence. Do not purchase or implement that
+complete configuration.
+
+This is not a project-wide impossibility proof. Reopen the capability slice
+only with a separately named sparse, linear, retrieval, recurrent, summarized,
+or learned L3/L4 attention mechanism that passes all long-context quality and
+capability gates, or with a different complete hardware candidate inside the
+same cost and power limits.
