@@ -31,6 +31,15 @@ PRODUCT_SHA256 = "b4691de4514c938e8c0d386a6d1fa6583b96479b4c11ad4aed2726ac1527ec
 DIMENSIONS_SHA256 = "c7656a01a4aa734b6488309d430eaaf61ad6b48df353d3aeca7a6a357a9eece5"
 POWER_SHA256 = "369554f262e5409f7795823b1904ef6767a7af69f7a5c41fba2d445a668450b1"
 MARKET_SHA256 = "dd2551749fd8c508d76deea4ea7810ac7ca76a5c181c59df09f9d47e7070d080"
+LISTING_IMAGE_SHA256 = (
+    "da65a27c20d54a6e00d2058b71c518521d14ee8e8f7841d178e7a814dc9319a3",
+    "dd9b6a26ea5e8f06aaacd40c314ce46a6bb16026a5e8a21f3a7a6ad191789330",
+    "9658830c4bbea8c094318ec770c4ba712d7220874147bc02b483d84ac3ad2f99",
+    "1711a34b9557a00579906f8762f31840e17c511879391a7deae1f94352517f50",
+)
+LISTING_IMAGES_TRANSCRIPTION_SHA256 = (
+    "f8555eab28b8e5bade3aef7b29b7a04b9edff7101f75c52b092d6de7bf1d8d41"
+)
 
 CARD_TBP_WATTS = 225
 EPYC_TDP_WATTS = 170
@@ -91,6 +100,24 @@ def validate_market(source: dict) -> None:
     for key, value in expected.items():
         if source.get(key) != value:
             raise ValueError(f"PW-0169 active listing mismatch: {key}")
+
+
+def validate_listing_images(source: dict, image_hashes: tuple[str, ...]) -> None:
+    rows = source.get("images")
+    if (
+        source.get("evidence_class")
+        != "human_verified_semantic_transcription_of_authenticated_active_listing_images"
+        or source.get("listing_url") != "https://www.ebay.com/itm/168591709192"
+        or not isinstance(rows, list)
+        or tuple(row.get("sha256") for row in rows) != image_hashes
+        or "product code 21P01J00BA" not in rows[1].get("observation", "")
+        or "8-pin plus one 6-pin" not in rows[1].get("observation", "")
+        or "ARC A770 Limited Edition" not in rows[3].get("observation", "")
+        or source.get("actual_component_serial_authenticated") is not False
+        or source.get("component_function_authenticated") is not False
+        or source.get("purchase_authorized") is not False
+    ):
+        raise ValueError("PW-0169 listing-image identity mismatch")
 
 
 def power_ledger() -> dict:
@@ -156,6 +183,11 @@ def _authenticate(paths: dict[str, Path]) -> tuple[dict[str, str], dict, dict, d
         "dimensions": DIMENSIONS_SHA256,
         "power": POWER_SHA256,
         "market": MARKET_SHA256,
+        "listing_image_1": LISTING_IMAGE_SHA256[0],
+        "listing_image_2": LISTING_IMAGE_SHA256[1],
+        "listing_image_3": LISTING_IMAGE_SHA256[2],
+        "listing_image_4": LISTING_IMAGE_SHA256[3],
+        "listing_images_transcription": LISTING_IMAGES_TRANSCRIPTION_SHA256,
     }
     for name, digest in expected.items():
         if sha256_file(paths[name]) != digest:
@@ -166,6 +198,7 @@ def _authenticate(paths: dict[str, Path]) -> tuple[dict[str, str], dict, dict, d
     dimensions = json.loads(paths["dimensions"].read_text())
     power = json.loads(paths["power"].read_text())
     market = json.loads(paths["market"].read_text())
+    listing_images = json.loads(paths["listing_images_transcription"].read_text())
     if "USD $500 total" not in target or "1,000 W" not in target:
         raise ValueError("PW-0169 TARGET authority mismatch")
     if (
@@ -182,6 +215,7 @@ def _authenticate(paths: dict[str, Path]) -> tuple[dict[str, str], dict, dict, d
     validate_dimensions(dimensions)
     validate_power(power)
     validate_market(market)
+    validate_listing_images(listing_images, LISTING_IMAGE_SHA256)
     return expected, pw0167, dimensions, market
 
 
@@ -210,6 +244,8 @@ def run(paths: dict[str, Path], output: Path, commit: str) -> dict:
             "dimensions_mm": dimensions["dimensions_mm"],
             "tbp_watts": CARD_TBP_WATTS,
             "power_connectors": "1x8-pin + 1x6-pin",
+            "listing_images_bind_box_product_code_and_card_form": True,
+            "component_function_authenticated": False,
         },
         "inherited_arithmetic": {
             "pw0167_floor_seconds": pw0167["arithmetic"]["floor_seconds"],
@@ -265,7 +301,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     for name in (
         "target", "pw0151", "pw0167", "psu_photo", "product", "dimensions", "power",
-        "market",
+        "market", "listing_image_1", "listing_image_2", "listing_image_3",
+        "listing_image_4", "listing_images_transcription",
     ):
         parser.add_argument(name, type=Path)
     parser.add_argument("output", type=Path)
@@ -277,7 +314,8 @@ def main() -> None:
     args = parse_args()
     names = (
         "target", "pw0151", "pw0167", "psu_photo", "product", "dimensions", "power",
-        "market",
+        "market", "listing_image_1", "listing_image_2", "listing_image_3",
+        "listing_image_4", "listing_images_transcription",
     )
     result = run({name: getattr(args, name) for name in names}, args.output, args.commit)
     print(canonical_json(result), end="")
