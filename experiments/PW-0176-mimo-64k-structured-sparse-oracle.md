@@ -86,14 +86,19 @@ recorded without affecting source state.
    per-position relative L2 at most 2%, and head-query relative-L2 p99 at most
    5%. Report maximum error, selected-row distributions, early/interval/final
    bands, and every candidate; do not conceal a failing band in the aggregate.
-9. Kill this exact layer-0 continuation if no released pair passes both work
-   and numerical gates. A failure at mandatory layer 0 rejects the audited
-   MInference-style configuration for this 64K slice, but not trained or
-   repaired selectors with changed mechanisms.
-10. If any pair passes, promote only a deeper-global-layer and accumulated
-    route/logit experiment on diverse text plus native-modality traces. Do not
-    promote a kernel, runtime default, million-token capability, endpoint TPS,
-    or purchase.
+   Also report a deliberately noncausal best-pair-per-head-query oracle that
+   chooses among the five released pairs using exact reference error.
+9. Kill all combinations of the released pair family only if that favorable
+   per-head-query oracle fails the same gates. Every fixed per-layer/head map is
+   a restriction of this oracle, so a failure cannot be repaired merely by
+   assigning different released pairs to different heads. It does not reject
+   trained or repaired selectors with different widths or mechanisms.
+10. If a uniform pair passes, promote it only to a deeper-global-layer and
+    accumulated route/logit experiment. If only the favorable best-pair oracle
+    passes, promote only a fixed headwise-assignment train/holdout experiment;
+    do not treat exact-error choices as executable. In either case require
+    diverse text plus native-modality traces and do not promote a kernel,
+    runtime default, million-token capability, endpoint TPS, or purchase.
 11. Enforce Gate 8 at fixture generation, QKV chunks, selector construction,
     reference/candidate evaluation, release, and final service health. Stop on
     less than 20% free memory, over 8 GiB process footprint/RSS, over 512 MiB
@@ -102,10 +107,11 @@ recorded without affecting source state.
 
 ## Promotion and kill rule
 
-Promote only the exact passing parameter pair(s) to a separately named deeper
-MiMo fidelity experiment. The realized layer-0 slice proves selector causality
-and a bounded local numerical result; it does not prove accumulated model
-behavior or hardware speed.
+Promote exact passing uniform parameter pair(s) to a separately named deeper
+MiMo fidelity experiment. If only the favorable per-head-query oracle passes,
+promote merely a fixed headwise train/holdout assignment test. The realized
+layer-0 slice proves selector causality and a bounded local numerical result;
+it does not prove accumulated model behavior or hardware speed.
 
 If the source identity, causal path, sample completeness, full-selection
 control, Gate 8, or serialization fails, reject the run as invalid rather than

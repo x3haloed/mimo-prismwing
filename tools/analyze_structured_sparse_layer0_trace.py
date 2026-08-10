@@ -58,9 +58,7 @@ def _aggregate(rows: list[tuple[dict, dict]]) -> float:
     return math.sqrt(error_squared / max(reference_squared, 1.0e-40))
 
 
-def summarize_pair(observations: list[dict], pair_index: int) -> dict:
-    vertical, slash, work = PAIRS[pair_index]
-    rows = [(observation, observation["candidates"][pair_index]) for observation in observations]
+def _summarize_rows(rows: list[tuple[dict, dict]], work: float) -> dict:
     relative = [candidate["relative_l2"] for _, candidate in rows]
     selected = [candidate["selected_positions"] for _, candidate in rows]
     by_position = {}
@@ -94,9 +92,6 @@ def summarize_pair(observations: list[dict], pair_index: int) -> dict:
         and p99 <= 0.05
     )
     return {
-        "vertical_size": vertical,
-        "slash_size": slash,
-        "effective_work_fraction": work,
         "within_complete_system_work_ceiling": work <= WORK_CEILING,
         "observations": len(rows),
         "aggregate_relative_l2": aggregate,
@@ -115,6 +110,59 @@ def summarize_pair(observations: list[dict], pair_index: int) -> dict:
         "positions": by_position,
         "bands": by_band,
         "passes": passes,
+    }
+
+
+def summarize_pair(observations: list[dict], pair_index: int) -> dict:
+    vertical, slash, work = PAIRS[pair_index]
+    rows = [(observation, observation["candidates"][pair_index]) for observation in observations]
+    return {
+        "vertical_size": vertical,
+        "slash_size": slash,
+        "effective_work_fraction": work,
+        **_summarize_rows(rows, work),
+    }
+
+
+def summarize_best_pair_per_head_query_oracle(observations: list[dict]) -> dict:
+    """Favorably upper-bound every assignment over the five released pairs.
+
+    The oracle sees the exact reference error for each individual head-query.
+    Therefore every fixed layer/head assignment is a subset of its choices. A
+    numerical failure here cannot be repaired merely by assigning different
+    released pairs to different heads.
+    """
+    rows = []
+    choices = []
+    counts = [0] * len(PAIRS)
+    for observation in observations:
+        pair_index = min(
+            range(len(PAIRS)),
+            key=lambda index: (observation["candidates"][index]["relative_l2"], index),
+        )
+        rows.append((observation, observation["candidates"][pair_index]))
+        choices.append(pair_index)
+        counts[pair_index] += 1
+    works = [PAIRS[index][2] for index in choices]
+    maximum_work = max(works)
+    summary = _summarize_rows(rows, maximum_work)
+    return {
+        "semantic": "noncausal_best_released_pair_per_head_query_error_oracle",
+        "choice_authority": (
+            "exact reference error at each evaluated head-query; strictly more favorable "
+            "than any fixed layer/head assignment"
+        ),
+        "pair_choice_counts": [
+            {
+                "vertical_size": PAIRS[index][0],
+                "slash_size": PAIRS[index][1],
+                "observations": count,
+            }
+            for index, count in enumerate(counts)
+        ],
+        "mean_effective_work_fraction": sum(works) / len(works),
+        "maximum_effective_work_fraction": maximum_work,
+        **summary,
     }
 
 
@@ -348,11 +396,13 @@ def run(
     validate_raw(raw, commit)
     source_hashes["raw"] = sha256_file(raw_path)
     summaries = [summarize_pair(raw["observations"], index) for index in range(len(PAIRS))]
+    best_pair_oracle = summarize_best_pair_per_head_query_oracle(raw["observations"])
     passing = [
         {"vertical_size": row["vertical_size"], "slash_size": row["slash_size"]}
         for row in summaries
         if row["passes"]
     ]
+    continuation_gate_passes = bool(passing) or best_pair_oracle["passes"]
     safety = validate_safety(raw["safety_snapshots"])
     manifest = {
         "schema_version": 1,
@@ -372,11 +422,14 @@ def run(
         },
         "pair_summaries": summaries,
         "passing_pairs": passing,
-        "continuation_gate_passes": bool(passing),
+        "best_released_pair_per_head_query_oracle": best_pair_oracle,
+        "continuation_gate_passes": continuation_gate_passes,
         "decision": (
             "promote_passing_pairs_to_deeper_global_and_accumulated_fidelity"
             if passing
-            else "kill_released_minference_vertical_slash_pairs_on_mandatory_mimo_layer0_64k_slice"
+            else "promote_fixed_headwise_pair_assignment_train_holdout_experiment_only"
+            if best_pair_oracle["passes"]
+            else "kill_all_combinations_of_released_minference_vertical_slash_pairs_on_mandatory_mimo_layer0_64k_slice"
         ),
         "safety": safety,
         "accepted_tokens": 0,
@@ -385,7 +438,8 @@ def run(
         "performance_claim": None,
         "endpoint_tps": None,
         "limitations": (
-            "one artificial deterministic 64K text prefix and source layer 0 only; "
+            "one artificial deterministic 64K text prefix and source layer 0 only; the best-pair "
+            "oracle uses exact per-head-query reference errors and is not an executable selector; "
             "no downstream state, route, logit, native modality, endpoint, TPS, hardware, "
             "or purchase conclusion"
         ),
