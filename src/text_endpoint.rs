@@ -34,6 +34,9 @@ const ROPE_DIM: usize = 64;
 const ROUTED_EXPERTS: usize = 256;
 const TOP_K: usize = 8;
 const MOE_INTERMEDIATE: usize = 2048;
+const SOURCE_EXPERT_BYTES: u64 = 25_171_968;
+const PW0156_FREE_HBM_EXPERT_SLOTS: usize = 660;
+const PW0156_OPTIMISTIC_STORAGE_BYTES: u64 = 4 * 3_500_000_000 * 15;
 const CHAT_PROMPT: &str = "<|im_start|>system\nYou are MiMo, a helpful AI assistant engineered by Xiaomi.<|im_end|><|im_start|>user\nHello<|im_end|><|im_start|>assistant\n<think></think>";
 const CHAT_PROMPT_IDS: [u32; 27] = [
     151_644, 8948, 198, 2610, 525, 20_740, 25_612, 11, 264, 10_950, 15_235, 17_847, 44_936, 553,
@@ -762,6 +765,46 @@ pub struct RouteOnlyTraceReport {
     pub prompt_positions: usize,
     pub teacher_forced_positions: usize,
     pub total_positions: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    pub performance_claim: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PrefillRouteCoverageLedger {
+    pub distinct_layer_expert_records: usize,
+    pub source_expert_bytes_per_record: u64,
+    pub distinct_source_expert_bytes: u64,
+    pub granted_free_hbm_expert_slots: usize,
+    pub minimum_streamed_records_after_offline_residency: usize,
+    pub minimum_streamed_source_expert_bytes: u64,
+    pub granted_storage_lanes: usize,
+    pub granted_bytes_per_second_per_lane: u64,
+    pub ttft_limit_seconds: u64,
+    pub maximum_streamable_complete_records: usize,
+    pub first_decisive_distinct_record_count: usize,
+    pub exceeds_optimistic_15_second_storage_bound: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PrefillRouteCoverageTraceReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub fixture_sha256: String,
+    pub checkpoint_verification_sha256: String,
+    pub corpus_positions: usize,
+    pub traced_prefix_positions: usize,
+    pub input_token_ids_sha256: String,
+    pub layer_routes_sha256: String,
+    pub numerics: &'static str,
+    pub layer_traces: Vec<LayerRouteTrace>,
+    pub coverage: PrefillRouteCoverageLedger,
+    pub ledger: EndpointLedger,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub complete_wall_ms: f64,
+    pub batch_size: usize,
     pub concurrency: usize,
     pub accepted_tokens: usize,
     pub performance_claim: Option<String>,
@@ -1645,7 +1688,22 @@ fn validate_fixture(fixture: &EndpointFixture) -> Result<(), String> {
                 && fixture.full_prefix_trace_append_token_ids.as_ref()
                     == Some(&hosted.generated_token_ids)
         });
-    if (!raw_identity && !chat_identity && !trace_identity && !wide_trace_identity)
+    let prefill_8k_identity = fixture.schema_version == 5
+        && fixture.semantic == "mimo_v2_5_target_faithful_8k_prefill_route_coverage"
+        && sha256_hex(fixture.prompt_utf8.as_bytes())
+            == "e0976af8e2cecc0004f8b71012490a8df10a6b661df1a9bf90050d2c2d6e7032"
+        && fixture.expected_prompt_token_ids.len() == 8_000
+        && fixture.route_trace_positions == Some(8_000)
+        && fixture.full_prefix_trace_append_token_ids.is_none()
+        && fixture.hosted_reference.is_none()
+        && serde_json::to_vec(&fixture.expected_prompt_token_ids).is_ok_and(|bytes| {
+            sha256_hex(&bytes) == "b17d1c39c4f5f8b1a0a80903d8d14566d0518e22c3fe49a2978ab82e8e4b68bb"
+        });
+    if (!raw_identity
+        && !chat_identity
+        && !trace_identity
+        && !wide_trace_identity
+        && !prefill_8k_identity)
         || fixture.revision != REVISION
         || fixture.add_special_tokens
         || fixture.full_attention_qkv_scale_layout.weight_shape != [13_568, 4096]
@@ -7781,6 +7839,171 @@ pub fn run_route_only_trace(
     Ok(report)
 }
 
+fn prefill_route_coverage_ledger(
+    distinct_layer_expert_records: usize,
+) -> Result<PrefillRouteCoverageLedger, String> {
+    if distinct_layer_expert_records > 47 * ROUTED_EXPERTS {
+        return Err("prefill route coverage exceeds the model's layer-expert bank".to_owned());
+    }
+    let minimum_streamed_records =
+        distinct_layer_expert_records.saturating_sub(PW0156_FREE_HBM_EXPERT_SLOTS);
+    let maximum_streamable_complete_records =
+        (PW0156_OPTIMISTIC_STORAGE_BYTES / SOURCE_EXPERT_BYTES) as usize;
+    let first_decisive_distinct_record_count =
+        PW0156_FREE_HBM_EXPERT_SLOTS + maximum_streamable_complete_records + 1;
+    Ok(PrefillRouteCoverageLedger {
+        distinct_layer_expert_records,
+        source_expert_bytes_per_record: SOURCE_EXPERT_BYTES,
+        distinct_source_expert_bytes: (distinct_layer_expert_records as u64)
+            .checked_mul(SOURCE_EXPERT_BYTES)
+            .ok_or("prefill distinct byte ledger overflow")?,
+        granted_free_hbm_expert_slots: PW0156_FREE_HBM_EXPERT_SLOTS,
+        minimum_streamed_records_after_offline_residency: minimum_streamed_records,
+        minimum_streamed_source_expert_bytes: (minimum_streamed_records as u64)
+            .checked_mul(SOURCE_EXPERT_BYTES)
+            .ok_or("prefill streamed byte ledger overflow")?,
+        granted_storage_lanes: 4,
+        granted_bytes_per_second_per_lane: 3_500_000_000,
+        ttft_limit_seconds: 15,
+        maximum_streamable_complete_records,
+        first_decisive_distinct_record_count,
+        exceeds_optimistic_15_second_storage_bound: minimum_streamed_records
+            > maximum_streamable_complete_records,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_prefill_route_coverage_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    traced_prefix_positions: usize,
+    output_dir: &Path,
+    commit: &str,
+) -> Result<PrefillRouteCoverageTraceReport, String> {
+    if output_dir.exists() {
+        return Err(format!("refusing to overwrite {}", output_dir.display()));
+    }
+    if !matches!(traced_prefix_positions, 512 | 1_024 | 2_048 | 4_096 | 8_000) {
+        return Err("PW-0156 prefix must be one of 512, 1024, 2048, 4096, or 8000".to_owned());
+    }
+    let complete_started = Instant::now();
+    let disk_bytes_read_before = process_disk_bytes_read()?;
+    let EndpointAuthority {
+        fixture_bytes,
+        fixture,
+        mut safety,
+        config,
+        prompt_token_ids,
+        checkpoint,
+        verification_sha256,
+        ..
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    if fixture.schema_version != 5
+        || prompt_token_ids.len() != 8_000
+        || fixture.route_trace_positions != Some(8_000)
+    {
+        return Err("prefill coverage trace requires the frozen schema-5 8K fixture".to_owned());
+    }
+    let input_token_ids = prompt_token_ids[..traced_prefix_positions].to_vec();
+    let input_token_ids_bytes =
+        serde_json::to_vec(&input_token_ids).map_err(|error| error.to_string())?;
+    let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
+    let mut ledger = EndpointLedger::default();
+    let step = decode_step(
+        &checkpoint,
+        &config,
+        &input_token_ids,
+        &mut caches,
+        &mut ledger,
+        &mut safety,
+        None,
+        None,
+        DecodeOutput::RoutesOnly,
+    )?;
+    if step.output_token != 0
+        || !step.top_logits.is_empty()
+        || !step.full_logits.is_empty()
+        || step.traces.len() != 48
+        || !step.traces[0].selected_experts_by_position.is_empty()
+        || step.traces[1..].iter().any(|trace| {
+            trace.selected_experts_by_position.len() != traced_prefix_positions
+                || trace.route_weights_by_position.len() != traced_prefix_positions
+                || trace
+                    .selected_experts_by_position
+                    .iter()
+                    .zip(&trace.route_weights_by_position)
+                    .any(|(experts, weights)| {
+                        experts.len() != TOP_K
+                            || weights.len() != TOP_K
+                            || experts.iter().copied().collect::<BTreeSet<_>>().len() != TOP_K
+                            || experts
+                                .iter()
+                                .any(|&expert| expert as usize >= ROUTED_EXPERTS)
+                            || weights.iter().any(|weight| !weight.is_finite())
+                    })
+        })
+    {
+        return Err("prefill route coverage shape or value validation failed".to_owned());
+    }
+    let distinct = step.traces[1..]
+        .iter()
+        .enumerate()
+        .flat_map(|(layer_offset, trace)| {
+            trace
+                .selected_experts_by_position
+                .iter()
+                .flatten()
+                .map(move |&expert| (layer_offset + 1, expert))
+        })
+        .collect::<BTreeSet<_>>()
+        .len();
+    let coverage = prefill_route_coverage_ledger(distinct)?;
+    let route_bytes = serde_json::to_vec(&step.traces).map_err(|error| error.to_string())?;
+    safety.checkpoint("prefill_route_evidence_serialized", true)?;
+    ledger.actual_process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_bytes_read_before)
+        .ok_or("process disk byte counter moved backwards")?;
+    ledger.peak_resident_bytes = peak_resident_bytes()?;
+    drop(caches);
+    checkpoint.release_file_pages()?;
+    drop(checkpoint);
+    safety.checkpoint("checkpoint_released", true)?;
+    safety.checkpoint("final_service_health", true)?;
+    let report = PrefillRouteCoverageTraceReport {
+        schema_version: 1,
+        semantic: "mimo_target_faithful_prefill_route_coverage_rust_trace",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        fixture_sha256: sha256_hex(&fixture_bytes),
+        checkpoint_verification_sha256: verification_sha256,
+        corpus_positions: 8_000,
+        traced_prefix_positions,
+        input_token_ids_sha256: sha256_hex(&input_token_ids_bytes),
+        layer_routes_sha256: sha256_hex(&route_bytes),
+        numerics: "dynamic_fp8_e4m3fn_per_token_group_128_bf16_boundaries",
+        layer_traces: step.traces,
+        coverage,
+        ledger,
+        safety_snapshots: safety.snapshots,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        performance_claim: None,
+    };
+    fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
+    let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(&output_dir.join("manifest.json"), &bytes)?;
+    Ok(report)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_full_prefix_trace(
     checkpoint_root: &Path,
@@ -8096,6 +8319,27 @@ mod tests {
             224
         );
         assert!(validate_slow_endpoint_fixture(&fixture).is_err());
+    }
+
+    #[test]
+    fn prefill_8k_route_fixture_and_storage_threshold_are_exact() {
+        let fixture: EndpointFixture = serde_json::from_str(include_str!(
+            "../evals/fixtures/real/pw0156-8k-prefill-route-coverage.json"
+        ))
+        .expect("valid 8K prefill fixture");
+        assert!(validate_fixture(&fixture).is_ok());
+        assert_eq!(fixture.expected_prompt_token_ids.len(), 8_000);
+        assert_eq!(fixture.route_trace_positions, Some(8_000));
+        assert!(fixture.full_prefix_trace_append_token_ids.is_none());
+        assert!(fixture.hosted_reference.is_none());
+
+        let last_survivor = prefill_route_coverage_ledger(9_002).expect("ledger");
+        assert_eq!(last_survivor.maximum_streamable_complete_records, 8_342);
+        assert_eq!(last_survivor.first_decisive_distinct_record_count, 9_003);
+        assert!(!last_survivor.exceeds_optimistic_15_second_storage_bound);
+        let first_rejection = prefill_route_coverage_ledger(9_003).expect("ledger");
+        assert!(first_rejection.exceeds_optimistic_15_second_storage_bound);
+        assert!(prefill_route_coverage_ledger(47 * ROUTED_EXPERTS + 1).is_err());
     }
 
     #[test]
