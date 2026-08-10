@@ -1,7 +1,7 @@
 # PW-0168 — active A770 Photon exact-board BOM preflight
 
-- Status: ready; not yet executed
-- Disposition: pending
+- Status: completed
+- Disposition: conditional
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -10,7 +10,8 @@
 - Hardware candidate: one new GUNNIR Intel Arc A770 Photon 16G OC in the owned
   EPYC host; analytical pre-purchase preflight only
 - Related records: PW-0151, PW-0155, PW-0167; E7
-- Implementation commit and dirty state: pending
+- Implementation commit and dirty state:
+  `4490713479a5734656e41a131113609d74765ba9`; clean
 
 ## Question and changed premise
 
@@ -61,8 +62,41 @@ user decision after the installed component benchmark prerequisite.
 
 ## Result
 
-Pending execution.
+The authoritative report hashes to
+`dfd12ca7bb331003e28241e1c5eac49c579eecfa90cb5216fb41edb8a297f6bd`.
+It authenticates the exact GUNNIR product page and specification panel, the
+dated active listing transcription, PW-0151, PW-0167, TARGET, and the
+byte-identical PSU photo.
+
+The official panel resolves two marketplace uncertainties. This exact board
+uses two 8-pin inputs, not three, and its TBP is 285 W rather than Intel's
+225-W reference-card figure. It measures 300x118.5x50 mm. The GPU plus the
+170-W EPYC total 455 W by nameplate, leaving 277 W below the NEX750B's 732-W
+combined +12-V label. A candidate cable plan uses VGA1 on +12V2 and VGA3 on
++12V4, but the presence and pinout of original-compatible cables, transients,
+wall power, clearance, and cooling remain unproved.
+
+The active new-card observation is `$411` plus `$20` shipping, with four shown
+available and import fees stated included. That leaves `$69` before unknown
+destination sales tax and any missing installation parts. Therefore the
+record reverses only the lack of active inventory; it does not pass the fixed
+`$500` complete delivered-BOM gate. The inherited absent native ReBAR and
+unsupported owned Debian 13 oneAPI platform gates also remain open.
+
+Gate 8 passes at 70% minimum free memory, 31,162,368-byte peak RSS,
+20,252,224-byte maximum physical footprint, zero swap growth or throttling, an
+explicit release boundary, and stable services. The analyzer reports zero
+accepted tokens, no endpoint TPS, and no measured throughput-model constant
+changes. The first invocation failed closed before output because normalized
+HTML had discarded the official panel URL; the corrected clean commit binds
+the raw HTML attribute and produced the sole report.
 
 ## Decision
 
-Pending execution.
+Retain this exact active card as a conditional candidate. Do not purchase yet.
+The next gate requires photographs or measurements proving 300-mm card and
+50-mm cooler clearance, photographs authenticating two original EVGA VGA
+cables and both connector ends, and a non-purchasing checkout total for the
+actual delivery address. If those pass, the branch still requires a reversible
+installed oneAPI BF16/PCIe/ReBAR-off/on component benchmark before runtime
+implementation or any performance promotion.

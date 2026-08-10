@@ -443,6 +443,19 @@ Intel warns ReBAR is needed for optimal Arc performance, and the owned Debian
 complete sub-`$500` BOM and reversible installed oneAPI BF16, PCIe, and
 ReBAR-off/on component evidence before purchase or implementation.
 
+PW-0168 replaces PW-0167's generic reference-card and sold-market premises
+with one authenticated exact active candidate. GUNNIR specifies its A770
+Photon 16G OC at 285-W TBP, two 8-pin inputs, and 300x118.5x50 mm. The active
+listing shows `$411` plus `$20` shipping, four available, and import fees
+included, leaving `$69` before unknown destination tax and installation parts.
+The 285-W board plus 170-W CPU leaves 277 W under the PSU's combined +12-V
+label, but exact clearance, original-compatible cables and pinout, checkout
+total, cooling, ReBAR, supported oneAPI environment, and installed performance
+remain unproved. Retain the candidate pending physical and checkout evidence;
+authorize neither purchase nor implementation. The authoritative report
+hashes to
+`dfd12ca7bb331003e28241e1c5eac49c579eecfa90cb5216fb41edb8a297f6bd`.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,
