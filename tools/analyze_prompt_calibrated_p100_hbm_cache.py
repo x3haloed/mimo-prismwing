@@ -307,7 +307,7 @@ def run(
     )
     capacity = expert_cache_capacity(non_routed_bytes, kv["total_bytes"])
     cache = prompt_frequency_cache(routes, capacity["complete_expert_slots"])
-    if capacity["complete_expert_slots"] != 661:
+    if capacity["complete_expert_slots"] != 660:
         raise ValueError("HBM expert capacity changed")
     if cache["suffix_union_misses"] != 424:
         raise ValueError("causal suffix miss union changed")

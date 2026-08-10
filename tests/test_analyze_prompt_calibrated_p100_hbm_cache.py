@@ -11,7 +11,10 @@ from tools.analyze_prompt_calibrated_p100_hbm_cache import (
 
 def tiny_config():
     return {
-        "hybrid_layer_pattern": [0] * 8 + [1] * 40,
+        "hybrid_layer_pattern": [
+            0 if layer in {0, 5, 11, 17, 23, 29, 35, 41, 47} else 1
+            for layer in range(48)
+        ],
         "num_key_value_heads": 4,
         "head_dim": 192,
         "v_head_dim": 128,
@@ -25,14 +28,14 @@ def tiny_config():
 class PromptCalibratedP100HbmCacheTests(unittest.TestCase):
     def test_8k_kv_ledger_counts_full_and_sliding_layers(self):
         ledger = kv_capacity_bytes(tiny_config())
-        self.assertEqual(ledger["full_attention_layers"], 8)
-        self.assertEqual(ledger["sliding_window_layers"], 40)
-        self.assertEqual(ledger["total_bytes"], 190_054_400)
+        self.assertEqual(ledger["full_attention_layers"], 9)
+        self.assertEqual(ledger["sliding_window_layers"], 39)
+        self.assertEqual(ledger["total_bytes"], 209_879_040)
 
     def test_aggregate_hbm_capacity_uses_only_complete_experts(self):
-        ledger = expert_cache_capacity(12_814_555_472, 190_054_400)
-        self.assertEqual(ledger["complete_expert_slots"], 661)
-        self.assertEqual(ledger["expert_cache_bytes"], 661 * EXPERT_BYTES)
+        ledger = expert_cache_capacity(12_814_555_472, 209_879_040)
+        self.assertEqual(ledger["complete_expert_slots"], 660)
+        self.assertEqual(ledger["expert_cache_bytes"], 660 * EXPERT_BYTES)
         self.assertLess(ledger["unallocated_tail_bytes"], EXPERT_BYTES)
 
     def test_prompt_frequency_cache_never_learns_from_suffix(self):
