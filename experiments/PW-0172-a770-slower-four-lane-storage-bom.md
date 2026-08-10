@@ -1,7 +1,7 @@
 # PW-0172 — A770 slower four-lane storage BOM
 
-- Status: ready
-- Disposition: unexecuted
+- Status: completed
+- Disposition: conditional
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Model/reference: MiMo revision
@@ -10,7 +10,8 @@
 - Hardware candidate: PW-0169's A770, four used Samsung PM981 256-GB drives,
   and PW-0171's passive-bifurcation quad-M.2 carrier
 - Related records: PW-0151, PW-0169 through PW-0171; E7
-- Implementation commit and dirty state: pending
+- Implementation commit and dirty state:
+  `e531592119502857171ca4d3b7b007e104e37969`; clean
 
 ## Question and changed premise
 
@@ -46,4 +47,35 @@ records zero accepted tokens and no TPS; and authorizes no purchase.
 
 ## Result
 
-Pending clean implementation commit and execution.
+The authoritative report hashes to
+`2b38a618c0364ce2c11a7d93b2bf57e357c38d8cc5f3edfc2da954a6795da564`.
+It authenticates TARGET, PW-0169 through PW-0171, the existing active carrier,
+an active listing with six exact PM981 drives available, and a direct retail
+specification for the common `MZVLB256HAHQ` base part.
+
+Four drives cost `$115.96` with free observed shipping. Adding the `$39.99`
+carrier and PW-0169's `$311.71` card-plus-rendered-shipping produces a
+`$467.66` pre-tax subtotal, leaving `$32.34` for tax, original-compatible GPU
+cables, and any additional cooling. On the `$455.95` taxable item subtotal,
+the break-even sales-tax rate is only `7.092883%` even if cables and cooling
+are free. Therefore this is a pre-tax BOM, not a complete sub-cap BOM.
+
+Capacity is ample at 1.024 decimal TB. The retail page advertises 2,800 MB/s
+for the matching base part, 12% above PW-0170's conservative per-drive grant.
+That is neither manufacturer authority nor installed sustained bandwidth.
+Platform bifurcation, concurrent reads, drive health, and thermal behavior all
+remain unmeasured.
+
+Gate 8 passes at 72% minimum free memory, 29,163,520-byte peak RSS,
+17,680,000-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable protected services. The report has
+zero accepted tokens, no endpoint TPS, and no measured throughput-model
+constant changes.
+
+## Decision
+
+Retain only the pre-tax four-by-2.5-GB/s A770 branch. It still requires actual
+checkout, authenticated cables/cooling, installed storage and A770 evidence,
+and a base-aligned `q=137` proposer achieving at least `A=113` for 50 TPS
+(`A=77` for 34.3 TPS). Authorize no purchase. A retailer nameplate and an
+affordable cart do not satisfy any performance or fidelity gate.
