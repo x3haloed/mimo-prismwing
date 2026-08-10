@@ -3217,3 +3217,27 @@ accepted tokens, no endpoint TPS, and no measured throughput-model constant
 changes; 131 TFLOPS remains a derived ceiling. Require an active complete BOM
 and reversible installed oneAPI BF16/PCIe/ReBAR-off/on component evidence
 before purchase or runtime work.
+
+PW-0168 closes PW-0167's active-inventory uncertainty for one exact board, but
+not its complete-BOM or installation gates. GUNNIR's authenticated Photon 16G
+OC panel specifies two 8-pin inputs, 285-W TBP, and 300x118.5x50-mm dimensions;
+this corrects marketplace metadata claiming three inputs and replaces the
+225-W Intel reference-card premise only for this candidate. The card plus the
+170-W EPYC leaves 277 W under the authenticated 732-W combined +12-V label.
+VGA1/+12V2 and VGA3/+12V4 are a candidate separate-rail plan, not cable or
+pinout proof.
+
+The active new listing shows `$411` plus `$20` shipping, four available, and
+import fees included. It leaves `$69` before unauthenticated destination tax
+and installation parts, so it supersedes only the inference that no active
+sub-cap A770 observation exists. Chassis clearance, original EVGA cables,
+checkout total, cooling, absent native ReBAR, unsupported Debian 13 oneAPI
+placement, and installed performance all remain open. The authoritative report
+hashes to
+`dfd12ca7bb331003e28241e1c5eac49c579eecfa90cb5216fb41edb8a297f6bd`.
+Gate 8 passes at 70% minimum free memory, 31,162,368-byte peak RSS,
+20,252,224-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0168 reports zero
+accepted tokens, no endpoint TPS, and no measured throughput-model constant
+changes. Retain the exact card only pending physical and checkout evidence; do
+not purchase from this record.

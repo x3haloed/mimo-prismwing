@@ -691,3 +691,28 @@ Supermicro binds the owned H11 generation to absent native ReBAR support;
 Intel binds ReBAR and supported client-GPU Linux prerequisites. The sold rows
 do not establish active inventory, a delivered BOM, installation, or measured
 oneAPI performance.
+
+## Active A770 Photon exact-board authorities
+
+- GUNNIR, A770 Photon 16G OC product page and official specification panel,
+  accessed and captured 2026-08-10:
+  <https://www.gunnir.cn/home/product?id=8052c305-0ca4-4630-aafb-97ba53463d98&modelid=d5512409-d36e-475e-8343-37a5301eb47f>.
+- eBay item `127017511242`, dated semantic transcription observed 2026-08-10
+  after a direct command-line fetch returned HTTP 403:
+  <https://www.ebay.com/itm/127017511242>.
+
+The official product HTML hashes to
+`44830fe78ed6971bca45a19df127175419256486318b89147f67202f291a8e1d`;
+the specification panel hashes to
+`75149fac3b91f3447967121a4ea704b31f7be289611924f442ce2870f7a313e7`;
+its image-bound semantic transcription hashes to
+`bc34e4a4e2bb6c76186d82318f3df92c1ad3d8fc8ebfdeb0f959dc15656921d0`;
+and the explicitly weaker moving-market transcription hashes to
+`c8f040b06ac9e6d776b5ce0d4333090b4bf7087569c73dee0670c8f2c0773836`.
+
+Decision: exact-board identity, dimension, connector, TBP, and dated active-
+market authority for PW-0168. GUNNIR binds this Photon to 16 GB, two 8-pin
+inputs, 285-W TBP, and 300x118.5x50-mm dimensions. The listing records `$411`
+plus `$20` shipping, four available, and import fees included, but it does not
+authenticate destination tax, delivered complete cost, physical fit, original
+PSU cables, cooling, purchase authority, or installed performance.
