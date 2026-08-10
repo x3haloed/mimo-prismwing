@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -24,10 +25,14 @@ CONFIG_SHA256 = "292a60e74ae9a6d53422b31b21468ce2111c0ab3f7f7a4f4e9c7cd5133b9658
 CORPUS_SHA256 = "3b5bc4e8f41fed2a13867bc96ea8236d1630bf994eee5608a8366f1f846a79d5"
 VERIFICATION_SHA256 = "9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03"
 PW0157_SHA256 = "32fa8954e875e6c8c53b5092827820940f51225d2bf24322caf5b782295004b9"
+PW0162_CONTROL_SHA256 = "9e95643ae0cba8ee9eda2f0447f477d05e839a02e13ff457e80499cbba86bcce"
 PW0158_SHA256 = "3b5b94cae112bee558ec46566ec09652c58bd434c3f47bebd3e0bc7c533fd315"
 PW0161_SHA256 = "fc438d593d8ac99be3cc426496feb830256ffc48c75d58fc8bb9d6b09a2c6c8f"
 INPUT_SHA256 = "9a8e422acb7b8762d86419adfe3234831614eee8a9f24c63648dccc4575d9e78"
-ROUTES_SHA256 = "eff0dd3c993d132bd2ef66008c42c10e7b6b0b604ccad93ba0c72f894023a903"
+CONTAMINATED_PW0157_ROUTES_SHA256 = "eff0dd3c993d132bd2ef66008c42c10e7b6b0b604ccad93ba0c72f894023a903"
+CONTAMINATED_CONTROL_ROUTES_SHA256 = "67e09adf08254ea2440c0067813970639188132629f22d4a03332f205014e320"
+ROUTES_SHA256 = "c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872"
+RUNTIME_ROUTES_SHA256 = "9cf63371f63d063aa95ef2f6825119b58412b8fed7ecdee4b07ff5b7dfb7a0dc"
 FRACTIONS = (0.01, 0.05, 0.1, 0.2, 0.21056139043683178, 0.25, 1.0)
 GLOBAL_LAYERS = (0, 5, 11, 17, 23, 29, 35, 41, 47)
 SAMPLE_POSITIONS = tuple(range(63, 512, 32))
@@ -109,13 +114,43 @@ def validate_safety(snapshots: object) -> None:
         raise ValueError("Gate-8 post-release footprint violation")
 
 
-def _authenticate(paths: dict[str, Path], commit: str) -> tuple[dict, dict]:
+def semantic_routes(report: dict) -> list[dict]:
+    traces = report.get("layer_traces")
+    if not isinstance(traces, list) or len(traces) != 48:
+        raise ValueError("route authority trace shape mismatch")
+    semantic = []
+    for layer, trace in enumerate(traces):
+        if (
+            trace.get("layer") != layer
+            or not isinstance(trace.get("selected_experts_by_position"), list)
+            or not isinstance(trace.get("route_weights_by_position"), list)
+            or len(trace["selected_experts_by_position"])
+            != len(trace["route_weights_by_position"])
+        ):
+            raise ValueError("route authority trace identity mismatch")
+        semantic.append(
+            {
+                "layer": layer,
+                "selected_experts_by_position": trace["selected_experts_by_position"],
+                "route_weights_by_position": trace["route_weights_by_position"],
+            }
+        )
+    return semantic
+
+
+def semantic_routes_sha256(report: dict) -> str:
+    payload = json.dumps(semantic_routes(report), separators=(",", ":")).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _authenticate(paths: dict[str, Path], commit: str) -> tuple[dict, dict, dict]:
     fixed = {
         "target": TARGET_SHA256,
         "config": CONFIG_SHA256,
         "corpus": CORPUS_SHA256,
         "verification": VERIFICATION_SHA256,
         "pw0157": PW0157_SHA256,
+        "control": PW0162_CONTROL_SHA256,
         "pw0158": PW0158_SHA256,
         "pw0161": PW0161_SHA256,
     }
@@ -132,6 +167,8 @@ def _authenticate(paths: dict[str, Path], commit: str) -> tuple[dict, dict]:
         != GLOBAL_LAYERS
     ):
         raise ValueError("config global-attention authority mismatch")
+    pw0157 = json.loads(paths["pw0157"].read_text())
+    control = json.loads(paths["control"].read_text())
     pw0158 = json.loads(paths["pw0158"].read_text())
     pw0161 = json.loads(paths["pw0161"].read_text())
     if (
@@ -141,25 +178,56 @@ def _authenticate(paths: dict[str, Path], commit: str) -> tuple[dict, dict]:
         or pw0161.get("positions") != 1_000_000
     ):
         raise ValueError("prior arithmetic authority mismatch")
+    if (
+        pw0157.get("semantic") != "mimo_target_faithful_prefill_route_coverage_rust_trace"
+        or control.get("semantic") != pw0157.get("semantic")
+        or pw0157.get("traced_prefix_positions") != 512
+        or control.get("traced_prefix_positions") != 512
+        or pw0157.get("input_token_ids_sha256") != INPUT_SHA256
+        or control.get("input_token_ids_sha256") != INPUT_SHA256
+        or pw0157.get("layer_routes_sha256") != CONTAMINATED_PW0157_ROUTES_SHA256
+        or control.get("layer_routes_sha256") != CONTAMINATED_CONTROL_ROUTES_SHA256
+        or pw0157.get("layer_routes_sha256") == control.get("layer_routes_sha256")
+        or semantic_routes(pw0157) != semantic_routes(control)
+        or semantic_routes_sha256(pw0157) != ROUTES_SHA256
+        or semantic_routes_sha256(control) != ROUTES_SHA256
+    ):
+        raise ValueError("PW-0162 route-hash correctness-repair authority mismatch")
+    validate_safety(control.get("safety_snapshots"))
+    route_authority_repair = {
+        "pw0157_timing_contaminated_route_sha256": CONTAMINATED_PW0157_ROUTES_SHA256,
+        "same_shape_control_timing_contaminated_route_sha256": CONTAMINATED_CONTROL_ROUTES_SHA256,
+        "semantic_route_sha256": ROUTES_SHA256,
+        "runtime_f32_semantic_route_sha256": RUNTIME_ROUTES_SHA256,
+        "canonicalization": (
+            "semantic_route_sha256 hashes parsed JSON numeric values in the analyzer; "
+            "runtime_f32_semantic_route_sha256 hashes the runtime's typed F32 payload"
+        ),
+        "semantic_route_rows_compared": 47 * 512,
+        "ordered_expert_rows_bit_exact": 47 * 512,
+        "route_weight_rows_bit_exact": 47 * 512,
+        "old_hash_portable_across_runs": False,
+        "repair": "exclude_attention_cache_union_and_wall_time_metadata_from_route_identity",
+    }
     raw = json.loads(paths["raw"].read_text())
     if raw.get("commit") != commit:
         raise ValueError("raw trace implementation commit mismatch")
     source_hashes = {name: expected for name, expected in fixed.items()}
     source_hashes["raw"] = sha256_file(paths["raw"])
-    return raw, source_hashes
+    return raw, source_hashes, route_authority_repair
 
 
 def _validate_raw(raw: dict) -> None:
     if (
-        raw.get("schema_version") != 1
+        raw.get("schema_version") != 3
         or raw.get("semantic") != "mimo_target_faithful_global_attention_sparsity_shadow_trace"
         or raw.get("revision") != REVISION
         or raw.get("fixture_sha256") != CORPUS_SHA256
         or raw.get("checkpoint_verification_sha256") != VERIFICATION_SHA256
-        or raw.get("pw0157_prefix512_sha256") != PW0157_SHA256
+        or raw.get("route_authority_sha256") != PW0157_SHA256
         or raw.get("traced_prefix_positions") != 512
         or raw.get("input_token_ids_sha256") != INPUT_SHA256
-        or raw.get("layer_routes_sha256") != ROUTES_SHA256
+        or raw.get("semantic_layer_routes_sha256") != RUNTIME_ROUTES_SHA256
         or tuple(raw.get("observed_global_layers", ())) != GLOBAL_LAYERS
         or tuple(raw.get("sampled_absolute_query_positions", ())) != SAMPLE_POSITIONS
         or raw.get("observed_heads_per_sample") != HEADS
@@ -251,7 +319,7 @@ def run(paths: dict[str, Path], output: Path, commit: str) -> dict:
     if output.exists():
         raise ValueError(f"refusing to overwrite {output}")
     authenticate_implementation_commit(commit)
-    raw, source_hashes = _authenticate(paths, commit)
+    raw, source_hashes, route_authority_repair = _authenticate(paths, commit)
     _validate_raw(raw)
     summaries = [summarize_candidates(raw["observations"], index) for index in range(len(FRACTIONS))]
     top20 = summaries[3]
@@ -270,6 +338,7 @@ def run(paths: dict[str, Path], output: Path, commit: str) -> dict:
         "revision": REVISION,
         "commit": commit,
         "source_hashes": source_hashes,
+        "route_authority_repair": route_authority_repair,
         "observations": EXPECTED_OBSERVATIONS,
         "fraction_summaries": summaries,
         "continuation_gate": {
@@ -310,6 +379,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("corpus", type=Path)
     parser.add_argument("verification", type=Path)
     parser.add_argument("pw0157", type=Path)
+    parser.add_argument("control", type=Path)
     parser.add_argument("pw0158", type=Path)
     parser.add_argument("pw0161", type=Path)
     parser.add_argument("raw", type=Path)
@@ -326,6 +396,7 @@ def main() -> None:
         "corpus",
         "verification",
         "pw0157",
+        "control",
         "pw0158",
         "pw0161",
         "raw",

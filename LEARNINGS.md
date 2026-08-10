@@ -3450,3 +3450,101 @@ Gate 8 passes at 72% minimum free memory, 50,085,888-byte peak RSS,
 explicit release boundary, and stable services. PW-0175 records zero accepted
 tokens, no endpoint TPS, no measured throughput-model constant changes, and no
 purchase authority.
+
+PW-0162 found that a content hash is only as semantic as its payload. The
+first global-attention oracle walk failed its route non-interference guard, but
+the observer-disabled same-shape control also produced a different
+`layer_routes_sha256` from PW-0157. Direct comparison then showed that every
+one of the `47 * 512 = 24,064` ordered expert rows and route-weight rows was
+bit-exact. The hash had included the entire `LayerRouteTrace`, particularly
+per-layer `wall_ms`, so it was guaranteed to drift across executions without
+any model-state change.
+
+The repaired authority hashes only layer number, ordered selected experts, and
+ordered route weights. Both authenticated traces produce
+`c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872`;
+a deterministic fixture proves timing changes preserve that identity while a
+route change does not. The observer-disabled control manifest hashes to
+`480b02816b293ed8a2275e3c2810ee940fa0916db31fd1d730d6331e9f00a025`
+and passes Gate 8. This is a correctness repair, not evidence for or against
+20%-history pruning, and it changes no throughput-model constant or purchase
+decision.
+
+The corrected full run then established a second, genuinely causal instrument
+failure: its semantic route hash changed. A dataflow can be shadow-only and
+still fail to be an observationally passive execution boundary when it
+allocates, sorts, renormalizes, and performs large reductions between source
+head computations. Do not infer a pruning result from that failed run. Move
+all candidate work after the authoritative pass: preallocate bounded sampled
+Q/K/V and reference-output storage, perform copies only during source
+execution, require the exact route hash, then require bit-exact offline replay
+before computing oracle errors. This repair changes no throughput-model
+constant, architecture disposition, or purchase authority.
+
+The preallocated copy-only attempt still failed exact route identity after
+`1,679` seconds. Moving observer arithmetic offline is therefore necessary but
+not sufficient for observational passivity. The failure manifest hashes to
+`026f116129543b02285d81e20bb0a3a7746c91623f4403a0aa10f262b9d87189`.
+Do not guess whether the remaining cause is capture allocation/copy behavior,
+binary code generation, or Accelerate variability: run a same-commit
+no-capture control and make the next fail-closed message quantify actual hash,
+expert, route-weight, absolute, and ULP drift. This remains a correctness
+repair with no pruning, throughput, or purchase decision. The next bounded
+repair removes heap-backed capture vectors in favor of one fixed-offset
+anonymous mmap and must pass a same-commit 64-position control/capture smoke
+before another full walk.
+
+The unchanged-binary no-capture discriminator completed in `1,677.943614`
+seconds and reproduced all `24,064` semantic route rows bit-exactly to
+PW-0157. Its manifest hashes to
+`9e95643ae0cba8ee9eda2f0447f477d05e839a02e13ff457e80499cbba86bcce`.
+The rebuilt source runtime is not the cause of the prior drift; the capture
+path is. Gate 8 passes with 71% minimum free memory, 562,126,144-byte maximum
+footprint, 839,761,920-byte peak RSS, zero swap growth or throttling, and
+383,928,960 bytes after release. Continue only through the mmap-backed short
+smoke; this still changes no pruning or throughput conclusion.
+
+The fixed-offset anonymous-mmap capture passes that required same-commit,
+same-shape 64-position smoke. The frozen-original no-capture authority hashes
+to `d6b1483b0d6161611f58b2746edcd5f356f503c337bf590fcee2989f3d436f66`;
+the capture manifest hashes to
+`07adc240519642719c49c822aa25a1e7b38581d7ac629ddde5e0a5690e8013aa`.
+All 3,008 source route rows remain exact under the observer, and offline 100%
+replay is bit-exact for all 73,728 captured output values. Gate 8 passes for
+both runs with at least 70% free memory, no swap growth or throttling, and
+resident protected services. This supersedes the belief that any bounded
+capture necessarily perturbs this source runtime; capture embodiment and
+allocation topology matter. It authorizes the final 512-position oracle walk,
+but the 64-position candidate errors remain diagnostic and change no pruning,
+throughput, or purchase decision.
+
+PW-0162's production preflight exposed one more authority distinction before
+opening weights: hashing parsed JSON route numbers is not byte-identical to
+hashing the runtime's typed F32 route payload. The authenticated PW-0157 route
+values hash to `c0e5c8fd...c69872` under analyzer JSON canonicalization and
+`9cf63371...b7a0dc` under runtime F32 canonicalization. Pin both with explicit
+names. Use the latter for the runtime raw-report guard and the former for
+cross-manifest analyzer comparison; do not call their expected difference
+route drift.
+
+PW-0162 decisively rejects simple probability-ranked global-history pruning
+at the arithmetic fraction required by the cheap two-P100 system. The valid
+non-causal oracle preserves exact source routes and replays 1,105,920 control
+values bit-exactly, yet retaining the best 20% of visible rows yields
+`0.172375` aggregate relative L2, `3.025940` in the worst layer, and
+`4.888554` head-query p99, versus limits of `0.010000`, `0.020000`, and
+`0.050000`. The exact `21.056139%` arithmetic boundary remains far outside at
+`0.167131` aggregate error and `4.740153` p99. Because an implementable causal
+selector has less information than this oracle, kill the same fixed-subset
+premise rather than training a selector for it.
+
+Raw and analysis manifests hash to
+`15c0cb8ab6e5058e6413efeb2a60effd200a8c5e9bc915f708fe030c4f6f4cbe`
+and
+`afc32798c5a474286e3eea65ccd6d32ab05f04921df1bacf5622585cad09d422`.
+Gate 8 passes with 69% minimum free memory, 864,507,968-byte maximum
+footprint, 1,104,789,504-byte peak RSS, zero swap growth or throttling, and
+54,970,304 bytes after release. PW-0162 records zero accepted tokens, no
+endpoint TPS, and no measured throughput-model constant change. It rejects
+this numerical mechanism, not learned linear/recurrent attention, changed
+weights, retrieval with repair, or faster future hardware.

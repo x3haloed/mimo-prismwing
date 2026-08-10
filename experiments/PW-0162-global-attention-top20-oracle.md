@@ -1,7 +1,7 @@
 # PW-0162 — global-attention top-20%-history oracle
 
-- Status: ready
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -9,12 +9,15 @@
   `292a60e74ae9a6d53422b31b21468ce2111c0ab3f7f7a4f4e9c7cd5133b96587`;
   PW-0157 512-prefix route authority
   `32fa8954e875e6c8c53b5092827820940f51225d2bf24322caf5b782295004b9`;
+  same-shape observer-disabled control
+  `480b02816b293ed8a2275e3c2810ee940fa0916db31fd1d730d6331e9f00a025`;
   PW-0158 and PW-0161 analysis manifests to be authenticated at execution
 - Execution mode: target-faithful source pass with a non-causal shadow L3
   diagnostic; the oracle output never enters model state
 - Related records: PW-0020 through PW-0029, PW-0112, PW-0151, PW-0157 through
   PW-0161; E7
-- Implementation commit and dirty state: pending
+- Implementation commit and dirty state:
+  `95677fc07526acc818541bcf2dac664ee5e1c055`; clean at final launch
 
 ## Question and changed premise
 
@@ -59,7 +62,10 @@ one million, or waive hosted and capability gates.
 1. Authenticate TARGET, config, checkpoint verification, the frozen original
    PW-0156 fixture, PW-0157's exact 512-prefix route authority, PW-0158's global
    attention ledger, and PW-0161's complete arithmetic by SHA-256. Require the
-   same 512 input-token hash and exact route-trace hash after observation.
+   same 512 input-token hash and exact semantic-route hash after observation.
+   Semantic route identity includes layer number, ordered selected experts, and
+   ordered route weights only; it excludes attention/cache/union/timing
+   metadata.
 2. Add a deterministic tiny correctness fixture before the real walk. Given
    frozen probabilities and value rows, require exact retained-count rounding,
    descending-probability selection with lower-index tie choice, original-index
@@ -75,9 +81,9 @@ one million, or waive hosted and capability gates.
    absolute error without aggregating away the raw distribution. Record the
    favorable F32 renormalization grant in the raw evidence identity.
 5. Require the 100% control to reproduce every observed source head output
-   bit-exactly. Require the observer run's route hash to equal PW-0157's exact
-   route hash. Either failure invalidates the experiment rather than rejecting
-   pruning.
+   bit-exactly. Require the observer run's semantic-route hash to equal
+   PW-0157's exact semantic-route hash. Either failure invalidates the
+   experiment rather than rejecting pruning.
 6. The 20% continuation gate requires aggregate relative L2 at most 1%, every
    global layer at most 2%, and head-query relative-L2 p99 at most 5%. These are
    phase-A falsification thresholds, not TARGET acceptance thresholds. Report
@@ -112,4 +118,149 @@ one-million-token gates.
 
 ## Result
 
-Pending implementation and execution after PW-0157 releases the shared host.
+The first observer run at commit
+`e02139cb2687e9d2a4844c5e390bb3c2ba156926` correctly failed closed with
+`PW-0162 shadow observer changed exact source routes`, but the follow-up
+observer-disabled same-shape control proved that this was a guard defect, not
+observer interference. The control completed in `1,677.895583` seconds and
+its raw manifest hashes to
+`480b02816b293ed8a2275e3c2810ee940fa0916db31fd1d730d6331e9f00a025`.
+Its old `layer_routes_sha256` was
+`234b4a078d6bd24fa85b91ffa7365923f43e5531effe3d5980738976c4599710`,
+different from PW-0157's
+`eff0dd3c993d132bd2ef66008c42c10e7b6b0b604ccad93ba0c72f894023a903`.
+However, direct comparison found all `24,064 = 47 * 512` ordered expert rows
+and route-weight rows bit-exact. The old hash covered the entire
+`LayerRouteTrace`, including nondeterministic `wall_ms`, and therefore could
+not be a cross-run route identity.
+
+The corrected semantic payload hashes only layer number, ordered expert IDs,
+and ordered route weights. Both the authenticated PW-0157 authority and the
+control produce
+`c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872`.
+A deterministic fixture now requires timing-only changes to preserve that hash
+and a route change to alter it. No pruning result, endpoint TPS, or mechanism
+decision is inferred from the invalid first observer attempt.
+
+The corrected full execution at commit
+`a9abb396bb9a44b21a874633d42a8417dc1d1ff2` then failed the semantic guard
+after `27` minutes with `PW-0162 shadow observer changed exact source routes`.
+Unlike the first failure, the repaired hash makes this genuine observer
+interference. The measuring instrument performed allocations, sorting,
+renormalization, and repeated attention reductions between authoritative head
+computations. Its nominally shadow-only dataflow was therefore not a passive
+execution boundary. This invalidates the instrument; it is still not evidence
+for or against pruning.
+
+The next implementation preallocates bounded Q/K/V and reference-output
+storage before the source walk. During the authoritative pass it only copies
+the nine global layers' 15 sampled query rows, their 512-position K/V state,
+and sampled source head outputs. It performs no oracle arithmetic until after
+the exact semantic-route guard passes. Offline replay must reproduce every
+captured source head output bit-exactly before candidate errors are accepted.
+A deterministic fixture proves sampled writes reuse fixed-capacity storage and
+reject duplicate identities.
+
+That passive-capture attempt ran at commit
+`5a7b41c262a89747a9cca4ea14908e3ab436b6b9` for `1,679` seconds and still
+failed the semantic route guard before oracle analysis. Its failure manifest
+hashes to
+`026f116129543b02285d81e20bb0a3a7746c91623f4403a0aa10f262b9d87189`.
+This proves that moving sorting, renormalization, and candidate reductions
+offline was insufficient. It does not yet attribute the drift to capture
+preallocation/copies versus changed-binary or Accelerate behavior. A
+same-commit 512-position no-capture control is therefore the next cheap
+discriminator. No fourth oracle walk is authorized without emitting the
+actual semantic hash and exact expert/weight mismatch counts.
+
+That no-capture control completed in `1,677.943614` seconds on the unchanged
+`5a7b41c` release binary. Its manifest hashes to
+`9e95643ae0cba8ee9eda2f0447f477d05e839a02e13ff457e80499cbba86bcce`.
+All `24,064` ordered expert and route-weight rows are again bit-exact to
+PW-0157, with semantic hash
+`c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872`.
+The rebuilt source runtime is therefore not the cause: the capture path itself
+causes the drift. Gate 8 passes at 71% minimum free memory, 562,126,144-byte
+maximum footprint, 839,761,920-byte peak RSS, zero swap growth or throttling,
+383,928,960 bytes after release, and stable protected services.
+
+The successor capture implementation uses one anonymous mmap with fixed
+offsets and fixed-size identity bitmaps instead of 36 heap-backed tensor and
+metadata vectors. Before another 512-position attempt, a same-commit
+64-position no-capture authority and capture run must pass exact semantic
+routes, bit-exact offline replay, the single frozen query at position 63, and
+Gate 8. This smoke gate is an instrumentation check only and cannot adjudicate
+the 20%-history mechanism.
+
+The first attempted short-control launch failed closed before opening the
+checkpoint because the prefill trace did not yet admit the contract's
+64-position prefix. Commit `13931013b2bd71c97c1389ea8e533dc842547d27`
+adds that bounded prefix and a regression test. A subsequent walk used a later
+PW-0156 corpus variant by mistake; authentication rejects its manifest
+`a8682fa8531d5f11a36d94d0f005356e2fd997311e5565e33300ec5ca9219d1a`
+because its fixture hash is not the frozen PW-0157 authority. Preserve both
+failures and infer no observer result from either.
+
+The corrected 64-position no-capture authority uses the frozen original
+fixture and hashes to
+`d6b1483b0d6161611f58b2746edcd5f356f503c337bf590fcee2989f3d436f66`.
+It completes in `755.362564` seconds across all 48 layers and 3,008 semantic
+route rows. Gate 8 passes at 70% minimum free memory, 618,176,960-byte maximum
+physical footprint, 735,625,216-byte peak RSS, zero swap growth or throttling,
+91,064,000 bytes after release, and present protected services. Its routes are
+not asserted to equal a 64-row slice of the 512-position authority: changing
+the sequence shape changes source numerical execution. It is authoritative
+only for the same-commit, same-shape instrumentation smoke.
+
+The mmap-backed capture smoke then passes. Its manifest hashes to
+`07adc240519642719c49c822aa25a1e7b38581d7ac629ddde5e0a5690e8013aa`;
+the exact same-shape semantic route payload hashes to
+`1a3243870b3dd6609e52f404381f2ef6daa14161517a4a92ba96e467f8e41ed8`.
+All 576 sampled head-queries and 4,032 candidate rows are present, and the
+100% offline replay is bit-exact for all 73,728 output values. Gate 8 passes at
+70% minimum free memory, 636,015,936-byte maximum footprint,
+726,384,640-byte peak RSS, zero swap growth or throttling, 334,923,968 bytes
+after release, and present protected services. This authorizes one final
+512-position oracle walk against PW-0157. The short pruning errors remain
+diagnostic only; they do not adjudicate the 20%-history mechanism, report
+accepted tokens, or establish endpoint TPS.
+
+The first production preflight after the smoke also failed closed before
+opening the checkpoint. The analyzer's semantic authority hashes parsed JSON
+numbers and produces
+`c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872`;
+the Rust runtime hashes the typed F32 payload and produces
+`9cf63371f63d063aa95ef2f6825119b58412b8fed7ecdee4b07ff5b7dfb7a0dc`.
+Those are two canonicalizations of the same authenticated route values, not a
+route mismatch. Pin and report both explicitly; use the typed-F32 hash for the
+runtime raw-report guard and retain the parsed-JSON hash for cross-manifest
+analyzer comparison. Preserve the rejected `raw-004` launch and infer no model
+result from it.
+
+The final mmap-backed 512-position walk passes every experiment-validity
+gate. Raw evidence hashes to
+`15c0cb8ab6e5058e6413efeb2a60effd200a8c5e9bc915f708fe030c4f6f4cbe`;
+analysis hashes to
+`afc32798c5a474286e3eea65ccd6d32ab05f04921df1bacf5622585cad09d422`.
+All 8,640 head-query identities are present across nine layers and 15 sampled
+positions, the semantic route payload equals the pinned PW-0157 authority,
+and the 100% replay is bit-exact for all 1,105,920 output values.
+
+The favorable 20% oracle fails decisively. Aggregate relative L2 is
+`0.172375`, versus the `0.010000` limit; layer 0 is worst at `3.025940`,
+versus the `0.020000` per-layer limit; head-query p99 is `4.888554`, versus
+the `0.050000` limit. Median retained probability mass is only `0.423981`.
+At the exact `21.056139%` two-P100 arithmetic boundary, aggregate relative L2
+remains `0.167131`, p99 is `4.740153`, and the worst layer is `2.956469`.
+Kill simple probability-ranked global-history pruning at the cheap two-P100
+arithmetic fraction. An implementable causal selector has less information
+than this oracle and cannot rescue the same fixed-subset premise.
+
+Gate 8 passes at 69% minimum free memory, 864,507,968-byte maximum physical
+footprint, 1,104,789,504-byte peak RSS, zero swap growth or throttling,
+54,970,304 bytes after checkpoint release, and present protected services.
+The run records zero accepted tokens and no endpoint TPS. No measured
+throughput-model constant changes: the prior two-P100 arithmetic boundary is
+unchanged; PW-0162 rejects the numerical mechanism proposed to fit beneath
+it. This does not reject learned linear/recurrent attention, changed weights,
+retrieval with repair, or a faster future card.

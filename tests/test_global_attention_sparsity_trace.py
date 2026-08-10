@@ -10,9 +10,11 @@ from tools.analyze_global_attention_sparsity_trace import (
     PW0157_SHA256,
     REVISION,
     ROUTES_SHA256,
+    RUNTIME_ROUTES_SHA256,
     SAMPLE_POSITIONS,
     VERIFICATION_SHA256,
     _validate_raw,
+    semantic_routes_sha256,
     summarize_candidates,
     validate_safety,
 )
@@ -56,18 +58,19 @@ class GlobalAttentionSparsityTraceTests(unittest.TestCase):
         self.assertEqual(EXPECTED_OBSERVATIONS, 8_640)
         self.assertEqual(FRACTIONS[3], 0.2)
         self.assertEqual(FRACTIONS[4], 0.21056139043683178)
+        self.assertNotEqual(ROUTES_SHA256, RUNTIME_ROUTES_SHA256)
 
     def test_raw_identity_requires_corpus_and_checkpoint_receipt_hashes(self) -> None:
         raw = {
-            "schema_version": 1,
+            "schema_version": 3,
             "semantic": "mimo_target_faithful_global_attention_sparsity_shadow_trace",
             "revision": REVISION,
             "fixture_sha256": CORPUS_SHA256,
             "checkpoint_verification_sha256": VERIFICATION_SHA256,
-            "pw0157_prefix512_sha256": PW0157_SHA256,
+            "route_authority_sha256": PW0157_SHA256,
             "traced_prefix_positions": 512,
             "input_token_ids_sha256": INPUT_SHA256,
-            "layer_routes_sha256": ROUTES_SHA256,
+            "semantic_layer_routes_sha256": RUNTIME_ROUTES_SHA256,
             "observed_global_layers": list(GLOBAL_LAYERS),
             "sampled_absolute_query_positions": list(SAMPLE_POSITIONS),
             "observed_heads_per_sample": 64,
@@ -99,6 +102,31 @@ class GlobalAttentionSparsityTraceTests(unittest.TestCase):
         raw["complete_wall_ms"] = float("nan")
         with self.assertRaisesRegex(ValueError, "raw trace timing or ledger mismatch"):
             _validate_raw(raw)
+
+    def test_semantic_route_hash_excludes_wall_time(self) -> None:
+        def report(wall_ms: float, expert: int) -> dict:
+            traces = []
+            for layer in range(48):
+                traces.append(
+                    {
+                        "layer": layer,
+                        "attention": "global" if layer == 0 else "sliding",
+                        "cache_length": 1,
+                        "selected_experts_by_position": []
+                        if layer == 0
+                        else [[expert, 7]],
+                        "route_weights_by_position": []
+                        if layer == 0
+                        else [[0.75, 0.25]],
+                        "U": 0.0 if layer == 0 else 2.0,
+                        "wall_ms": wall_ms,
+                    }
+                )
+            return {"layer_traces": traces}
+
+        baseline = semantic_routes_sha256(report(1.0, 3))
+        self.assertEqual(baseline, semantic_routes_sha256(report(9_999.0, 3)))
+        self.assertNotEqual(baseline, semantic_routes_sha256(report(1.0, 4)))
 
     def test_gate8_enforces_peak_rss_as_well_as_footprint(self) -> None:
         snapshots = []

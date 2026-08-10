@@ -375,6 +375,74 @@ before tax, independently exceeding the complete cap before cable, cooling,
 or storage. Reject both captured purchases and retain only a price-triggered
 V100S L3 hypothesis; authorize no hardware or CUDA implementation.
 
+PW-0162 tests the most favorable numerical version of the cheap two-P100
+changed-attention premise: retain the source attention probabilities' largest
+20% of visible rows, renormalize them in F32, and compare the resulting value
+output on all 64 heads at 15 positions in each of the nine global layers. Its
+first full observer walk exposed a correctness-fixture defect before producing
+a pruning result. `layer_routes_sha256` covered complete route-trace records,
+including nondeterministic per-layer `wall_ms`, so a cross-run equality check
+failed even when every route was identical. A same-shape observer-disabled
+control proves all 24,064 ordered expert rows and route-weight rows bit-exact;
+its authenticated manifest hashes to
+`480b02816b293ed8a2275e3c2810ee940fa0916db31fd1d730d6331e9f00a025`.
+Repair route identity to cover only layer, ordered expert IDs, and ordered
+weights; both authorities then hash to
+`c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872`.
+Make no pruning decision from the invalid first observer attempt; rerun the
+unchanged numerical oracle under the corrected fail-closed guard. That
+corrected full run then failed the semantic guard genuinely: doing allocation,
+sorting, renormalization, and candidate reductions between source head
+computations changed at least one route. Treat this as a second instrument
+defect, not a pruning result. The repaired instrument only copies sampled
+Q/K/V and source outputs into preallocated bounded storage during the source
+walk, verifies exact routes, and performs all replay and oracle arithmetic
+offline. Require bit-exact replay of the captured source outputs before
+adjudicating the candidate. The resulting passive-capture run still changed
+the semantic route hash after `1,679` seconds. Its failure manifest hashes to
+`026f116129543b02285d81e20bb0a3a7746c91623f4403a0aa10f262b9d87189`.
+This is still an instrument failure, not a pruning result. Run a same-commit
+no-capture control to distinguish capture effects from changed-binary or
+Accelerate drift, and require any successor failure to report the actual hash,
+expert mismatches, route-weight mismatches, maximum absolute error, and ULP
+error rather than failing opaquely. Replace heap-backed capture storage with a
+single fixed-offset anonymous mmap and require a same-commit 64-position
+no-capture/capture smoke pass before another full walk.
+The unchanged-binary no-capture control then completed in `1,677.943614`
+seconds and reproduced all `24,064` semantic route rows bit-exactly. Its
+manifest hashes to
+`9e95643ae0cba8ee9eda2f0447f477d05e839a02e13ff457e80499cbba86bcce`.
+This attributes the remaining drift to the capture path rather than the
+rebuilt source runtime and keeps the mmap smoke repair justified.
+
+That fixed-offset anonymous-mmap capture passes the 64-position same-shape
+smoke: all 3,008 route rows remain exact and the 100% offline replay is
+bit-exact across 73,728 captured values. The authority and capture manifests
+hash to
+`d6b1483b0d6161611f58b2746edcd5f356f503c337bf590fcee2989f3d436f66`
+and
+`07adc240519642719c49c822aa25a1e7b38581d7ac629ddde5e0a5690e8013aa`.
+This authorizes the final 512-position oracle walk; it does not itself decide
+the pruning mechanism or establish endpoint TPS.
+
+The production preflight additionally distinguishes the analyzer's parsed-JSON
+semantic hash (`c0e5c8fd...c69872`) from the runtime's typed-F32 semantic hash
+(`9cf63371...b7a0dc`). Both bind the same authenticated route values under
+different numeric canonicalizations. Pin both explicitly and reject any raw
+report that does not carry the runtime value.
+
+The authenticated final walk rejects the mechanism. At 20% retained history,
+aggregate relative L2 is `0.172375`, the worst layer is `3.025940`, and
+head-query p99 is `4.888554`, missing the frozen `0.010000`, `0.020000`, and
+`0.050000` limits by wide margins. The exact `21.056139%` two-P100 arithmetic
+boundary remains at `0.167131` aggregate error. Raw and analysis evidence hash
+to `15c0cb8ab6e5058e6413efeb2a60effd200a8c5e9bc915f708fe030c4f6f4cbe`
+and `afc32798c5a474286e3eea65ccd6d32ab05f04921df1bacf5622585cad09d422`.
+Kill simple
+probability-ranked global-history pruning at this arithmetic fraction; retain
+learned/recurrent attention and changed-weight mechanisms as distinct
+branches. No throughput-model constant or endpoint TPS changes.
+
 PW-0163 closes the strongest conventional 32-GB AMD PCIe counterexample found
 in the current search. MI100's 92.3-TFLOPS BF16 Matrix peak plus the EPYC's
 impossible concurrent peak still needs `2,301.8085` seconds for mandatory 1M
