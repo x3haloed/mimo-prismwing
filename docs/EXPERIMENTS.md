@@ -331,6 +331,18 @@ preserving PW-0151/PW-0154 as 8K component evidence. A changed-attention L3/L4
 branch or different complete hardware candidate remains logically open and
 must satisfy every long-context fidelity and capability gate.
 
+PW-0159 tests the narrow used-Ampere alternative and corrects a precision-rate
+conflation before authoritative execution. Dense BF16 with FP32 accumulation
+on the 12-GB RTX 3080 is `61.2864` TFLOPS, not 123; mandatory 1M matrices plus
+attention therefore need `58.2418` minutes and reject the source-oriented
+control. Dense FP16 with FP16 accumulation is an L3 `122.5728`-TFLOPS
+diagnostic and narrowly survives at `29.1209` minutes, with no fidelity proof.
+The first 4,096 exact route positions plus a perfect 375-expert preload still
+force at least three ideal 3.5-GB/s storage lanes for 8K TTFT. The captured
+active card/three-drive/adapter subtotal is `$575.00` before tax, rejecting the
+dated BOM. Retain only a price-triggered L3 hypothesis below a `$371.72`
+delivered-card ceiling before tax; authorize no purchase.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

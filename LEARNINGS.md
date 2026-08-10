@@ -2984,3 +2984,33 @@ long-context gates. The authoritative report hashes to
 Gate 8 passes at 62% minimum free memory, 32,997,376-byte peak RSS, zero swap
 growth or throttling, and stable services. PW-0158 reports zero accepted
 tokens, no endpoint TPS, and no measured throughput-model constant changes.
+
+PW-0159 corrects and narrows the remaining cheap Ampere counterexample. The
+12-GB RTX 3080 has 70 SMs, but the official GA102 rates must not be conflated:
+dense BF16 with FP32 accumulation is `61.2864` TFLOPS, while `122.5728`
+TFLOPS is dense FP16 with FP16 accumulation. The first analyzer made that
+mistake; its preserved manifest is rejected. At one million positions,
+mandatory matrices plus ordinary attention require
+`214,165,790,024,007,680` FLOPs. The source-oriented BF16 control therefore
+needs `58.2418` minutes before every omitted cost and is rejected. The L3 FP16
+diagnostic narrowly survives at `29.1209` minutes with only `52.7462` seconds
+left, but has no fidelity promotion.
+
+The first 4,096 exact PW-0157 positions already establish the storage floor.
+After an impossible free stream of all common tensors and perfect-foresight
+preload of all 375 available expert slots, 4,210 distinct records or
+`105,973,985,280` bytes remain. Two ideal 3.5-GB/s lanes plus the favorable L3
+arithmetic need `17.1832` seconds for 8K; three lanes first survive at
+`12.1369` seconds. The active captured card plus three drives and adapters is
+`$575.00` before unknown tax and missing parts, so that dated procurement
+branch is rejected. Reopen only below a `$371.72` delivered-card ceiling before
+tax and with a complete valid BOM; an already-sold bargain is not purchase
+authority.
+
+Exact BF16 1M KV exceeds 12-GB HBM by `11,065,559,040` bytes. Turbo4 can fit
+arithmetically but remains an unqualified L3 mode with material prior component
+error. The authoritative corrected report hashes to
+`945079702501f990e2cdd40a326b09fad0f2bb71b3f9615c8114c0bbd71590c2`.
+Gate 8 passes at 63% minimum free memory, 294,305,792-byte peak RSS, zero swap
+growth or throttling, and stable services. PW-0159 reports zero accepted
+tokens, no endpoint TPS, and no measured throughput-model constant changes.

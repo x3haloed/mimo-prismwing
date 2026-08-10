@@ -444,3 +444,28 @@ two PCIe cables. The market rows are a structured transcription rather than
 immutable seller evidence; one SSD row is internally inconsistent and the
 dongles are unbranded. They support rejecting the captured list as purchase
 authority, not selecting or buying those parts.
+
+## Twelve-GB Ampere envelope authorities
+
+- NVIDIA, *NVIDIA Ampere GA102 GPU Architecture*, captured 2026-08-10:
+  <https://www.nvidia.com/content/dam/en-zz/Solutions/geforce/ampere/pdf/NVIDIA-ampere-GA102-GPU-Architecture-Whitepaper-V1.pdf>.
+- NVIDIA, GeForce RTX 3080/3080 Ti specifications, including the 12-GB RTX
+  3080 variant, accessed and captured 2026-08-10:
+  <https://www.nvidia.com/zh-tw/geforce/graphics-cards/30-series/rtx-3080-3080ti/>.
+- Dated moving observations for eBay items 298525951637 (active used RTX 3080
+  12 GB), 206381378508 (sold RTX 3080 12 GB), 386086936012 (three ambiguous
+  256-GB NVMe candidates), and 336284264679 (three single-drive adapters),
+  accessed 2026-08-10:
+  <https://www.ebay.com/itm/298525951637>,
+  <https://www.ebay.com/itm/206381378508>,
+  <https://www.ebay.com/itm/386086936012>, and
+  <https://www.ebay.com/itm/336284264679>.
+
+Decision: technical and moving-market authority for PW-0159. NVIDIA binds the
+12-GB card to 8,960 CUDA cores, 1.71-GHz boost, Ampere third-generation Tensor
+Cores, and 12 GB GDDR6X; the GA102 whitepaper distinguishes dense BF16 with
+FP32 accumulation from dense FP16 with FP16 accumulation and structured-sparse
+figures. The market rows are a dated structured transcription, not immutable
+seller evidence or purchase authority. They support rejecting the captured
+active BOM and defining a reopening price, not inferring future availability,
+device health, delivered identity, sustained I/O, fit, or tax.

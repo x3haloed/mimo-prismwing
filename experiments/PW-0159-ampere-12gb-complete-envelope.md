@@ -1,7 +1,7 @@
 # PW-0159 — 12-GB Ampere complete-system envelope
 
-- Status: ready
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -15,7 +15,8 @@
   pre-purchase envelope only
 - Related records: PW-0020 through PW-0029, PW-0112, PW-0127, PW-0151,
   PW-0154 through PW-0158; E7
-- Implementation commit and dirty state: pending
+- Implementation commit and dirty state:
+  `863594b8a9e296f4fafbe6f68f15eecec0c1c743`, clean
 
 ## Question and changed premise
 
@@ -121,8 +122,63 @@ delivered card price that would reopen it.
 
 ## Result
 
-Pending completion of PW-0157, source capture, implementation, and execution
-from a clean commit.
+The corrected authoritative `analysis-002` manifest hashes to
+`945079702501f990e2cdd40a326b09fad0f2bb71b3f9615c8114c0bbd71590c2`.
+It authenticates TARGET, the config, PW-0127, PW-0155, PW-0157's exact
+4,096-position lower bound, PW-0158, the throughput model, two official NVIDIA
+captures, the dated market transcription, and the clean implementation commit.
+
+The official geometry gives 70 SMs. At 1.71 GHz and 512 dense FP16 FMA per SM
+clock, dense FP16 with FP16 accumulation is `122.5728` TFLOPS. Dense BF16 with
+FP32 accumulation has half that Tensor throughput, `61.2864` TFLOPS; no
+structured sparsity is granted. Mandatory 1M matrices plus ordinary attention
+total `214,165,790,024,007,680` FLOPs. The source-oriented BF16 control needs
+`3,494.5076` seconds (`58.2418` minutes), failing the complete 30-minute gate
+before all omitted work. The L3 FP16 diagnostic needs `1,747.2538` seconds and
+leaves only `52.7462` seconds for the entire omitted prefill; it remains a
+numerical hypothesis, not a passing mode.
+
+For 8K, the faster L3 arithmetic grant costs `2.0441` seconds. After freely
+streaming all non-routed tensors and reserving exact BF16 KV plus three arenas,
+12 decimal GB can preload only 375 complete experts. The first 4,096 positions
+of PW-0157 already touch 4,585 distinct records, so even perfect-foresight
+residency leaves 4,210 records or `105,973,985,280` bytes to install. One and
+two 3.5-GB/s lanes have serial floors of `32.3224` and `17.1832` seconds;
+three lanes first clear the impossible 15-second bound at `12.1369` seconds.
+
+The captured active card is `$446.72` delivered before tax. Three ambiguous
+256-GB drives and three single-drive adapters add `$128.28`, producing a
+`$575.00` subtotal before unknown tax, cables, and any missing installation
+parts. The captured branch is already `$75.00` over the complete cap. A
+historical sold card would have produced `$490.78` before its unknown delivery
+and all tax, but it is not purchasable. The maximum delivered card price that
+could reopen this exact parts ledger is `$371.72` before unknown tax.
+
+One 350-W card plus the 170-W CPU leaves 212 W below the PSU's combined 732-W
++12-V label, a better nameplate margin than two P100s but not an electrical,
+thermal, cable, or fit proof. Exact BF16 1M KV exceeds card HBM by
+`11,065,559,040` bytes before arenas. PW-0020 Turbo4 fits arithmetically but is
+an unqualified L3 format whose direct fork was already rejected and whose
+accumulated fidelity is unproven.
+
+Gate 8 passes across five snapshots with 63% minimum free memory,
+294,305,792-byte peak RSS, 130,827,968-byte maximum physical footprint, zero
+swap growth, zero new throttled pages, and stable protected services. The
+report records zero accepted tokens, no performance claim, and no endpoint
+TPS. No measured throughput-model constant changes.
+
+## Decision
+
+Reject the source-oriented BF16 RTX 3080 12-GB embodiment on the mandatory 1M
+arithmetic gate. Reject the captured active three-lane procurement branch on
+cost before tax. Do not purchase this card or the captured storage parts.
+
+Retain only a price-triggered L3 FP16 architecture hypothesis: it requires an
+active functional card delivered materially below `$371.72`, a complete
+under-cap BOM after tax, three verified sustained-read lanes, exact physical
+installation, a qualified 1M KV mechanism, and full numerical/hosted fidelity
+evidence. The historical bargain and nameplate rooflines do not satisfy any of
+those conditions.
 
 ## Precision-rate correction before authoritative execution
 
