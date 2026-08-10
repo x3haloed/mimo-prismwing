@@ -3309,3 +3309,25 @@ Gate 8 passes at 65% minimum free memory, 141,000,704-byte peak RSS, zero swap
 growth or throttling, an explicit release boundary, and stable services.
 PW-0170 reports zero accepted tokens, no endpoint TPS, and no measured
 throughput-model constant changes.
+
+PW-0171 supersedes PW-0169/PW-0170's inference that the A770's remaining
+`$188.29` was credible room for a complete four-lane storage BOM. An active
+quantity-four listing for exact Samsung PM981a 256-GB drives costs `$159.96`,
+and even the favorable lower bound charges only one `$8.15` order shipping
+fee. The active passive-bifurcation quad-M.2 carrier costs `$39.99` delivered.
+Together storage is at least `$208.10`; adding the authenticated `$311.71`
+card observation yields `$519.81`, already `$19.81` over the complete cap
+before tax, GPU cables, or cooling. Reject this exact active BOM.
+
+The physical storage premise itself is not disproved. Four drives provide
+`1,024,000,000,000` decimal bytes, and Samsung specifies 3,500 MB/s sequential
+read for the exact 256-GB model, matching PW-0170's favorable 14-GB/s aggregate
+nameplate. Concurrent sustained reads and platform bifurcation remain
+unmeasured, and a cheaper future or already-owned four-lane set could reopen
+the mechanism. The authoritative report hashes to
+`14549b38ee1daee523fd5a76ca9654cdcf7aa6284c651fb36eccac68908b28d3`.
+Gate 8 passes at 72% minimum free memory, 29,048,832-byte peak RSS,
+17,958,400-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0171 records zero
+accepted tokens, no endpoint TPS, and no measured throughput-model constant
+changes; authorize no purchase.
