@@ -45,6 +45,7 @@ CARD_TBP_WATTS = 225
 EPYC_TDP_WATTS = 170
 PSU_12V_WATTS = 732
 INCREMENTAL_CAP_USD = 500.0
+TTFT_SECONDS = 1_800.0
 
 
 def normalized_html(path: Path) -> str:
@@ -173,6 +174,41 @@ def physical_ledger(dimensions: dict) -> dict:
     }
 
 
+def performance_continuation_ledger(pw0167: dict) -> dict:
+    arithmetic = pw0167["arithmetic"]
+    total_flops = arithmetic["mandatory_matrix_plus_attention_flops"]
+    cpu_flops = arithmetic["granted_concurrent_epyc_flops_per_second"]
+    device_peak = arithmetic["derived_bf16_f32acc_operations_per_second"]
+    zero_overhead_required = total_flops / TTFT_SECONDS - cpu_flops
+    reserves = {}
+    for reserved_seconds in (30, 60, 120):
+        required = total_flops / (TTFT_SECONDS - reserved_seconds) - cpu_flops
+        reserves[str(reserved_seconds)] = {
+            "required_device_bf16_f32acc_flops_per_second": required,
+            "required_fraction_of_derived_device_peak": required / device_peak,
+        }
+    return {
+        "complete_1m_ttft_seconds": TTFT_SECONDS,
+        "minimum_device_bf16_f32acc_flops_per_second_at_zero_other_cost": (
+            zero_overhead_required
+        ),
+        "minimum_device_bf16_f32acc_tflops_at_zero_other_cost": (
+            zero_overhead_required / 1_000_000_000_000
+        ),
+        "minimum_fraction_of_derived_device_peak_at_zero_other_cost": (
+            zero_overhead_required / device_peak
+        ),
+        "maximum_all_other_work_seconds_at_derived_device_peak": arithmetic[
+            "remaining_1m_ttft_seconds"
+        ],
+        "reserved_other_work_sensitivities": reserves,
+        "installed_shape_weighted_benchmark_kill_rule": (
+            "reject if sustained BF16/F32-accumulate throughput is below the zero-overhead "
+            "minimum; meeting it only retains the candidate because omitted work remains"
+        ),
+    }
+
+
 def _authenticate(paths: dict[str, Path]) -> tuple[dict[str, str], dict, dict, dict]:
     expected = {
         "target": TARGET_SHA256,
@@ -230,6 +266,7 @@ def run(paths: dict[str, Path], output: Path, commit: str) -> dict:
     power = power_ledger()
     cost = cost_ledger(market)
     physical = physical_ledger(dimensions)
+    continuation = performance_continuation_ledger(pw0167)
     safety.checkpoint("complete_reference_card_preflight_computed")
     manifest = {
         "schema_version": 1,
@@ -257,6 +294,7 @@ def run(paths: dict[str, Path], output: Path, commit: str) -> dict:
         "power": power,
         "cost": cost,
         "physical": physical,
+        "performance_continuation": continuation,
         "platform_prerequisites": pw0167["platform_prerequisites"],
         "decision": {
             "active_exact_reference_card_found": True,
@@ -265,6 +303,9 @@ def run(paths: dict[str, Path], output: Path, commit: str) -> dict:
             "physical_installation_gate_passed": False,
             "platform_gate_passed": False,
             "preferred_over_pw0168_photon_listing": True,
+            "installed_shape_weighted_benchmark_minimum_tflops": continuation[
+                "minimum_device_bf16_f32acc_tflops_at_zero_other_cost"
+            ],
             "branch": "retain_preferred_active_candidate_pending_physical_and_checkout_evidence",
             "next_user_physical_evidence": [
                 "photograph the candidate x16 slot and chassis clearance with a ruler",
