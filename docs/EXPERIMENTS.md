@@ -408,6 +408,12 @@ expert mismatches, route-weight mismatches, maximum absolute error, and ULP
 error rather than failing opaquely. Replace heap-backed capture storage with a
 single fixed-offset anonymous mmap and require a same-commit 64-position
 no-capture/capture smoke pass before another full walk.
+The unchanged-binary no-capture control then completed in `1,677.943614`
+seconds and reproduced all `24,064` semantic route rows bit-exactly. Its
+manifest hashes to
+`9e95643ae0cba8ee9eda2f0447f477d05e839a02e13ff457e80499cbba86bcce`.
+This attributes the remaining drift to the capture path rather than the
+rebuilt source runtime and keeps the mmap smoke repair justified.
 
 PW-0163 closes the strongest conventional 32-GB AMD PCIe counterexample found
 in the current search. MI100's 92.3-TFLOPS BF16 Matrix peak plus the EPYC's

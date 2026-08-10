@@ -172,6 +172,17 @@ same-commit 512-position no-capture control is therefore the next cheap
 discriminator. No fourth oracle walk is authorized without emitting the
 actual semantic hash and exact expert/weight mismatch counts.
 
+That no-capture control completed in `1,677.943614` seconds on the unchanged
+`5a7b41c` release binary. Its manifest hashes to
+`9e95643ae0cba8ee9eda2f0447f477d05e839a02e13ff457e80499cbba86bcce`.
+All `24,064` ordered expert and route-weight rows are again bit-exact to
+PW-0157, with semantic hash
+`c0e5c8fd8c72f148895d39fdf38b95e84e93228206563ea49b242f48b0c69872`.
+The rebuilt source runtime is therefore not the cause: the capture path itself
+causes the drift. Gate 8 passes at 71% minimum free memory, 562,126,144-byte
+maximum footprint, 839,761,920-byte peak RSS, zero swap growth or throttling,
+383,928,960 bytes after release, and stable protected services.
+
 The successor capture implementation uses one anonymous mmap with fixed
 offsets and fixed-size identity bitmaps instead of 36 heap-backed tensor and
 metadata vectors. Before another 512-position attempt, a same-commit

@@ -3493,3 +3493,13 @@ repair with no pruning, throughput, or purchase decision. The next bounded
 repair removes heap-backed capture vectors in favor of one fixed-offset
 anonymous mmap and must pass a same-commit 64-position control/capture smoke
 before another full walk.
+
+The unchanged-binary no-capture discriminator completed in `1,677.943614`
+seconds and reproduced all `24,064` semantic route rows bit-exactly to
+PW-0157. Its manifest hashes to
+`9e95643ae0cba8ee9eda2f0447f477d05e839a02e13ff457e80499cbba86bcce`.
+The rebuilt source runtime is not the cause of the prior drift; the capture
+path is. Gate 8 passes with 71% minimum free memory, 562,126,144-byte maximum
+footprint, 839,761,920-byte peak RSS, zero swap growth or throttling, and
+383,928,960 bytes after release. Continue only through the mmap-backed short
+smoke; this still changes no pruning or throughput conclusion.
