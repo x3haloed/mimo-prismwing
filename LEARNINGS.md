@@ -3014,3 +3014,25 @@ error. The authoritative corrected report hashes to
 Gate 8 passes at 63% minimum free memory, 294,305,792-byte peak RSS, zero swap
 growth or throttling, and stable services. PW-0159 reports zero accepted
 tokens, no endpoint TPS, and no measured throughput-model constant changes.
+
+PW-0160 proves the local construction side of a million-token hosted canary but
+does not prove the external answer-key path. The pinned source template renders
+exactly 1,000,000 tokenizer IDs; its request hashes to
+`a21c154c87bb2ce0f3c3305b52655cac04538fdfa4224b36f73e96503167048b`,
+with the early SHA-derived needle at token 32 and question at token 999,973.
+Frozen OpenRouter metadata advertised Parasail FP8, 1,048,576 context, and both
+required logprob parameters.
+
+Three bounded attempts produced no model response: one HTTP-200 JSON 502 and
+two HTTP 429 bodies that explicitly name Parasail's shared upstream provider
+pool and request a later retry. The sequence is transient availability
+evidence, not a prompt-length, logprob, truncation, or retrieval failure. The
+attempt budget is exhausted, so keep the million-token hosted reference
+unproven without killing it, switching provider, or weakening TARGET. The
+authoritative report hashes to
+`635748d36a1fc6d690d0261c3526519f5b1bc558745cb4dc574432369f133048`.
+Reported usage/cost is absent; the frozen-price worst case for all attempts is
+`$0.42001344`. Gate 8 passes at 47% minimum free memory, 1,230,258,176-byte
+peak RSS, zero swap growth or throttling, release boundaries, and stable
+services. PW-0160 reports zero accepted tokens, no endpoint TPS, and no
+throughput-model constant changes.

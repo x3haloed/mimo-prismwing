@@ -63,6 +63,20 @@ and binds all 39 files to this revision.
   image, multi-image, audio, video, and mixed requests.
 - Limitation: provider implementation and future availability are external and
   require frozen endpoint metadata plus drift canaries.
+- PW-0160 metadata refresh: OpenRouter public model and endpoint APIs, captured
+  2026-08-10:
+  <https://openrouter.ai/api/v1/models> and
+  <https://openrouter.ai/api/v1/models/xiaomi/mimo-v2.5/endpoints>.
+  The raw payloads hash to
+  `ce8154b4ee4ae42f5e14c071847a5acc35c9e89e69a42e84f4b8676d2cd3133e`
+  and `09cd75b1b2e4d053f99e1f13be64c680ec6de0db3ab2e36642af475d1e9e9033`.
+  They advertise Parasail FP8 at context 1,048,576 with `logprobs` and
+  `top_logprobs`; this is moving metadata, not execution proof.
+- PW-0160 provider result: three identical million-token requests reached only
+  error 502 and two explicit Parasail shared-pool 429s. These preserved bodies
+  establish transient provider unavailability during the bounded epoch, not
+  context or logprob capability failure. No provider substitution is inferred
+  or authorized.
 
 ## MiMo-V2.5-DFlash
 

@@ -343,6 +343,17 @@ active card/three-drive/adapter subtotal is `$575.00` before tax, rejecting the
 dated BOM. Retain only a price-triggered L3 hypothesis below a `$371.72`
 delivered-card ceiling before tax; authorize no purchase.
 
+PW-0160 tests whether the only permitted hosted whole-model reference can
+actually provide a scoreable true-million-token answer key before
+changed-attention validation begins. The local path deterministically renders
+and round-trips exactly 1,000,000 pinned tokenizer IDs, but three bounded
+Parasail calls return only transient upstream failures: JSON 502, then two
+explicit shared-provider-pool 429s after repair and cooldown. This neither
+passes nor kills hosted million-token capability. Preserve every error, stop
+under the attempt budget, leave the reference path unproven, and require a new
+experiment plus stable Parasail availability or explicit new-epoch authority
+before retrying.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

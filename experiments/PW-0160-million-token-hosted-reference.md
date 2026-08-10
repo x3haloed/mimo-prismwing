@@ -1,7 +1,8 @@
 # PW-0160 — One-million-token hosted-reference viability
 
-- Status: planned
-- Disposition: unexecuted
+- Status: completed
+- Disposition: conditional; inconclusive because the pinned provider was
+  transiently unavailable
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -13,6 +14,8 @@
   only and cannot satisfy local inference
 - Related records: PW-0001, PW-0051, PW-0052, PW-0112, PW-0158, PW-0159;
   TARGET Sections 3.2, 4, 7.2, and 8
+- Implementation commit and dirty state:
+  `6858fbb0d65ad10da774c23c5a11dfcb719285b0`, clean
 
 ## Question and causal mechanism
 
@@ -97,5 +100,56 @@ changed-attention fidelity, 30-minute TTFT, nor 1 accepted TPS.
 
 ## Result
 
-Unexecuted. Commit this contract before implementing the generator, capture
-extensions, verifier, or paid request.
+The deterministic generator produced the same exact request at all three clean
+capture commits. The rendered source-template prefix contains exactly
+`1,000,000` pinned tokenizer IDs, round-trips every ID, and hashes to
+`fd155578b24bbbe1c8ab7edea17ea615a2f907fae3709a59a88b7548a8810b92`
+as little-endian `u32` IDs. Needle `PW-75FC1F69C84D` begins at token 32 and
+the final question begins at token 999,973. The canonical 2,000,390-byte API
+request hashes to
+`a21c154c87bb2ce0f3c3305b52655cac04538fdfa4224b36f73e96503167048b`.
+
+Frozen public metadata identified Parasail FP8 with context 1,048,576,
+`logprobs`, and `top_logprobs`; the model and endpoint payloads hash to
+`ce8154b4ee4ae42f5e14c071847a5acc35c9e89e69a42e84f4b8676d2cd3133e`
+and `09cd75b1b2e4d053f99e1f13be64c680ec6de0db3ab2e36642af475d1e9e9033`.
+No paid attempt reached model output:
+
+1. The first returned HTTP 200 with JSON error code 502. Its preserved body
+   hashes to
+   `e242aee3ab74e8e3d41242e6faa7c65e59160e5e5a1bc5696b725368e6fdfd85`.
+2. After classifying that wrapper correctly and regenerating at a clean commit,
+   the second returned HTTP 429. Its body explicitly identifies Parasail,
+   `upstream_provider_shared_pool`, and `Retry shortly`; it hashes to
+   `9084455a85d6b17206d1f623195ddb3058561afc2c46a9deb3c771142123cac2`.
+3. After a multi-minute cooldown and a final clean regeneration, the third
+   returned the byte-identical 429 body. No fourth request is permitted.
+
+All three provider errors omit usage and cost, so reported spend is `$0.00`;
+that is not an independent account-ledger claim. Even charging all three full
+one-million-token prompts and all 16 possible output tokens at the frozen
+rates gives a `$0.42001344` worst case, within the `$0.50` contract.
+
+The consolidated authoritative report hashes to
+`635748d36a1fc6d690d0261c3526519f5b1bc558745cb4dc574432369f133048`.
+Across preparation and attempt processes, Gate 8 has 47% minimum free memory,
+1,230,258,176-byte maximum peak RSS, 330,927,936-byte maximum physical
+footprint, zero swap growth, zero new throttled pages, explicit release
+boundaries, and stable protected services. The analyzer separately passes at
+52% minimum free memory and a 264,587,584-byte maximum physical footprint.
+
+## Decision
+
+PW-0160 neither passes nor reaches its capability kill condition. The observed
+sequence `502, 429, 429` consists only of transient upstream/provider-pool
+classes. No response exposed a prompt-token count, completion, logprobs,
+truncation behavior, or needle answer, so it would be false to interpret these
+errors as evidence that Parasail cannot execute the advertised context.
+
+Keep the one-million-token hosted reference unproven. Do not authorize the
+changed-attention validation branch from this experiment, do not weaken
+TARGET, do not switch providers silently, and do not retry under this bounded
+contract. A future attempt requires a new record and either demonstrated
+Parasail availability or explicit authority for a new frozen reference epoch.
+The result records zero local accepted tokens, no local endpoint TPS, and no
+throughput-model constant change.
