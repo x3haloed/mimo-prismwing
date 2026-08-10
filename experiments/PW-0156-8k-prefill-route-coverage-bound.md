@@ -80,6 +80,23 @@ or the already tight compute floor. If it does not cross at 8K, retain only
 the storage-capacity prerequisite and proceed to measured hardware/runtime
 work; no purchase follows automatically.
 
+## Pre-result verified-install repair
+
+The first 512-position invocation at `70237f6` failed before checkpoint mapping
+and emitted no manifest. The installed `model_mtp.safetensors` retained the
+receipt's exact size, inode, nanosecond mtime, and SHA-256
+`a0e41a193b2762b0c83e577f83206d0777028de6916408c8c368730c0c9e2143`,
+but macOS reported device `16777231` instead of the captured `16777233`.
+Python's verified-install validator already treats device-number changes as
+observable mount drift while rejecting size/inode/mtime changes; the Rust
+endpoint incorrectly rejected the device field too.
+
+Repair the Rust path to match the existing receipt contract and add every
+drifting shard name to the endpoint ledger. Continue to reject changed size,
+inode, mtime, receipt status, or malformed recorded hash. This is a
+correctness/provenance repair, not permission to skip initial payload hashing
+or to trust a copied file without a verified receipt.
+
 ## Result
 
 Pending execution from a clean implementation commit.

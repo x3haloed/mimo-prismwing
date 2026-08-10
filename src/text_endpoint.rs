@@ -201,6 +201,17 @@ pub struct EndpointLedger {
     pub routed_expert_executions: u64,
     pub dynamic_activation_groups: u64,
     pub dynamic_activation_values: u64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub verified_file_device_drifts: Vec<String>,
+}
+
+impl EndpointLedger {
+    fn for_checkpoint(checkpoint: &Checkpoint) -> Self {
+        Self {
+            verified_file_device_drifts: checkpoint.device_drift_files.clone(),
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -1062,6 +1073,7 @@ struct Checkpoint {
     weight_map: BTreeMap<String, String>,
     shards: BTreeMap<String, MappedSafetensors>,
     shard_sha256: BTreeMap<String, String>,
+    device_drift_files: Vec<String>,
 }
 
 impl Checkpoint {
@@ -1107,11 +1119,14 @@ impl Checkpoint {
             .collect::<BTreeMap<_, _>>();
         let mut shards = BTreeMap::new();
         let mut shard_sha256 = BTreeMap::new();
+        let mut device_drift_files = Vec::new();
         for shard in shard_names {
             let record = verified
                 .get(shard.as_str())
                 .ok_or_else(|| format!("indexed shard absent from verification: {shard}"))?;
-            verify_live_identity(root, record)?;
+            if verify_live_identity(root, record)? {
+                device_drift_files.push(shard.clone());
+            }
             let mapped = MappedSafetensors::open(&root.join(&shard))?;
             shard_sha256.insert(shard.clone(), record.sha256.clone());
             shards.insert(shard, mapped);
@@ -1139,6 +1154,7 @@ impl Checkpoint {
             weight_map,
             shards,
             shard_sha256,
+            device_drift_files,
         })
     }
 
@@ -1263,7 +1279,7 @@ fn validate_relative_file(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn verify_live_identity(root: &Path, record: &VerifiedFile) -> Result<(), String> {
+fn verify_live_identity(root: &Path, record: &VerifiedFile) -> Result<bool, String> {
     if record.status != "verified" {
         return Err(format!(
             "{} did not pass checkpoint verification",
@@ -1278,7 +1294,6 @@ fn verify_live_identity(root: &Path, record: &VerifiedFile) -> Result<(), String
     let modified_ns =
         i128::from(metadata.mtime()) * 1_000_000_000_i128 + i128::from(metadata.mtime_nsec());
     if metadata.len() != record.bytes
-        || metadata.dev() != record.device
         || metadata.ino() != record.inode
         || modified_ns != record.modified_ns
         || record.sha256.len() != 64
@@ -1288,7 +1303,7 @@ fn verify_live_identity(root: &Path, record: &VerifiedFile) -> Result<(), String
             record.path
         ));
     }
-    Ok(())
+    Ok(metadata.dev() != record.device)
 }
 
 fn hash_file(path: &Path) -> Result<String, String> {
@@ -3524,7 +3539,7 @@ pub fn run_slow_text_endpoint(
     )?;
     validate_slow_endpoint_fixture(&fixture)?;
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
-    let mut ledger = EndpointLedger::default();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let mut input_token_ids = prompt_token_ids.clone();
     let mut generated = Vec::with_capacity(fixture.decode.new_tokens);
     let mut steps = Vec::with_capacity(fixture.decode.new_tokens);
@@ -3969,7 +3984,7 @@ fn run_metal_incremental(
     let runtime = BoundedMetalExpertRuntime::compile(kernel_path)?;
     safety.checkpoint("metal_compile_complete", true)?;
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
-    let mut ledger = EndpointLedger::default();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let prefill = decode_step(
         &checkpoint,
         &config,
@@ -4947,7 +4962,7 @@ pub fn benchmark_layer4_metal_ready_artifact(
             .ok_or("missing layer-4 final capture")?,
         HIDDEN,
     )?;
-    let mut route_ledger = EndpointLedger::default();
+    let mut route_ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let routing = route_mlp(&checkpoint, 4, &moe_input, 1, &mut route_ledger)?;
     if routing.selected.len() != 1
         || routing.weights.len() != 1
@@ -5464,7 +5479,7 @@ pub fn benchmark_layer4_two_barrier_transaction(
             .ok_or("missing layer-4 final capture")?,
         HIDDEN,
     )?;
-    let mut route_ledger = EndpointLedger::default();
+    let mut route_ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let routing = route_mlp(&checkpoint, 4, &moe_input, 1, &mut route_ledger)?;
     if routing.selected.len() != 1
         || routing.weights.len() != 1
@@ -5707,7 +5722,7 @@ pub fn benchmark_layer4_metal_native_transaction(
             .ok_or("missing layer-4 final capture")?,
         HIDDEN,
     )?;
-    let mut route_ledger = EndpointLedger::default();
+    let mut route_ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let routing = route_mlp(&checkpoint, 4, &moe_input, 1, &mut route_ledger)?;
     if routing.selected.len() != 1
         || routing.weights.len() != 1
@@ -5997,7 +6012,7 @@ pub fn run_layer4_metal_diagnostic(
     )?;
     let runtime = BoundedMetalExpertRuntime::compile(kernel_path)?;
     safety.checkpoint("metal_compile_complete", true)?;
-    let mut endpoint_ledger = EndpointLedger::default();
+    let mut endpoint_ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let routing = route_mlp(&checkpoint, 4, &moe_input, 1, &mut endpoint_ledger)?;
     if routing.selected.len() != 1
         || routing.weights.len() != 1
@@ -6520,7 +6535,7 @@ pub fn run_real_layer0_trace(
     }
     fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
     let rows = prompt_token_ids.len();
-    let mut ledger = EndpointLedger::default();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let hidden = embedding(&checkpoint, &prompt_token_ids, &mut ledger)?;
     safety.checkpoint("embedding_complete", true)?;
     let input_norm_weight = bf16_vector(
@@ -6697,7 +6712,7 @@ pub fn run_real_layer1_routing_trace(
     }
     fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
     let rows = prompt_token_ids.len();
-    let mut ledger = EndpointLedger::default();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let mut layer0_captures = Layer0Captures::default();
     let incoming = execute_dense_layer0(
         &checkpoint,
@@ -6902,7 +6917,7 @@ pub fn run_real_layer1_expert_trace(
     }
     fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
     let rows = prompt_token_ids.len();
-    let mut ledger = EndpointLedger::default();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let mut layer0_captures = Layer0Captures::default();
     let incoming = execute_dense_layer0(
         &checkpoint,
@@ -7174,7 +7189,7 @@ pub fn run_real_routed_layer_trace(
     }
     fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
     let rows = prompt_token_ids.len();
-    let mut ledger = EndpointLedger::default();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let mut layer0_captures = Layer0Captures::default();
     let mut hidden = execute_dense_layer0(
         &checkpoint,
@@ -7516,7 +7531,7 @@ pub fn run_routed_mixture_activation_corpus(
     }
     let rows = input_token_ids.len();
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
-    let mut ledger = EndpointLedger::default();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let mut internal = FullPrefixCaptures {
         mixture_target_layers: TARGET_LAYERS.into_iter().collect(),
         route_authority: Some(route_authority.layer_traces.clone()),
@@ -7757,7 +7772,7 @@ pub fn run_route_only_trace(
         serde_json::to_vec(&input_token_ids).map_err(|error| error.to_string())?;
     let rows = input_token_ids.len();
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
-    let mut ledger = EndpointLedger::default();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let step = decode_step(
         &checkpoint,
         &config,
@@ -7915,7 +7930,7 @@ pub fn run_prefill_route_coverage_trace(
     let input_token_ids_bytes =
         serde_json::to_vec(&input_token_ids).map_err(|error| error.to_string())?;
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
-    let mut ledger = EndpointLedger::default();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let step = decode_step(
         &checkpoint,
         &config,
@@ -8037,7 +8052,7 @@ pub fn run_full_prefix_trace(
     fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
     let rows = prompt_token_ids.len();
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
-    let mut ledger = EndpointLedger::default();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let mut internal = FullPrefixCaptures::default();
     let step = decode_step(
         &checkpoint,
@@ -8340,6 +8355,29 @@ mod tests {
         let first_rejection = prefill_route_coverage_ledger(9_003).expect("ledger");
         assert!(first_rejection.exceeds_optimistic_15_second_storage_bound);
         assert!(prefill_route_coverage_ledger(47 * ROUTED_EXPERTS + 1).is_err());
+    }
+
+    #[test]
+    fn verified_install_identity_records_mount_device_drift() {
+        let root = Path::new("evals/fixtures/real");
+        let path = root.join("pw0156-8k-prefill-route-coverage.json");
+        let metadata = path.metadata().expect("fixture metadata");
+        let modified_ns =
+            i128::from(metadata.mtime()) * 1_000_000_000_i128 + i128::from(metadata.mtime_nsec());
+        let mut record = VerifiedFile {
+            path: "pw0156-8k-prefill-route-coverage.json".to_owned(),
+            bytes: metadata.len(),
+            device: metadata.dev() + 1,
+            inode: metadata.ino(),
+            modified_ns,
+            sha256: "0".repeat(64),
+            status: "verified".to_owned(),
+        };
+        assert_eq!(verify_live_identity(root, &record), Ok(true));
+        record.device = metadata.dev();
+        assert_eq!(verify_live_identity(root, &record), Ok(false));
+        record.inode += 1;
+        assert!(verify_live_identity(root, &record).is_err());
     }
 
     #[test]
