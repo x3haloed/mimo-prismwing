@@ -3376,3 +3376,28 @@ Gate 8 passes at 72% minimum free memory, 35,520,512-byte peak RSS,
 an explicit release boundary, and stable services. PW-0173 records zero
 accepted Prismwing tokens, no endpoint TPS, no measured throughput-model
 constant changes, and no purchase authority.
+
+PW-0174 closes the released L3 mismatch-acceptance loophole left outside
+PW-0173. Approximate Speculative Decoding changes target trajectories by
+accepting bounded low-regret mismatches, but its primary `DSpark-14B-block7`
+configuration can commit at most eight tokens with a favorable target bonus.
+That remains 48 tokens below PW-0170's minimum `A=56`; request regret budget
+`B=8` is not proposal depth. Reject the released configuration as the missing
+proposer.
+
+The mechanism is promising within its actual scope: mean accepted length rises
+from 3.85 to 4.20, with 7.78% mean and 15.26% maximum throughput improvement
+over matched strict verification. But the paper also reports over 95% hash
+divergence on named tasks and a worst task-score point change of -1.52
+percentage points. It does not report Prismwing's hosted top-20 distributional
+gate, native modalities, one-million context, paired capability confidence
+intervals, or MiMo execution. Reject it as sufficient L3 fidelity evidence.
+
+Preserve only a separately scaled MiMo-specific `q>=137` ASD branch with the
+complete validation protocol as unproven. The authoritative report hashes to
+`2a8bbcc3d70740501fea245e33b28313d23447cfdde205c139f86981e4f4dd6e`.
+Gate 8 passes at 72% minimum free memory, 29,818,880-byte peak RSS,
+19,170,816-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0174 records zero
+accepted Prismwing tokens, no endpoint TPS, no measured throughput-model
+constant changes, and no purchase authority.
