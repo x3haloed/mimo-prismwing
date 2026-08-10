@@ -882,6 +882,7 @@ pub struct GlobalAttentionSparsityTraceReport {
     pub concurrency: usize,
     pub accepted_tokens: usize,
     pub exactness: &'static str,
+    pub candidate_numerics: &'static str,
     pub performance_claim: Option<String>,
 }
 
@@ -8461,6 +8462,7 @@ pub fn run_global_attention_sparsity_trace(
         concurrency: 1,
         accepted_tokens: 0,
         exactness: "target_faithful_source_state_with_noncausal_L3_shadow_only",
+        candidate_numerics: "source_bf16_probabilities_f32_retained_mass_and_renormalization_source_four_lane_f32_reduction_final_bf16",
         performance_claim: None,
     };
     fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;

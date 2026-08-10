@@ -167,6 +167,8 @@ def _validate_raw(raw: dict) -> None:
         or raw.get("accepted_tokens") != 0
         or raw.get("performance_claim") is not None
         or raw.get("exactness") != "target_faithful_source_state_with_noncausal_L3_shadow_only"
+        or raw.get("candidate_numerics")
+        != "source_bf16_probabilities_f32_retained_mass_and_renormalization_source_four_lane_f32_reduction_final_bf16"
     ):
         raise ValueError("raw trace identity mismatch")
     observations = raw.get("observations")
@@ -268,7 +270,8 @@ def run(paths: dict[str, Path], output: Path, commit: str) -> dict:
         "endpoint_tps": None,
         "limitations": (
             "non-causal oracle shadow on exact source states at 512 positions; not a selector, "
-            "accumulated candidate run, held-out result, one-million-token result, endpoint, or TPS"
+            "F32 retained-mass renormalization is a favorable numerical grant; not an accumulated "
+            "candidate run, held-out result, one-million-token result, endpoint, or TPS"
         ),
     }
     atomic_write_new(output, canonical_json(manifest))

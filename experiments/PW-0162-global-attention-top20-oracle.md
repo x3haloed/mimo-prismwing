@@ -48,9 +48,11 @@ the source output.
 Authorized embodiment boundary: the candidate is explicitly L3. It may keep
 a strict subset of global-attention history, compact selected rows in original
 causal order, renormalize retained source probabilities, and use the source
-BF16 value-dot topology. It may not call this oracle selection a realizable
-runtime, extrapolate 512 positions to one million, or waive hosted and
-capability gates.
+four-lane value-dot reduction with final BF16 rounding. Grant retained-mass
+summation and probability renormalization in F32; this deliberately favors the
+oracle over a strict BF16 candidate and makes a failure stronger. It may not
+call this oracle selection a realizable runtime, extrapolate 512 positions to
+one million, or waive hosted and capability gates.
 
 ## Contract
 
@@ -70,7 +72,8 @@ capability gates.
    `21.056139043683178%`, `25%`, and `100%`. For each sampled head-query,
    select `max(1, ceil(fraction * visible_positions))` source positions. Report
    retained probability mass, reference/output norms, relative L2, and maximum
-   absolute error without aggregating away the raw distribution.
+   absolute error without aggregating away the raw distribution. Record the
+   favorable F32 renormalization grant in the raw evidence identity.
 5. Require the 100% control to reproduce every observed source head output
    bit-exactly. Require the observer run's route hash to equal PW-0157's exact
    route hash. Either failure invalidates the experiment rather than rejecting

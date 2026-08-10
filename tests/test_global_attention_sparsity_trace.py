@@ -75,6 +75,7 @@ class GlobalAttentionSparsityTraceTests(unittest.TestCase):
             "accepted_tokens": 0,
             "performance_claim": None,
             "exactness": "target_faithful_source_state_with_noncausal_L3_shadow_only",
+            "candidate_numerics": "source_bf16_probabilities_f32_retained_mass_and_renormalization_source_four_lane_f32_reduction_final_bf16",
             "observations": [],
         }
         with self.assertRaisesRegex(ValueError, "raw observation count mismatch"):
