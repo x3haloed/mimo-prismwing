@@ -3036,3 +3036,29 @@ Reported usage/cost is absent; the frozen-price worst case for all attempts is
 peak RSS, zero swap growth or throttling, release boundaries, and stable
 services. PW-0160 reports zero accepted tokens, no endpoint TPS, and no
 throughput-model constant changes.
+
+PW-0161 closes the actual 32-GB PCIe Volta forms rather than inferring from
+memory capacity or the newly confirmed single-card PSU margin. Mandatory 1M
+matrices plus ordinary attention require `214,165,790,024,007,680` FLOPs. Even
+granting the standard V100's advertised 112-TFLOPS deep-learning peak and the
+owned EPYC's impossible `0.7424`-TFLOPS peak concurrently yields a
+`1,899.6029`-second floor, missing the entire 30-minute gate by `99.6029`
+seconds before all non-arithmetic work. Reject ordinary dense 1M execution on
+the standard V100 regardless of kernels, storage, or future price.
+
+V100S's favorable 130-TFLOPS L3 ceiling survives arithmetically at
+`1,638.0745` seconds but leaves only `161.9255` seconds for every omitted
+operation and has no source-BF16 fidelity promotion. Exact 1M KV, three arenas,
+and non-routed source tensors exceed its 32-decimal-GB HBM by
+`6,221,107,536` bytes; free-streaming all common tensors leaves 261 complete
+expert slots. The active captured standard V100 costs `$679.00` and V100S
+costs `$1,054.99` delivered before tax, so both card-only ledgers already
+exceed the complete `$500` cap before cable, cooling, or storage.
+
+Reject both captured procurement branches. Retain only V100S as a future
+price-triggered L3 hypothesis; arithmetic survival does not authorize runtime
+work or purchase. The authoritative report hashes to
+`fc438d593d8ac99be3cc426496feb830256ffc48c75d58fc8bb9d6b09a2c6c8f`.
+Gate 8 passes at 52% minimum free memory, 32,800,768-byte peak RSS, zero swap
+growth or throttling, and stable services. PW-0161 reports zero accepted
+tokens, no endpoint TPS, and no measured throughput-model constant changes.

@@ -1,7 +1,7 @@
 # PW-0161 — 32-GB Volta complete-system envelope
 
-- Status: ready
-- Disposition: unexecuted
+- Status: completed
+- Disposition: rejected
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -16,7 +16,8 @@
   32 GB in the owned H11SSL-i/EPYC host; analytical pre-purchase envelope only
 - Related records: PW-0020, PW-0029, PW-0127, PW-0151, PW-0155, PW-0158,
   PW-0159; E7
-- Implementation commit and dirty state: pending
+- Implementation commit and dirty state:
+  `5f20a4b125e120155bdc76988d9d84a461869327`, clean
 
 ## Question and changed premise
 
@@ -114,5 +115,50 @@ Only measured full-path performance and fidelity may do so.
 
 ## Result
 
-Pending source authentication, implementation, execution, and documentation
-from a clean commit.
+The authoritative `analysis-001` manifest hashes to
+`fc438d593d8ac99be3cc426496feb830256ffc48c75d58fc8bb9d6b09a2c6c8f`.
+It authenticates TARGET, the pinned config, PW-0127, PW-0151, PW-0155,
+PW-0158, PW-0159, the official NVIDIA V100 page and PCIe product brief, the
+dated market transcription, and the clean implementation commit.
+
+Mandatory 1M matrices plus ordinary attention total
+`214,165,790,024,007,680` FLOPs. The standard V100's direct-FP32 control needs
+`14,527.1998` seconds. Even granting its advertised 112-TFLOPS deep-learning
+rate plus PW-0151's impossible `0.7424`-TFLOPS EPYC peak concurrently gives a
+`1,899.6029`-second floor, `99.6029` seconds beyond the complete 30-minute
+gate before every omitted cost. This rejects ordinary dense 1M execution on
+the standard card even under unqualified L3 FP16 arithmetic.
+
+V100S is different but still not a system. Its favorable 130-TFLOPS rate plus
+the same impossible CPU grant yields `1,638.0745` seconds and leaves only
+`161.9255` seconds for all omitted work. That arithmetic survival is an L3
+numerical hypothesis, not a fidelity or performance pass. Exact BF16 1M KV,
+three arenas, and non-routed source tensors total `38,221,107,536` bytes,
+exceeding 32-decimal-GB HBM by `6,221,107,536` bytes. Free-streaming all
+non-routed tensors leaves room for only 261 complete expert records.
+
+Both captured procurement branches fail before installation. The active used
+standard 32-GB PCIe card is `$679.00` before unknown tax, `$179.00` over the
+complete cap by itself. The active V100S is `$1,054.99` delivered before tax,
+`$554.99` over. Neither includes the required authenticated power path,
+forced-air cooling, or storage. One 250-W card plus the 170-W CPU leaves 312 W
+under the PSU's combined 732-W +12-V label, but that is not installation
+evidence.
+
+Gate 8 passes across five snapshots with 52% minimum free memory,
+32,800,768-byte peak RSS, 21,415,296-byte maximum physical footprint, zero
+swap growth or new throttled pages, and stable protected services. Four failed
+invocations published no manifest: two corrected mistyped full commits, one
+corrected the release-checkpoint API, and one corrected safety serialization.
+Accepted tokens and endpoint TPS remain zero; no throughput-model constant
+changes.
+
+## Decision
+
+Reject the standard V100 PCIe 32-GB ordinary-dense 1M embodiment on arithmetic
+and reject its captured purchase branch independently on card-only cost.
+Reject the captured V100S purchase branch because the card alone is more than
+twice the complete cap. Retain V100S only as a future price-triggered L3
+hypothesis requiring a complete delivered BOM, exact installation, measured
+CUDA runtime, qualified numerical behavior, and all endpoint gates. Do not
+purchase or implement either captured configuration.

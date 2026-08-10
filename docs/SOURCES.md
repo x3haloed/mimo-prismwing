@@ -483,3 +483,32 @@ figures. The market rows are a dated structured transcription, not immutable
 seller evidence or purchase authority. They support rejecting the captured
 active BOM and defining a reopening price, not inferring future availability,
 device health, delivered identity, sustained I/O, fit, or tax.
+
+## Thirty-two-GB Volta envelope authorities
+
+- NVIDIA, V100 product page with V100 PCIe and V100S PCIe specifications,
+  accessed and captured 2026-08-10:
+  <https://www.nvidia.com/en-sg/data-center/v100/>.
+- NVIDIA, *Tesla V100 PCIe GPU Accelerator Product Brief*,
+  `PB-08744-001_v03`, accessed and captured 2026-08-10:
+  <https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/tesla-product-literature/Tesla-V100-PCIe-Product-Brief.pdf>.
+- Dated semantic transcriptions for active eBay items 188322612403 (used V100
+  PCIe 32 GB) and 198372771385 (used Dell V100S PCIe 32 GB), observed
+  2026-08-10 after direct page capture returned HTTP 403:
+  <https://www.ebay.com/itm/188322612403> and
+  <https://www.ebay.com/itm/198372771385>.
+
+The official HTML hashes to
+`39557823ad6871fbfe5afd7d572d5192c754e27feef90c8cc092e562f59b4f4d`;
+the product brief hashes to
+`7e2a80764520d744ae146ec276655a6359ecd2bcd83feaba802cb29efcedadee`;
+and the explicitly weaker market transcription hashes to
+`c7f378c65bd2c24633ccce238f0dcaffc1731de8f670a34721d0fb50cc3c010c`.
+
+Decision: technical and moving-market authority for PW-0161. NVIDIA binds the
+standard V100 PCIe to 112 TFLOPS deep-learning arithmetic and 900 GB/s HBM,
+and V100S PCIe to 130 TFLOPS, 32 GB HBM2, and 1,134 GB/s. The product brief
+binds the 250-W passive dual-slot form, CPU 8-pin auxiliary input, and dongle
+NVPN `030-0571-000`. The market rows support rejecting two dated card-only
+ledgers, not inferring future prices, delivered identity, device health,
+cooling, fit, tax, or purchase authority.

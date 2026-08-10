@@ -354,6 +354,18 @@ under the attempt budget, leave the reference path unproven, and require a new
 experiment plus stable Parasail availability or explicit new-epoch authority
 before retrying.
 
+PW-0161 closes the actual single-card 32-GB Volta alternatives suggested by
+the owned host's cleaner 312-W aggregate +12-V nameplate margin. The standard
+V100 fails permanently for ordinary dense 1M context: even its favorable
+112-TFLOPS L3 Tensor peak plus the EPYC's impossible peak needs `1,899.6029`
+seconds, already `99.6029` seconds beyond the complete gate. V100S's
+130-TFLOPS ceiling survives at `1,638.0745` seconds but remains numerically
+unqualified and cannot hold exact KV, arenas, and all common source weights in
+32 decimal GB. Captured active card-only prices are `$679.00` and `$1,054.99`
+before tax, independently exceeding the complete cap before cable, cooling,
+or storage. Reject both captured purchases and retain only a price-triggered
+V100S L3 hypothesis; authorize no hardware or CUDA implementation.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,
