@@ -3089,3 +3089,34 @@ Gate 8 passes with 51% minimum free memory, 32,210,944-byte peak RSS, zero swap
 growth or throttling, an explicit release boundary, and stable services.
 PW-0163 reports zero accepted tokens, no endpoint TPS, and no measured
 throughput-model constant changes.
+
+PW-0164 closes the strongest NVIDIA Blackwell tier officially launched below
+the complete `$500` hardware cap. RTX 5060 Ti's 759 advertised AI TOPS is not
+a dense BF16 rate and cannot be substituted into Prismwing's unchanged source
+arithmetic. Scaling NVIDIA's official same-generation RTX 5070 dense Tensor
+rates by 36/48 SMs and 2570/2512 boost gives `47.343451433121`-TFLOPS
+BF16/FP32-accumulate and `94.763634554140`-TFLOPS FP16/FP16-accumulate
+ceilings.
+
+Neither survives the complete one-million-position arithmetic bound. Granting
+the owned EPYC's impossible peak concurrently, source-oriented BF16 needs
+`4,453.8213` seconds and the favorable L3 FP16 mode needs `2,242.4320`
+seconds. The latter is still `442.4320` seconds beyond the entire TTFT gate
+before softmax, routing, decode, memory traffic, storage, dispatch, or any
+other work. Permanently reject RTX 5060 Ti for ordinary dense 1M execution
+regardless of price; do not generalize to RTX 5070+, changed attention, or
+modified FP8/FP4 weights.
+
+Exact BF16 1M KV alone is `23,065,559,040` bytes, exceeding 16 decimal GB by
+`7,065,559,040`; KV, three arenas, and common weights exceed it by
+`22,221,107,536`. The 180-W GPU plus 170-W CPU leaves 382 W under the
+authenticated 732-W +12-V PSU label, but that is not installation proof.
+Official 16-GB MSRP was `$429`; a dated NVIDIA Marketplace row observed
+`$479.99` out of stock, so neither is a complete delivered BOM.
+
+The authoritative report hashes to
+`6e34c7496694db3aca10c105bbc642b440c6e97922100fb083a2f1be1acea856`.
+Gate 8 passes at 44% minimum free memory, 41,091,072-byte peak RSS,
+20,694,336-byte maximum physical footprint, zero swap growth or throttling,
+and stable services. PW-0164 reports zero accepted tokens and no endpoint TPS;
+no measured throughput-model constant changes.
