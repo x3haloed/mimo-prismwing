@@ -217,4 +217,71 @@ mod tests {
         probabilities[15] = 1.0;
         assert!(vertical_slash_selection(&probabilities, 2, 8, 8, 8).is_err());
     }
+
+    #[test]
+    fn minference_last64_fixture_matches_independent_pytorch_selection() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0176-vertical-slash-selector.json"
+        ))
+        .expect("PW-0176 selector fixture");
+        assert_eq!(fixture["schema_version"], 1);
+        assert_eq!(
+            fixture["source_sha256"],
+            "b368e765fcc2021591f7cdf970e4e1a71731ed66f19e97023a13b70a02e6edc2"
+        );
+        let context = fixture["context"].as_u64().unwrap() as usize;
+        let last_queries = fixture["last_queries"].as_u64().unwrap() as usize;
+        let query_start = context - last_queries;
+        let mut scores = vec![900.0_f32; context * last_queries];
+        for row in 0..last_queries {
+            let query_position = query_start + row;
+            for key in 0..=query_position {
+                scores[row * context + key] =
+                    ((row * 37 + key * 17) % 29) as f32 / 8.0 - 14.0 / 8.0;
+            }
+        }
+        for spike in fixture["spikes"].as_array().unwrap() {
+            let row = spike[0].as_u64().unwrap() as usize;
+            let key = spike[1].as_u64().unwrap() as usize;
+            scores[row * context + key] = spike[2].as_f64().unwrap() as f32;
+        }
+        let probabilities = causal_f32_softmax_rows(&scores, last_queries, context).unwrap();
+        let selection = vertical_slash_selection(
+            &probabilities,
+            last_queries,
+            context,
+            fixture["vertical_size"].as_u64().unwrap() as usize,
+            fixture["slash_size"].as_u64().unwrap() as usize,
+        )
+        .unwrap();
+        let expected = |name: &str| {
+            fixture[name]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value.as_u64().unwrap() as usize)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(selection.vertical_positions, expected("vertical_positions"));
+        assert_eq!(selection.slash_distances, expected("slash_distances"));
+        for position in [63, 100, 139] {
+            let expected_positions = fixture["selected_positions"][position.to_string()]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value.as_u64().unwrap() as usize)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                selected_positions_for_query(position, &selection).unwrap(),
+                expected_positions
+            );
+        }
+        let full =
+            vertical_slash_selection(&probabilities, last_queries, context, context, context)
+                .unwrap();
+        assert_eq!(
+            selected_positions_for_query(139, &full).unwrap(),
+            expected("full_selection_at_139")
+        );
+    }
 }
