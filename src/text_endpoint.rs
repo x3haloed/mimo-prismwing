@@ -15,8 +15,7 @@ use crate::staged_metal_expert::{
     RoutedTransactionTomography,
 };
 use crate::structured_sparse::{
-    VerticalSlashSelection, causal_f32_softmax_rows, selected_positions_for_query,
-    vertical_slash_selection,
+    VerticalSlashSelection, selected_positions_for_query, vertical_slash_selection,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -8663,6 +8662,34 @@ fn pw0176_hash_f32(values: &[f32]) -> String {
     format!("{:x}", digest.finalize())
 }
 
+fn pw0176_pytorch_f32_causal_softmax_rows(
+    scores: &[f32],
+    last_queries: usize,
+    context: usize,
+) -> Result<Vec<f32>, String> {
+    if last_queries == 0
+        || last_queries > context
+        || scores.len() != last_queries * context
+        || scores.iter().any(|value| !value.is_finite())
+    {
+        return Err("PW-0176 selector score shape or value mismatch".to_owned());
+    }
+    let query_start = context - last_queries;
+    let mut probabilities = vec![0.0_f32; scores.len()];
+    for row in 0..last_queries {
+        let visible = query_start + row + 1;
+        let source = &scores[row * context..row * context + visible];
+        let maximum = source.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let centered = source
+            .iter()
+            .map(|score| *score - maximum)
+            .collect::<Vec<_>>();
+        let row_probabilities = pytorch_arm_softmax_f32(&centered)?;
+        probabilities[row * context..row * context + visible].copy_from_slice(&row_probabilities);
+    }
+    Ok(probabilities)
+}
+
 fn pw0176_update_f32_hash(digest: &mut Sha256, values: &[f32]) {
     for value in values {
         digest.update(value.to_le_bytes());
@@ -9038,7 +9065,7 @@ pub fn run_structured_sparse_layer0_trace(
             }
         }
         let selector_probabilities =
-            causal_f32_softmax_rows(&selector_scores, LAST_QUERIES, POSITIONS)?;
+            pw0176_pytorch_f32_causal_softmax_rows(&selector_scores, LAST_QUERIES, POSITIONS)?;
         let selections = PW0176_PAIRS
             .iter()
             .map(|&(vertical, slash)| {
@@ -10636,5 +10663,29 @@ mod tests {
         assert_eq!(exact.bit_exact_values, V_HEAD_DIM);
         assert_eq!(exact.selected_fraction, 1.0);
         assert!(pw0176_candidate_metrics(1, 1, 257, 256, &reference, &reference).is_err());
+    }
+
+    #[test]
+    fn pw0176_selector_softmax_matches_independent_pytorch_fixture_bits() {
+        const CONTEXT: usize = 140;
+        const LAST_QUERIES: usize = 64;
+        let query_start = CONTEXT - LAST_QUERIES;
+        let mut scores = vec![900.0_f32; CONTEXT * LAST_QUERIES];
+        for row in 0..LAST_QUERIES {
+            let query_position = query_start + row;
+            for key in 0..=query_position {
+                scores[row * CONTEXT + key] =
+                    ((row * 37 + key * 17) % 29) as f32 / 8.0 - 14.0 / 8.0;
+            }
+        }
+        for (row, key, value) in [(0, 0, 7.0), (17, 31, 8.0), (63, 80, 9.0), (63, 139, 10.0)] {
+            scores[row * CONTEXT + key] = value;
+        }
+        let probabilities = pw0176_pytorch_f32_causal_softmax_rows(&scores, LAST_QUERIES, CONTEXT)
+            .expect("selector softmax");
+        assert_eq!(
+            pw0176_hash_f32(&probabilities),
+            "496ae2cb603018a6f77f43e9d70705beb364052ce7755f17bb0de7b2112f2a77"
+        );
     }
 }
