@@ -2532,20 +2532,19 @@ fn oracle_sparse_attention_candidate(
     }
     let ranked = oracle_sparse_attention_indices(probabilities, retained_fraction)?;
     let retained_positions = ranked.len();
-    let retained_probability_mass = ranked
+    let retained_probability_mass_f32 = ranked
         .iter()
-        .map(|&index| probabilities[index] as f64)
-        .sum::<f64>();
-    if !retained_probability_mass.is_finite() || retained_probability_mass <= 0.0 {
+        .map(|&index| probabilities[index])
+        .sum::<f32>();
+    if !retained_probability_mass_f32.is_finite() || retained_probability_mass_f32 <= 0.0 {
         return Err("global attention oracle retained invalid probability mass".to_owned());
     }
     let normalized = if retained_positions == probabilities.len() {
         probabilities.to_vec()
     } else {
-        let mass = retained_probability_mass as f32;
         ranked
             .iter()
-            .map(|&index| probabilities[index] / mass)
+            .map(|&index| probabilities[index] / retained_probability_mass_f32)
             .collect::<Vec<_>>()
     };
     let selected_values = ranked
@@ -2582,7 +2581,7 @@ fn oracle_sparse_attention_candidate(
     Ok(GlobalAttentionOracleCandidate {
         retained_fraction,
         retained_positions,
-        retained_probability_mass,
+        retained_probability_mass: f64::from(retained_probability_mass_f32),
         reference_l2,
         candidate_l2: candidate_squared.sqrt(),
         error_l2,
@@ -8906,7 +8905,7 @@ mod tests {
             oracle_sparse_attention_candidate(&probabilities, &value_views, &expected_top_two, 0.5)
                 .expect("valid top-probability oracle");
         assert_eq!(half.retained_positions, 2);
-        assert!((half.retained_probability_mass - 0.7).abs() < 1.0e-7);
+        assert_eq!(half.retained_probability_mass, f64::from(0.4_f32 + 0.3_f32));
         assert_eq!(half.bit_exact_values, expected_top_two.len());
         assert_eq!(half.error_l2, 0.0);
         assert_eq!(half.maximum_absolute_error, 0.0);
