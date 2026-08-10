@@ -3062,3 +3062,30 @@ work or purchase. The authoritative report hashes to
 Gate 8 passes at 52% minimum free memory, 32,800,768-byte peak RSS, zero swap
 growth or throttling, and stable services. PW-0161 reports zero accepted
 tokens, no endpoint TPS, and no measured throughput-model constant changes.
+
+PW-0163 closes AMD MI100 rather than treating the NVIDIA-only accelerator
+survey as complete. The strongest source-oriented MI100 rate is 92.3-TFLOPS
+BF16 Matrix, not its 184.6-TFLOPS FP16 figure. Even granting that BF16 peak and
+the owned EPYC's impossible peak concurrently, mandatory 1M matrices plus
+ordinary attention need `2,301.8085` seconds, missing the complete gate by
+`501.8085` seconds before every omitted cost. Reject source-oriented ordinary
+dense MI100 execution permanently.
+
+The 184.6-TFLOPS FP16 ceiling survives arithmetically at `1,155.5143` seconds
+but remains an unqualified L3 mode. Exact 1M KV, three arenas, and common
+weights exceed 32 decimal GB by `6,221,107,536`; free-streaming common tensors
+leaves 261 complete expert slots. A single 300-W card plus the 170-W CPU leaves
+262 W below the PSU's combined +12-V label, which is margin rather than cable,
+airflow, fit, or measured-load proof.
+
+The active captured used MI100 costs `$999.00` before unknown tax, independently
+rejecting the current procurement branch by `$499.00` before any mandatory
+cooling, cabling, storage, or OS work. ROCm 7.1 excludes the owned Debian 13
+installation for MI100. Retain FP16 only as a future price-triggered L3
+hypothesis; authorize no purchase or HIP runtime. The authoritative report
+hashes to
+`dcc6a60955e8dfd67a3f1da582b33b332bfa31ece45a70d4606df8e367bcb145`.
+Gate 8 passes with 51% minimum free memory, 32,210,944-byte peak RSS, zero swap
+growth or throttling, an explicit release boundary, and stable services.
+PW-0163 reports zero accepted tokens, no endpoint TPS, and no measured
+throughput-model constant changes.
