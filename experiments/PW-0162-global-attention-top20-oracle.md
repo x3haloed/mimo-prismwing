@@ -1,7 +1,7 @@
 # PW-0162 — global-attention top-20%-history oracle
 
-- Status: ready
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -17,8 +17,7 @@
 - Related records: PW-0020 through PW-0029, PW-0112, PW-0151, PW-0157 through
   PW-0161; E7
 - Implementation commit and dirty state:
-  `13931013b2bd71c97c1389ea8e533dc842547d27`; clean at control and smoke
-  launch
+  `95677fc07526acc818541bcf2dac664ee5e1c055`; clean at final launch
 
 ## Question and changed premise
 
@@ -237,3 +236,31 @@ route mismatch. Pin and report both explicitly; use the typed-F32 hash for the
 runtime raw-report guard and retain the parsed-JSON hash for cross-manifest
 analyzer comparison. Preserve the rejected `raw-004` launch and infer no model
 result from it.
+
+The final mmap-backed 512-position walk passes every experiment-validity
+gate. Raw evidence hashes to
+`15c0cb8ab6e5058e6413efeb2a60effd200a8c5e9bc915f708fe030c4f6f4cbe`;
+analysis hashes to
+`afc32798c5a474286e3eea65ccd6d32ab05f04921df1bacf5622585cad09d422`.
+All 8,640 head-query identities are present across nine layers and 15 sampled
+positions, the semantic route payload equals the pinned PW-0157 authority,
+and the 100% replay is bit-exact for all 1,105,920 output values.
+
+The favorable 20% oracle fails decisively. Aggregate relative L2 is
+`0.172375`, versus the `0.010000` limit; layer 0 is worst at `3.025940`,
+versus the `0.020000` per-layer limit; head-query p99 is `4.888554`, versus
+the `0.050000` limit. Median retained probability mass is only `0.423981`.
+At the exact `21.056139%` two-P100 arithmetic boundary, aggregate relative L2
+remains `0.167131`, p99 is `4.740153`, and the worst layer is `2.956469`.
+Kill simple probability-ranked global-history pruning at the cheap two-P100
+arithmetic fraction. An implementable causal selector has less information
+than this oracle and cannot rescue the same fixed-subset premise.
+
+Gate 8 passes at 69% minimum free memory, 864,507,968-byte maximum physical
+footprint, 1,104,789,504-byte peak RSS, zero swap growth or throttling,
+54,970,304 bytes after checkpoint release, and present protected services.
+The run records zero accepted tokens and no endpoint TPS. No measured
+throughput-model constant changes: the prior two-P100 arithmetic boundary is
+unchanged; PW-0162 rejects the numerical mechanism proposed to fit beneath
+it. This does not reject learned linear/recurrent attention, changed weights,
+retrieval with repair, or a faster future card.

@@ -431,6 +431,18 @@ semantic hash (`c0e5c8fd...c69872`) from the runtime's typed-F32 semantic hash
 different numeric canonicalizations. Pin both explicitly and reject any raw
 report that does not carry the runtime value.
 
+The authenticated final walk rejects the mechanism. At 20% retained history,
+aggregate relative L2 is `0.172375`, the worst layer is `3.025940`, and
+head-query p99 is `4.888554`, missing the frozen `0.010000`, `0.020000`, and
+`0.050000` limits by wide margins. The exact `21.056139%` two-P100 arithmetic
+boundary remains at `0.167131` aggregate error. Raw and analysis evidence hash
+to `15c0cb8ab6e5058e6413efeb2a60effd200a8c5e9bc915f708fe030c4f6f4cbe`
+and `afc32798c5a474286e3eea65ccd6d32ab05f04921df1bacf5622585cad09d422`.
+Kill simple
+probability-ranked global-history pruning at this arithmetic fraction; retain
+learned/recurrent attention and changed-weight mechanisms as distinct
+branches. No throughput-model constant or endpoint TPS changes.
+
 PW-0163 closes the strongest conventional 32-GB AMD PCIe counterexample found
 in the current search. MI100's 92.3-TFLOPS BF16 Matrix peak plus the EPYC's
 impossible concurrent peak still needs `2,301.8085` seconds for mandatory 1M

@@ -3526,3 +3526,25 @@ values hash to `c0e5c8fd...c69872` under analyzer JSON canonicalization and
 names. Use the latter for the runtime raw-report guard and the former for
 cross-manifest analyzer comparison; do not call their expected difference
 route drift.
+
+PW-0162 decisively rejects simple probability-ranked global-history pruning
+at the arithmetic fraction required by the cheap two-P100 system. The valid
+non-causal oracle preserves exact source routes and replays 1,105,920 control
+values bit-exactly, yet retaining the best 20% of visible rows yields
+`0.172375` aggregate relative L2, `3.025940` in the worst layer, and
+`4.888554` head-query p99, versus limits of `0.010000`, `0.020000`, and
+`0.050000`. The exact `21.056139%` arithmetic boundary remains far outside at
+`0.167131` aggregate error and `4.740153` p99. Because an implementable causal
+selector has less information than this oracle, kill the same fixed-subset
+premise rather than training a selector for it.
+
+Raw and analysis manifests hash to
+`15c0cb8ab6e5058e6413efeb2a60effd200a8c5e9bc915f708fe030c4f6f4cbe`
+and
+`afc32798c5a474286e3eea65ccd6d32ab05f04921df1bacf5622585cad09d422`.
+Gate 8 passes with 69% minimum free memory, 864,507,968-byte maximum
+footprint, 1,104,789,504-byte peak RSS, zero swap growth or throttling, and
+54,970,304 bytes after release. PW-0162 records zero accepted tokens, no
+endpoint TPS, and no measured throughput-model constant change. It rejects
+this numerical mechanism, not learned linear/recurrent attention, changed
+weights, retrieval with repair, or faster future hardware.
