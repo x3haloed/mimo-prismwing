@@ -54,7 +54,7 @@ recorded without affecting source state.
 2. Before the real run, add a tiny deterministic fixture for:
    - last-64 causal score construction and F32 softmax;
    - vertical sums with the first 30 sink positions forced selected;
-   - diagonal/slash sums with the most recent 100 diagonals forced selected;
+   - diagonal/slash sums with the most recent 30 diagonals forced selected;
    - descending selection with lower-index tie choice;
    - causal vertical/slash union, compact original-position order, and
      renormalized value reduction;

@@ -45,15 +45,23 @@ def build() -> dict:
     vertical = probabilities.sum(dim=0).tolist()
     for index in range(30):
         vertical[index] = math.inf
-    slash = [0.0] * CONTEXT
-    for row in range(LAST_QUERIES):
-        query_position = query_start + row
-        for key in range(query_position + 1):
-            slash[query_position - key] += float(probabilities[row, key])
-    for index in range(100):
-        slash[index] = math.inf
+    # Reproduce the captured source's `sum_all_diagonal_matrix` construction,
+    # including its source-index space and F32 reduction, before translating
+    # selected indices into causal distances.
+    matrix = probabilities[None, None]
+    zero = torch.zeros((1, 1, LAST_QUERIES, LAST_QUERIES), dtype=torch.float32)
+    padded = torch.cat((zero, matrix, zero), dim=-1)
+    strided = padded.as_strided(
+        (1, 1, LAST_QUERIES, LAST_QUERIES + CONTEXT),
+        (1, LAST_QUERIES * (2 * LAST_QUERIES + CONTEXT), 2 * LAST_QUERIES + CONTEXT + 1, 1),
+    )
+    slash_source = torch.sum(strided, dim=2)[:, :, 1:][
+        ..., : -LAST_QUERIES + 1
+    ].flatten().tolist()
+    for index in range(CONTEXT - 30, CONTEXT):
+        slash_source[index] = math.inf
     vertical_positions = sorted(descending(vertical, VERTICAL_SIZE))
-    slash_source_indices = descending(list(reversed(slash)), SLASH_SIZE)
+    slash_source_indices = descending(slash_source, SLASH_SIZE)
     slash_distances = sorted(CONTEXT - 1 - index for index in slash_source_indices)
 
     def selected(query_position: int) -> list[int]:
@@ -82,7 +90,7 @@ def build() -> dict:
         "vertical_size": VERTICAL_SIZE,
         "slash_size": SLASH_SIZE,
         "forced_vertical_positions": 30,
-        "forced_recent_slash_distances": 100,
+        "forced_recent_slash_distances": 30,
         "tie_break": "descending value then lower original index",
         "vertical_positions": vertical_positions,
         "slash_distances": slash_distances,

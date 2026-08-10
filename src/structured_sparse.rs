@@ -93,7 +93,10 @@ pub(crate) fn vertical_slash_selection(
     for score in vertical_scores.iter_mut().take(30.min(context)) {
         *score = f32::INFINITY;
     }
-    for score in slash_scores.iter_mut().take(100.min(context)) {
+    // The released MInference implementation pins `slash[..., -30:]` before
+    // converting source diagonal indices to causal distances. Those are the
+    // thirty most recent distances in this representation.
+    for score in slash_scores.iter_mut().take(30.min(context)) {
         *score = f32::INFINITY;
     }
     let mut vertical_positions = descending_indices(&vertical_scores, vertical_size)?;
@@ -195,14 +198,12 @@ mod tests {
             (0..30).collect::<Vec<_>>()
         );
         assert!(selected.vertical_positions.contains(&80));
-        assert_eq!(
-            selected.slash_distances[..100],
-            (0..100).collect::<Vec<_>>()
-        );
-        // Both observations fall inside the forced recent region. The next
-        // all-zero tie chooses source diagonal index zero, which maps to the
-        // largest distance and proves source-index rather than distance-index tie order.
-        assert_eq!(selected.slash_distances[100], 139);
+        assert_eq!(selected.slash_distances[..30], (0..30).collect::<Vec<_>>());
+        assert!(selected.slash_distances.contains(&49));
+        assert!(selected.slash_distances.contains(&58));
+        // Zero-valued ties choose the lower source diagonal index, which maps
+        // to the larger causal distance.
+        assert_eq!(selected.slash_distances.last(), Some(&139));
     }
 
     #[test]
