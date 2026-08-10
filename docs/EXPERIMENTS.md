@@ -394,6 +394,20 @@ do not establish a delivered BOM. Preserve RTX 5070+, changed attention, and
 modified low-bit modes as separate branches; authorize no purchase or CUDA
 implementation.
 
+PW-0165 closes the current in-stock sub-`$500` AMD consumer counterexample.
+RX 9060 XT's full 103-TFLOPS dense half-precision Matrix rate plus the EPYC's
+impossible concurrent peak still needs `2,064.3998` seconds for complete 1M
+matrices plus ordinary attention, missing the entire gate by `264.3998`
+seconds before all omitted work. This rejects both source-oriented BF16/F32
+accumulation and the favorable dense FP16 L3 diagnostic. AMD's 205-TFLOPS
+structured-sparse row would pass at `1,040.9414` seconds, but the RDNA4 ISA
+binds it to two zeros per four and unchanged Prismwing weights do not admit
+that premise. Exact 1M BF16 KV alone exceeds 16 decimal GB by
+`7,065,559,040` bytes. The captured new in-stock card is `$449.99` before
+unknown tax and has favorable 160-W/one-8-pin PSU nameplates, but no complete
+BOM follows. Reject ordinary-dense RX 9060 XT permanently; preserve explicit
+2:4 weight modification, FP8, changed attention, and faster cards separately.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,
