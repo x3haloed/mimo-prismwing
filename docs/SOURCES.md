@@ -735,6 +735,14 @@ and
 `369554f262e5409f7795823b1904ef6767a7af69f7a5c41fba2d445a668450b1`.
 The explicitly weaker moving-market transcription hashes to
 `dd2551749fd8c508d76deea4ea7810ac7ca76a5c181c59df09f9d47e7070d080`.
+The four original listing images hash respectively to
+`da65a27c20d54a6e00d2058b71c518521d14ee8e8f7841d178e7a814dc9319a3`,
+`dd9b6a26ea5e8f06aaacd40c314ce46a6bb16026a5e8a21f3a7a6ad191789330`,
+`9658830c4bbea8c094318ec770c4ba712d7220874147bc02b483d84ac3ad2f99`,
+and
+`1711a34b9557a00579906f8762f31840e17c511879391a7deae1f94352517f50`;
+their image-bound semantic transcription hashes to
+`f8555eab28b8e5bade3aef7b29b7a04b9edff7101f75c52b092d6de7bf1d8d41`.
 PW-0169 additionally authenticates PW-0167's raw Intel product capture.
 
 Decision: exact reference-card dimensions, power, connector, and dated active-
@@ -742,6 +750,8 @@ market authority for PW-0169. Intel binds the A770 Limited Edition to 225-W
 TBP, required 8-pin plus 6-pin inputs, and 279.9x126.36x42-mm maximum extents.
 The used listing identifies MPN `21P01J00BA`, shows `$300` plus `$11.71`
 rendered shipping, domestic location, seller-described working order, and no
-seller returns. It does not prove actual-destination checkout, component
+seller returns. The box and card images independently bind the 16-GB product
+code and Limited Edition form but do not prove function. It does not prove
+actual-destination checkout, component
 health, fit, original PSU cables, cooling, purchase authority, or installed
 performance.
