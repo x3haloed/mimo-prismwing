@@ -37,6 +37,14 @@ const MOE_INTERMEDIATE: usize = 2048;
 const SOURCE_EXPERT_BYTES: u64 = 25_171_968;
 const PW0156_FREE_HBM_EXPERT_SLOTS: usize = 660;
 const PW0156_OPTIMISTIC_STORAGE_BYTES: u64 = 4 * 3_500_000_000 * 15;
+const PW0157_PREFIX512_SHA256: &str =
+    "32fa8954e875e6c8c53b5092827820940f51225d2bf24322caf5b782295004b9";
+const PW0157_PREFIX512_INPUT_SHA256: &str =
+    "9a8e422acb7b8762d86419adfe3234831614eee8a9f24c63648dccc4575d9e78";
+const PW0157_PREFIX512_ROUTES_SHA256: &str =
+    "eff0dd3c993d132bd2ef66008c42c10e7b6b0b604ccad93ba0c72f894023a903";
+const GLOBAL_ATTENTION_ORACLE_FRACTIONS: [f64; 7] =
+    [0.01, 0.05, 0.10, 0.20, 0.210_561_390_436_831_78, 0.25, 1.0];
 const CHAT_PROMPT: &str = "<|im_start|>system\nYou are MiMo, a helpful AI assistant engineered by Xiaomi.<|im_end|><|im_start|>user\nHello<|im_end|><|im_start|>assistant\n<think></think>";
 const CHAT_PROMPT_IDS: [u32; 27] = [
     151_644, 8948, 198, 2610, 525, 20_740, 25_612, 11, 264, 10_950, 15_235, 17_847, 44_936, 553,
@@ -819,6 +827,60 @@ pub struct PrefillRouteCoverageTraceReport {
     pub batch_size: usize,
     pub concurrency: usize,
     pub accepted_tokens: usize,
+    pub performance_claim: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GlobalAttentionOracleCandidate {
+    pub retained_fraction: f64,
+    pub retained_positions: usize,
+    pub retained_probability_mass: f64,
+    pub reference_l2: f64,
+    pub error_l2: f64,
+    pub relative_l2: f64,
+    pub maximum_absolute_error: f32,
+    pub bit_exact_values: usize,
+    pub total_values: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GlobalAttentionOracleObservation {
+    pub layer: usize,
+    pub absolute_query_position: usize,
+    pub head: usize,
+    pub visible_positions: usize,
+    pub candidates: Vec<GlobalAttentionOracleCandidate>,
+}
+
+#[derive(Debug, Default)]
+struct GlobalAttentionSparsityObserver {
+    observations: Vec<GlobalAttentionOracleObservation>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GlobalAttentionSparsityTraceReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub fixture_sha256: String,
+    pub checkpoint_verification_sha256: String,
+    pub pw0157_prefix512_sha256: &'static str,
+    pub traced_prefix_positions: usize,
+    pub input_token_ids_sha256: String,
+    pub layer_routes_sha256: String,
+    pub observed_global_layers: Vec<usize>,
+    pub sampled_absolute_query_positions: Vec<usize>,
+    pub observed_heads_per_sample: usize,
+    pub retained_fractions: [f64; 7],
+    pub observations: Vec<GlobalAttentionOracleObservation>,
+    pub ledger: EndpointLedger,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub complete_wall_ms: f64,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    pub exactness: &'static str,
     pub performance_claim: Option<String>,
 }
 
@@ -2429,6 +2491,138 @@ fn pytorch_bf16_specialized_vector_dot_f32(left: &[f32], right: &[f32]) -> f32 {
     reduced
 }
 
+fn oracle_sparse_attention_indices(
+    probabilities: &[f32],
+    retained_fraction: f64,
+) -> Result<Vec<usize>, String> {
+    if probabilities.is_empty()
+        || probabilities
+            .iter()
+            .any(|probability| !probability.is_finite() || *probability < 0.0)
+        || !(0.0 < retained_fraction && retained_fraction <= 1.0)
+    {
+        return Err("global attention oracle shape or value mismatch".to_owned());
+    }
+    let retained_positions = ((probabilities.len() as f64 * retained_fraction).ceil() as usize)
+        .clamp(1, probabilities.len());
+    let mut ranked = (0..probabilities.len()).collect::<Vec<_>>();
+    ranked.sort_by(|left, right| {
+        probabilities[*right]
+            .total_cmp(&probabilities[*left])
+            .then(left.cmp(right))
+    });
+    ranked.truncate(retained_positions);
+    ranked.sort_unstable();
+    Ok(ranked)
+}
+
+fn oracle_sparse_attention_candidate(
+    probabilities: &[f32],
+    values: &[&[f32]],
+    reference: &[f32],
+    retained_fraction: f64,
+) -> Result<GlobalAttentionOracleCandidate, String> {
+    if probabilities.len() != values.len()
+        || reference.is_empty()
+        || values.iter().any(|value| value.len() != reference.len())
+    {
+        return Err("global attention oracle shape or value mismatch".to_owned());
+    }
+    let ranked = oracle_sparse_attention_indices(probabilities, retained_fraction)?;
+    let retained_positions = ranked.len();
+    let retained_probability_mass = ranked
+        .iter()
+        .map(|&index| probabilities[index] as f64)
+        .sum::<f64>();
+    if !retained_probability_mass.is_finite() || retained_probability_mass <= 0.0 {
+        return Err("global attention oracle retained invalid probability mass".to_owned());
+    }
+    let normalized = if retained_positions == probabilities.len() {
+        probabilities.to_vec()
+    } else {
+        let mass = retained_probability_mass as f32;
+        ranked
+            .iter()
+            .map(|&index| probabilities[index] / mass)
+            .collect::<Vec<_>>()
+    };
+    let selected_values = ranked
+        .iter()
+        .map(|&index| values[index])
+        .collect::<Vec<_>>();
+    let mut candidate = vec![0.0_f32; reference.len()];
+    let mut value_column = vec![0.0_f32; retained_positions];
+    for dimension in 0..candidate.len() {
+        for (destination, value) in value_column.iter_mut().zip(&selected_values) {
+            *destination = value[dimension];
+        }
+        candidate[dimension] = pytorch_bf16_four_lane_dot_f32(&normalized, &value_column);
+    }
+    round_bf16_values(&mut candidate);
+    if candidate.iter().any(|value| !value.is_finite()) {
+        return Err("global attention oracle produced non-finite output".to_owned());
+    }
+    let mut reference_squared = 0.0_f64;
+    let mut error_squared = 0.0_f64;
+    let mut maximum_absolute_error = 0.0_f32;
+    let mut bit_exact_values = 0_usize;
+    for (&expected, &actual) in reference.iter().zip(&candidate) {
+        reference_squared += f64::from(expected) * f64::from(expected);
+        let difference = actual - expected;
+        error_squared += f64::from(difference) * f64::from(difference);
+        maximum_absolute_error = maximum_absolute_error.max(difference.abs());
+        bit_exact_values += usize::from(expected.to_bits() == actual.to_bits());
+    }
+    let reference_l2 = reference_squared.sqrt();
+    let error_l2 = error_squared.sqrt();
+    Ok(GlobalAttentionOracleCandidate {
+        retained_fraction,
+        retained_positions,
+        retained_probability_mass,
+        reference_l2,
+        error_l2,
+        relative_l2: error_l2 / reference_l2.max(1.0e-20),
+        maximum_absolute_error,
+        bit_exact_values,
+        total_values: reference.len(),
+    })
+}
+
+impl GlobalAttentionSparsityObserver {
+    fn should_sample(absolute_query_position: usize) -> bool {
+        (63..=511).contains(&absolute_query_position)
+            && (absolute_query_position - 63).is_multiple_of(32)
+    }
+
+    fn observe(
+        &mut self,
+        layer: usize,
+        absolute_query_position: usize,
+        head: usize,
+        probabilities: &[f32],
+        values: &[&[f32]],
+        reference: &[f32],
+    ) -> Result<(), String> {
+        if layer >= 48 || head >= HEADS || !Self::should_sample(absolute_query_position) {
+            return Err("global attention oracle sample identity mismatch".to_owned());
+        }
+        let candidates = GLOBAL_ATTENTION_ORACLE_FRACTIONS
+            .iter()
+            .map(|&fraction| {
+                oracle_sparse_attention_candidate(probabilities, values, reference, fraction)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        self.observations.push(GlobalAttentionOracleObservation {
+            layer,
+            absolute_query_position,
+            head,
+            visible_positions: values.len(),
+            candidates,
+        });
+        Ok(())
+    }
+}
+
 fn causal_attention_head_with_dtype(
     query: &[f32],
     keys: &[&[f32]],
@@ -2517,6 +2711,7 @@ fn attention(
     cache: &mut LayerKvCache,
     ledger: &mut EndpointLedger,
     mut captures: Option<&mut Layer0Captures>,
+    mut sparsity_observer: Option<&mut GlobalAttentionSparsityObserver>,
 ) -> Result<Vec<f32>, String> {
     cache.validate()?;
     let is_swa = config.hybrid_layer_pattern[layer] == 1;
@@ -2605,7 +2800,10 @@ fn attention(
                 values.push(&cache.values[value_offset..value_offset + V_HEAD_DIM]);
             }
             let mut head_trace = AttentionHeadTrace::default();
-            let head_output = if captures.is_some() {
+            let observe = !is_swa
+                && sparsity_observer.is_some()
+                && GlobalAttentionSparsityObserver::should_sample(prior + row);
+            let head_output = if captures.is_some() || observe {
                 causal_attention_head_with_dtype(
                     query,
                     &keys,
@@ -2628,7 +2826,20 @@ fn attention(
                 captures.attention_scores.extend(head_trace.scores);
                 captures
                     .attention_probabilities
-                    .extend(head_trace.probabilities);
+                    .extend(head_trace.probabilities.iter().copied());
+            }
+            if observe {
+                sparsity_observer
+                    .as_deref_mut()
+                    .ok_or("global attention oracle observer disappeared")?
+                    .observe(
+                        layer,
+                        prior + row,
+                        head,
+                        &head_trace.probabilities[..values.len()],
+                        &values,
+                        &head_output,
+                    )?;
             }
             let destination = &mut result[row * HEADS * V_HEAD_DIM + head * V_HEAD_DIM
                 ..row * HEADS * V_HEAD_DIM + (head + 1) * V_HEAD_DIM];
@@ -3254,6 +3465,7 @@ fn decode_step(
     safety: &mut SafetyMonitor,
     mut full_captures: Option<&mut FullPrefixCaptures>,
     mut metal: Option<(&BoundedMetalExpertRuntime, &mut MetalExpertLedger, bool)>,
+    mut sparsity_observer: Option<&mut GlobalAttentionSparsityObserver>,
     output: DecodeOutput,
 ) -> Result<NativeDecodeStep, String> {
     let started = Instant::now();
@@ -3287,6 +3499,7 @@ fn decode_step(
             cache,
             ledger,
             None,
+            sparsity_observer.as_deref_mut(),
         )?;
         let post_attention = hidden
             .iter()
@@ -3588,6 +3801,7 @@ pub fn run_slow_text_endpoint(
             &mut caches,
             &mut ledger,
             &mut safety,
+            None,
             None,
             None,
             DecodeOutput::Logits,
@@ -4031,6 +4245,7 @@ fn run_metal_incremental(
         &mut safety,
         None,
         None,
+        None,
         DecodeOutput::Logits,
     )?;
     let prefill_bytes = prefill
@@ -4059,6 +4274,7 @@ fn run_metal_incremental(
         &mut safety,
         Some(&mut captures),
         Some((&runtime, &mut metal_ledger, mode.sparse_repair_enabled())),
+        None,
         DecodeOutput::Logits,
     )?;
     if caches
@@ -6505,6 +6721,7 @@ fn execute_dense_layer0(
         &mut cache,
         ledger,
         Some(captures),
+        None,
     )?;
     let post_attention = hidden
         .iter()
@@ -6594,6 +6811,7 @@ pub fn run_real_layer0_trace(
         &mut cache,
         &mut ledger,
         Some(&mut internal),
+        None,
     )?;
     safety.checkpoint("attention_complete", true)?;
     let post_attention = hidden
@@ -6787,6 +7005,7 @@ pub fn run_real_layer1_routing_trace(
         &mut cache,
         &mut ledger,
         Some(&mut captures_internal),
+        None,
     )?;
     safety.checkpoint("layer_1_attention_complete", true)?;
     let post_attention = incoming
@@ -6990,6 +7209,7 @@ pub fn run_real_layer1_expert_trace(
         rows,
         &mut cache,
         &mut ledger,
+        None,
         None,
     )?;
     safety.checkpoint("layer_1_attention_complete", true)?;
@@ -7255,6 +7475,7 @@ pub fn run_real_routed_layer_trace(
             &mut cache,
             &mut ledger,
             None,
+            None,
         )?;
         let post_attention = hidden
             .iter()
@@ -7301,6 +7522,7 @@ pub fn run_real_routed_layer_trace(
         &mut cache,
         &mut ledger,
         Some(&mut attention_captures),
+        None,
     )?;
     safety.checkpoint(&format!("layer_{target_layer}_attention_complete"), true)?;
     let post_attention = hidden
@@ -7583,6 +7805,7 @@ pub fn run_routed_mixture_activation_corpus(
         &mut safety,
         Some(&mut internal),
         None,
+        None,
         DecodeOutput::RoutesOnly,
     )?;
     if step.output_token != 0
@@ -7819,6 +8042,7 @@ pub fn run_route_only_trace(
         &mut safety,
         None,
         None,
+        None,
         DecodeOutput::RoutesOnly,
     )?;
     if step.output_token != 0
@@ -7977,6 +8201,7 @@ pub fn run_prefill_route_coverage_trace(
         &mut safety,
         None,
         None,
+        None,
         DecodeOutput::RoutesOnly,
     )?;
     if step.output_token != 0
@@ -8057,6 +8282,190 @@ pub fn run_prefill_route_coverage_trace(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn run_global_attention_sparsity_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    pw0157_prefix512_path: &Path,
+    output_dir: &Path,
+    commit: &str,
+) -> Result<GlobalAttentionSparsityTraceReport, String> {
+    if output_dir.exists() {
+        return Err(format!("refusing to overwrite {}", output_dir.display()));
+    }
+    let authority_bytes = fs::read(pw0157_prefix512_path)
+        .map_err(|error| format!("{}: {error}", pw0157_prefix512_path.display()))?;
+    if sha256_hex(&authority_bytes) != PW0157_PREFIX512_SHA256 {
+        return Err("PW-0157 prefix-512 authority SHA-256 mismatch".to_owned());
+    }
+    let authority: Value = serde_json::from_slice(&authority_bytes)
+        .map_err(|error| format!("PW-0157 prefix-512 authority: {error}"))?;
+    if authority["semantic"] != "mimo_target_faithful_prefill_route_coverage_rust_trace"
+        || authority["revision"] != REVISION
+        || authority["traced_prefix_positions"] != 512
+        || authority["input_token_ids_sha256"] != PW0157_PREFIX512_INPUT_SHA256
+        || authority["layer_routes_sha256"] != PW0157_PREFIX512_ROUTES_SHA256
+        || authority["accepted_tokens"] != 0
+        || !authority["performance_claim"].is_null()
+    {
+        return Err("PW-0157 prefix-512 authority identity mismatch".to_owned());
+    }
+    let complete_started = Instant::now();
+    let disk_bytes_read_before = process_disk_bytes_read()?;
+    let EndpointAuthority {
+        fixture_bytes,
+        fixture,
+        mut safety,
+        config,
+        prompt_token_ids,
+        checkpoint,
+        verification_sha256,
+        ..
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    if fixture.schema_version != 5
+        || prompt_token_ids.len() != 8_000
+        || fixture.route_trace_positions != Some(8_000)
+        || authority["fixture_sha256"] != sha256_hex(&fixture_bytes)
+        || authority["checkpoint_verification_sha256"] != verification_sha256
+    {
+        return Err("PW-0162 fixture or checkpoint authority mismatch".to_owned());
+    }
+    let input_token_ids = prompt_token_ids[..512].to_vec();
+    let input_token_ids_bytes =
+        serde_json::to_vec(&input_token_ids).map_err(|error| error.to_string())?;
+    let input_token_ids_sha256 = sha256_hex(&input_token_ids_bytes);
+    if input_token_ids_sha256 != PW0157_PREFIX512_INPUT_SHA256 {
+        return Err("PW-0162 input token identity mismatch".to_owned());
+    }
+    let observed_global_layers = config
+        .hybrid_layer_pattern
+        .iter()
+        .enumerate()
+        .filter_map(|(layer, &kind)| (kind == 0).then_some(layer))
+        .collect::<Vec<_>>();
+    if observed_global_layers.len() != 9 {
+        return Err("PW-0162 requires exactly nine global-attention layers".to_owned());
+    }
+    let sampled_absolute_query_positions = (63..=511).step_by(32).collect::<Vec<_>>();
+    if sampled_absolute_query_positions.len() != 15
+        || sampled_absolute_query_positions.last() != Some(&511)
+    {
+        return Err("PW-0162 sampled-position contract drifted".to_owned());
+    }
+    let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
+    let mut observer = GlobalAttentionSparsityObserver::default();
+    let step = decode_step(
+        &checkpoint,
+        &config,
+        &input_token_ids,
+        &mut caches,
+        &mut ledger,
+        &mut safety,
+        None,
+        None,
+        Some(&mut observer),
+        DecodeOutput::RoutesOnly,
+    )?;
+    if step.output_token != 0
+        || !step.top_logits.is_empty()
+        || !step.full_logits.is_empty()
+        || step.traces.len() != 48
+    {
+        return Err("PW-0162 source walk accounting mismatch".to_owned());
+    }
+    let route_bytes = serde_json::to_vec(&step.traces).map_err(|error| error.to_string())?;
+    let layer_routes_sha256 = sha256_hex(&route_bytes);
+    if layer_routes_sha256 != PW0157_PREFIX512_ROUTES_SHA256 {
+        return Err("PW-0162 shadow observer changed exact source routes".to_owned());
+    }
+    let expected_observations =
+        observed_global_layers.len() * sampled_absolute_query_positions.len() * HEADS;
+    let observed_identities = observer
+        .observations
+        .iter()
+        .map(|row| (row.layer, row.absolute_query_position, row.head))
+        .collect::<BTreeSet<_>>();
+    let expected_identities = observed_global_layers
+        .iter()
+        .flat_map(|&layer| {
+            sampled_absolute_query_positions
+                .iter()
+                .flat_map(move |&position| (0..HEADS).map(move |head| (layer, position, head)))
+        })
+        .collect::<BTreeSet<_>>();
+    if observer.observations.len() != expected_observations
+        || observed_identities != expected_identities
+        || observer.observations.iter().any(|row| {
+            row.visible_positions != row.absolute_query_position + 1
+                || row.candidates.len() != GLOBAL_ATTENTION_ORACLE_FRACTIONS.len()
+                || row
+                    .candidates
+                    .iter()
+                    .zip(GLOBAL_ATTENTION_ORACLE_FRACTIONS)
+                    .any(|(candidate, expected_fraction)| {
+                        candidate.retained_fraction != expected_fraction
+                            || !candidate.retained_probability_mass.is_finite()
+                            || !candidate.relative_l2.is_finite()
+                    })
+                || row.candidates.last().is_none_or(|control| {
+                    control.retained_positions != row.visible_positions
+                        || control.bit_exact_values != control.total_values
+                        || control.error_l2 != 0.0
+                        || control.maximum_absolute_error != 0.0
+                })
+        })
+    {
+        return Err("PW-0162 observation coverage or 100% control failed".to_owned());
+    }
+    safety.checkpoint("global_attention_oracle_evidence_serialized", true)?;
+    ledger.actual_process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_bytes_read_before)
+        .ok_or("process disk byte counter moved backwards")?;
+    ledger.peak_resident_bytes = peak_resident_bytes()?;
+    drop(caches);
+    checkpoint.release_file_pages()?;
+    drop(checkpoint);
+    safety.checkpoint("checkpoint_released", true)?;
+    safety.checkpoint("final_service_health", true)?;
+    let report = GlobalAttentionSparsityTraceReport {
+        schema_version: 1,
+        semantic: "mimo_target_faithful_global_attention_sparsity_shadow_trace",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        fixture_sha256: sha256_hex(&fixture_bytes),
+        checkpoint_verification_sha256: verification_sha256,
+        pw0157_prefix512_sha256: PW0157_PREFIX512_SHA256,
+        traced_prefix_positions: 512,
+        input_token_ids_sha256,
+        layer_routes_sha256,
+        observed_global_layers,
+        sampled_absolute_query_positions,
+        observed_heads_per_sample: HEADS,
+        retained_fractions: GLOBAL_ATTENTION_ORACLE_FRACTIONS,
+        observations: observer.observations,
+        ledger,
+        safety_snapshots: safety.snapshots,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        exactness: "target_faithful_source_state_with_noncausal_L3_shadow_only",
+        performance_claim: None,
+    };
+    fs::create_dir(output_dir).map_err(|error| format!("{}: {error}", output_dir.display()))?;
+    let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(&output_dir.join("manifest.json"), &bytes)?;
+    Ok(report)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn run_full_prefix_trace(
     checkpoint_root: &Path,
     model_lock_path: &Path,
@@ -8099,6 +8508,7 @@ pub fn run_full_prefix_trace(
         &mut ledger,
         &mut safety,
         Some(&mut internal),
+        None,
         None,
         DecodeOutput::Logits,
     )?;
@@ -8478,6 +8888,48 @@ mod tests {
                 assert!((actual - expected).abs() <= 1.0e-6);
             }
         }
+    }
+
+    #[test]
+    fn global_attention_oracle_is_deterministic_and_fail_closed() {
+        let probabilities = [0.4_f32, 0.3, 0.3];
+        let values = [vec![1.0_f32, 0.0], vec![2.0, 0.0], vec![100.0, 0.0]];
+        let value_views = values.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        let expected_top_two = [round_bf16(10.0 / 7.0), 0.0];
+        let half =
+            oracle_sparse_attention_candidate(&probabilities, &value_views, &expected_top_two, 0.5)
+                .expect("valid top-probability oracle");
+        assert_eq!(half.retained_positions, 2);
+        assert!((half.retained_probability_mass - 0.7).abs() < 1.0e-7);
+        assert_eq!(half.bit_exact_values, expected_top_two.len());
+        assert_eq!(half.error_l2, 0.0);
+        assert_eq!(half.maximum_absolute_error, 0.0);
+        assert_eq!(
+            oracle_sparse_attention_indices(&probabilities, 0.5),
+            Ok(vec![0, 1])
+        );
+        assert_eq!(
+            oracle_sparse_attention_indices(&[0.3, 0.1, 0.6], 0.5),
+            Ok(vec![0, 2])
+        );
+
+        let reference = [round_bf16(31.0), 0.0];
+        let full = oracle_sparse_attention_candidate(&probabilities, &value_views, &reference, 1.0)
+            .expect("valid exact control");
+        assert_eq!(full.retained_positions, probabilities.len());
+        assert_eq!(full.bit_exact_values, reference.len());
+        assert_eq!(full.error_l2, 0.0);
+        assert_eq!(full.maximum_absolute_error, 0.0);
+
+        assert!(oracle_sparse_attention_candidate(&[], &[], &reference, 0.5).is_err());
+        assert!(
+            oracle_sparse_attention_candidate(&probabilities, &value_views[..2], &reference, 0.5)
+                .is_err()
+        );
+        assert!(
+            oracle_sparse_attention_candidate(&probabilities, &value_views, &reference, 0.0)
+                .is_err()
+        );
     }
 
     #[test]

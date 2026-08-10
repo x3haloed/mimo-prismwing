@@ -19,10 +19,11 @@ use prismwing::{
 };
 #[cfg(target_os = "macos")]
 use prismwing::{
-    run_full_prefix_trace, run_prefill_route_coverage_trace, run_real_layer0_trace,
-    run_real_layer1_expert_trace, run_real_layer1_routing_trace, run_real_layer2_trace,
-    run_real_layer4_trace, run_real_layer7_trace, run_real_routed_layer_trace,
-    run_route_only_trace, run_routed_mixture_activation_corpus, run_slow_text_endpoint,
+    run_full_prefix_trace, run_global_attention_sparsity_trace, run_prefill_route_coverage_trace,
+    run_real_layer0_trace, run_real_layer1_expert_trace, run_real_layer1_routing_trace,
+    run_real_layer2_trace, run_real_layer4_trace, run_real_layer7_trace,
+    run_real_routed_layer_trace, run_route_only_trace, run_routed_mixture_activation_corpus,
+    run_slow_text_endpoint,
 };
 use std::path::PathBuf;
 use tokenizers::Tokenizer;
@@ -41,6 +42,10 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing prefill-route-coverage-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <positions> <output-dir> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing global-attention-sparsity-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <pw0157-prefix512-manifest.json> <output-dir> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -615,6 +620,30 @@ fn main() {
                         println!();
                         Ok(Some(output.join("manifest.json")))
                     })
+                })
+            }
+            #[cfg(target_os = "macos")]
+            Some("global-attention-sparsity-trace") if arguments.len() == 9 => {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let fixture = PathBuf::from(&arguments[5]);
+                let pw0157_prefix512 = PathBuf::from(&arguments[6]);
+                let output = PathBuf::from(&arguments[7]);
+                run_global_attention_sparsity_trace(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &fixture,
+                    &pw0157_prefix512,
+                    &output,
+                    &arguments[8],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output.join("manifest.json")))
                 })
             }
             #[cfg(target_os = "macos")]
