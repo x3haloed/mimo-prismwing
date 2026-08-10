@@ -1,7 +1,7 @@
 # PW-0167 — affordable Xe-HPG complete-system envelope
 
-- Status: ready
-- Disposition: unexecuted
+- Status: completed
+- Disposition: conditional
 - Date: 2026-08-10
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -11,7 +11,8 @@
 - Hardware candidate: one used Intel Arc A770 16-GB card in the owned EPYC host;
   analytical pre-purchase envelope only
 - Related records: PW-0127, PW-0151, PW-0155, PW-0158, PW-0162, PW-0166; E7
-- Implementation commit and dirty state: pending
+- Implementation commit and dirty state:
+  `a392e1f6e8aa1e172d0bbad8f7582d83e1bcc32f`; clean
 
 ## Question and changed premise
 
@@ -82,4 +83,44 @@ this analytical result.
 
 ## Result
 
-Pending authenticated execution.
+The authenticated analyzer derives a `131`-TFLOPS BF16/F32-accumulate ceiling
+from Intel's official 262-INT8-TOPS A770 row and Xe-HPG's published 4,096:2,048
+INT8-to-BF16 operation ratio. Mandatory one-million-position matrices plus
+ordinary attention total `214,165,790,024,007,680` operations. Even after
+granting the owned EPYC's impossible `0.7424`-TFLOPS peak concurrently, the
+resulting floor is `1,625.6405684427161` seconds. It retains `174.35943155728387`
+seconds inside the complete TTFT gate, before every omitted operation,
+transfer, storage cost, dispatch, and utilization loss. This is an arithmetic
+survivor, not achieved performance.
+
+Exact BF16 1M KV exceeds 16 decimal GB by `7,065,559,040` bytes. KV, three
+maximum layer arenas, and non-routed source tensors exceed it by
+`22,221,107,536` bytes, so a complete implementation requires layer-major or
+host/storage streaming. The 225-W board plus 170-W CPU leaves 337 W below the
+photographed NEX750B's authenticated 732-W combined +12-V label, but
+nameplates do not prove cabling, fit, cooling, rail assignment, or wall load.
+
+The owned H11SSL-i has no supported native Resizable BAR path, Intel requires
+Resizable BAR for optimal Arc performance and warns of performance or
+stability issues otherwise, and Intel's current client-GPU oneAPI matrix lists
+Ubuntu rather than the owned Debian 13 environment. Two dated used A770 sales
+at `$245` and `$215.50` prove that sub-cap card prices have occurred; they are
+sold listings, not active inventory or a delivered complete BOM.
+
+Retain A770 only as a conditional arithmetic survivor. Before purchase, require
+an active complete delivered BOM at or below `$500`, exact connector and fit
+evidence, and a reversible installed oneAPI BF16/PCIe/ReBAR-off/on component
+benchmark on the owned host. No purchase or runtime implementation is
+authorized by this result.
+
+The authoritative report is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0167/analysis-001/manifest.json`,
+SHA-256
+`0ff6f2cb1017cb6589b8c5705e7adda349fc2637721e3ddc8c695f051dff2c01`.
+Gate 8 passes with 70% minimum free memory, 34,635,776-byte peak RSS,
+21,087,488-byte maximum physical footprint, zero swap growth or throttling,
+an explicit source-payload release boundary, and stable protected services.
+The experiment reports zero accepted tokens, no endpoint TPS, and no changes
+to measured throughput-model constants; 131 TFLOPS is a derived candidate
+ceiling rather than achieved performance. One earlier invocation supplied a
+mismatched expanded commit and failed closed before publishing output.

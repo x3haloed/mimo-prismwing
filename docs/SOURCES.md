@@ -647,3 +647,47 @@ The pinned compiler sources bind BF16 and INT8 DPAS operations per channel and
 the precision-independent Xe2 scheduling premise used to derive a
 source-oriented BF16 ceiling. They do not establish delivered cost, installed
 oneAPI performance, fit, cabling, cooling, or purchase authority.
+
+## Affordable Xe-HPG envelope authorities
+
+- Intel, Arc A770 16-GB product specifications, accessed and captured
+  2026-08-10:
+  <https://www.intel.com/content/www/us/en/products/sku/229151/intel-arc-a770-graphics-16gb/specifications.html>.
+- Intel, *Intel Xe GPU Architecture* (Xe-HPG section), accessed and captured
+  2026-08-10:
+  <https://www.intel.com/content/www/us/en/docs/oneapi/optimization-guide-gpu/2024-1/xe-arch.html>.
+- Intel, *Intel Arc A-Series Graphics — Desktop Quick Start Guide*, accessed
+  and captured 2026-08-10:
+  <https://www.intel.com/content/www/us/en/support/articles/000091128/graphics/intel-arc-dedicated-graphics-family.html>.
+- Intel, oneAPI 2026 system requirements, accessed and captured 2026-08-10:
+  <https://www.intel.com/content/www/us/en/developer/articles/release-notes/oneapi-toolkit/2026.html>.
+- Supermicro FAQ 42887, H11SSL-i Resizable BAR support, accessed and captured
+  2026-08-10:
+  <https://www.supermicro.com/en/support/faqs/faq.php?faq=42887>.
+- Dated semantic transcriptions of eBay items `358221920938` and
+  `137194058039`, observed sold at `$245` and `$215.50` respectively on
+  2026-08-10 after direct fetches returned HTTP 403.
+
+The A770 product page hashes to
+`b4691de4514c938e8c0d386a6d1fa6583b96479b4c11ad4aed2726ac1527eccd`;
+the Xe-HPG architecture page hashes to
+`0bc5fddeb681428ce63a8972b6b5eb53a002ea4e7eb6541fab52898f62771d0b`;
+the Arc quick-start page hashes to
+`c7402269d97f457527b7de660dc87adbd62e1284ce0afc57a97fc246f0fb9133`;
+the oneAPI requirements page hashes to
+`58c984149a1e39359c0211826da1a288a610bc97e0b2646668b988d79cb8cec2`;
+the Supermicro FAQ hashes to
+`4441674b68b105dcd82df6bfb938e7781af6e84aa45e0ac566b3ff7ba9b36794`;
+the owned-host inventory hashes to
+`b8b84a557eabea9c1781186357cf0f2f4fbf75ca7c8a74656beff26fac15978b`;
+and the explicitly weaker sold-market transcription hashes to
+`e1774ad682ed47ee897831df47719164850dc0ba6c8136e9c3821cd708ee4385`.
+
+Decision: technical, platform, and historical-price authority for PW-0167.
+Intel binds A770 to Xe-HPG, 512 XMX engines, 262 dense INT8 XMX TOPS, 16 GB,
+560 GB/s, PCIe 4.0 x16, 225-W total board power, and oneAPI support. Xe-HPG's
+published datatype ratio supports the derived 131-TFLOPS BF16 ceiling.
+Supermicro binds the owned H11 generation to absent native ReBAR support;
+Intel binds ReBAR and supported client-GPU Linux prerequisites. The sold rows
+do not establish active inventory, a delivered BOM, installation, or measured
+oneAPI performance.
