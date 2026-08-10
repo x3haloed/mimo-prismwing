@@ -13,11 +13,17 @@ from tokenizers import Tokenizer
 
 
 SOURCE_COMMIT = "aca9a6044cd348244028850dbb798178695d6bd8"
-SOURCE_PATHS = (
+PRIMARY_SOURCE_PATHS = (
     "TARGET.md",
     "RED_LINES.md",
     "docs/VALIDATION_PROTOCOL.md",
     "LEARNINGS.md",
+)
+ALTERNATE_SOURCE_PATHS = (
+    "LEARNINGS.md",
+    "docs/VALIDATION_PROTOCOL.md",
+    "TARGET.md",
+    "RED_LINES.md",
 )
 TEMPLATE_PATH = "evals/fixtures/real/pw0112-wide-route-trace.json"
 TARGET_TOKENS = 8_000
@@ -33,11 +39,17 @@ def git_blob(path: str) -> bytes:
     ).stdout
 
 
-def build_fixture(tokenizer_path: Path) -> dict:
+def build_fixture(tokenizer_path: Path, variant: str) -> dict:
     tokenizer = Tokenizer.from_file(str(tokenizer_path))
-    source_blobs = {path: git_blob(path) for path in SOURCE_PATHS}
+    if variant == "primary":
+        source_paths = PRIMARY_SOURCE_PATHS
+    elif variant == "learnings_first":
+        source_paths = ALTERNATE_SOURCE_PATHS
+    else:
+        raise ValueError(f"unknown PW-0156 corpus variant: {variant}")
+    source_blobs = {path: git_blob(path) for path in source_paths}
     corpus = b"\n\n".join(
-        f"===== {path} =====\n".encode() + source_blobs[path] for path in SOURCE_PATHS
+        f"===== {path} =====\n".encode() + source_blobs[path] for path in source_paths
     ).decode("utf-8")
     all_ids = tokenizer.encode(corpus, add_special_tokens=False).ids
     if len(all_ids) < TARGET_TOKENS:
@@ -57,24 +69,29 @@ def build_fixture(tokenizer_path: Path) -> dict:
             "route_trace_positions": TARGET_TOKENS,
             "hosted_reference": None,
             "corpus_source_commit": SOURCE_COMMIT,
-            "corpus_source_paths": list(SOURCE_PATHS),
+            "corpus_source_paths": list(source_paths),
             "corpus_source_sha256": {
                 path: hashlib.sha256(source_blobs[path]).hexdigest()
-                for path in SOURCE_PATHS
+                for path in source_paths
             },
         }
     )
+    if variant != "primary":
+        template["corpus_variant"] = variant
     return template
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--tokenizer", required=True, type=Path)
+    parser.add_argument(
+        "--variant", choices=("primary", "learnings_first"), default="primary"
+    )
     parser.add_argument("--output", required=True, type=Path)
     arguments = parser.parse_args()
     if arguments.output.exists():
         raise ValueError(f"refusing to overwrite {arguments.output}")
-    fixture = build_fixture(arguments.tokenizer)
+    fixture = build_fixture(arguments.tokenizer, arguments.variant)
     arguments.output.write_text(
         json.dumps(fixture, sort_keys=True, separators=(",", ":")) + "\n"
     )

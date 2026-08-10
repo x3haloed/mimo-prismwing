@@ -10,7 +10,9 @@
   PW-0154 analysis
   `1b57250d45f1b24e32f43e93a653fc3d00fa061e37cd0df1c6f0fdff551535f2`;
   8K fixture
-  `3b5bc4e8f41fed2a13867bc96ea8236d1630bf994eee5608a8366f1f846a79d5`
+  `3b5bc4e8f41fed2a13867bc96ea8236d1630bf994eee5608a8366f1f846a79d5`;
+  alternate fixture
+  `61ca4dd3150eb6cb7270adeb5f12ac43fc53154f49bf683e7e351eddafde02a9`
 - Hardware/runtime: Apple M1 shared 16 GiB; internal SSD; source-FP8
   target-faithful route-only reference; evidence generation only
 - Related records: PW-0112, PW-0128, PW-0151, PW-0154, PW-0155; E7
@@ -96,6 +98,19 @@ drifting shard name to the endpoint ledger. Continue to reject changed size,
 inode, mtime, receipt status, or malformed recorded hash. This is a
 correctness/provenance repair, not permission to skip initial payload hashing
 or to trust a copied file without a verified receipt.
+
+The repaired primary-corpus run then stopped without a manifest on an exact
+top-k boundary tie at causal position 466. Do not adopt the custom C++
+`nth_element` choice: PyTorch does not promise stable tied indices, and the
+chosen expert would alter every downstream state. Freeze one alternate corpus
+ordering from the same source commit and exact source blobs, placing
+LEARNINGS before the other three documents. Its exact 8,000-token fixture
+hashes to
+`61ca4dd3150eb6cb7270adeb5f12ac43fc53154f49bf683e7e351eddafde02a9`.
+It retains the same target, workload class, 9,003-record gate, prefix sequence,
+and safety contract. This avoids an ambiguous causal prefix rather than
+selecting a favorable tied route; preserve both fixtures and both no-manifest
+stops.
 
 ## Result
 

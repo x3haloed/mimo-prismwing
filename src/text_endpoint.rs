@@ -1703,17 +1703,30 @@ fn validate_fixture(fixture: &EndpointFixture) -> Result<(), String> {
                 && fixture.full_prefix_trace_append_token_ids.as_ref()
                     == Some(&hosted.generated_token_ids)
         });
+    let prefill_prompt_sha256 = sha256_hex(fixture.prompt_utf8.as_bytes());
+    let prefill_ids_sha256 = serde_json::to_vec(&fixture.expected_prompt_token_ids)
+        .ok()
+        .map(|bytes| sha256_hex(&bytes));
+    let prefill_payload_identity = matches!(
+        (
+            prefill_prompt_sha256.as_str(),
+            prefill_ids_sha256.as_deref()
+        ),
+        (
+            "e0976af8e2cecc0004f8b71012490a8df10a6b661df1a9bf90050d2c2d6e7032",
+            Some("b17d1c39c4f5f8b1a0a80903d8d14566d0518e22c3fe49a2978ab82e8e4b68bb")
+        ) | (
+            "953265a377fc4f66fe007b22fd693d3c968428feb82362d14b736c782221f60d",
+            Some("e6a1a18fdf3bcf9653c719dc91e19a7d69087319982af94bc5afde9236e10ca7")
+        )
+    );
     let prefill_8k_identity = fixture.schema_version == 5
         && fixture.semantic == "mimo_v2_5_target_faithful_8k_prefill_route_coverage"
-        && sha256_hex(fixture.prompt_utf8.as_bytes())
-            == "e0976af8e2cecc0004f8b71012490a8df10a6b661df1a9bf90050d2c2d6e7032"
+        && prefill_payload_identity
         && fixture.expected_prompt_token_ids.len() == 8_000
         && fixture.route_trace_positions == Some(8_000)
         && fixture.full_prefix_trace_append_token_ids.is_none()
-        && fixture.hosted_reference.is_none()
-        && serde_json::to_vec(&fixture.expected_prompt_token_ids).is_ok_and(|bytes| {
-            sha256_hex(&bytes) == "b17d1c39c4f5f8b1a0a80903d8d14566d0518e22c3fe49a2978ab82e8e4b68bb"
-        });
+        && fixture.hosted_reference.is_none();
     if (!raw_identity
         && !chat_identity
         && !trace_identity
@@ -8355,6 +8368,14 @@ mod tests {
         let first_rejection = prefill_route_coverage_ledger(9_003).expect("ledger");
         assert!(first_rejection.exceeds_optimistic_15_second_storage_bound);
         assert!(prefill_route_coverage_ledger(47 * ROUTED_EXPERTS + 1).is_err());
+
+        let alternate: EndpointFixture = serde_json::from_str(include_str!(
+            "../evals/fixtures/real/pw0156-8k-prefill-route-coverage-learnings-first.json"
+        ))
+        .expect("valid alternate 8K prefill fixture");
+        assert!(validate_fixture(&alternate).is_ok());
+        assert_eq!(alternate.expected_prompt_token_ids.len(), 8_000);
+        assert_ne!(alternate.prompt_utf8, fixture.prompt_utf8);
     }
 
     #[test]
