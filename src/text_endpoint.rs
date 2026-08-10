@@ -1718,6 +1718,21 @@ fn validate_fixture(fixture: &EndpointFixture) -> Result<(), String> {
         ) | (
             "953265a377fc4f66fe007b22fd693d3c968428feb82362d14b736c782221f60d",
             Some("e6a1a18fdf3bcf9653c719dc91e19a7d69087319982af94bc5afde9236e10ca7")
+        ) | (
+            "30a1d4a97fb88e9c74c116c39fa55dd8328935670c5dd49c4fb0a981b7897378",
+            Some("f8a1a2850a5cc5f899ecf7b9920fd039098cb614dd08fa53df0b193c6ddea513")
+        ) | (
+            "68633e8ac604e402346ead736c7b22ab8afd0a0774a81467192e52068518ec93",
+            Some("e5d1036b964a63130e88c06b3956d0c82557662dce046c900b164344258519ee")
+        ) | (
+            "27691356d982a4786a17bbfb585a41ae950bbee52bf59db4c760443afbc57fa7",
+            Some("66f17df83ff8a7608ce667c268e2fcb1609c98e6ef29b5aa502e99eab483b1b8")
+        ) | (
+            "5b85865afc5b50713bd1a9a05f9479d8257b8e54a48260e47671d953207df599",
+            Some("befe29594d3b535ddd88472d16c66c3abe24f10e41cff5c4f275d72b8486b951")
+        ) | (
+            "10c9f587d15bd4901049b9358dc363f9427983ec2b43ce97c43d5dbb773d3792",
+            Some("d1f89515609be8f8d80a2dfc7435fbb1eedd68eb650079da9e7939964c9f90a2")
         )
     );
     let prefill_8k_identity = fixture.schema_version == 5
@@ -8376,6 +8391,28 @@ mod tests {
         assert!(validate_fixture(&alternate).is_ok());
         assert_eq!(alternate.expected_prompt_token_ids.len(), 8_000);
         assert_ne!(alternate.prompt_utf8, fixture.prompt_utf8);
+        for encoded in [
+            include_str!(
+                "../evals/fixtures/real/pw0156-8k-prefill-route-coverage-learnings-window-8000.json"
+            ),
+            include_str!(
+                "../evals/fixtures/real/pw0156-8k-prefill-route-coverage-learnings-window-16000.json"
+            ),
+            include_str!(
+                "../evals/fixtures/real/pw0156-8k-prefill-route-coverage-learnings-window-24000.json"
+            ),
+            include_str!(
+                "../evals/fixtures/real/pw0156-8k-prefill-route-coverage-learnings-window-32000.json"
+            ),
+            include_str!(
+                "../evals/fixtures/real/pw0156-8k-prefill-route-coverage-learnings-window-40000.json"
+            ),
+        ] {
+            let window: EndpointFixture =
+                serde_json::from_str(encoded).expect("valid frozen corpus-panel window");
+            assert!(validate_fixture(&window).is_ok());
+            assert_eq!(window.expected_prompt_token_ids.len(), 8_000);
+        }
     }
 
     #[test]

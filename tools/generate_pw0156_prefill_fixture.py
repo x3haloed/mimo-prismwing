@@ -41,10 +41,19 @@ def git_blob(path: str) -> bytes:
 
 def build_fixture(tokenizer_path: Path, variant: str) -> dict:
     tokenizer = Tokenizer.from_file(str(tokenizer_path))
+    token_offset = 0
     if variant == "primary":
         source_paths = PRIMARY_SOURCE_PATHS
     elif variant == "learnings_first":
         source_paths = ALTERNATE_SOURCE_PATHS
+    elif variant.startswith("learnings_window_"):
+        try:
+            token_offset = int(variant.removeprefix("learnings_window_"))
+        except ValueError as error:
+            raise ValueError(f"invalid PW-0156 learning window: {variant}") from error
+        if token_offset not in {0, 8_000, 16_000, 24_000, 32_000, 40_000}:
+            raise ValueError(f"unapproved PW-0156 learning window: {variant}")
+        source_paths = ("LEARNINGS.md",)
     else:
         raise ValueError(f"unknown PW-0156 corpus variant: {variant}")
     source_blobs = {path: git_blob(path) for path in source_paths}
@@ -52,9 +61,9 @@ def build_fixture(tokenizer_path: Path, variant: str) -> dict:
         f"===== {path} =====\n".encode() + source_blobs[path] for path in source_paths
     ).decode("utf-8")
     all_ids = tokenizer.encode(corpus, add_special_tokens=False).ids
-    if len(all_ids) < TARGET_TOKENS:
+    if len(all_ids) < token_offset + TARGET_TOKENS:
         raise ValueError("pinned corpus does not contain 8,000 tokens")
-    token_ids = all_ids[:TARGET_TOKENS]
+    token_ids = all_ids[token_offset : token_offset + TARGET_TOKENS]
     prompt = tokenizer.decode(token_ids, skip_special_tokens=False)
     if tokenizer.encode(prompt, add_special_tokens=False).ids != token_ids:
         raise ValueError("8K decoded prompt does not round-trip to the exact token prefix")
@@ -84,9 +93,7 @@ def build_fixture(tokenizer_path: Path, variant: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--tokenizer", required=True, type=Path)
-    parser.add_argument(
-        "--variant", choices=("primary", "learnings_first"), default="primary"
-    )
+    parser.add_argument("--variant", default="primary")
     parser.add_argument("--output", required=True, type=Path)
     arguments = parser.parse_args()
     if arguments.output.exists():

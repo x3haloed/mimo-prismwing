@@ -112,6 +112,19 @@ and safety contract. This avoids an ambiguous causal prefix rather than
 selecting a favorable tied route; preserve both fixtures and both no-manifest
 stops.
 
+The alternate also stopped without a manifest at position 261. Rather than
+iteratively selecting prose after seeing each failure, freeze the remaining
+non-overlapping 8K-token windows beginning at token offsets 8,000, 16,000,
+24,000, 32,000, and 40,000 of the same pinned LEARNINGS blob. Their fixture
+hashes are, in order,
+`294abcc4021bcd242558abf2c02ad82a3f282b5618de8e98e043246aa9df6197`,
+`df0fcc424772fec4464df86ef27c0b43ec4bed741321742425e0c6935d5ca5c1`,
+`bf89d4f6176f06773a497f0407cddc492df9f90d207a787d31a3a29a8fe83ad9`,
+`3af3928009286b07fa8a42e66ae339c11e107b245cc97a389787e835d30a0dae`,
+and `fc4b4a806d8f3b18a03b86f31323475c98d2936ea211ed08c4f951bd68a0aa78`.
+Execute this closed panel in offset order until one authoritative 512-prefix
+manifest lands. Do not add another corpus after observing the panel.
+
 ## Result
 
 Pending execution from a clean implementation commit.
