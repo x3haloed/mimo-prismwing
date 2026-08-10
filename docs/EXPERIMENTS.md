@@ -310,6 +310,14 @@ Do not search further corpora. Retain the hardware branch conditionally and
 renew this walk only with source-framework route-index authority or a proven
 exact equivalent.
 
+PW-0157 tests that exact equivalent before adding any new corpus. The pinned
+PyTorch CPU source and Prismwing bridge both use libc++ `nth_element` over the
+same pair representation and strict comparator. Freeze adversarial tied rows
+from the actual PyTorch 2.13.0 build, require exact unsorted index order from
+the bridge, record real tie incidence, and only then rerun PW-0156's original
+512-position fixture. This is a correctness-authority repair, not permission
+to choose a convenient deterministic tie policy.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,
