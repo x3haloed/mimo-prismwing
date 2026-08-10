@@ -110,14 +110,14 @@ def parse_market_observations(payload: dict) -> tuple[list[dict], dict]:
         if row.get("quantity") != quantity or row.get("unit_price_usd_at_quantity") != unit_price:
             raise ValueError(f"market observation price mismatch: {item_id}")
         rows.append({**row, "subtotal_usd": quantity * unit_price})
-    named_subtotal = sum(row["subtotal_usd"] for row in rows)
+    named_subtotal = round(sum(row["subtotal_usd"] for row in rows), 2)
     storage = by_id["nvme_drives"]
     dongle = by_id["p100_power_dongles"]
     ledger = {
         "named_component_subtotal_usd": named_subtotal,
         "incremental_hardware_cap_usd": INCREMENTAL_HARDWARE_CAP_USD,
         "unallocated_before_tax_shipping_and_missing_parts_usd": (
-            INCREMENTAL_HARDWARE_CAP_USD - named_subtotal
+            round(INCREMENTAL_HARDWARE_CAP_USD - named_subtotal, 2)
         ),
         "all_destination_shipping_known": all(row.get("shipping_usd") is not None for row in rows),
         "tax_known": False,
