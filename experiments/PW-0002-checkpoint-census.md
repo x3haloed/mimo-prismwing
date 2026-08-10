@@ -1,10 +1,12 @@
 # PW-0002 — Pinned checkpoint census
 
-- Status: running
-- Disposition: unexecuted
+- Status: completed
+- Disposition: conditional
 - Date: 2026-08-04
 - Owner: Codex with project owner authorization
-- Commit and dirty state: implementation commit pending; tensor download active
+- Commit and dirty state: local census executed from clean
+  `83ef8aa589e1740edb5c0b2fe7536d22309e461f`; release binary SHA-256
+  `8d3cc1029690f77e2508f3cb965c9f5a4be0d5bea2161af7eea3f971354dc2ba`
 - Checkpoint/processor/reference hashes:
   `63651580ca774f8504f676040460aed3e1244ac1`; see `spec/model.lock.json`
 - Hardware, OS, compiler, storage, memory pressure: Macmini9,1; 16 GiB; macOS
@@ -92,15 +94,39 @@ Evidence SHA-256:
 
 ## End-to-end result
 
-Pending complete download.
+The completed local Rust census independently opened all 18 local safetensors
+headers and assigned all `73,530` tensors. It reports
+`315,683,674,448` tensor-data bytes, `315,693,004,496` safetensors-file bytes,
+and `9,330,048` header/padding bytes. Every category count and byte total is
+identical to the earlier pinned remote-header census, including the standalone
+48-tensor MTP file and 449-tensor audio tokenizer.
+
+The authoritative local census is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0002/local-census-001.json`,
+SHA-256
+`82a5916a13d3859b7ad47bea41c5827733b0eb05c3e5b2bb32d6e9244ad4bc17`.
+It is a roughly 19-MB per-tensor evidence artifact and remains outside Git.
 
 ## Correctness result
 
-The lock currently verifies every downloaded non-weight artifact and completed
-shard. The pinned remote headers reconcile all tensor assignments and sizes.
-Full local shard SHA-256 verification and an independent local Rust census
-remain pending; remote headers do not waive that L0 gate.
+The create-new local verification receipt at
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0049/checkpoint-verification.json`,
+SHA-256
+`9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`,
+binds repository `XiaomiMiMo/MiMo-V2.5`, revision
+`63651580ca774f8504f676040460aed3e1244ac1`, all 39 locked files, every byte
+count and SHA-256, `complete=true`, `require_complete=true`, and no missing
+files. The independent local Rust header census exactly reproduces the pinned
+remote totals and contains no unassigned category.
 
 ## Decision
 
-Pending.
+Close the PW-0002 L0 artifact gate for the pinned revision. Promote the local
+verification receipt as payload identity authority and the local Rust census
+as tensor/category authority. Fail closed on any future revision, receipt,
+layout, count, or byte-total change.
+
+The source-FP8 byte constants already recorded in the throughput model are
+unchanged because the local census confirms rather than revises them. This
+experiment reports zero accepted tokens, no endpoint TPS, and no performance
+claim.

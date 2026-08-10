@@ -42,13 +42,23 @@ The original cold-streaming design therefore has independent problems in
 capacity, SSD traffic, executable unified-memory traffic, compute, and 47-stage
 causality.
 
-PW-0002 later pinned the published source representation as block-scaled FP8,
-not the candidate INT4 representation used by the initial design estimate.
-From the source index and pinned 128×128 scale layout, one routed expert occupies
-25,171,968 bytes: three 4096×2048-equivalent FP8 matrices plus three f32 scale
-grids. The 47×256 routed bank therefore occupies 302,869,118,976 bytes, and a
-cold source-FP8 token selects 9,464,659,968 bytes (8.815 GiB). These figures are
-index/config-derived until the full safetensors header census closes PW-0002.
+PW-0002 pins the published source representation as block-scaled FP8, not the
+candidate INT4 representation used by the initial design estimate. The final
+local Rust census independently assigns all 73,530 tensors and reproduces the
+remote-header totals exactly: `315,683,674,448` tensor bytes,
+`315,693,004,496` safetensors-file bytes, and `9,330,048` header/padding bytes.
+The separate local verification receipt binds all 39 files to the pinned
+revision by byte count and SHA-256 with no missing files.
+
+One routed expert occupies 25,171,968 bytes: three
+4096×2048-equivalent FP8 matrices plus three f32 scale grids. The 47×256
+routed bank therefore occupies 302,869,118,976 bytes, and a cold source-FP8
+token selects 9,464,659,968 bytes (8.815 GiB). The local census hashes to
+`82a5916a13d3859b7ad47bea41c5827733b0eb05c3e5b2bb32d6e9244ad4bc17`;
+the verification receipt hashes to
+`9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03`.
+PW-0002's L0 gate is closed for this revision, and the existing throughput
+constants remain unchanged because local evidence confirms them exactly.
 
 The earlier 13.5 MiB expert and 4.96 GiB cold-token figures remain useful only
 for the proposed groupwise-INT4 embodiment. They are not source-checkpoint

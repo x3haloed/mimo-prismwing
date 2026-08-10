@@ -27,6 +27,13 @@ carrying estimates forward.
 **Pass:** every source tensor is assigned exactly once and totals match source
 indices and hashes.
 
+PW-0002 now passes for the pinned revision. A complete local SHA-256 receipt
+binds all 39 locked files with no omissions, and an independent local Rust
+header census assigns all 73,530 tensors. Its category counts and
+`315,683,674,448` tensor bytes exactly reproduce the earlier remote-header
+census. Preserve these receipts as L0 authorities and fail closed on revision,
+layout, count, or byte-total drift; no throughput constant changes.
+
 ## E1 — Official tiny and sampled forward fixtures
 
 **Question:** Can the MiMo architecture be reproduced before optimization?
