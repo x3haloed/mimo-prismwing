@@ -504,6 +504,19 @@ measured. Retain only a price-triggered or already-owned-storage reopening;
 authorize no purchase. The authoritative report hashes to
 `14549b38ee1daee523fd5a76ca9654cdcf7aa6284c651fb36eccac68908b28d3`.
 
+PW-0172 tests PW-0170's slower four-lane alternative rather than generalizing
+PW-0171's rejection. Four active exact-part Samsung PM981 256-GB drives cost
+`$115.96` with free observed shipping. With the `$39.99` carrier and
+PW-0169's `$311.71` card observation, the pre-tax subtotal is `$467.66`,
+leaving `$32.34`. The break-even tax rate is only `7.092883%` if cables and
+cooling are free, so no complete delivered BOM or purchase follows. The retail
+2,800-MB/s specification for the matching base part is 12% above the inherited
+2.5-GB/s grant but is not manufacturer or installed performance evidence.
+Retain only the conditional `q=137`, `A=113` 50-TPS (`A=77` 34.3-TPS) branch
+pending checkout, physical parts, installed storage/A770 measurements, and a
+base-aligned proposer. The authoritative report hashes to
+`2b38a618c0364ce2c11a7d93b2bf57e357c38d8cc5f3edfc2da954a6795da564`.
+
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8
 as a quality control, on PW-0116's real source-routed activations at layers 4,

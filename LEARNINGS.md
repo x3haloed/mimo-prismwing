@@ -3331,3 +3331,25 @@ Gate 8 passes at 72% minimum free memory, 29,048,832-byte peak RSS,
 an explicit release boundary, and stable services. PW-0171 records zero
 accepted tokens, no endpoint TPS, and no measured throughput-model constant
 changes; authorize no purchase.
+
+PW-0172 prevents PW-0171's 3.5-GB/s BOM rejection from being generalized to
+the slower storage branch. An active exact-part listing has six Samsung PM981
+256-GB drives at `$28.99` with free observed shipping. Four drives plus the
+active `$39.99` carrier and PW-0169's `$311.71` card observation total
+`$467.66` before tax, leaving `$32.34` for tax, cables, and cooling. On the
+`$455.95` taxable item subtotal, only a `7.092883%` tax rate consumes all
+remaining room even if installation parts are free. Retain this only as a
+pre-tax BOM; complete delivered cost is not proved.
+
+The retail product page advertises 2,800 MB/s for the matching
+`MZVLB256HAHQ` base part, 12% above PW-0170's 2.5-GB/s-per-lane grant, but this
+is not manufacturer authority or a sustained installed measurement. The
+conditional branch still requires four concurrent measured lanes, working
+bifurcation, the A770 compute gate, and a base-aligned `q=137` proposer with
+`A=113` for 50 TPS (`A=77` for 34.3 TPS). The authoritative report hashes to
+`2b38a618c0364ce2c11a7d93b2bf57e357c38d8cc5f3edfc2da954a6795da564`.
+Gate 8 passes at 72% minimum free memory, 29,163,520-byte peak RSS,
+17,680,000-byte maximum physical footprint, zero swap growth or throttling,
+an explicit release boundary, and stable services. PW-0172 records zero
+accepted tokens, no endpoint TPS, and no measured throughput-model constant
+changes; authorize no purchase.
