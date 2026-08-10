@@ -2881,3 +2881,35 @@ pages, and stable services. Two failed invocations published no manifest and
 are preserved externally: one corrected the assumed census evidence class and
 one corrected an operator commit typo. PW-0153 reports zero accepted tokens,
 no endpoint TPS, and no throughput-model constant changes.
+
+PW-0154 supersedes the assumption that only a large host-DRAM bank can provide
+meaningful exact source-expert residency. Two P100s' 32 decimal GB aggregate
+HBM can arithmetically reserve all `12,814,555,472` non-routed source tensor
+bytes, `2,340,993,024` bytes for three maximum routed-layer arenas, and
+209,879,040 bytes for exact BF16 8K KV, leaving 660 complete expert slots.
+This is an aggregate necessary bound; per-card sharding and communication are
+not proven.
+
+A static frequency set learned only from the 87-position prompt is causally
+valid for PW-0112's following 137-position suffix. It hits 71.434% of accesses
+and avoids 53.045% of the suffix union records, leaving 424 exact source experts
+or `10,672,914,432` bytes. This promotes prompt-calibrated HBM residency only
+as a component of a changed physical envelope, not as a cache runtime or
+measured I/O result.
+
+One 3.5-GB/s lane plus the PW-0151 compute floor cannot reach Prismwing 50 even
+with perfect `A=137`; its impossible ceiling is 42.033 TPS. Two, three, and
+four such lanes require `A=87`, `A=62`, and `A=49` for 50 TPS; four require
+`A=34` for the separately valuable 34.3-TPS horizon. Conventional width-eight
+and width-16 DFlash remain structurally insufficient. Retain only the combined
+two-to-four-lane cache envelope pending complete BOM, sustained-read, CUDA,
+prefill, 1M-KV, communication, electrical, and thermal evidence.
+
+The authoritative manifest hashes to
+`1b57250d45f1b24e32f43e93a653fc3d00fa061e37cd0df1c6f0fdff551535f2`.
+Gate 8 passes with 67% minimum free memory, 146,636,800-byte peak RSS,
+90,555,968-byte maximum physical footprint, zero swap growth or new throttled
+pages, and stable services. One failed invocation published no manifest and
+corrected an eight-versus-nine full-attention-layer count by deriving it from
+the pinned config. PW-0154 reports zero accepted tokens, no endpoint TPS, and
+no throughput-model constant changes.

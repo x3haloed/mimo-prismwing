@@ -276,14 +276,16 @@ branch is rejected: five captured compatible modules cost `$1,235.95`, already
 `$735.95` over the entire cap before accelerators or installation. This is not
 a permanent market-wide price bound and authorizes no purchase.
 
-PW-0154 tests a smaller exact residency embodiment that may avoid PW-0153's
-DRAM cost: reserve both candidate P100s' aggregate HBM for every non-routed
-source tensor, three bounded layer arenas, and the exact 8K BF16 KV state, then
-fill the remaining integer expert slots using frequency learned only from
-PW-0112's 87-position prompt. Apply that frozen set to the following
-137-position suffix and rederive one- through four-lane storage and acceptance
-requirements from union misses. Aggregate HBM and lane nameplates are only
-necessary ceilings; no purchase, CUDA runtime, or endpoint TPS follows.
+PW-0154 tests a smaller exact residency embodiment that avoids PW-0153's DRAM
+cost. After reserving every non-routed source tensor, three layer arenas, and
+exact 8K BF16 KV, two P100s have aggregate room for 660 complete experts. A
+static set trained only on PW-0112's 87-position prompt avoids 53.045% of the
+following `q=137` union bytes and leaves 10.673 GB. One 3.5-GB/s lane is
+structurally rejected for Prismwing 50 at only 42.033 perfect-acceptance TPS;
+four such lanes lower the 34.3/50-TPS requirement to `A=34/49`. Conditionally
+retain two-to-four lanes plus the exact cache, but not as a runtime or purchase:
+aggregate-HBM sharding, sustained I/O, prefill, 1M KV, CUDA, and the complete
+`$500` BOM remain unproven.
 
 PW-0129 returns to the compact modified representation that can actually
 change the M1 traffic premise. Evaluate fixed affine group-128 INT4, with INT8

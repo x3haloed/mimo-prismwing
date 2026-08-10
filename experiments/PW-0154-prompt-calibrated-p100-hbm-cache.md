@@ -1,7 +1,7 @@
 # PW-0154 — Prompt-calibrated P100 HBM expert cache
 
-- Status: planned
-- Disposition: pending
+- Status: completed
+- Disposition: conditional
 - Date: 2026-08-09
 - Owner: Codex with project owner authorization
 - Checkpoint/reference hashes: MiMo revision
@@ -18,6 +18,8 @@
   pre-purchase bound only
 - Related records: PW-0104, PW-0112, PW-0128, PW-0151 through PW-0153; E2,
   E6, E7
+- Implementation commit and dirty state:
+  `cdc91af04fc3d07357c3f183ed072f3f7d3a2922`, clean
 
 ## Question and changed premise
 
@@ -86,8 +88,62 @@ transfer benchmark.
 
 ## Result
 
-Pending execution.
+The authoritative `analysis-002` manifest hashes to
+`1b57250d45f1b24e32f43e93a653fc3d00fa061e37cd0df1c6f0fdff551535f2`.
+It authenticates the config, raw PW-0112 route trace, PW-0151 report, complete
+checkpoint census, and clean implementation commit.
+
+The pinned hybrid pattern contains nine full-attention and 39 sliding-window
+layers. Exact BF16 KV for an 8,000-position prefix is 184,320,000 bytes for
+full attention plus 25,559,040 bytes for the 128-position sliding windows, or
+209,879,040 bytes total. Reserving that state, every non-routed source tensor
+byte (`12,814,555,472`), and PW-0128's three maximum layer arenas
+(`2,340,993,024`) leaves 16,634,572,464 bytes of the two P100s' 32 decimal GB
+aggregate HBM. Exactly 660 complete source experts fit, occupying
+16,613,498,880 bytes with a 21,073,584-byte unusable tail.
+
+The 87-position prompt touches 3,091 distinct layer-local experts. Its causal
+frequency ranking freezes 660 residents before the suffix begins. On the
+following 137 positions, that set hits 36,797 of 51,512 accesses (`71.4338%`)
+and 479 of the 903 union records (`53.0454%`). The exact miss union is 424
+records or `10,672,914,432` bytes. A contiguous layer split assigns 324 cache
+records (`8,155,717,632` bytes) to layers 1--24 and 336
+(`8,457,781,248` bytes) to layers 25--47, but the rest of each card's sharding
+and peer traffic remain unproven.
+
+Adding PW-0151's `0.20994`-second two-P100 direct-FP32 block floor without
+overlap gives these impossible acceptance requirements:
+
+| Storage grant | 34.3 TPS minimum `A` | 50 TPS minimum `A` |
+| --- | ---: | ---: |
+| 1 x 2.5 GB/s | 154 (impossible) | 224 (impossible) |
+| 2 x 2.5 GB/s | 81 | 118 |
+| 3 x 2.5 GB/s | 57 | 82 |
+| 4 x 2.5 GB/s | 44 | 64 |
+| 1 x 3.5 GB/s | 112 | 163 (impossible) |
+| 2 x 3.5 GB/s | 60 | 87 |
+| 3 x 3.5 GB/s | 43 | 62 |
+| 4 x 3.5 GB/s | 34 | 49 |
+
+One 3.5-GB/s lane reaches only `42.0329` perfect-acceptance TPS, so it cannot
+satisfy Prismwing 50 even at `A=137`. Four such lanes reach a nameplate
+`140.904` perfect-acceptance TPS but still require `A=49/137`; the published
+width-16 and supplied width-eight shapes remain structurally insufficient.
+
+Gate 8 passes across five snapshots with 67% minimum free memory,
+146,636,800-byte peak RSS, 90,555,968-byte maximum physical footprint, zero
+swap growth, zero new throttled pages, and stable protected services. The
+first invocation failed closed before manifest publication because a manual
+count of the full-attention layers was eight rather than the pinned nine; the
+corrected fixture and analyzer now derive the count from config. Accepted
+tokens and endpoint TPS remain zero, and no throughput-model constant changes.
 
 ## Decision
 
-Pending execution.
+Reject one-lane storage for Prismwing 50 even with this exact cache and perfect
+acceptance. Conditionally retain the prompt-calibrated HBM cache combined with
+two through four genuinely independent storage lanes. It changes the physical
+premise enough to reopen a separately bounded proposer, but does not validate
+aggregate-HBM fungibility, tensor-parallel communication, sustained NVMe
+reads, prefill storage, 1M KV, CUDA kernels, or a complete `$500` BOM. Do not
+purchase or build the full runtime until those cheaper prerequisites close.
