@@ -8557,9 +8557,7 @@ pub fn run_prefill_route_coverage_trace(
     if output_dir.exists() {
         return Err(format!("refusing to overwrite {}", output_dir.display()));
     }
-    if !matches!(traced_prefix_positions, 512 | 1_024 | 2_048 | 4_096 | 8_000) {
-        return Err("PW-0156 prefix must be one of 512, 1024, 2048, 4096, or 8000".to_owned());
-    }
+    validate_prefill_route_coverage_positions(traced_prefix_positions)?;
     let complete_started = Instant::now();
     let disk_bytes_read_before = process_disk_bytes_read()?;
     let EndpointAuthority {
@@ -8675,6 +8673,17 @@ pub fn run_prefill_route_coverage_trace(
     let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(&output_dir.join("manifest.json"), &bytes)?;
     Ok(report)
+}
+
+fn validate_prefill_route_coverage_positions(traced_prefix_positions: usize) -> Result<(), String> {
+    if matches!(
+        traced_prefix_positions,
+        64 | 512 | 1_024 | 2_048 | 4_096 | 8_000
+    ) {
+        Ok(())
+    } else {
+        Err("PW-0156 prefix must be one of 64, 512, 1024, 2048, 4096, or 8000".to_owned())
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -10407,5 +10416,13 @@ mod tests {
         assert_eq!(fault_regression.minor_faults, -7);
         assert_eq!(fault_regression.major_faults, -1);
         assert!(before.checked_delta(after).is_err());
+    }
+
+    #[test]
+    fn prefill_route_coverage_accepts_the_bounded_capture_smoke_prefix() {
+        assert_eq!(validate_prefill_route_coverage_positions(64), Ok(()));
+        assert_eq!(validate_prefill_route_coverage_positions(512), Ok(()));
+        assert!(validate_prefill_route_coverage_positions(63).is_err());
+        assert!(validate_prefill_route_coverage_positions(65).is_err());
     }
 }
