@@ -201,6 +201,7 @@ pub struct EndpointLedger {
     pub routed_expert_executions: u64,
     pub dynamic_activation_groups: u64,
     pub dynamic_activation_values: u64,
+    pub pytorch_topk_boundary_tie_rows: u64,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub verified_file_device_drifts: Vec<String>,
 }
@@ -2731,7 +2732,11 @@ fn route_mlp(
         .iter()
         .map(|&logit| pytorch_sigmoid_f32(logit))
         .collect::<Vec<_>>();
-    let (selected, weights) = pytorch_noaux_routes(&scores, &correction, rows)?;
+    let (selected, weights, boundary_tie_rows) = pytorch_noaux_routes(&scores, &correction, rows)?;
+    ledger.pytorch_topk_boundary_tie_rows = ledger
+        .pytorch_topk_boundary_tie_rows
+        .checked_add(boundary_tie_rows)
+        .ok_or("top-k boundary-tie ledger overflow")?;
     Ok(RoutingTrace {
         logits,
         scores,
@@ -2750,7 +2755,7 @@ fn pytorch_sum_eight(values: &[f32; TOP_K]) -> f32 {
     lanes.iter().fold(0.0_f32, |sum, value| sum + value)
 }
 
-type PytorchRouteRows = (Vec<Vec<u32>>, Vec<Vec<f32>>);
+type PytorchRouteRows = (Vec<Vec<u32>>, Vec<Vec<f32>>, u64);
 
 fn pytorch_noaux_routes(
     scores: &[f32],
@@ -2766,6 +2771,7 @@ fn pytorch_noaux_routes(
     }
     let mut selected_rows = Vec::with_capacity(rows);
     let mut weight_rows = Vec::with_capacity(rows);
+    let mut boundary_tie_rows = 0_u64;
     for position in 0..rows {
         let row = &scores[position * ROUTED_EXPERTS..(position + 1) * ROUTED_EXPERTS];
         let corrected = row
@@ -2802,10 +2808,13 @@ fn pytorch_noaux_routes(
             .filter(|(expert, _)| !selected_set.contains(&(*expert as u32)))
             .map(|(_, value)| *value)
             .fold(f32::NEG_INFINITY, f32::max);
-        if !boundary.is_finite() || boundary <= rejected {
+        if !boundary.is_finite() || boundary < rejected {
             return Err(format!(
-                "PyTorch top-k boundary tied at position {position}"
+                "PyTorch top-k selected a value below the rejected boundary at position {position}"
             ));
+        }
+        if boundary == rejected {
+            boundary_tie_rows += 1;
         }
         let chosen = selected.map(|expert| row[expert as usize]);
         let denominator = pytorch_sum_eight(&chosen) + 1.0e-20;
@@ -2826,7 +2835,7 @@ fn pytorch_noaux_routes(
         selected_rows.push(selected.to_vec());
         weight_rows.push(weights);
     }
-    Ok((selected_rows, weight_rows))
+    Ok((selected_rows, weight_rows, boundary_tie_rows))
 }
 
 pub(crate) fn component_pytorch_noaux_route(
@@ -2840,7 +2849,7 @@ pub(crate) fn component_pytorch_noaux_route(
         .iter()
         .map(|value| pytorch_sigmoid_f32(*value))
         .collect::<Vec<_>>();
-    let (selected_rows, weight_rows) = pytorch_noaux_routes(&scores, correction, 1)?;
+    let (selected_rows, weight_rows, _) = pytorch_noaux_routes(&scores, correction, 1)?;
     let selected = selected_rows.into_iter().next().ok_or("missing route")?;
     let weights = weight_rows
         .into_iter()
@@ -9210,6 +9219,70 @@ mod tests {
             .map(|value| value.as_u64().expect("expert") as u32)
             .collect::<Vec<_>>();
         assert_eq!(selected.as_slice(), expected);
+    }
+
+    #[test]
+    fn pinned_pytorch_unsorted_topk_matches_tied_route_order() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../evals/fixtures/tiny/pw0157-pytorch-topk-ties.json"
+        ))
+        .expect("valid tied top-k fixture");
+        assert_eq!(
+            fixture["semantic"],
+            "pinned_pytorch_cpu_unsorted_topk_tied_rows"
+        );
+        assert_eq!(fixture["torch_version"], "2.13.0");
+        assert_eq!(
+            fixture["torch_commit"],
+            "cf30153c4c131c8164ee7798e5022d810682e2cb"
+        );
+        assert_eq!(
+            fixture["topk_impl_sha256"],
+            "1ff24ba878ccb3816511ba34609d7247225342c6aa61740b51917c8ca79407ab"
+        );
+        assert_eq!(fixture["width"], ROUTED_EXPERTS);
+        assert_eq!(fixture["top_k"], TOP_K);
+        let cases = fixture["cases"].as_array().expect("top-k cases");
+        assert_eq!(cases.len(), 5);
+        for case in cases {
+            let corrected = case["corrected_f32_u32"]
+                .as_array()
+                .expect("corrected score bits")
+                .iter()
+                .map(|value| f32::from_bits(value.as_u64().expect("score bits") as u32))
+                .collect::<Vec<_>>();
+            assert_eq!(corrected.len(), ROUTED_EXPERTS);
+            let expected = case["selected_experts"]
+                .as_array()
+                .expect("selected experts")
+                .iter()
+                .map(|value| value.as_u64().expect("expert") as u32)
+                .collect::<Vec<_>>();
+            let mut selected = [0_u32; TOP_K];
+            // SAFETY: the fixture and output arrays provide the declared lengths.
+            assert_eq!(
+                unsafe {
+                    pw_pytorch_topk_unsorted_f32(
+                        corrected.as_ptr(),
+                        corrected.len(),
+                        TOP_K,
+                        selected.as_mut_ptr(),
+                    )
+                },
+                0,
+                "{}",
+                case["name"]
+            );
+            assert_eq!(selected.as_slice(), expected, "{}", case["name"]);
+            let scores = vec![1.0_f32; ROUTED_EXPERTS];
+            let correction = corrected
+                .iter()
+                .map(|value| value - 1.0)
+                .collect::<Vec<_>>();
+            let (_, _, ties) = pytorch_noaux_routes(&scores, &correction, 1)
+                .expect("pinned tied route is authoritative");
+            assert_eq!(ties, 1, "{}", case["name"]);
+        }
     }
 
     #[test]

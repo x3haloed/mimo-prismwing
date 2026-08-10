@@ -47,6 +47,11 @@ and binds all 39 files to this revision.
   PW-0091 confirms the LM-head oracle widens BF16 operands to F32 and uses the
   one-row matrix path before BF16 output rounding; standalone BF16 dot behavior
   is diagnostic only there.
+  PW-0157 additionally hash-binds `TopKImpl.h` to
+  `1ff24ba878ccb3816511ba34609d7247225342c6aa61740b51917c8ca79407ab`
+  and uses actual PyTorch 2.13.0 outputs for adversarial tied
+  `topk(sorted=False)` rows. This authority is build-specific; it is not a
+  promise about tie indices from another PyTorch or standard-library build.
   It is not a runtime dependency or an authority for MiMo model topology.
 
 ## OpenRouter MiMo-V2.5
