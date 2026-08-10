@@ -97,6 +97,10 @@ class MillionTokenOpenRouterReferenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "prompt-token count"):
             validate_response(response, {"needle_code": code})
 
+    def test_http_200_api_error_is_not_misclassified_as_provider_drift(self):
+        with self.assertRaisesRegex(ValueError, "API error 502: Error"):
+            validate_response({"error": {"code": 502, "message": "Error"}}, {"needle_code": needle_code()})
+
 
 if __name__ == "__main__":
     unittest.main()

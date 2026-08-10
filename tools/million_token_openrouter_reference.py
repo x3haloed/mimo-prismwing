@@ -418,6 +418,11 @@ def post_chat(request_bytes: bytes, key: str, timeout_seconds: float) -> tuple[b
 
 
 def validate_response(response: Any, generation: dict[str, Any]) -> dict[str, Any]:
+    api_error = response.get("error") if isinstance(response, dict) else None
+    if isinstance(api_error, dict):
+        raise ValueError(
+            f"OpenRouter API error {api_error.get('code')}: {api_error.get('message')}"
+        )
     if response.get("provider") != PROVIDER:
         raise ValueError("PW-0160 response provider drift")
     if response.get("model") not in {MODEL, "xiaomi/mimo-v2.5-20260422"}:
