@@ -414,6 +414,73 @@ kernel void full_qkv_fp8_gemm8_shared_weight_lut_blocked(
     }
 }
 
+kernel void full_qkv_fp8_gemm8_sglang_blockscaled(
+    device const uchar *weights [[buffer(0)]],
+    device const float *weight_scales [[buffer(1)]],
+    device const uchar *input_codes [[buffer(2)]],
+    device const float *input_scales [[buffer(3)]],
+    device float *output [[buffer(4)]],
+    constant GemvShape &shape [[buffer(5)]],
+    constant float *decode_lut [[buffer(6)]],
+    threadgroup float *partial [[threadgroup(0)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    constexpr uint batch = 8;
+    if (row >= shape.rows || lanes != 64 || shape.rows != 13568 ||
+        shape.columns != 4096 || shape.block_rows != 128 ||
+        shape.block_columns != 128) {
+        return;
+    }
+    uint scale_row;
+    if (row < 12288) {
+        scale_row = row / 128;
+    } else if (row < 13056) {
+        const uint local = row - 12288;
+        scale_row = 96 + (local / 192) * 2 + (local % 192) / 128;
+    } else {
+        scale_row = 104 + (row - 13056) / 128;
+    }
+    const uint row_offset = row * shape.columns;
+    constexpr uint blocks = 32;
+    float totals[batch] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    for (uint block = 0; block < blocks; ++block) {
+        const uint column_base = block * 128;
+        for (uint position = 0; position < batch; ++position) {
+            float dot = 0.0f;
+            for (uint within = lane; within < 128; within += lanes) {
+                const uint column = column_base + within;
+                dot += decode_lut[weights[row_offset + column]] *
+                    decode_lut[input_codes[position * shape.columns + column]];
+            }
+            partial[lane * batch + position] = dot;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+            if (lane < offset) {
+                for (uint position = 0; position < batch; ++position) {
+                    partial[lane * batch + position] +=
+                        partial[(lane + offset) * batch + position];
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        if (lane == 0) {
+            const float weight_scale = weight_scales[scale_row * blocks + block];
+            for (uint position = 0; position < batch; ++position) {
+                totals[position] += partial[position] * weight_scale *
+                    input_scales[position * blocks + block];
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        for (uint position = 0; position < batch; ++position) {
+            output[position * shape.rows + row] = totals[position];
+        }
+    }
+}
+
 kernel void block_fp8_gemv(
     device const uchar *weights [[buffer(0)]],
     device const float *scales [[buffer(1)]],

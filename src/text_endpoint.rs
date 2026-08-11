@@ -5969,7 +5969,7 @@ pub fn run_arbitrary_text_generation(
         concurrency: 1,
         verifier_width: WIDTH,
         exactness: if requested_output_tokens == 1 {
-            "PW-0205 diagnostic: SGLang-directed 128-column block-scaled ordinary FP8 spine; historical modified-L3 QKV and MoE controls"
+            "PW-0205 diagnostic: SGLang-directed 128-column block-scaled FP8 QKV, ordinary spine, and routed MoE projections"
         } else {
             "source checkpoint weights and routes with explicitly modified Metal-native L3 reductions; no draft token commits before verifier acceptance"
         },

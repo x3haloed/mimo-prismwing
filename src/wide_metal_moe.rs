@@ -62,12 +62,11 @@ pub(crate) struct WideMetalMoeRuntime {
     device: metal::Device,
     queue: metal::CommandQueue,
     blockscaled_projection_pipelines: Vec<metal::ComputePipelineState>,
-    dynamic_pipeline: metal::ComputePipelineState,
     quantized_dynamic_pipeline: metal::ComputePipelineState,
     swiglu_pipeline: metal::ComputePipelineState,
     round_pipeline: metal::ComputePipelineState,
     scatter_pipeline: metal::ComputePipelineState,
-    full_qkv_pipeline: metal::ComputePipelineState,
+    blockscaled_full_qkv_pipeline: metal::ComputePipelineState,
     bf16_pipeline: metal::ComputePipelineState,
     lut_buffer: metal::Buffer,
     pub(crate) compile_ms: f64,
@@ -133,12 +132,11 @@ impl WideMetalMoeRuntime {
         let blockscaled_projection_pipelines = (1..=BATCH)
             .map(|width| pipeline(&format!("block_fp8_gemm{width}_sglang_blockscaled")))
             .collect::<Result<Vec<_>, _>>()?;
-        let dynamic_pipeline = pipeline("dynamic_fp8_dequantized_group128")?;
         let quantized_dynamic_pipeline = pipeline("dynamic_fp8_quantized_group128")?;
         let swiglu_pipeline = pipeline("bf16_staged_swiglu")?;
         let round_pipeline = pipeline("bf16_round_in_place")?;
         let scatter_pipeline = pipeline("route_weighted_scatter_add_f32")?;
-        let full_qkv_pipeline = pipeline("full_qkv_fp8_gemm8_shared_weight_lut_blocked")?;
+        let blockscaled_full_qkv_pipeline = pipeline("full_qkv_fp8_gemm8_sglang_blockscaled")?;
         let bf16_pipeline = pipeline("bf16_gemm8_shared_weight")?;
         let decode_lut = (0_u16..=255)
             .map(|bits| decode_f8_e4m3fn(bits as u8))
@@ -156,12 +154,11 @@ impl WideMetalMoeRuntime {
             device,
             queue,
             blockscaled_projection_pipelines,
-            dynamic_pipeline,
             quantized_dynamic_pipeline,
             swiglu_pipeline,
             round_pipeline,
             scatter_pipeline,
-            full_qkv_pipeline,
+            blockscaled_full_qkv_pipeline,
             bf16_pipeline,
             lut_buffer,
             compile_ms,
@@ -206,14 +203,6 @@ impl WideMetalMoeRuntime {
             no_copy(&binding.weight)
         };
         let scale = no_copy(&binding.scale);
-        let input_buffer = self.device.new_buffer_with_data(
-            padded_input.as_ptr().cast(),
-            std::mem::size_of_val(padded_input.as_slice()) as u64,
-            shared,
-        );
-        let staged = self
-            .device
-            .new_buffer((padded_input.len() * 4) as u64, shared);
         let quantized = dynamic_fp8_activations(&padded_input, BATCH, binding.columns)?;
         let encoded_buffer = self.device.new_buffer_with_data(
             quantized.encoded.as_ptr().cast(),
@@ -252,26 +241,8 @@ impl WideMetalMoeRuntime {
         );
         let command = self.queue.new_command_buffer();
         let encoder = command.new_compute_command_encoder();
-        encoder.set_compute_pipeline_state(&self.dynamic_pipeline);
-        encoder.set_buffer(0, Some(&input_buffer), 0);
-        encoder.set_buffer(1, Some(&staged), 0);
-        encoder.set_buffer(2, Some(&self.lut_buffer), 0);
-        encoder.set_buffer(3, Some(&error_buffer), 0);
-        encoder.set_threadgroup_memory_length(0, 128 * 4);
-        encoder.dispatch_thread_groups(
-            MTLSize {
-                width: (padded_input.len() / 128) as u64,
-                height: 1,
-                depth: 1,
-            },
-            MTLSize {
-                width: 128,
-                height: 1,
-                depth: 1,
-            },
-        );
         encoder.set_compute_pipeline_state(if full_qkv_layout {
-            &self.full_qkv_pipeline
+            &self.blockscaled_full_qkv_pipeline
         } else {
             &self.blockscaled_projection_pipelines[BATCH - 1]
         });
@@ -285,18 +256,11 @@ impl WideMetalMoeRuntime {
             },
         );
         encoder.set_buffer(1, Some(&scale), binding.scale.tensor_offset as u64);
-        if full_qkv_layout {
-            encoder.set_buffer(2, Some(&staged), 0);
-            encoder.set_buffer(3, Some(&output), 0);
-            encoder.set_buffer(4, Some(&shape_buffer), 0);
-            encoder.set_buffer(5, Some(&self.lut_buffer), 0);
-        } else {
-            encoder.set_buffer(2, Some(&encoded_buffer), 0);
-            encoder.set_buffer(3, Some(&activation_scale_buffer), 0);
-            encoder.set_buffer(4, Some(&output), 0);
-            encoder.set_buffer(5, Some(&shape_buffer), 0);
-            encoder.set_buffer(6, Some(&self.lut_buffer), 0);
-        }
+        encoder.set_buffer(2, Some(&encoded_buffer), 0);
+        encoder.set_buffer(3, Some(&activation_scale_buffer), 0);
+        encoder.set_buffer(4, Some(&output), 0);
+        encoder.set_buffer(5, Some(&shape_buffer), 0);
+        encoder.set_buffer(6, Some(&self.lut_buffer), 0);
         encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * BATCH as u64 * 4);
         encoder.dispatch_thread_groups(
             MTLSize {
