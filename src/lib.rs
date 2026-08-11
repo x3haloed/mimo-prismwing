@@ -25,6 +25,8 @@ mod structured_sparse;
 #[cfg(target_os = "macos")]
 mod text_endpoint;
 #[cfg(target_os = "macos")]
+mod uncached_stream_transport;
+#[cfg(target_os = "macos")]
 mod wide_metal_moe;
 #[cfg(target_os = "macos")]
 pub use metal_io_acquisition::{MetalIoAcquisitionReport, benchmark_metal_io_acquisition};
@@ -64,6 +66,10 @@ pub use text_endpoint::{
     run_routed_mixture_activation_corpus, run_slow_text_endpoint,
     run_structured_sparse_layer0_trace, run_weight_install_tomography,
     run_wide_metal_jacobi_text_endpoint,
+};
+#[cfg(target_os = "macos")]
+pub use uncached_stream_transport::{
+    UncachedStreamTransportReport, benchmark_uncached_stream_transport,
 };
 
 const MAX_HEADER_BYTES: u64 = 256 * 1024 * 1024;
