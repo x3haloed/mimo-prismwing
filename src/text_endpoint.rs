@@ -6395,7 +6395,9 @@ fn run_arbitrary_text_generation_internal(
                 manifest_path,
                 limit_bytes,
             } => {
-                const MAXIMUM_RANKED_PREFIX_BYTES: u64 = 3 * 1024 * 1024 * 1024;
+                // Leave 256 MiB below the unchanged 4 GiB post-phase ceiling for
+                // process/runtime state; the live safety monitor remains authoritative.
+                const MAXIMUM_RANKED_PREFIX_BYTES: u64 = 4 * 1024 * 1024 * 1024 - 256 * 1024 * 1024;
                 if *limit_bytes == 0 || *limit_bytes > MAXIMUM_RANKED_PREFIX_BYTES {
                     return Err(format!(
                         "ranked resident set must be between 1 and {MAXIMUM_RANKED_PREFIX_BYTES} bytes under the unchanged post-phase safety ceiling"
