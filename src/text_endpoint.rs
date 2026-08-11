@@ -1666,7 +1666,7 @@ impl Checkpoint {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct LayerKvCache {
     keys: Vec<f32>,
     values: Vec<f32>,
@@ -1694,6 +1694,25 @@ impl LayerKvCache {
             return Err("retained K/V cache identity mismatch".to_owned());
         }
         Ok(())
+    }
+
+    fn truncate(&mut self, retained_positions: usize) -> Result<(), String> {
+        self.validate()?;
+        if retained_positions > self.positions {
+            return Err("K/V cache cannot grow through rollback".to_owned());
+        }
+        if retained_positions == self.positions {
+            return Ok(());
+        }
+        self.keys
+            .truncate(retained_positions * self.kv_heads * QK_HEAD_DIM);
+        self.values
+            .truncate(retained_positions * self.kv_heads * V_HEAD_DIM);
+        self.positions = retained_positions;
+        if retained_positions == 0 {
+            self.kv_heads = 0;
+        }
+        self.validate()
     }
 }
 
@@ -5336,8 +5355,24 @@ pub fn run_wide_metal_jacobi_text_endpoint(
         {
             return Err("wide Jacobi causal/accounting gate failed".to_owned());
         }
-        let accepted_tokens =
-            accepted_jacobi_tokens(&authority.proposed_block_token_ids, &step.output_tokens)?;
+        let commit =
+            commit_jacobi_transaction(&authority.proposed_block_token_ids, &step.output_tokens)?;
+        let accepted_tokens = commit.retained_proposal_rows;
+        let retained_positions = prompt_token_ids
+            .len()
+            .checked_add(commit.retained_proposal_rows)
+            .ok_or("retained Jacobi cache position overflow")?;
+        for cache in &mut caches {
+            cache.truncate(retained_positions)?;
+        }
+        if commit.emitted_token_ids.last() != Some(&commit.next_anchor_token_id)
+            || commit.proposal_converged
+            || caches
+                .iter()
+                .any(|cache| cache.positions != retained_positions)
+        {
+            return Err("wide Jacobi commit/rollback gate failed".to_owned());
+        }
         let mean_normalized_union = step.traces[1..]
             .iter()
             .map(|trace| trace.expert_union_factor)
@@ -10628,6 +10663,24 @@ mod tests {
         );
         assert!(commit_jacobi_transaction(&[1], &[2]).is_err());
         assert!(commit_jacobi_transaction(&[1, 2], &[2, 3, 4]).is_err());
+    }
+
+    #[test]
+    fn kv_cache_rollback_retains_only_authoritative_positions() {
+        let mut cache = LayerKvCache {
+            keys: (0..6 * 2 * QK_HEAD_DIM).map(|value| value as f32).collect(),
+            values: (0..6 * 2 * V_HEAD_DIM).map(|value| value as f32).collect(),
+            positions: 6,
+            kv_heads: 2,
+        };
+        cache.truncate(3).unwrap();
+        assert_eq!(cache.positions, 3);
+        assert_eq!(cache.keys.len(), 3 * 2 * QK_HEAD_DIM);
+        assert_eq!(cache.values.len(), 3 * 2 * V_HEAD_DIM);
+        assert!(cache.validate().is_ok());
+        assert!(cache.truncate(4).is_err());
+        cache.truncate(0).unwrap();
+        assert_eq!(cache, LayerKvCache::default());
     }
 
     #[test]

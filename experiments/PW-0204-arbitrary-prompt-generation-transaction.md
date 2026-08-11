@@ -62,5 +62,10 @@ prompt.
 ## Current result
 
 The deterministic transaction fixture is implemented beside the existing
-PW-0203 acceptance authority. Runtime integration and real checkpoint evidence
-remain unexecuted, so accepted endpoint tokens and endpoint TPS remain zero.
+PW-0203 acceptance authority. The production K/V representation now has a
+fail-closed rollback operation, and PW-0203 applies the same transaction result
+to discard rejected proposal rows after verification. Deterministic tests cover
+mismatch correction, convergence, malformed widths, rollback preservation,
+rollback-to-empty, and attempted rollback growth. Repeated runtime integration
+and real checkpoint evidence remain unexecuted, so accepted endpoint tokens and
+endpoint TPS remain zero.
