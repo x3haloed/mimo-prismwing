@@ -1422,8 +1422,10 @@ Run the following cheap falsifiers in order:
    position, restores source-faithful `Hello!`, and reverses PW-0103 by making
    native MTP's first proposal exactly correct. Its corrected exported-mask
    DFlash block also begins `[9707,0]`, reversing PW-0150's first-suffix
-   mismatch. Exact width-eight target verification and `A/U` remain pending;
-   this is still an audit, not an optimization.
+   mismatch. Exact target verification measures `A=2`, `U=2.686170`, and
+   `A/U=0.744554`: acceptance doubles versus the stale trace but still fails
+   expert-byte leverage. Preserve that gain and continue only the posterior-fed
+   Jacobi convergence audit; this is still an audit, not an optimization.
 2. [PW-0207](../experiments/PW-0207-pressure-elastic-resident-working-set.md)
    asks whether the extra RAM can hold the stall-dominant shared spine and
    recurrent expert tiles, selected by measured bytes avoided rather than

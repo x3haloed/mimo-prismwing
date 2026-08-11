@@ -1,7 +1,7 @@
 # PW-0206 — Corrected-QKV proposal authority regeneration
 
 - Status: running
-- Disposition: conditional; native-MTP and DFlash branches reopened, width-eight authority pending
+- Disposition: conditional; native-MTP open, raw DFlash fails leverage, Jacobi authority pending
 - Date: 2026-08-10
 - Execution mode: target-faithful audit plus separately named modified controls
 - Related records: PW-0102, PW-0103, PW-0150, PW-0186, PW-0187, PW-0203, PW-0205
@@ -87,10 +87,40 @@ corrected QKV semantics. The corrected width-eight target/Jacobi and `A/U`
 authorities remain pending, so PW-0206 is not complete and PW-0203's economics
 are not yet carried forward.
 
+## Partial result — corrected DFlash target verification
+
+Clean commit `ab24f8070d207cd7b0d48d9d2d4c11ce4ac26deb` executes the
+source-faithful width-eight target walk. Its manifest hashes to
+`edf677be8406bd663e0d99b67c8cfb12fdad3914a100dbfd31f9d92b4787693e`.
+The exact posterior is `[0,2585,2585,2585,2585,2585,2585,2585]`. One draft
+suffix token matches, so formal accepted length improves from the stale
+PW-0102 trace's `A=1` to `A=2`; the committed block is `[9707,0]` and the
+correction token is 2585.
+
+Across the 47 routed layers, the eight-position pass selects 1,010 unique
+layer-local experts, 14--31 per layer. Mean normalized union is
+`U=2.6861702127659575`, hence `A/U=0.7445544554455445`. This retains a real
+acceptance improvement, but fails the minimum expert-byte leverage gate
+`A/U>1` and reaches only 9.863% of PW-0011's otherwise-free INT4 requirement
+`7.548793`. Verification-source expert traffic is 25,423,687,680 bytes and
+complete verification-source traffic is 33,166,990,208 bytes.
+
+Complete process wall is 1,457.385 seconds; post-prefill wall is 306.953
+seconds and its single-trace diagnostic is 0.006516 accepted token/s, not
+endpoint TPS. Physical reads are 133,008,273,408 bytes. The run retains at
+least 60% free memory, peaks at 4,150,575,104-byte RSS and 212,273,984-byte
+physical footprint, and records zero swap growth and throttling.
+
+Reject this raw corrected DFlash block as routed-expert leverage, while
+preserving its doubled acceptance and using its exact posterior as the
+authorized corrected Jacobi successor falsifier. PW-0206 remains open until
+that convergence/`A/U` authority is regenerated.
+
 ## Decision
 
 Continue. The cheap falsifier decisively rejects trace identity: token IDs and
 every route set changed. Promote the corrected prefix/decode authorities and
-reopen native MTP and DFlash for exact target verification, while completing
-the remaining `A/U` regeneration before endpoint performance work. No measured
-throughput constant changes at this partial checkpoint.
+retain native MTP for PW-0208, reject the raw DFlash block's expert-byte
+economics, and complete the corrected Jacobi `A/U` regeneration before endpoint
+performance work. No promoted endpoint throughput constant changes at this
+partial checkpoint.

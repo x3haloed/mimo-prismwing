@@ -3992,3 +3992,12 @@ Reopen DFlash only through exact width-eight target verification: draft logits
 alone establish neither accepted length nor route-union leverage. PW-0206 still
 owes the corrected width-eight `A/U` authority, so PW-0203's physical bound is
 not yet transferable. No throughput-model constant changes at this stage.
+
+The exact corrected DFlash target walk preserves a smaller but genuine gain:
+formal acceptance doubles from stale PW-0102's `A=1` to `A=2`. Its posterior
+is `[0,2585,2585,2585,2585,2585,2585,2585]`, but eight-position routed union
+rises to `U=2.686170`, leaving `A/U=0.744554`. The manifest hashes to
+`edf677be8406bd663e0d99b67c8cfb12fdad3914a100dbfd31f9d92b4787693e`.
+Reject the raw block as expert-byte leverage because it remains below one;
+preserve the doubled acceptance and feed the exact posterior into the corrected
+Jacobi successor test rather than erasing the sub-threshold improvement.

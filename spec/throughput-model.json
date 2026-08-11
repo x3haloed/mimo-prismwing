@@ -1036,9 +1036,15 @@
             "target_next_token_id": 0,
             "proposed_block_token_ids": [9707, 0, 0, 0, 0, 0, 0, 0],
             "complete_wall_ms_diagnostic": 77118.42445796356,
-            "accepted_tokens": 0,
-            "status": "dflash_branch_reopened; draft_proposal_prerequisite_only; target_verification_pending; no_endpoint_tps",
-            "provenance": "PW-0206 partial; corrected prefix 0002c617c5459d7531de99e779ecad7335afc1e6f86cbbb6071afa23da107807; corrected decode f405225ea063bf3bfaf38a450fe752dc32c5afe54f69f5803c3ae61308caab2d; exported-mask DFlash manifest e5084e606349fb9fe0b01f8e5505f43fa58969cae5398330b343f40dab7228c9; Apple M1 16 GiB internal SSD; git b749a745f20882dd97326f3486ebcf86ead4028b clean"
+            "target_posterior_token_ids": [0, 2585, 2585, 2585, 2585, 2585, 2585, 2585],
+            "accepted_tokens_A": 2,
+            "mean_normalized_union_U": 2.6861702127659575,
+            "acceptance_over_union_A_over_U": 0.7445544554455445,
+            "post_prefill_complete_ms_diagnostic": 306953.04649998434,
+            "single_trace_post_prefill_accepted_tps_diagnostic": 0.006515654504181968,
+            "physical_read_bytes": 133008273408,
+            "status": "raw_dflash_rejected_below_expert_byte_leverage_one; doubled_acceptance_retained; corrected_jacobi_pending; no_endpoint_tps",
+            "provenance": "PW-0206 partial; exported-mask DFlash manifest e5084e606349fb9fe0b01f8e5505f43fa58969cae5398330b343f40dab7228c9; source-target manifest edf677be8406bd663e0d99b67c8cfb12fdad3914a100dbfd31f9d92b4787693e; Apple M1 16 GiB internal SSD; git ab24f8070d207cd7b0d48d9d2d4c11ce4ac26deb clean"
         }
     }
 }
