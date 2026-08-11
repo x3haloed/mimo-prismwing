@@ -4252,3 +4252,19 @@ therefore rejects runtime implementation for this endpoint. Retain the logical
 signals for residency and changed-cut research, and keep PW-0213 open because
 uncached transport changes how demanded bytes are acquired rather than
 depending on prediction.
+
+PW-0213's isolated raw-checkpoint transport passes its file-backed gate while
+failing its acquisition-speed gate. Cacheable `pread` leaves every probed
+source page resident; page-aligned `F_NOCACHE` with `F_RDAHEAD=0` leaves none,
+a repeatable 100% reduction at 1.003905x full-layer read amplification. The
+two-buffer uncached layer median is 72.191416 ms, 4.523759% faster than the
+75.611917 ms sequential uncached path but 2.808891% slower than the 70.219040
+ms cacheable control. The one-expert two-buffer result is only 0.241140%
+slower than control. Preserve the recovered overlap and control regression
+together. This authorizes one bounded verifier pilot based on page-cache
+topology, not a speed claim; trailing drop is causally redundant because
+`mincore` already sees zero source pages after uncached reads. Raw report
+`51b2898314ff42ecca0eb7e29802f23346a329244126cd566dea80da9171f17f`
+and analysis
+`764fba9b12d8bacc5d4d2cd7f1fc57a42323a94bc90717bc41fa948842803fe3`
+carry no endpoint TPS.

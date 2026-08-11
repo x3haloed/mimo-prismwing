@@ -16,8 +16,8 @@ except ModuleNotFoundError:
     from openrouter_reference import atomic_write_new, canonical_json
 
 
-SOURCE_SHA256 = "50873d1925ac9ef3c7152a4d3ed44cfe465a4f59ea3681532ffe9780d002ca5f"
-COMMIT = "5326f0dbdddcf52f57f918e55ba49c9a90a3217f"
+SOURCE_SHA256 = "51b2898314ff42ecca0eb7e29802f23346a329244126cd566dea80da9171f17f"
+COMMIT = "3c63ded58483abf76c74d3bd2b0347658d53307b"
 MANIFEST_SHA256 = "40179385a571a19b135a4740122744ae3d8ea2c97ef265ac20968296e98822b8"
 ARTIFACT_SHA256 = "fac61c2cfad4b00248c96a52b68360fecd39e2c912e6ffd6643e3f06ade00d21"
 SCOPES = {
@@ -34,7 +34,16 @@ SCOPES = {
         "stream_sha256": "f31aed3aa8b65ae938968d48a61134cc0b6013a51f9798bf31c9460166094927",
     },
 }
-TRANSPORTS = ("cacheable_pread_control", "f_nocache_pread")
+TRANSPORTS = (
+    "cacheable_pread_control",
+    "f_nocache_pread",
+    "f_nocache_two_buffer_pread",
+)
+BUFFER_COUNTS = {
+    "cacheable_pread_control": 1,
+    "f_nocache_pread": 1,
+    "f_nocache_two_buffer_pread": 2,
+}
 
 
 def median(values: list[float]) -> float:
@@ -44,7 +53,7 @@ def median(values: list[float]) -> float:
 
 
 def _safety(snapshots: list[dict]) -> dict:
-    if len(snapshots) != 15 or snapshots[-1].get("phase") != "buffer_release":
+    if len(snapshots) != 21 or snapshots[-1].get("phase") != "buffer_release":
         raise ValueError("PW-0213 safety boundaries are incomplete")
     baseline = snapshots[0]["protected_service_pids"]
     summary = {
@@ -85,6 +94,8 @@ def analyze(source_path: Path) -> dict:
         or source.get("nocache_enabled") is not True
         or source.get("automatic_readahead_disabled") is not True
         or source.get("maximum_buffer_bytes") != 8_404_992
+        or source.get("maximum_buffer_count") != 2
+        or source.get("maximum_allocation_bytes") != 16_809_984
         or source.get("batch_size") != 1
         or source.get("concurrency") != 1
         or source.get("accepted_tokens") != 0
@@ -94,7 +105,7 @@ def analyze(source_path: Path) -> dict:
     ):
         raise ValueError("PW-0213 source authority mismatch")
     trials = source.get("trials")
-    if not isinstance(trials, list) or len(trials) != 12:
+    if not isinstance(trials, list) or len(trials) != 18:
         raise ValueError("PW-0213 trial count mismatch")
 
     distributions = {}
@@ -110,6 +121,7 @@ def analyze(source_path: Path) -> dict:
                     or row.get("logical_bytes") != expected["logical_bytes"]
                     or row.get("widened_bytes") != expected["widened_bytes"]
                     or row.get("pread_calls") != expected["records"]
+                    or row.get("buffers") != BUFFER_COUNTS[transport]
                     or row.get("logical_stream_sha256") != expected["stream_sha256"]
                     or row.get("read_amplification", 2.0) > 1.05
                     or row.get("activity", {}).get("disk_bytes_read", 0) < 0.95 * expected["logical_bytes"]
@@ -130,7 +142,8 @@ def analyze(source_path: Path) -> dict:
     gates = {}
     for scope in SCOPES:
         control = distributions[scope]["cacheable_pread_control"]
-        candidate = distributions[scope]["f_nocache_pread"]
+        sequential = distributions[scope]["f_nocache_pread"]
+        candidate = distributions[scope]["f_nocache_two_buffer_pread"]
         residency_reduction = 1.0 - (
             candidate["median_source_resident_fraction"]
             / control["median_source_resident_fraction"]
@@ -138,9 +151,13 @@ def analyze(source_path: Path) -> dict:
         wall_reduction = 1.0 - (
             candidate["median_transfer_wall_ms"] / control["median_transfer_wall_ms"]
         )
+        overlap_gain = 1.0 - (
+            candidate["median_transfer_wall_ms"] / sequential["median_transfer_wall_ms"]
+        )
         gates[scope] = {
             "source_file_backed_residency_reduction": residency_reduction,
-            "transfer_wall_reduction": wall_reduction,
+            "two_buffer_transfer_wall_reduction_vs_cacheable_control": wall_reduction,
+            "two_buffer_transfer_wall_reduction_vs_sequential_uncached": overlap_gain,
             "file_backed_gate_passed": residency_reduction >= 0.5,
             "transfer_wall_gate_passed": wall_reduction >= 0.1,
             "read_amplification_gate_passed": candidate["read_amplification"] <= 1.05,
@@ -162,8 +179,8 @@ def analyze(source_path: Path) -> dict:
         "safety": _safety(source["safety_snapshots"]),
         "evidence_valid": True,
         "experiment_passed": True,
-        "decision": "authorize_isolated_two_buffer_overlap_candidate",
-        "limitations": "one authenticated source-FP8 expert and layer on Apple M1 internal SSD; acquisition and source-page residency only; transfer wall regresses; no arithmetic, verifier, endpoint, or TPS",
+        "decision": "authorize_one_bounded_verifier_pilot; reject_trailing_drop_as_redundant_after_zero_resident_uncached_reads",
+        "limitations": "one authenticated source-FP8 expert and layer on Apple M1 internal SSD; acquisition and source-page residency only; two-buffer wall still regresses versus cacheable control; no arithmetic, verifier, endpoint, or TPS",
         "performance_claim": None,
     }
 

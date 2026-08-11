@@ -1232,6 +1232,21 @@
             "status": "runtime_prefetch_rejected_under_frozen_tax_and_complete_wall_gate; logical_predictability_preserved; no_endpoint_tps",
             "provenance": "PW-0212 clean bounded future-oracle report 2365033116e194b6bac34d2017f644c3499c5fb92a3727f7db9162dce318587f over authenticated PW-0208 corpus manifest a9bb6bd26bf048a2144133cc0a96023a8af112eae58122b666915149f2993a7b; Apple M1 16 GiB internal checkpoint; clean git 098d43224a2cbbce706bca82b34bb2bc75a3033f"
         },
+        "pw0213_uncached_raw_checkpoint_transport": {
+            "complete_layer_logical_bytes": 201375744,
+            "complete_layer_widened_bytes": 202162176,
+            "complete_layer_read_amplification": 1.0039052965584574,
+            "cacheable_complete_layer_median_ms": 70.21904,
+            "sequential_uncached_complete_layer_median_ms": 75.61191699999999,
+            "two_buffer_uncached_complete_layer_median_ms": 72.191416,
+            "two_buffer_gain_vs_sequential_uncached": 0.045237591317781156,
+            "two_buffer_regression_vs_cacheable_control": 0.028088905801047614,
+            "cacheable_source_resident_fraction": 1.0,
+            "uncached_source_resident_fraction": 0.0,
+            "source_file_backed_residency_reduction": 1.0,
+            "status": "isolated_file_backed_gate_passed; acquisition_speed_gate_failed; one_bounded_verifier_pilot_authorized; no_endpoint_tps",
+            "provenance": "PW-0213 clean interleaved raw-checkpoint report 51b2898314ff42ecca0eb7e29802f23346a329244126cd566dea80da9171f17f and validated analysis 764fba9b12d8bacc5d4d2cd7f1fc57a42323a94bc90717bc41fa948842803fe3; Apple M1 16 GiB internal SSD; clean git 3c63ded58483abf76c74d3bd2b0347658d53307b"
+        },
         "pw0211_live_native_mtp_q4_ordinary": {
             "candidate_complete_wall_ms": [
                 332964.720166,

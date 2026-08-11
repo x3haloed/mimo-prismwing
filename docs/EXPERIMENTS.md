@@ -1477,10 +1477,12 @@ Run the following cheap falsifiers in order:
    latency claims. PW-0213 remains independent because it changes transport
    for demanded bytes rather than predicting future demand.
 8. [PW-0213](../experiments/PW-0213-uncached-page-aligned-stream-transport.md)
-   tests whether cacheable routed streaming creates a harmful second
-   file-backed representation. Its first exact substitution isolates aligned
-   `F_NOCACHE` transport and disabled automatic read-ahead before adding
-   double-buffer overlap or trailing-page advice.
+   proves that cacheable routed reads leave 100% of probed source pages
+   resident while `F_NOCACHE` leaves 0%, passing the frozen file-backed gate
+   at about 1.004x read amplification. Two buffers recover 4.523759% against
+   sequential uncached full-layer reads but remain 2.808891% slower than the
+   cacheable control. One bounded verifier pilot is authorized; trailing drop
+   is redundant because uncached source residency is already zero.
 9. [PW-0214](../experiments/PW-0214-cost-adaptive-verification-horizon-oracle.md)
    treats `q=2..8` as a physical policy variable, pricing marginal accepted
    progress against corrected route union, proposal wall, verifier width, and
