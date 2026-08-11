@@ -645,7 +645,9 @@ pub struct ArbitraryTextGenerationReport {
     pub generated_token_ids: Vec<u32>,
     pub generated_text: String,
     pub requested_output_tokens: usize,
+    pub minimum_output_tokens: usize,
     pub accepted_tokens: usize,
+    pub stop_reason: &'static str,
     pub prefill_chunks: usize,
     pub transactions: Vec<GenerationTransactionReport>,
     pub preprocessing_wall_ms: f64,
@@ -4889,6 +4891,12 @@ fn serialize_single_user_chat(user_prompt: &str) -> Result<String, String> {
     ))
 }
 
+fn completed_sentence_count(text: &str) -> usize {
+    text.chars()
+        .filter(|character| matches!(character, '.' | '!' | '?'))
+        .count()
+}
+
 fn open_arbitrary_text_authority(
     checkpoint_root: &Path,
     model_lock_path: &Path,
@@ -5832,8 +5840,15 @@ pub fn run_arbitrary_text_generation(
     let mut proposal_wall_ms = 0.0;
     let mut verification_wall_ms = 0.0;
     let mut logical_source_bytes = prefill_ledger.logical_source_bytes;
+    let minimum_output_tokens = if requested_output_tokens <= 8 {
+        requested_output_tokens
+    } else {
+        32
+    };
+    let mut stop_reason = "requested_maximum";
+    let mut completed_response = false;
 
-    while generated_token_ids.len() < requested_output_tokens {
+    while generated_token_ids.len() < requested_output_tokens && !completed_response {
         let transaction_index = transactions.len();
         let transaction_disk_before = process_disk_bytes_read()?;
         let proposal_started = Instant::now();
@@ -5896,16 +5911,31 @@ pub fn run_arbitrary_text_generation(
             .sum::<f64>()
             / 47.0;
         let remaining = requested_output_tokens - generated_token_ids.len();
-        let observable_emitted_token_ids = commit_result
+        let mut observable_emitted_token_ids = Vec::new();
+        for token in commit_result
             .emitted_token_ids
             .iter()
             .copied()
             .take(remaining)
-            .collect::<Vec<_>>();
-        generated_token_ids.extend_from_slice(&observable_emitted_token_ids);
+        {
+            generated_token_ids.push(token);
+            observable_emitted_token_ids.push(token);
+            if requested_output_tokens > 8
+                && generated_token_ids.len() >= minimum_output_tokens
+                && completed_sentence_count(
+                    &tokenizer
+                        .decode(&generated_token_ids, false)
+                        .map_err(|error| format!("tokenizer stop-boundary decode: {error}"))?,
+                ) >= 2
+            {
+                stop_reason = "completed_second_sentence";
+                completed_response = true;
+                break;
+            }
+        }
         let verifier_retained_proposal_rows = commit_result.retained_proposal_rows;
         let mut retained_proposal_rows = verifier_retained_proposal_rows;
-        if generated_token_ids.len() == requested_output_tokens {
+        if generated_token_ids.len() == requested_output_tokens || completed_response {
             let exact_retained = prompt_token_ids.len() + generated_token_ids.len() - 1;
             retained_proposal_rows = exact_retained
                 .checked_sub(base_positions)
@@ -5986,7 +6016,10 @@ pub fn run_arbitrary_text_generation(
             true,
         )?;
     }
-    if generated_token_ids.len() != requested_output_tokens
+    if !(minimum_output_tokens..=requested_output_tokens).contains(&generated_token_ids.len())
+        || (requested_output_tokens > 8
+            && generated_token_ids.len() < requested_output_tokens
+            && stop_reason != "completed_second_sentence")
         || caches.iter().any(|cache| {
             cache.positions != prompt_token_ids.len() + generated_token_ids.len() - 1
                 || cache.validate().is_err()
@@ -6007,6 +6040,7 @@ pub fn run_arbitrary_text_generation(
         .map_err(|error| format!("progress final sync: {error}"))?;
     drop(progress);
     let progress_sha256 = hash_file(&progress_path)?;
+    let accepted_tokens = generated_token_ids.len();
     let report = ArbitraryTextGenerationReport {
         schema_version: 2,
         evidence_class: if requested_output_tokens <= 8 {
@@ -6035,7 +6069,9 @@ pub fn run_arbitrary_text_generation(
         generated_token_ids,
         generated_text,
         requested_output_tokens,
-        accepted_tokens: requested_output_tokens,
+        minimum_output_tokens,
+        accepted_tokens,
+        stop_reason,
         prefill_chunks,
         transactions,
         preprocessing_wall_ms,
@@ -6059,6 +6095,8 @@ pub fn run_arbitrary_text_generation(
         cache_state: "cold process start; bounded width-eight chunked prefill; process-local Metal pipelines; checkpoint pages released after every layer",
         status: if requested_output_tokens <= 8 {
             "diagnostic_generation_complete"
+        } else if stop_reason == "completed_second_sentence" {
+            "completed_second_sentence_boundary"
         } else {
             "execution_complete_quality_unassessed"
         },
@@ -11256,6 +11294,16 @@ mod tests {
         );
         assert!(serialize_single_user_chat("").is_err());
         assert!(serialize_single_user_chat("bad\0prompt").is_err());
+    }
+
+    #[test]
+    fn generation_quality_stop_requires_two_completed_sentences() {
+        assert_eq!(completed_sentence_count("Sunlight scatters."), 1);
+        assert_eq!(
+            completed_sentence_count("Sunlight scatters. Blue light reaches us!"),
+            2
+        );
+        assert_eq!(completed_sentence_count("unfinished"), 0);
     }
 
     #[test]

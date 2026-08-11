@@ -3938,3 +3938,17 @@ portion of run 007 while preserving its behavioral evidence. Schema 2 must
 separate verifier-authorized tokens/rows from the final output-limit slice and
 retain only seven rows for a fully converged width-eight proposal. Repeat the
 full milestone after this correction; do not report run 007 as accepted TPS.
+
+PW-0205 run 008 validates the corrected schema-2 cache transition across five
+transactions: verifier-authorized, observable, and retained rows remain
+distinct, and the final cache length agrees with the observable output. Its
+report and progress SHA-256 values are
+`ccafb4374e98626cae5027f95b517d0a5b6e59f2747dba0ce7bdd81fd9dc3ff9`
+and `b848a930d0678d75c96383de5950102b503cf165f9dd9b9699c4b585afe3654a`.
+The coherent output is nevertheless capped mid-sentence at exactly 32 tokens.
+This supersedes the assumption that the lower bound is also a suitable fixed
+quality boundary. Endpoint runs now declare 32 tokens as a minimum, accept a
+caller maximum through 64, and stop after a second completed sentence. This
+changes no target-faithful throughput constant: PW-0205 remains explicitly
+SGLang-directed modified arithmetic, and the next full run must establish its
+actual output count and complete-path rate.

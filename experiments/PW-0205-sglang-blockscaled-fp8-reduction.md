@@ -144,3 +144,26 @@ bind `next_anchor_token_id` to the last emitted proposal token, distinguish
 verifier-authorized from actually observable final-window tokens in schema 2,
 and repeat the milestone. Preserve run 007 as evidence that QKV repair restores
 language, not as target-faithful repeated-cache evidence.
+
+Run 008 repeats the 32-token milestone with corrected converged-cache
+retention and schema 2 accounting. Its output is fluent and relevant:
+`Sunlight contains all colors of the spectrum, and as it enters Earth's
+atmosphere, shorter blue wavelengths are scattered more than other colors by
+gas molecules. This scattered`. All five transactions preserve the distinction
+between verifier-authorized rows, observable output tokens, and retained cache
+rows; the final cache length exactly matches the prompt plus 31 evaluated
+output positions. The report and progress-log hashes are
+`ccafb4374e98626cae5027f95b517d0a5b6e59f2747dba0ce7bdd81fd9dc3ff9`
+and `b848a930d0678d75c96383de5950102b503cf165f9dd9b9699c4b585afe3654a`.
+Complete wall was 1,187,723.583 ms: 205,294.176 ms prefill, 798,997.396 ms
+proposal, and 182,642.145 ms verification. It recorded
+1,122,669,371,648 logical source bytes, 1,123,903,193,088 process disk bytes
+read, and 3,951,296,512 bytes peak RSS without swap growth, new throttling, or
+protected service loss.
+
+Run 008 accepts the repaired cache semantics, but its fixed 32-token cap cuts
+the second sentence after `This scattered`. It is therefore not the final
+publication-quality response. Treat 32 as the minimum endpoint output and 64
+as its caller-selected maximum, stopping after the second completed sentence
+once the minimum has been reached. Repeat with a 64-token maximum; require the
+actual committed count to remain within 32--64 and record the boundary reason.
