@@ -3877,7 +3877,7 @@ duplicate per-request FP8 scans and moving heavyweight OS monitoring outside
 model time reaches `0.21985` warm accepted TPS, 22.743 seconds per target
 verification, with 27,508,178,944 physical bytes read. The new best verifier
 is a real `3.42x` gain over the first PW-0203 variant, but still misses one TPS
-by `4.5546x`.
+by `4.5486x`.
 
 The final bottleneck is physical embodiment rather than ordinary kernel
 tuning. Correctly labeled run 004's 47 MoE transactions take 10.435 seconds while reading

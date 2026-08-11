@@ -73,7 +73,7 @@ Evidence:
 ## Decision
 
 Reject this `q=8` exact-source internal-SSD embodiment for one TPS. It needs a
-further `4.5546x` complete-path gain, while `A<=8` and the measured 27.5 GB
+further `4.5486x` complete-path gain, while `A<=8` and the measured 27.5 GB
 transaction cannot fit a persistent exact cache in the 16 GiB machine.
 PW-0108's stronger Metal-I/O control can reduce only part of acquisition;
 PW-0181's impossible 8 GiB Belady cache already caps the exact path below one
