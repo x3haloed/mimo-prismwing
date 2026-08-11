@@ -165,6 +165,7 @@ pub struct UncachedTransportTrial {
     pub widened_bytes: u64,
     pub read_amplification: f64,
     pub pread_calls: usize,
+    pub buffers: usize,
     pub source_pages_probed: u64,
     pub source_pages_resident: u64,
     pub source_resident_fraction: f64,
@@ -186,6 +187,8 @@ pub struct UncachedStreamTransportReport {
     pub nocache_enabled: bool,
     pub automatic_readahead_disabled: bool,
     pub maximum_buffer_bytes: u64,
+    pub maximum_buffer_count: usize,
+    pub maximum_allocation_bytes: u64,
     pub trials: Vec<UncachedTransportTrial>,
     pub safety_snapshots: Vec<SafetySnapshot>,
     pub batch_size: usize,
@@ -304,12 +307,37 @@ struct TrialIdentity<'a> {
     repetition: usize,
     order: usize,
     scope: &'static str,
-    nocache: bool,
+    transport: Transport,
+}
+
+#[derive(Clone, Copy)]
+enum Transport {
+    Cacheable,
+    UncachedSequential,
+    UncachedTwoBuffer,
+}
+
+impl Transport {
+    fn nocache(self) -> bool {
+        !matches!(self, Self::Cacheable)
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Cacheable => "cacheable_pread_control",
+            Self::UncachedSequential => "f_nocache_pread",
+            Self::UncachedTwoBuffer => "f_nocache_two_buffer_pread",
+        }
+    }
+
+    fn buffers(self) -> usize {
+        usize::from(matches!(self, Self::UncachedTwoBuffer)) + 1
+    }
 }
 
 fn execute_trial(
     identity: TrialIdentity<'_>,
-    buffer: &mut AlignedBuffer,
+    buffers: &mut [AlignedBuffer],
 ) -> Result<(UncachedTransportTrial, bool, bool), String> {
     let TrialIdentity {
         checkpoint_root,
@@ -318,8 +346,12 @@ fn execute_trial(
         repetition,
         order,
         scope,
-        nocache,
+        transport,
     } = identity;
+    let nocache = transport.nocache();
+    if buffers.len() != transport.buffers() {
+        return Err("uncached trial buffer count mismatch".to_owned());
+    }
     let mut files = BTreeMap::new();
     let mut plans = Vec::with_capacity(records.len());
     let mut logical_bytes = 0_u64;
@@ -344,7 +376,10 @@ fn execute_trial(
             file_bytes,
             PAGE_BYTES,
         )?;
-        if plan.physical_bytes > buffer.capacity {
+        if buffers
+            .iter()
+            .any(|buffer| plan.physical_bytes > buffer.capacity)
+        {
             return Err("uncached widened range exceeds declared buffer".to_owned());
         }
         logical_bytes += bytes;
@@ -364,22 +399,58 @@ fn execute_trial(
     let mut integrity_wall_ms = 0.0;
     let mut digest = Sha256::new();
     let mut pread_calls = 0;
-    for (record, plan) in &plans {
-        let file = &files[&record.source_shard];
-        let mut reader = FdReader(file.as_raw_fd());
-        let transfer_started = Instant::now();
-        pread_calls += read_plan_exact(&mut reader, *plan, buffer.bytes_mut())?;
-        transfer_wall_ms += transfer_started.elapsed().as_secs_f64() * 1000.0;
-        let integrity_started = Instant::now();
-        let logical_end = plan.logical_offset + plan.logical_bytes;
-        let logical = &buffer.bytes_mut()[plan.logical_offset..logical_end];
-        if format!("{:x}", Sha256::digest(logical)) != record.source_tensor_sha256 {
-            return Err(format!(
-                "{}: uncached payload hash mismatch",
-                record.artifact_metadata.name
-            ));
+    for chunk in plans.chunks(transport.buffers()) {
+        if transport.buffers() == 1 {
+            let (record, plan) = chunk[0];
+            let file = &files[&record.source_shard];
+            let mut reader = FdReader(file.as_raw_fd());
+            let transfer_started = Instant::now();
+            pread_calls += read_plan_exact(&mut reader, plan, buffers[0].bytes_mut())?;
+            transfer_wall_ms += transfer_started.elapsed().as_secs_f64() * 1000.0;
+        } else {
+            let addresses = buffers
+                .iter_mut()
+                .map(|buffer| (buffer.pointer as usize, buffer.capacity))
+                .collect::<Vec<_>>();
+            let transfer_started = Instant::now();
+            let calls = std::thread::scope(|scope| {
+                let mut handles = Vec::with_capacity(chunk.len());
+                for (slot, (record, plan)) in chunk.iter().enumerate() {
+                    let fd = files[&record.source_shard].as_raw_fd();
+                    let plan = *plan;
+                    let (address, capacity) = addresses[slot];
+                    handles.push(scope.spawn(move || {
+                        // SAFETY: every worker receives a distinct owned buffer and
+                        // joins before the buffers can be observed or reused.
+                        let destination =
+                            unsafe { std::slice::from_raw_parts_mut(address as *mut u8, capacity) };
+                        read_plan_exact(&mut FdReader(fd), plan, destination)
+                    }));
+                }
+                handles.into_iter().try_fold(0_usize, |calls, handle| {
+                    let read_calls = handle
+                        .join()
+                        .map_err(|_| "uncached two-buffer worker panicked".to_owned())??;
+                    calls
+                        .checked_add(read_calls)
+                        .ok_or("uncached pread call count overflow".to_owned())
+                })
+            })?;
+            pread_calls += calls;
+            transfer_wall_ms += transfer_started.elapsed().as_secs_f64() * 1000.0;
         }
-        digest.update(logical);
+        let integrity_started = Instant::now();
+        for (slot, (record, plan)) in chunk.iter().enumerate() {
+            let logical_end = plan.logical_offset + plan.logical_bytes;
+            let logical = &buffers[slot].bytes_mut()[plan.logical_offset..logical_end];
+            if format!("{:x}", Sha256::digest(logical)) != record.source_tensor_sha256 {
+                return Err(format!(
+                    "{}: uncached payload hash mismatch",
+                    record.artifact_metadata.name
+                ));
+            }
+            digest.update(logical);
+        }
         integrity_wall_ms += integrity_started.elapsed().as_secs_f64() * 1000.0;
     }
     let (source_pages_probed, source_pages_resident) = plans.iter().try_fold(
@@ -400,11 +471,7 @@ fn execute_trial(
             repetition,
             order,
             scope,
-            transport: if nocache {
-                "f_nocache_pread"
-            } else {
-                "cacheable_pread_control"
-            },
+            transport: transport.name(),
             cache_state: "cold after range MS_INVALIDATE plus MADV_DONTNEED",
             transfer_wall_ms,
             integrity_wall_ms,
@@ -414,6 +481,7 @@ fn execute_trial(
             widened_bytes,
             read_amplification: widened_bytes as f64 / logical_bytes as f64,
             pread_calls,
+            buffers: transport.buffers(),
             source_pages_probed,
             source_pages_resident,
             source_resident_fraction: source_pages_resident as f64 / source_pages_probed as f64,
@@ -472,8 +540,11 @@ pub fn benchmark_uncached_stream_transport(
         .into_iter()
         .max()
         .ok_or("PW-0213 has no source records")?;
-    let mut buffer = AlignedBuffer::new(maximum_buffer_bytes)?;
-    safety.checkpoint("uncached_buffer_allocated")?;
+    let mut buffers = vec![
+        AlignedBuffer::new(maximum_buffer_bytes)?,
+        AlignedBuffer::new(maximum_buffer_bytes)?,
+    ];
+    safety.checkpoint("uncached_buffers_allocated")?;
     let mut trials = Vec::new();
     let mut nocache_enabled = true;
     let mut automatic_readahead_disabled = true;
@@ -482,9 +553,25 @@ pub fn benchmark_uncached_stream_transport(
         ("complete_routed_layer", layer_records.as_slice()),
     ] {
         let expected = expected_stream_sha256(&artifact, records)?;
-        let orders = [[false, true], [true, false], [false, true]];
+        let orders = [
+            [
+                Transport::Cacheable,
+                Transport::UncachedSequential,
+                Transport::UncachedTwoBuffer,
+            ],
+            [
+                Transport::UncachedTwoBuffer,
+                Transport::UncachedSequential,
+                Transport::Cacheable,
+            ],
+            [
+                Transport::UncachedSequential,
+                Transport::Cacheable,
+                Transport::UncachedTwoBuffer,
+            ],
+        ];
         for (repetition, order) in orders.iter().enumerate() {
-            for (position, &nocache) in order.iter().enumerate() {
+            for (position, &transport) in order.iter().enumerate() {
                 let (trial, enabled, disabled) = execute_trial(
                     TrialIdentity {
                         checkpoint_root,
@@ -493,22 +580,23 @@ pub fn benchmark_uncached_stream_transport(
                         repetition,
                         order: position,
                         scope,
-                        nocache,
+                        transport,
                     },
-                    &mut buffer,
+                    &mut buffers[..transport.buffers()],
                 )?;
-                if nocache {
+                if transport.nocache() {
                     nocache_enabled &= enabled;
                     automatic_readahead_disabled &= disabled;
                 }
                 safety.checkpoint(&format!(
-                    "{scope}_repetition_{repetition}_position_{position}"
+                    "{scope}_repetition_{repetition}_position_{position}_{}",
+                    transport.name()
                 ))?;
                 trials.push(trial);
             }
         }
     }
-    drop(buffer);
+    drop(buffers);
     drop(artifact);
     let safety_snapshots = safety.released()?;
     let report = UncachedStreamTransportReport {
@@ -524,6 +612,8 @@ pub fn benchmark_uncached_stream_transport(
         nocache_enabled,
         automatic_readahead_disabled,
         maximum_buffer_bytes: maximum_buffer_bytes as u64,
+        maximum_buffer_count: 2,
+        maximum_allocation_bytes: (2 * maximum_buffer_bytes) as u64,
         trials,
         safety_snapshots,
         batch_size: 1,
