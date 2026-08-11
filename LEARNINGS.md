@@ -4428,3 +4428,17 @@ and longer-context untouched holdouts remain required. Rare-route report hashes
 are `264d0ccec4f9f2de286573a3c77db79587ddd797d6717ae78057d943a3ade272`,
 `26e98f57bd50f4d0ae3e862388612766bcbabead9c1affe062440ae0b86296f5`,
 and `889b7022770c5c958354fdcd137edfc647508dc198e3757b6ea820fce7f4d4d8`.
+
+PW-0216's first untouched 32-token holdout strengthens native MTP beyond the
+seven-token development panel. Two candidates reproduce the control's exact
+output and the same eleven-transaction acceptance sequence
+`[3,3,3,3,3,3,3,3,2,2,3]`. Candidate walls are 673,753.110 and 718,212.368 ms
+around a 1,198,644.198-ms q8 control. Median complete accepted TPS improves
+`1.722233x`; post-prefill wall improves `2.263926x`; logical traffic falls
+34.05% and process reads 37.01%. Zero swap growth, throttling, or service loss
+occurs. This is sustained exact generation on a prompt frozen before first
+execution, not a general default: the separately frozen code, multilingual,
+and rare-route holdouts remain. Report hashes are
+`ca16c4fb99c4fefd53cedc73be02f1370c600a508d707bde586700f2b9cf91fc`,
+`e64a8a625086be05c853d16f1fd60ea4644239f579fb4ebf0b6097928eefbec3`,
+and `86f23cc61d790aedb9373ac41aa9852435acd55466a736bdafb0b9edd5c5e20b`.

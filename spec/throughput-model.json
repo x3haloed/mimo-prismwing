@@ -1414,6 +1414,45 @@
             "concurrency": 1,
             "status": "conditional_repeatable_rare_route_apple_m1_lower_milestone; all_four_frozen_text_categories_positive; longer_output_untouched_holdouts_pending; not_general_default",
             "provenance": "PW-0215 cold candidate-control-candidate rare-route reports 264d0ccec4f9f2de286573a3c77db79587ddd797d6717ae78057d943a3ade272, 26e98f57bd50f4d0ae3e862388612766bcbabead9c1affe062440ae0b86296f5, and 889b7022770c5c958354fdcd137edfc647508dc198e3757b6ea820fce7f4d4d8; Apple M1 16 GiB internal checkpoint; clean git 17d9fb8371df8fb74c4baedb410f464802bd29cd"
+        },
+        "pw0216_live_native_mtp_q4_ordinary_32_token_holdout": {
+            "candidate_complete_wall_ms": [
+                673753.110375,
+                718212.3682919999
+            ],
+            "candidate_complete_wall_median_ms": 695982.7393334999,
+            "candidate_complete_accepted_tps_median": 0.04597815174359703,
+            "control_complete_wall_ms": 1198644.198125,
+            "control_complete_accepted_tps": 0.02669682967644323,
+            "complete_accepted_tps_gain": 1.72223265087417,
+            "candidate_post_prefill_wall_median_ms": 404395.1528325,
+            "control_post_prefill_wall_ms": 915520.900124,
+            "post_prefill_wall_gain": 2.263926492964686,
+            "candidate_transaction_A": [
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                2,
+                2,
+                3
+            ],
+            "control_transaction_A": [
+                7,
+                7,
+                7,
+                7,
+                3
+            ],
+            "accepted_tokens_per_complete_request": 32,
+            "batch_size": 1,
+            "concurrency": 1,
+            "status": "conditional_repeatable_untouched_ordinary_32_token_lower_milestone; identical_verifier_authorized_output; remaining_frozen_holdout_categories_pending; not_general_default",
+            "provenance": "PW-0216 cold candidate-control-candidate untouched ordinary 32-token reports ca16c4fb99c4fefd53cedc73be02f1370c600a508d707bde586700f2b9cf91fc, e64a8a625086be05c853d16f1fd60ea4644239f579fb4ebf0b6097928eefbec3, and 86f23cc61d790aedb9373ac41aa9852435acd55466a736bdafb0b9edd5c5e20b; frozen prompt SHA-256 1cc0561c9f1cd1782a8babcc1c667b048ebe8716c54f0211eadd4c8794ee685c; Apple M1 16 GiB internal checkpoint; clean git 42605d3e507bd3c9c2209bd3d3cf0bf209b9138e"
         }
     }
 }
