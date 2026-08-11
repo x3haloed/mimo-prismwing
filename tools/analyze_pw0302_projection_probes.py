@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and summarize PW-0213's bounded early-gate probes."""
+"""Validate and summarize PW-0302's bounded early-gate probes."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def analyze(records: list[dict], covariance: dict) -> dict:
         raise ValueError("seed panel mismatch")
     for record in records:
         if (
-            record.get("evidence_class") != "pw0213_bounded_real_query_projection_probe"
+            record.get("evidence_class") != "pw0302_bounded_real_query_projection_probe"
             or (record.get("layer"), record.get("expert"), record.get("projection"))
             != (4, 96, "gate")
         ):
@@ -52,7 +52,7 @@ def analyze(records: list[dict], covariance: dict) -> dict:
     }
     return {
         "schema_version": 1,
-        "evidence_class": "pw0213_validated_bounded_real_query_row_representation_control",
+        "evidence_class": "pw0302_validated_bounded_real_query_row_representation_control",
         "layer": 4,
         "expert": 96,
         "projection": "gate",

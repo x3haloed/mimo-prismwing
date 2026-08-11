@@ -1,0 +1,1200 @@
+//! Fail-closed ownership and Darwin pressure handling for declared residency.
+//!
+//! This module deliberately does not raise the runtime safety ceiling.  It is
+//! the independently testable safety substrate that must be connected to a
+//! real declared cache before the conditional high-residency mode can exist.
+
+use crate::MappedNoCopyRegion;
+use memmap2::{MmapMut, MmapOptions};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::any::Any;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::{c_char, c_ulong, c_void};
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::Path;
+use std::process::Command;
+use std::sync::{Arc, Mutex};
+
+pub const MAXIMUM_DECLARED_RESIDENCY_BYTES: u64 = 12 * 1024 * 1024 * 1024;
+pub const PRESSURE_NORMAL: u64 = 1;
+pub const PRESSURE_WARNING: u64 = 2;
+pub const PRESSURE_CRITICAL: u64 = 4;
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DeclaredResidentTensor {
+    pub tensor: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row: Option<u64>,
+    pub dtype: String,
+    pub shape: Vec<u64>,
+    pub bytes: u64,
+    pub backing_file: String,
+    pub backing_file_sha256: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DeclaredResidentObject {
+    pub identity: String,
+    pub source_bytes: u64,
+    pub bytes: u64,
+    pub tensor_metadata_sha256: String,
+    pub tensors: Vec<DeclaredResidentTensor>,
+    pub lifetime: String,
+    pub warning_eviction_order: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DeclaredResidencyManifest {
+    pub capacity_bytes: u64,
+    pub allocation_alignment_bytes: u64,
+    pub selected_bytes: u64,
+    pub unallocated_bytes: u64,
+    pub persistent_lifetime: String,
+    pub warning_eviction_order: String,
+    pub critical_pressure_action: String,
+    pub objects: Vec<DeclaredResidentObject>,
+}
+
+impl DeclaredResidencyManifest {
+    pub fn from_offline_report(path: &Path) -> Result<Self, String> {
+        let bytes = fs::read(path)
+            .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+        let report: Value = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("invalid JSON in {}: {error}", path.display()))?;
+        let manifest = report
+            .get("residency_manifest")
+            .ok_or_else(|| "offline report lacks residency_manifest".to_owned())?;
+        let parsed: Self = serde_json::from_value(manifest.clone())
+            .map_err(|error| format!("invalid residency_manifest: {error}"))?;
+        parsed.validate()?;
+        Ok(parsed)
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.capacity_bytes != MAXIMUM_DECLARED_RESIDENCY_BYTES {
+            return Err(format!(
+                "declared capacity must equal {MAXIMUM_DECLARED_RESIDENCY_BYTES}, got {}",
+                self.capacity_bytes
+            ));
+        }
+        let host_page_bytes = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        if host_page_bytes <= 0
+            || self.allocation_alignment_bytes != host_page_bytes as u64
+            || !self.allocation_alignment_bytes.is_power_of_two()
+        {
+            return Err(format!(
+                "declared allocation alignment {} does not match host page size {host_page_bytes}",
+                self.allocation_alignment_bytes
+            ));
+        }
+        let selected = self.objects.iter().try_fold(0_u64, |total, object| {
+            total
+                .checked_add(object.bytes)
+                .ok_or_else(|| "declared object byte sum overflowed".to_owned())
+        })?;
+        if selected != self.selected_bytes {
+            return Err(format!(
+                "declared object bytes {selected} do not match selected_bytes {}",
+                self.selected_bytes
+            ));
+        }
+        if self.selected_bytes.checked_add(self.unallocated_bytes) != Some(self.capacity_bytes) {
+            return Err("selected_bytes + unallocated_bytes must equal capacity_bytes".to_owned());
+        }
+        let expected_lifetime = canonical_lifetime(&self.persistent_lifetime);
+        let mut identities = BTreeSet::new();
+        let mut orders = BTreeSet::new();
+        for object in &self.objects {
+            if object.identity.is_empty() || !identities.insert(object.identity.as_str()) {
+                return Err(format!(
+                    "empty or duplicate resident identity: {}",
+                    object.identity
+                ));
+            }
+            if object.bytes == 0 {
+                return Err(format!("zero-byte resident object: {}", object.identity));
+            }
+            let expected_resident_bytes = object
+                .source_bytes
+                .checked_add(self.allocation_alignment_bytes - 1)
+                .map(|bytes| bytes / self.allocation_alignment_bytes)
+                .and_then(|pages| pages.checked_mul(self.allocation_alignment_bytes))
+                .ok_or_else(|| {
+                    format!("resident byte rounding overflow for {}", object.identity)
+                })?;
+            if object.source_bytes == 0 || object.bytes != expected_resident_bytes {
+                return Err(format!(
+                    "resident allocation bytes do not page-round source bytes for {}",
+                    object.identity
+                ));
+            }
+            if object.tensor_metadata_sha256.len() != 64
+                || !object
+                    .tensor_metadata_sha256
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            {
+                return Err(format!("invalid lowercase SHA-256 for {}", object.identity));
+            }
+            if canonical_lifetime(&object.lifetime) != expected_lifetime {
+                return Err(format!("lifetime mismatch for {}", object.identity));
+            }
+            validate_tensor_authority(object)?;
+            if !orders.insert(object.warning_eviction_order) {
+                return Err(format!(
+                    "duplicate warning eviction order {}",
+                    object.warning_eviction_order
+                ));
+            }
+        }
+        let expected_orders: BTreeSet<u64> = (1..=self.objects.len() as u64).collect();
+        if orders != expected_orders {
+            return Err("warning eviction orders must be contiguous from 1".to_owned());
+        }
+        if !self
+            .warning_eviction_order
+            .starts_with("ascending warning_eviction_order")
+        {
+            return Err("manifest must declare ascending warning eviction".to_owned());
+        }
+        if !self.critical_pressure_action.starts_with("stop") {
+            return Err("critical pressure action must be stop".to_owned());
+        }
+        Ok(())
+    }
+}
+
+fn is_lower_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+fn validate_tensor_authority(object: &DeclaredResidentObject) -> Result<(), String> {
+    if object.tensors.is_empty() {
+        return Err(format!(
+            "resident object has no tensors: {}",
+            object.identity
+        ));
+    }
+    let mut names = BTreeSet::new();
+    let mut source_bytes = 0_u64;
+    for tensor in &object.tensors {
+        let identity = (tensor.tensor.as_str(), tensor.row);
+        if tensor.tensor.is_empty() || !names.insert(identity) {
+            return Err(format!("duplicate or empty tensor in {}", object.identity));
+        }
+        if Path::new(&tensor.backing_file).is_absolute()
+            || Path::new(&tensor.backing_file)
+                .components()
+                .any(|component| !matches!(component, std::path::Component::Normal(_)))
+            || !is_lower_sha256(&tensor.backing_file_sha256)
+        {
+            return Err(format!("invalid tensor backing in {}", object.identity));
+        }
+        let item_bytes = match tensor.dtype.as_str() {
+            "F8_E4M3" | "U8" => 1_u64,
+            "BF16" => 2,
+            "F32" => 4,
+            _ => return Err(format!("unsupported resident dtype: {}", tensor.dtype)),
+        };
+        let values = tensor.shape.iter().try_fold(1_u64, |total, dimension| {
+            if *dimension == 0 {
+                return Err(format!("zero tensor dimension in {}", object.identity));
+            }
+            total
+                .checked_mul(*dimension)
+                .ok_or_else(|| format!("tensor shape overflow in {}", object.identity))
+        })?;
+        if values.checked_mul(item_bytes) != Some(tensor.bytes) {
+            return Err(format!("tensor byte mismatch in {}", object.identity));
+        }
+        source_bytes = source_bytes
+            .checked_add(tensor.bytes)
+            .ok_or_else(|| format!("tensor byte sum overflow in {}", object.identity))?;
+    }
+    if source_bytes != object.source_bytes {
+        return Err(format!("tensor bytes do not close in {}", object.identity));
+    }
+    let metadata = object
+        .tensors
+        .iter()
+        .map(|tensor| {
+            let mut row = BTreeMap::new();
+            row.insert(
+                "backing_file".to_owned(),
+                Value::String(tensor.backing_file.clone()),
+            );
+            row.insert(
+                "backing_file_sha256".to_owned(),
+                Value::String(tensor.backing_file_sha256.clone()),
+            );
+            row.insert("bytes".to_owned(), Value::from(tensor.bytes));
+            row.insert("dtype".to_owned(), Value::String(tensor.dtype.clone()));
+            if let Some(index) = tensor.row {
+                row.insert("row".to_owned(), Value::from(index));
+            }
+            row.insert(
+                "shape".to_owned(),
+                Value::Array(tensor.shape.iter().copied().map(Value::from).collect()),
+            );
+            row.insert("tensor".to_owned(), Value::String(tensor.tensor.clone()));
+            row
+        })
+        .collect::<Vec<_>>();
+    let canonical = if metadata.len() == 1 {
+        serde_json::to_vec(&metadata[0]).map_err(|error| error.to_string())?
+    } else {
+        serde_json::to_vec(&metadata).map_err(|error| error.to_string())?
+    };
+    let mut canonical = canonical;
+    canonical.push(b'\n');
+    let actual = format!("{:x}", Sha256::digest(&canonical));
+    if actual != object.tensor_metadata_sha256 {
+        return Err(format!(
+            "tensor metadata hash mismatch for {}",
+            object.identity
+        ));
+    }
+    Ok(())
+}
+
+fn canonical_lifetime(value: &str) -> String {
+    value
+        .replace('_', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ResidentTensorIdentity {
+    pub tensor: String,
+    pub row: Option<u64>,
+}
+
+pub struct PageAlignedResidentObject {
+    mapping: MmapMut,
+    tensor_ranges: BTreeMap<ResidentTensorIdentity, std::ops::Range<usize>>,
+    tensor_metadata_sha256: String,
+}
+
+pub struct OwnedResidentTensorRegion {
+    backing: Arc<PageAlignedResidentObject>,
+    tensor_offset: usize,
+    tensor_bytes: usize,
+}
+
+impl OwnedResidentTensorRegion {
+    pub fn bytes(&self) -> &[u8] {
+        &self.backing.mapping
+    }
+
+    pub fn tensor_offset(&self) -> usize {
+        self.tensor_offset
+    }
+
+    pub fn tensor_bytes(&self) -> usize {
+        self.tensor_bytes
+    }
+}
+
+impl PageAlignedResidentObject {
+    pub fn copy_from_declared<'a, I>(
+        declaration: &DeclaredResidentObject,
+        sources: I,
+    ) -> Result<Self, String>
+    where
+        I: IntoIterator<Item = (ResidentTensorIdentity, &'a [u8])>,
+    {
+        let supplied = sources.into_iter().collect::<BTreeMap<_, _>>();
+        if supplied.len() != declaration.tensors.len() {
+            return Err(format!(
+                "resident source count mismatch for {}",
+                declaration.identity
+            ));
+        }
+        Self::load_from_declared(declaration, |tensor, destination| {
+            let identity = ResidentTensorIdentity {
+                tensor: tensor.tensor.clone(),
+                row: tensor.row,
+            };
+            let source = supplied
+                .get(&identity)
+                .ok_or_else(|| format!("resident source absent: {}", tensor.tensor))?;
+            if source.len() != destination.len() {
+                return Err(format!("resident source byte mismatch: {}", tensor.tensor));
+            }
+            destination.copy_from_slice(source);
+            Ok(())
+        })
+    }
+
+    pub fn load_from_declared<F>(
+        declaration: &DeclaredResidentObject,
+        mut load: F,
+    ) -> Result<Self, String>
+    where
+        F: FnMut(&DeclaredResidentTensor, &mut [u8]) -> Result<(), String>,
+    {
+        validate_tensor_authority(declaration)?;
+        let mapping_len = usize::try_from(declaration.bytes)
+            .map_err(|_| format!("resident allocation is too large: {}", declaration.identity))?;
+        let mut mapping = MmapOptions::new()
+            .len(mapping_len)
+            .map_anon()
+            .map_err(|error| format!("resident mmap for {}: {error}", declaration.identity))?;
+        let mut tensor_ranges = BTreeMap::new();
+        let mut offset = 0_usize;
+        for tensor in &declaration.tensors {
+            let identity = ResidentTensorIdentity {
+                tensor: tensor.tensor.clone(),
+                row: tensor.row,
+            };
+            let end = offset
+                .checked_add(
+                    usize::try_from(tensor.bytes)
+                        .map_err(|_| format!("resident tensor too large: {}", tensor.tensor))?,
+                )
+                .ok_or_else(|| "resident source offset overflow".to_owned())?;
+            if end > mapping.len() {
+                return Err("resident source exceeds declared allocation".to_owned());
+            }
+            load(tensor, &mut mapping[offset..end])?;
+            tensor_ranges.insert(identity, offset..end);
+            offset = end;
+        }
+        if offset as u64 != declaration.source_bytes {
+            return Err("resident copied bytes do not close to source_bytes".to_owned());
+        }
+        if mapping.as_ptr() as usize % declaration.bytes.min(16_384) as usize != 0 {
+            return Err("resident mmap is not host-page aligned".to_owned());
+        }
+        Ok(Self {
+            mapping,
+            tensor_ranges,
+            tensor_metadata_sha256: declaration.tensor_metadata_sha256.clone(),
+        })
+    }
+
+    pub fn load_from_declared_batched<F>(
+        declaration: &DeclaredResidentObject,
+        batch_size: usize,
+        mut load: F,
+    ) -> Result<Self, String>
+    where
+        F: FnMut(&[DeclaredResidentTensor], &mut [&mut [u8]]) -> Result<(), String>,
+    {
+        validate_tensor_authority(declaration)?;
+        if batch_size == 0 || batch_size > 2 {
+            return Err("resident batch size must be one or two".to_owned());
+        }
+        let mapping_len = usize::try_from(declaration.bytes)
+            .map_err(|_| format!("resident allocation is too large: {}", declaration.identity))?;
+        let mut mapping = MmapOptions::new()
+            .len(mapping_len)
+            .map_anon()
+            .map_err(|error| format!("resident mmap for {}: {error}", declaration.identity))?;
+        let mut tensor_ranges = BTreeMap::new();
+        let mut offset = 0_usize;
+        for tensors in declaration.tensors.chunks(batch_size) {
+            let batch_start = offset;
+            let mut batch_end = batch_start;
+            for tensor in tensors {
+                batch_end = batch_end
+                    .checked_add(
+                        usize::try_from(tensor.bytes)
+                            .map_err(|_| format!("resident tensor too large: {}", tensor.tensor))?,
+                    )
+                    .ok_or("resident batched source offset overflow")?;
+            }
+            if batch_end > mapping.len() {
+                return Err("resident batched source exceeds declared allocation".to_owned());
+            }
+            let mut remaining = &mut mapping[batch_start..batch_end];
+            let mut destinations = Vec::with_capacity(tensors.len());
+            for tensor in tensors {
+                let bytes = usize::try_from(tensor.bytes)
+                    .map_err(|_| format!("resident tensor too large: {}", tensor.tensor))?;
+                let (destination, rest) = remaining.split_at_mut(bytes);
+                destinations.push(destination);
+                remaining = rest;
+            }
+            load(tensors, &mut destinations)?;
+            for tensor in tensors {
+                let identity = ResidentTensorIdentity {
+                    tensor: tensor.tensor.clone(),
+                    row: tensor.row,
+                };
+                let end = offset + tensor.bytes as usize;
+                tensor_ranges.insert(identity, offset..end);
+                offset = end;
+            }
+        }
+        if offset as u64 != declaration.source_bytes
+            || mapping.as_ptr() as usize % declaration.bytes.min(16_384) as usize != 0
+        {
+            return Err("resident batched allocation closure or alignment failed".to_owned());
+        }
+        Ok(Self {
+            mapping,
+            tensor_ranges,
+            tensor_metadata_sha256: declaration.tensor_metadata_sha256.clone(),
+        })
+    }
+
+    pub fn resident_bytes(&self) -> u64 {
+        self.mapping.len() as u64
+    }
+
+    pub fn tensor_metadata_sha256(&self) -> &str {
+        &self.tensor_metadata_sha256
+    }
+
+    pub fn tensor_region(
+        &self,
+        identity: &ResidentTensorIdentity,
+    ) -> Result<MappedNoCopyRegion<'_>, String> {
+        let range = self
+            .tensor_ranges
+            .get(identity)
+            .ok_or_else(|| format!("resident tensor absent: {}", identity.tensor))?;
+        Ok(MappedNoCopyRegion {
+            bytes: &self.mapping,
+            tensor_offset: range.start,
+            tensor_bytes: range.len(),
+        })
+    }
+
+    pub fn owned_tensor_region(
+        self: &Arc<Self>,
+        identity: &ResidentTensorIdentity,
+    ) -> Result<OwnedResidentTensorRegion, String> {
+        let range = self
+            .tensor_ranges
+            .get(identity)
+            .ok_or_else(|| format!("resident tensor absent: {}", identity.tensor))?;
+        Ok(OwnedResidentTensorRegion {
+            backing: self.clone(),
+            tensor_offset: range.start,
+            tensor_bytes: range.len(),
+        })
+    }
+}
+
+struct InstalledResident {
+    identity: String,
+    bytes: u64,
+    warning_eviction_order: u64,
+    payload: Box<dyn Any + Send>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PressureEvent {
+    pub mask: u64,
+    pub resident_bytes_before: u64,
+    pub resident_bytes_after: u64,
+    pub evicted_identities: Vec<String>,
+    pub growth_stopped: bool,
+}
+
+struct ResidencyState {
+    installed: BTreeMap<String, InstalledResident>,
+    resident_bytes: u64,
+    growth_stopped: bool,
+    events: Vec<PressureEvent>,
+}
+
+pub struct PressureResidencyController {
+    manifest: DeclaredResidencyManifest,
+    declarations: BTreeMap<String, DeclaredResidentObject>,
+    tensor_objects: BTreeMap<ResidentTensorIdentity, String>,
+    state: Mutex<ResidencyState>,
+}
+
+impl PressureResidencyController {
+    pub fn new(manifest: DeclaredResidencyManifest) -> Result<Arc<Self>, String> {
+        manifest.validate()?;
+        let declarations = manifest
+            .objects
+            .iter()
+            .cloned()
+            .map(|object| (object.identity.clone(), object))
+            .collect();
+        let mut tensor_objects = BTreeMap::new();
+        for object in &manifest.objects {
+            for tensor in &object.tensors {
+                let identity = ResidentTensorIdentity {
+                    tensor: tensor.tensor.clone(),
+                    row: tensor.row,
+                };
+                if tensor_objects
+                    .insert(identity, object.identity.clone())
+                    .is_some()
+                {
+                    return Err("resident tensor is declared by multiple objects".to_owned());
+                }
+            }
+        }
+        Ok(Arc::new(Self {
+            manifest,
+            declarations,
+            tensor_objects,
+            state: Mutex::new(ResidencyState {
+                installed: BTreeMap::new(),
+                resident_bytes: 0,
+                growth_stopped: false,
+                events: Vec::new(),
+            }),
+        }))
+    }
+
+    pub fn manifest(&self) -> &DeclaredResidencyManifest {
+        &self.manifest
+    }
+
+    fn install_payload<T: Send + 'static>(
+        &self,
+        identity: &str,
+        actual_bytes: u64,
+        actual_tensor_metadata_sha256: &str,
+        payload: T,
+    ) -> Result<(), String> {
+        let declaration = self
+            .declarations
+            .get(identity)
+            .ok_or_else(|| format!("resident object is not declared: {identity}"))?;
+        if declaration.bytes != actual_bytes {
+            return Err(format!(
+                "resident byte mismatch for {identity}: declared {}, actual {actual_bytes}",
+                declaration.bytes
+            ));
+        }
+        if declaration.tensor_metadata_sha256 != actual_tensor_metadata_sha256 {
+            return Err(format!("resident metadata hash mismatch for {identity}"));
+        }
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "residency lock poisoned".to_owned())?;
+        if state.growth_stopped {
+            return Err("resident growth stopped by critical memory pressure".to_owned());
+        }
+        if state.installed.contains_key(identity) {
+            return Err(format!("resident object already installed: {identity}"));
+        }
+        let next_bytes = state
+            .resident_bytes
+            .checked_add(actual_bytes)
+            .ok_or_else(|| "resident byte count overflowed".to_owned())?;
+        if next_bytes > self.manifest.selected_bytes {
+            return Err("installed resident bytes exceed declared selected_bytes".to_owned());
+        }
+        state.installed.insert(
+            identity.to_owned(),
+            InstalledResident {
+                identity: identity.to_owned(),
+                bytes: actual_bytes,
+                warning_eviction_order: declaration.warning_eviction_order,
+                payload: Box::new(payload),
+            },
+        );
+        state.resident_bytes = next_bytes;
+        Ok(())
+    }
+
+    pub fn install_page_aligned(
+        &self,
+        identity: &str,
+        payload: PageAlignedResidentObject,
+    ) -> Result<(), String> {
+        let bytes = payload.resident_bytes();
+        let hash = payload.tensor_metadata_sha256().to_owned();
+        self.install_payload(identity, bytes, &hash, Arc::new(payload))
+    }
+
+    pub fn page_aligned(
+        &self,
+        identity: &str,
+    ) -> Result<Option<Arc<PageAlignedResidentObject>>, String> {
+        let object = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| "residency lock poisoned".to_owned())?;
+            let Some(installed) = state.installed.get(identity) else {
+                return Ok(None);
+            };
+            installed
+                .payload
+                .downcast_ref::<Arc<PageAlignedResidentObject>>()
+                .cloned()
+                .ok_or_else(|| format!("resident payload type mismatch for {identity}"))?
+        };
+        Ok(Some(object))
+    }
+
+    pub fn resident_tensor(
+        &self,
+        identity: &ResidentTensorIdentity,
+    ) -> Result<Option<OwnedResidentTensorRegion>, String> {
+        let Some(object_identity) = self.tensor_objects.get(identity) else {
+            return Ok(None);
+        };
+        self.page_aligned(object_identity)?
+            .map(|object| object.owned_tensor_region(identity))
+            .transpose()
+    }
+
+    pub fn resident_bytes(&self) -> Result<u64, String> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| "residency lock poisoned".to_owned())?
+            .resident_bytes)
+    }
+
+    pub fn events(&self) -> Result<Vec<PressureEvent>, String> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| "residency lock poisoned".to_owned())?
+            .events
+            .clone())
+    }
+
+    pub fn growth_stopped(&self) -> Result<bool, String> {
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| "residency lock poisoned".to_owned())?
+            .growth_stopped)
+    }
+
+    pub fn handle_pressure_mask(&self, mask: u64) -> Result<(), String> {
+        let invalid =
+            mask & !(PRESSURE_NORMAL | PRESSURE_WARNING | PRESSURE_CRITICAL) != 0 || mask == 0;
+        // An event outside the documented Darwin mask is itself a safety
+        // failure: evict and stop growth before reporting it.
+        let effective_mask = if invalid { PRESSURE_CRITICAL } else { mask };
+        let must_evict = effective_mask & (PRESSURE_WARNING | PRESSURE_CRITICAL) != 0;
+        let critical = effective_mask & PRESSURE_CRITICAL != 0;
+        let (mut removed, event) = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "residency lock poisoned".to_owned())?;
+            let before = state.resident_bytes;
+            if critical {
+                state.growth_stopped = true;
+            }
+            let mut removed = Vec::new();
+            if must_evict {
+                removed.extend(std::mem::take(&mut state.installed).into_values());
+                removed.sort_by_key(|object| object.warning_eviction_order);
+                state.resident_bytes = 0;
+            }
+            let event = PressureEvent {
+                mask: effective_mask,
+                resident_bytes_before: before,
+                resident_bytes_after: state.resident_bytes,
+                evicted_identities: removed
+                    .iter()
+                    .map(|object| object.identity.clone())
+                    .collect(),
+                growth_stopped: state.growth_stopped,
+            };
+            state.events.push(event.clone());
+            (removed, event)
+        };
+        // Payload destruction is outside the controller lock so destructors cannot deadlock it.
+        for object in removed.drain(..) {
+            debug_assert!(object.bytes > 0);
+            drop(object.payload);
+        }
+        if must_evict {
+            debug_assert_eq!(event.resident_bytes_after, 0);
+        }
+        if invalid {
+            Err(format!("unknown Darwin pressure mask: {mask}"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[repr(C)]
+struct DispatchObject {
+    _private: [u8; 0],
+}
+
+type DispatchSource = *mut DispatchObject;
+type DispatchQueue = *mut DispatchObject;
+
+unsafe extern "C" {
+    static _dispatch_source_type_memorypressure: c_char;
+    fn dispatch_queue_create(label: *const c_char, attributes: *const c_void) -> DispatchQueue;
+    fn dispatch_source_create(
+        source_type: *const c_void,
+        handle: usize,
+        mask: c_ulong,
+        queue: DispatchQueue,
+    ) -> DispatchSource;
+    fn dispatch_set_context(object: DispatchSource, context: *mut c_void);
+    fn dispatch_source_set_event_handler_f(
+        source: DispatchSource,
+        handler: unsafe extern "C" fn(*mut c_void),
+    );
+    fn dispatch_source_get_data(source: DispatchSource) -> c_ulong;
+    fn dispatch_activate(object: DispatchSource);
+    fn dispatch_source_cancel(source: DispatchSource);
+    fn dispatch_sync_f(
+        queue: DispatchQueue,
+        context: *mut c_void,
+        work: unsafe extern "C" fn(*mut c_void),
+    );
+    fn dispatch_release(object: *mut c_void);
+}
+
+struct ObserverContext {
+    controller: Arc<PressureResidencyController>,
+    source: DispatchSource,
+}
+
+pub struct DarwinMemoryPressureObserver {
+    source: DispatchSource,
+    queue: DispatchQueue,
+    context: *mut ObserverContext,
+}
+
+unsafe extern "C" fn pressure_event(context: *mut c_void) {
+    // SAFETY: context remains owned by the observer until after cancel + queue drain.
+    let context = unsafe { &*(context.cast::<ObserverContext>()) };
+    let mask = unsafe { dispatch_source_get_data(context.source) } as u64;
+    let _ = context.controller.handle_pressure_mask(mask);
+}
+
+unsafe extern "C" fn drain_marker(_context: *mut c_void) {}
+
+impl DarwinMemoryPressureObserver {
+    pub fn start(controller: Arc<PressureResidencyController>) -> Result<Self, String> {
+        static QUEUE_LABEL: &[u8] = b"org.prismwing.memory-pressure\0";
+        let queue = unsafe { dispatch_queue_create(QUEUE_LABEL.as_ptr().cast(), std::ptr::null()) };
+        if queue.is_null() {
+            return Err("failed to create Darwin memory-pressure queue".to_owned());
+        }
+        let source_type = std::ptr::addr_of!(_dispatch_source_type_memorypressure).cast();
+        let source = unsafe {
+            dispatch_source_create(
+                source_type,
+                0,
+                (PRESSURE_NORMAL | PRESSURE_WARNING | PRESSURE_CRITICAL) as c_ulong,
+                queue,
+            )
+        };
+        if source.is_null() {
+            return Err("failed to create Darwin memory-pressure dispatch source".to_owned());
+        }
+        let context = Box::into_raw(Box::new(ObserverContext { controller, source }));
+        unsafe {
+            dispatch_set_context(source, context.cast());
+            dispatch_source_set_event_handler_f(source, pressure_event);
+            dispatch_activate(source);
+        }
+        Ok(Self {
+            source,
+            queue,
+            context,
+        })
+    }
+}
+
+impl Drop for DarwinMemoryPressureObserver {
+    fn drop(&mut self) {
+        unsafe {
+            dispatch_source_cancel(self.source);
+            dispatch_sync_f(self.queue, std::ptr::null_mut(), drain_marker);
+            dispatch_release(self.source.cast());
+            dispatch_release(self.queue.cast());
+            drop(Box::from_raw(self.context));
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct PressureResidencySmokeReport {
+    pub schema_version: u32,
+    pub evidence_class: &'static str,
+    pub implementation_commit: String,
+    pub fixture_sha256: String,
+    pub declared_objects: usize,
+    pub declared_bytes: u64,
+    pub observer_started_and_drained: bool,
+    pub normal_event_retained_bytes: u64,
+    pub warning_events: Vec<PressureEvent>,
+    pub warning_payloads_dropped: usize,
+    pub critical_events: Vec<PressureEvent>,
+    pub critical_payloads_dropped: usize,
+    pub critical_regrowth_rejected: bool,
+    pub passed: bool,
+    pub scope: &'static str,
+}
+
+struct SmokePayload {
+    _bytes: Vec<u8>,
+    drops: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl Drop for SmokePayload {
+    fn drop(&mut self) {
+        self.drops.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+pub fn run_pressure_residency_smoke(
+    fixture_path: &Path,
+    output_path: &Path,
+    implementation_commit: &str,
+) -> Result<PressureResidencySmokeReport, String> {
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    if implementation_commit.len() != 40
+        || !implementation_commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("implementation commit must be lowercase 40-hex".to_owned());
+    }
+    let head = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .map_err(|error| format!("git rev-parse HEAD: {error}"))?;
+    if !head.status.success()
+        || String::from_utf8_lossy(&head.stdout).trim() != implementation_commit
+    {
+        return Err("implementation commit does not match live Git HEAD".to_owned());
+    }
+    let status = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .map_err(|error| format!("git status: {error}"))?;
+    if !status.status.success() || !status.stdout.is_empty() {
+        return Err("pressure smoke evidence requires a clean Git worktree".to_owned());
+    }
+    let fixture_bytes =
+        fs::read(fixture_path).map_err(|error| format!("{}: {error}", fixture_path.display()))?;
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let manifest = DeclaredResidencyManifest::from_offline_report(fixture_path)?;
+    if manifest.objects.len() < 2 || manifest.selected_bytes > 1024 * 1024 {
+        return Err("pressure smoke requires a bounded synthetic manifest".to_owned());
+    }
+
+    let install_all = |controller: &PressureResidencyController,
+                       drops: &Arc<std::sync::atomic::AtomicUsize>|
+     -> Result<(), String> {
+        for object in &manifest.objects {
+            controller.install_payload(
+                &object.identity,
+                object.bytes,
+                &object.tensor_metadata_sha256,
+                SmokePayload {
+                    _bytes: vec![0_u8; object.bytes as usize],
+                    drops: drops.clone(),
+                },
+            )?;
+        }
+        Ok(())
+    };
+
+    let warning = PressureResidencyController::new(manifest.clone())?;
+    let warning_drops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    install_all(&warning, &warning_drops)?;
+    {
+        let observer = DarwinMemoryPressureObserver::start(warning.clone())?;
+        drop(observer);
+    }
+    warning.handle_pressure_mask(PRESSURE_NORMAL)?;
+    let normal_event_retained_bytes = warning.resident_bytes()?;
+    warning.handle_pressure_mask(PRESSURE_WARNING)?;
+    let warning_events = warning.events()?;
+    let warning_payloads_dropped = warning_drops.load(std::sync::atomic::Ordering::SeqCst);
+
+    let critical = PressureResidencyController::new(manifest.clone())?;
+    let critical_drops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let first = &manifest.objects[0];
+    critical.install_payload(
+        &first.identity,
+        first.bytes,
+        &first.tensor_metadata_sha256,
+        SmokePayload {
+            _bytes: vec![0_u8; first.bytes as usize],
+            drops: critical_drops.clone(),
+        },
+    )?;
+    critical.handle_pressure_mask(PRESSURE_CRITICAL)?;
+    let second = &manifest.objects[1];
+    let critical_regrowth_rejected = critical
+        .install_payload(
+            &second.identity,
+            second.bytes,
+            &second.tensor_metadata_sha256,
+            SmokePayload {
+                _bytes: vec![0_u8; second.bytes as usize],
+                drops: critical_drops.clone(),
+            },
+        )
+        .is_err();
+    let critical_events = critical.events()?;
+    let critical_payloads_dropped = critical_drops.load(std::sync::atomic::Ordering::SeqCst);
+    let expected_order = {
+        let mut objects = manifest.objects.clone();
+        objects.sort_by_key(|object| object.warning_eviction_order);
+        objects
+            .into_iter()
+            .map(|object| object.identity)
+            .collect::<Vec<_>>()
+    };
+    let passed = normal_event_retained_bytes == manifest.selected_bytes
+        && warning.resident_bytes()? == 0
+        && warning_payloads_dropped == manifest.objects.len()
+        && warning_events.len() == 2
+        && warning_events[1].evicted_identities == expected_order
+        && critical.resident_bytes()? == 0
+        && critical.growth_stopped()?
+        && critical_payloads_dropped == 2
+        && critical_regrowth_rejected;
+    if !passed {
+        return Err("pressure residency smoke gate failed".to_owned());
+    }
+    let report = PressureResidencySmokeReport {
+        schema_version: 1,
+        evidence_class: "pw0207_synthetic_pressure_residency_smoke",
+        implementation_commit: implementation_commit.to_owned(),
+        fixture_sha256,
+        declared_objects: manifest.objects.len(),
+        declared_bytes: manifest.selected_bytes,
+        observer_started_and_drained: true,
+        normal_event_retained_bytes,
+        warning_events,
+        warning_payloads_dropped,
+        critical_events,
+        critical_payloads_dropped,
+        critical_regrowth_rejected,
+        passed,
+        scope: "synthetic injected pressure; validates ownership and callbacks but is not a real 12 GiB cache or OS warning event",
+    };
+    let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output_path)
+        .map_err(|error| format!("{}: {error}", output_path.display()))?;
+    output
+        .write_all(&bytes)
+        .map_err(|error| format!("{}: {error}", output_path.display()))?;
+    Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn manifest() -> DeclaredResidencyManifest {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/pressure_residency_manifest.json");
+        DeclaredResidencyManifest::from_offline_report(&path).unwrap()
+    }
+
+    struct DropCounter(Arc<AtomicUsize>);
+    impl Drop for DropCounter {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn validates_the_canonical_offline_manifest() {
+        let path = Path::new("/Volumes/Elements/mimo-prismwing/evidence/PW-0207/offline-002.json");
+        if path.exists() {
+            let parsed = DeclaredResidencyManifest::from_offline_report(path).unwrap();
+            assert_eq!(parsed.objects.len(), 592);
+            assert_eq!(parsed.selected_bytes, 12_882_755_584);
+        }
+    }
+
+    #[test]
+    fn rejects_non_total_eviction_order() {
+        let mut invalid = manifest();
+        invalid.objects[1].warning_eviction_order = 1;
+        assert!(
+            invalid
+                .validate()
+                .unwrap_err()
+                .contains("duplicate warning eviction")
+        );
+    }
+
+    #[test]
+    fn rejects_tampered_tensor_metadata() {
+        let mut invalid = manifest();
+        invalid.objects[0].tensors[0].shape[0] = 4;
+        assert!(
+            invalid
+                .validate()
+                .unwrap_err()
+                .contains("tensor byte mismatch")
+        );
+    }
+
+    #[test]
+    fn page_aligned_backing_preserves_exact_tensor_bytes_and_is_controller_owned() {
+        let manifest = manifest();
+        let declaration = &manifest.objects[0];
+        let identity = ResidentTensorIdentity {
+            tensor: "fixture.first".to_owned(),
+            row: None,
+        };
+        let source = [7_u8, 8, 9];
+        let backing = PageAlignedResidentObject::copy_from_declared(
+            declaration,
+            [(identity.clone(), source.as_slice())],
+        )
+        .unwrap();
+        let region = backing.tensor_region(&identity).unwrap();
+        assert_eq!(region.bytes.as_ptr() as usize % 16_384, 0);
+        assert_eq!(region.tensor_bytes, 3);
+        assert_eq!(
+            &region.bytes[region.tensor_offset..region.tensor_offset + 3],
+            &source
+        );
+        let controller = PressureResidencyController::new(manifest).unwrap();
+        controller.install_page_aligned("first", backing).unwrap();
+        let observed = controller.page_aligned("first").unwrap();
+        let observed = observed.unwrap();
+        let region = observed.tensor_region(&identity).unwrap();
+        assert_eq!(
+            region.bytes[region.tensor_offset..region.tensor_offset + 3].to_vec(),
+            source
+        );
+        drop(observed);
+        controller.handle_pressure_mask(PRESSURE_WARNING).unwrap();
+        assert!(controller.page_aligned("first").unwrap().is_none());
+    }
+
+    #[test]
+    fn batched_backing_preserves_exact_tensor_bytes_and_batch_contract() {
+        let manifest = manifest();
+        let declaration = &manifest.objects[0];
+        let mut observed_batches = Vec::new();
+        let backing = PageAlignedResidentObject::load_from_declared_batched(
+            declaration,
+            2,
+            |tensors, destinations| {
+                observed_batches.push((tensors.len(), destinations.len()));
+                destinations[0].copy_from_slice(&[7_u8, 8, 9]);
+                Ok(())
+            },
+        )
+        .unwrap();
+        let identity = ResidentTensorIdentity {
+            tensor: "fixture.first".to_owned(),
+            row: None,
+        };
+        let region = backing.tensor_region(&identity).unwrap();
+        assert_eq!(observed_batches, vec![(1, 1)]);
+        assert_eq!(
+            &region.bytes[region.tensor_offset..region.tensor_offset + region.tensor_bytes],
+            &[7, 8, 9]
+        );
+        assert!(
+            PageAlignedResidentObject::load_from_declared_batched(declaration, 3, |_, _| Ok(()))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn warning_immediately_evicts_owned_payloads_in_declared_order() {
+        let controller = PressureResidencyController::new(manifest()).unwrap();
+        let drops = Arc::new(AtomicUsize::new(0));
+        controller
+            .install_payload(
+                "second",
+                16_384,
+                "3db5e4014b59a285333386e92dd6e0c2c901a55453a7510689c21f16ee309858",
+                DropCounter(drops.clone()),
+            )
+            .unwrap();
+        controller
+            .install_payload(
+                "first",
+                16_384,
+                "e1b70269f8bb30e2c331c68fd636262322619dae7fc67a346bb2196373a30cfd",
+                DropCounter(drops.clone()),
+            )
+            .unwrap();
+        controller.handle_pressure_mask(PRESSURE_WARNING).unwrap();
+        assert_eq!(controller.resident_bytes().unwrap(), 0);
+        assert_eq!(drops.load(Ordering::SeqCst), 2);
+        let events = controller.events().unwrap();
+        assert_eq!(events[0].evicted_identities, vec!["first", "second"]);
+        assert!(!events[0].growth_stopped);
+    }
+
+    #[test]
+    fn critical_pressure_evicts_and_permanently_stops_growth() {
+        let controller = PressureResidencyController::new(manifest()).unwrap();
+        controller
+            .install_payload(
+                "first",
+                16_384,
+                "e1b70269f8bb30e2c331c68fd636262322619dae7fc67a346bb2196373a30cfd",
+                vec![0_u8; 16_384],
+            )
+            .unwrap();
+        controller.handle_pressure_mask(PRESSURE_CRITICAL).unwrap();
+        assert!(controller.growth_stopped().unwrap());
+        assert!(
+            controller
+                .install_payload(
+                    "second",
+                    16_384,
+                    "3db5e4014b59a285333386e92dd6e0c2c901a55453a7510689c21f16ee309858",
+                    vec![0_u8; 16_384],
+                )
+                .unwrap_err()
+                .contains("stopped")
+        );
+    }
+
+    #[test]
+    fn normal_pressure_retains_payloads_and_unknown_pressure_fails_closed() {
+        let controller = PressureResidencyController::new(manifest()).unwrap();
+        controller
+            .install_payload(
+                "first",
+                16_384,
+                "e1b70269f8bb30e2c331c68fd636262322619dae7fc67a346bb2196373a30cfd",
+                vec![0_u8; 16_384],
+            )
+            .unwrap();
+        controller.handle_pressure_mask(PRESSURE_NORMAL).unwrap();
+        assert_eq!(controller.resident_bytes().unwrap(), 16_384);
+        assert!(controller.handle_pressure_mask(8).is_err());
+        assert_eq!(controller.resident_bytes().unwrap(), 0);
+        assert!(controller.growth_stopped().unwrap());
+    }
+
+    #[test]
+    fn live_darwin_observer_can_start_and_drain() {
+        let controller = PressureResidencyController::new(manifest()).unwrap();
+        drop(DarwinMemoryPressureObserver::start(controller).unwrap());
+    }
+}

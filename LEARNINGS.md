@@ -4021,7 +4021,7 @@ only 14.313% of the otherwise-free INT4 requirement and its measured
 post-prefill diagnostic is 0.009733 accepted token/s. PW-0206 is complete;
 carry native MTP to PW-0208 and the small Jacobi leverage into later combined
 economics without erasing either the gain or its limit.
-PW-0211 cheaply narrows executable weight compression using 20.83 MB of
+PW-0300 cheaply narrows executable weight compression using 20.83 MB of
 sequential pinned range reads rather than full shards. Across 560 real
 128-by-128 FP8 blocks per pass, every block uses 182–239 byte values; no block
 fits even an exact 7-bit local palette. Median symbol entropy is 6.4844
@@ -4037,7 +4037,7 @@ Those are weight-only results, not routed-output or endpoint fidelity. Require
 a named full-expert routed-output falsification that beats PW-0148's affine
 six-bit control before implementing a packed bank or Metal decoder.
 
-PW-0212 rejects that tile-local 64-value FP8-subset branch before routed-output
+PW-0301 rejects that tile-local 64-value FP8-subset branch before routed-output
 acquisition. Across three complete early/middle/deep experts it beats the
 same-group affine six-bit RTN control in only six of nine projections. The
 middle expert improves substantially, but the early expert's gate/up errors
@@ -4048,7 +4048,7 @@ aggregate samples for uniform expert behavior. Preserve covariance-trained
 row transforms, inner-product sketches, activation-conditioned forms, and
 whole-expert reparameterization as distinct untested branches.
 
-PW-0213 rejects three row-query representations at the frozen early-expert
+PW-0302 rejects three row-query representations at the frozen early-expert
 gate projection before unnecessary nine-projection expansion. On 56 real
 PW-0116 validation queries, affine6 RTN reaches 0.6362% dot-product relative
 L2. Five-seed TurboQuant-MSE6 is 0.7300–0.8370% and structured PROD6 is
@@ -4059,7 +4059,7 @@ neural projection, and do not expand these row abstractions. Preserve
 whole-expert SwiGLU reparameterization as a structurally separate untested
 branch.
 
-PW-0214 rejects continuous RMS-based joint up/down neuron balancing at its
+PW-0303 rejects continuous RMS-based joint up/down neuron balancing at its
 pre-quantization source-semantics gate. Exact PyTorch dynamic-FP8/BF16
 execution matches the captured early expert at 0.0291% train and 0.0096%
 validation relative L2, and alpha zero is an exact identity. Alpha 0.1 already
@@ -4071,7 +4071,7 @@ Do not search this continuous family past the failed gate. A separately frozen
 power-of-two scale family would be a distinct operationally aligned mechanism,
 not evidence that this result should be relaxed.
 
-PW-0215 rejects the concrete recursive-polar row representation at equal
+PW-0304 rejects the concrete recursive-polar row representation at equal
 source traffic. A fixed signed-Hadamard transform plus shared per-level 6-bit
 angle codebooks occupies 75.0671% of source-FP8 bytes, but reaches 0.8312%
 held-out real-query projection error versus affine6's 0.5945%. Its direct tree
@@ -4081,3 +4081,350 @@ products, but changing coordinates does not make the direct inner-product
 program cheap automatically. Do not build this polar6 decoder or expand it to
 another projection; a future directional branch must change both its learned
 representation and its execution-cost argument.
+
+PW-0207's corrected first-transaction route trace closes the missing identity
+gap in the high-residency hypothesis. Its report hashes to
+`e5c0b93d039ec8d8c6b1f7a0087ec3991ba55df2a1cee7d388f08d6e668d830b`
+and exactly reproduces PW-0205 run 009 transaction zero while retaining every
+proposal and verifier expert identity.
+
+The byte-accurate offline falsifier hashes to
+`ee9f71b83ca427bd1a98d166ada77c778c53d81157dfa6ccb071afada54e73eb`.
+A legal 12,878,375,808-byte static set predicts only 1.791485× fewer physical
+reads, so the 4× byte hypothesis fails. The same set predicts 3.262043× less
+attributed acquisition wall from a positive two-phase measured solve, passing
+the alternative 2× continuation gate. Authorize pressure-safe implementation;
+do not activate the 13 GiB ceiling or claim TPS until warning eviction,
+critical stop, exact transaction parity, and real interleaved speedup pass.
+
+The original 12,878,375,808-byte PW-0207 total is exact source data but is
+superseded as a physical allocation constant. Page-aligned ownership on this
+16 KiB host requires 12,882,755,584 bytes for the same 592 objects, leaving
+2,146,304 bytes in the 12 GiB declaration. The corrected clean manifest hashes
+to `1dedbef7c79aa23835d194f52760a1f2c65dcca1481bd6df2d5602615c3fdad6`.
+Because the selected objects are unchanged, the 1.791485× byte and 3.262043×
+wall predictions remain unchanged. Use the corrected allocation total for the
+resident implementation and retain the older number only for source-byte
+provenance.
+
+PW-0207 now has an executable pressure-safety substrate, but not yet a
+high-residency runtime. Clean commit
+`c10cc1e0df23efc69e3e66521e7b57a445bf13d4` validates the 592-object authority,
+owns payload lifetime, drains a dedicated Darwin pressure queue, evicts warning
+payloads in the declared total order, and permanently rejects growth after
+critical pressure. The corrected synthetic report hashes to
+`199107b541670a915fba5a17b5ef9cc2c139309e1e81e476692161161867e6a2`.
+It changes the old belief that no pressure callback exists, but it does not
+change the 8 GiB default: injected events over an 8-byte fixture do not prove
+real OS pressure response, 12 GiB safety, transaction acceleration, or TPS.
+
+The preceding synthetic artifact hashes to
+`758d895c28b253fcc1b0567de53d9cdb4812eef183eac9d675c72a3bcdbf6e52`
+and is rejected because its supplied implementation commit did not match live
+HEAD. Preserve it as the reason the evidence command now authenticates exact
+HEAD and requires a clean worktree.
+
+PW-0207's page-aligned authority now reaches real checkpoint bytes for one
+complete expert bundle. Clean report
+`84ed0150b8f20868b4ae4fa143ddf6e7536f08a00e96b2c1f4215a9629f7d942`
+copies all six `expert:14:162` tensors exactly from 25,171,968 source bytes into
+25,182,208 declared resident bytes, then an injected warning evicts the owned
+mapping to zero. The pilot stays far below the old ceiling with 140,266,368
+bytes maximum physical footprint, 70% minimum free memory, and no swap or
+throttling growth. Promote the backing/loader mechanism to decoder integration;
+do not infer full-set safety, real pressure response, transaction speedup, or
+TPS from a one-object copy pilot.
+
+PW-0207's first decoder-integrated resident object preserves exact execution
+and a small positive signal without satisfying promotion. Clean commit
+`53483cd1171cb4f4076d83d6310764bfdf4b813b` substitutes all six tensors of
+`expert:14:162` for eight transaction accesses, accounting 201,375,744
+resident source bytes, and evicts the 25,182,208-byte mapping to zero on
+warning. In the A–B–A sequence, resident transaction times are 189,434.333 and
+186,885.288 ms around a 189,201.042 ms mapped control; their 188,159.811 ms
+median is 0.550331% faster. Preserve the gain and the first candidate's 0.123%
+slowdown together: this is a working exact substitution mechanism worth
+bounded scaling, not repeatable 2x evidence or permission to raise the 8 GiB
+default.
+
+PW-0207 bounded scaling preserves another small gain and closes the naive 3 GiB
+growth path under current loading. A 3 GiB ranked request stopped at the eighth
+object on the unchanged 4 GiB post-phase footprint gate; do not weaken it. The
+seven-object 1,652,555,776-byte prefix passes exact execution and pressure-safe
+eviction. Its A–B–A candidate median is 186,182.679 ms versus 188,266.418 ms
+mapped, improving committed transaction TPS 1.106803% from 0.037181 to
+0.037597, but the second candidate is individually 0.480% slower. Preserve the
+median gain without promotion. The resident ledger also exposes a concrete
+remaining gap: proposal-side one-row LM-head execution bypasses residency, so
+only 4,471,128,064 of 13,220,446,208 predicted bytes are substituted. Repair
+that causal path before judging the ranked set, and use a non-double-resident
+loader before attempting more than seven objects.
+
+Closing the proposal LM-head gap produces a much larger gain than residency.
+Clean commit `677217ac17bc23a3de2975c9e98b6dea3c491b86` moves the seven
+one-row proposal LM-head calls onto the existing exact wide BF16 Metal path.
+Mapped transaction median falls from 188,266.418 to 170,647.894 ms, a repeatable
+9.358294% wall reduction, and committed TPS rises 10.324490% from 0.037181 to
+0.041020. Preserve and promote this lower milestone even though it is far from
+50 TPS.
+
+The repaired seven-object residency test supersedes its partial-path speed
+signal for promotion. It substitutes the full exact 13,220,446,208 bytes, but
+two resident transactions have a 171,186.580 ms median versus 170,647.894 ms
+mapped: 0.315672% slower and 0.314678% lower TPS. Reject the seven-object cache
+as a performance default, retain its correctness/pressure machinery, and keep
+only direct-to-owned loading open as the route to test a meaningfully larger
+prefix without weakening the 8 GiB/4 GiB limits.
+
+Direct-to-owned loading reopens bounded residency and preserves a repeatable
+gain. Clean commit `54ab1f0c1db68b3b925b076b9e4c54bf88fd1150` admits 30
+ranked objects and 3,196,059,648 bytes under the unchanged 4 GiB release gate,
+then substitutes exactly 25,568,477,184 transaction bytes. Candidate median
+163,955.518 ms versus 170,329.600 ms mapped improves wall 3.742205% and
+committed TPS 3.887690%, from 0.041097 to 0.042695. Promote the loader and keep
+the lower milestone; do not promote endpoint residency because the 2x gate
+still fails. Peak RSS stays at 3,529,293,824 bytes with 60% free memory and no
+swap/throttling, leaving only a narrow final larger-prefix falsifier—not a path
+to weaken limits or allocate the 12 GiB offline set.
+
+PW-0207 closes with a larger repeatable lower milestone, not its 2x target.
+The final 42-object, 4,001,366,016-byte prefix substitutes exactly
+32,010,928,128 bytes per transaction. Candidate median 159,978.184 ms versus
+169,277.593 ms mapped improves wall 5.493585% and committed TPS 5.812923%, from
+0.041352 to 0.043756. Maximum install footprint 4,146,854,912 bytes stays under
+the unchanged 4 GiB release gate; maximum peak 4,330,487,808 stays under 8 GiB,
+with 57% free memory and no swap/throttling. Preserve and carry this conditional
+gain forward, but close the high-residency branch: it misses the predeclared 2x
+gate, cannot authorize endpoint promotion, and has no meaningful remaining
+prefix within the required 256 MiB reserve.
+
+PW-0208's corrected 32-window corpus kills the native-MTP cost-aware
+expert-byte hypothesis more strongly than an observed draft failure. The
+complete-history manifest hashes to
+`a9bb6bd26bf048a2144133cc0a96023a8af112eae58122b666915149f2993a7b`.
+Corrected Jacobi commits `A=213` across 53,251 exact layer/expert units. Even an
+omniscient q=4 proposer reaches only 0.721493x its accepted-token/unique-byte
+rate; perfect q=8 and a per-window q oracle reach at most 1.051643x. The clean
+upper-bound report hashes to
+`3aaca59be0e000cac77d5a36b8e3b9d2e2fc5bbb02792c8846dae3da16747f8c`.
+Reject PW-0208's 2x cost gate without spending compute on real proposals.
+
+Do not supersede PW-0206's corrected native-MTP first-token recovery or infer
+that native MTP has no value. PW-0208 bounds verifier expert bytes, not the
+roughly 140-second same-model proposal wall. Preserve native MTP as PW-0211's
+separately named proposal-latency lower milestone; any repeatable positive
+complete TPS gain remains valuable even though the 2x and 50-TPS gates fail.
+
+AN-0001 reviews three independent project analyses and adopts their strongest
+research rule: optimize only a crossing on the measured cold critical cut,
+price its impossible-best enclosing-path effect before implementation, and
+require a fixture on which the candidate causal explanations disagree. This
+makes PW-0210 conditional: applying its full 1.5x hypothesis to PW-0111's
+8.383 ms GPU interval predicts only a 1.026x cold-layer gain. PW-0211 remains
+first because it can delete seven measured same-model proposal transactions;
+PW-0212 then tests bounded corrected-route predictive prefetch before runtime
+work. Missing 50 TPS does not erase any smaller repeatable complete-path gain.
+
+The same audit propagates PW-0205/PW-0206 farther. PW-0112's route trace and
+PW-0116's activation corpus explicitly use the old QKV implementation, so
+their `U`, cache, route-persistence, activation-weighted fidelity, and
+PW-0186/PW-0187 proposal-economics values remain authentic only for that named
+old layout. Layout-independent byte, device, hardware, and kernel results
+survive. PW-0208 provides corrected text route/byte authority for 32 balanced
+windows, not the multimodal, long-context, or final representation holdout.
+Do not close corrected-layout representation or prefetch branches by silently
+importing PW-0112/PW-0116 values.
+
+PW-0211's clean last-row native-MTP reference reproduces PW-0206 more strongly
+than token agreement: all 152,576 logits are bit-identical to the full-row
+oracle. On the first ordinary, code, multilingual, and rare-route PW-0208
+windows, newly committed q4 endpoint lengths are `[3,3,1,3]`. The verification
+helper's full-convergence prefix includes the already-known anchor and must not
+be used directly as endpoint `A`. The first, second, and fourth native blocks
+match every available three-token draft position; multilingual rejects
+immediately and commits one verifier correction token. Complete CPU-reference walls are only
+8.70--10.44 seconds versus 138.83--157.26 seconds for the seven same-model q8
+proposal steps, but they include authority work and are not endpoint TPS.
+Promote the branch to one real q4 verifier timing before spending all 32 CPU
+references. Preserve the three positive slices even if the combined schedule
+later loses.
+
+PW-0211's real q4 replay tightens the ordinary model without extrapolating
+verifier width. At the exact transaction-one cache state, the same native block
+and target posterior converge over a four-token prefix including the known
+anchor, so endpoint accounting is `A=3`, with `U=5.377660` and 26.286 seconds of
+real verifier wall. Composed with the 10.444-second CPU native reference, the
+diagnostic candidate is 0.081676 accepted TPS versus 0.039288 for the matched
+q8 control, or about 2.079x. Reject the earlier 0.108902-TPS/2.771859x
+expression because it counted the anchor as newly accepted output. This
+authorizes live-cache integration; it is not yet accepted TPS because the two
+walls came from separate processes.
+
+PW-0211's first live-cache native-MTP integration preserves the corrected
+positive result end to end. It emits exactly seven verifier-authorized tokens;
+transaction one commits three tokens in 35.571 seconds, or 0.084338 TPS,
+versus 0.039288 TPS for the matched q8 control, a measured 2.146654x gain.
+Complete request wall is 332.965 seconds versus 447.480 seconds for the
+same-output q4 control, a 1.343927x gain including prefill. This is one
+candidate/control observation, not a repeatable default promotion. Preserve it
+as a positive lower milestone and run an interleaved matched control plus a
+second candidate before deciding promotion.
+
+PW-0211's cold candidate-control-candidate sequence promotes that ordinary-text
+result to a conditional lower milestone. The two native q4 complete walls are
+332.965 and 328.675 seconds (1.297% apart), for median 0.021160 accepted TPS;
+the interleaved q8 same-output control is 616.664 seconds and 0.011351 TPS. The
+repeatable complete-request gain is 1.864046x. Post-prefill wall improves
+4.847533x. Transaction-one accepted TPS improves 2.250573x after correctly
+accounting for native `A=3` versus control `A=7`; do not report the 5.251x wall
+ratio as acceptance-normalized TPS. All runs emit identical seven tokens, and
+swap growth, throttling, and protected-service loss remain zero. This changes
+the ordinary Apple-M1 performance belief and throughput constants, but not the
+general default: other categories, contexts, and holdouts still require live
+full-path evidence.
+
+AN-0002 audits the owner-supplied DS4 review against pinned commit
+`84cc882352757baf628a1776badf7cc54d584e28`. DS4 genuinely strengthens the
+shape prior for PW-0210: it fuses routed gate/up reduction through SwiGLU and
+uses an F16 materialized intermediate when the down consumer's MMA path loads
+half. It does not change PW-0210's 1.026x impossible-best Prismwing cold-layer
+bound, so execution remains conditional. DS4 issue 437's page-aligned
+`F_NOCACHE`, disabled automatic read-ahead, owned double-buffer, and trailing-
+drop result is a measured prototype rather than mainline authority; preserve it
+as PW-0213's exact transport falsifier. Confidence-gated speculation motivates
+PW-0214's corrected-route cost-adaptive `q` oracle without importing DS4
+thresholds. A local audit also closes the suspected accepted-token replay bug:
+Prismwing already retains verifier-produced K/V and final-hidden rows and only
+truncates rejected suffix state. The review changes research branches, not a
+throughput constant or runtime default.
+
+PW-0212 closes corrected-route runtime prefetch under its frozen physical gate
+without erasing the route signal. Across 16 held-out PW-0208 text windows, all
+6,016 events discriminate among controls. Last-route recall is 38.370595% and
+calibration-frozen category-frequency recall is 32.415642%, but neither is a
+causal hidden-latency result in the current batched verifier. The only
+one-layer-ahead control recalls 2.944232%. More decisively, an impossible
+future oracle constrained to a 25% traffic tax can hide only 1.616833% of
+complete transaction wall, versus the predeclared 10% gate (7.988956% of
+verifier wall). Report
+`2365033116e194b6bac34d2017f644c3499c5fb92a3727f7db9162dce318587f`
+therefore rejects runtime implementation for this endpoint. Retain the logical
+signals for residency and changed-cut research, and keep PW-0213 open because
+uncached transport changes how demanded bytes are acquired rather than
+depending on prediction.
+
+PW-0213's isolated raw-checkpoint transport passes its file-backed gate while
+failing its acquisition-speed gate. Cacheable `pread` leaves every probed
+source page resident; page-aligned `F_NOCACHE` with `F_RDAHEAD=0` leaves none,
+a repeatable 100% reduction at 1.003905x full-layer read amplification. The
+two-buffer uncached layer median is 72.191416 ms, 4.523759% faster than the
+75.611917 ms sequential uncached path but 2.808891% slower than the 70.219040
+ms cacheable control. The one-expert two-buffer result is only 0.241140%
+slower than control. Preserve the recovered overlap and control regression
+together. This authorizes one bounded verifier pilot based on page-cache
+topology, not a speed claim; trailing drop is causally redundant because
+`mincore` already sees zero source pages after uncached reads. Raw report
+`51b2898314ff42ecca0eb7e29802f23346a329244126cd566dea80da9171f17f`
+and analysis
+`764fba9b12d8bacc5d4d2cd7f1fc57a42323a94bc90717bc41fa948842803fe3`
+carry no endpoint TPS.
+
+PW-0213's bounded verifier pilot closes runtime promotion without discarding
+its smaller advances. Cacheable-control / uncached-candidate / cacheable-
+control runs emit identical eight-token output and retain seven proposal rows.
+The page-widened two-buffer install improves 7.823701%, from a 10.069563 ms
+control median to 9.281750 ms. Complete accepted TPS appears 0.621249% higher,
+but the entire advantage arises in prefill before the candidate is installed.
+From the causal install boundary onward, accepted TPS regresses 0.570865%
+(196,155.228 versus 195,035.447 ms); proposal wall regresses 1.007388% while
+verification wall improves 1.145070%. Reject the runtime transport and never
+attribute the prefill-only gain to it. Preserve the 100% source-page residency
+reduction, 4.523759% two-buffer recovery, and install gain for a future changed
+critical cut. Validated verifier analysis hashes to
+`e4a3d0696705cc598e16b1568659a28c19a8fe0f6124155e00e882420595b6b7`.
+
+PW-0214 closes cost-adaptive q=2..8 runtime policy under its frozen modeled
+gate while preserving useful slice signals. Exact acceptance and corrected
+route unions over 16 held-out text windows show that a category-calibrated
+policy gains 0.933803% aggregate modeled TPS and 3.268060% on code, but loses
+2.869413% on ordinary and leaves multilingual and rare-route unchanged. The
+previous-window control loses 0.501762%. An omniscient aggregate-ratio oracle,
+optimized over every q combination, gains only 4.681640%—below the required
+5% even before causality. Therefore no predictor fitted to this frozen model
+can pass implementation. Preserve the gains and reopen only if measured
+q-specific walls or the proposer critical cut change. Report
+`0a7204c271c60cf7f362cdbf5512cc207b4d7ddc97716d0e4e9c0aeea852cc8e`
+makes no endpoint TPS claim and does not supersede PW-0211.
+
+PW-0209 closes the current-storage layer-major prefill branch without erasing
+its incremental gain. A real layer-43 context-128 transaction covers 225
+unique experts and maximum width 26. It exposed a host bug that copied only 24
+bytes of route-weight and position vectors; after fixing the buffer lengths,
+the width-128 output is byte-identical to sixteen width-eight controls. Both
+paths retain the known L3 source-BLAS association gap and fail the unchanged
+absolute gate at `0.0007579843` relative L2 and `0.015625` maximum error, so no
+correctness or TTFT promotion occurs. Cold-requested A-control-A runs improve
+complete layer wall from 4,738.247 ms to 4,079.447 and 3,976.484 ms
+(1.161492x--1.191567x) while reducing logical source work 3.804589x; physical
+reads remain about 5.670 GB for every trial. The 3x continuation gate and the
+15-second TTFT premise fail. Preserve the kernels, exact control equivalence,
+route-buffer repair, and 16.1%--19.2% slice gain for composition at a changed
+critical cut. Report
+`9a0933a132a795ed6a4a6873e90652912969a50945d675f032e75afbf499f316`
+makes no endpoint TPS claim.
+
+PW-0210 executes the DS4-shaped packed gate/up-to-SwiGLU falsifier only after
+PW-0209 supplies its named width-128 premise. The fused Metal kernel is
+byte-exact against the unfused chain at widths 2, 9, 26, and 32 and on the real
+layer-43 context-128 authority. It eliminates 33,554,432 bytes of F32
+intermediate writes and reads, but cold candidate-control-candidate complete
+walls are 4,133.170, 3,962.599, and 3,962.030 ms. The repeat is effectively
+neutral and the first candidate regresses; all trials still read about 5.670
+GB physically. Reject the 1.5x envelope hypothesis and stop tile tuning under
+this storage cut. Preserve the exact precision-crossing fixture and opt-in
+kernel for a changed embodiment, without burdening default pipeline
+initialization. Report
+`68cfa9604185be26b9c1f86fcf7773c942213e9ebf0169bc2a75a8da9cb29abd`
+accepts zero tokens and makes no endpoint TPS claim.
+
+PW-0215 expands PW-0211's conditional native-MTP lower milestone to a complete
+code path. Cold candidate-control-candidate processes emit identical seven-token
+output, and both candidates accept three draft tokens in each of two q4
+transactions. Candidate complete walls are 403,286.409 and 413,746.414 ms
+around a 530,360.080-ms q8 control. The 408,516.411-ms median therefore improves
+complete accepted TPS `1.298259x`; post-prefill wall improves `2.633252x`.
+Logical source traffic falls 15.06% and process reads fall 16.18%, with zero
+swap growth or throttling. Preserve this incremental win even though it is far
+below the final target. General promotion remains withheld: multilingual,
+rare-route, longer-context, and untouched holdouts are not yet complete. The
+three report hashes are
+`4237717083f8ddb5b1e9d0e2ecac3de8440f56c363f4abd44a3da1f9ea71e2cf`,
+`49e5140a2aa2250b45385bea78d19285637293ee222007514fbc55e90e03020e`,
+and `84610209c4022626c0c9dba607974c7ddffbce54bb7a03ba3cbc3f16e5b6aa5a`.
+
+PW-0215's multilingual complete path also passes and corrects the isolated
+pilot's pessimistic acceptance prior. Both candidates accept three tokens in
+each of two q4 transactions and reproduce the control's exact seven-token
+Chinese prefix. Candidate walls are 366,098.966 and 365,856.195 ms around a
+471,685.581-ms q8 control: median complete TPS improves `1.288837x`, and
+post-prefill wall improves `2.535071x`. Logical traffic falls 16.70% and
+process reads fall 18.00%, again with zero swap growth or throttling. This is a
+second conditional slice win, not general promotion; rare-route, longer context,
+and untouched holdouts remain. Report hashes are
+`c8c4b2ac938fbf8820bb13ef12c2f6e0b5ae7e141e62ebb04cbc4e8c3330a48e`,
+`6a8632c40732b8a6150967b5ecf73cc5f95587a386f4dc6166588fafe66df83f`,
+and `1bdddc7f2bc17df1731a76394b9d0c29837bf2956d1a1ddf61a4e9c73eeb8710`.
+
+PW-0215's rare-route complete path preserves the smallest but still repeatable
+category gain. Candidate walls are 659,133.890 and 666,689.490 ms around a
+778,351.093-ms q8 control. Median complete TPS improves `1.174140x`, and
+post-prefill wall improves `2.457567x`; shared prefill is 122 tokens. Logical
+traffic falls 9.77% and process reads fall 10.49%, with exact output and zero
+swap growth or throttling. Together with PW-0211 ordinary and PW-0215 code and
+multilingual, all four frozen text categories now show repeatable positive
+complete-path gains. Do not turn category breadth into general promotion: the
+prompts were visible during mechanism development, output is only seven tokens,
+and longer-context untouched holdouts remain required. Rare-route report hashes
+are `264d0ccec4f9f2de286573a3c77db79587ddd797d6717ae78057d943a3ade272`,
+`26e98f57bd50f4d0ae3e862388612766bcbabead9c1affe062440ae0b86296f5`,
+and `889b7022770c5c958354fdcd137edfc647508dc198e3757b6ea820fce7f4d4d8`.

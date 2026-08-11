@@ -1,35 +1,85 @@
 use super::text_endpoint::dynamic_fp8_activations;
 use super::{MappedNoCopyRegion, decode_f8_e4m3fn};
+use crate::pressure_residency::OwnedResidentTensorRegion;
 use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize, NSRange};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
 const BATCH: usize = 8;
+const LAYER_MAJOR_ROWS: usize = 128;
+const MAX_EXPERT_ROWS: usize = 32;
 const HIDDEN: usize = 4096;
 const INTERMEDIATE: usize = 2048;
 const PROJECTION_LANES: u64 = 64;
 
-fn active_rows(values: &[f32], columns: usize) -> Result<usize, String> {
+fn active_rows(values: &[f32], columns: usize, maximum: usize) -> Result<usize, String> {
     if columns == 0 || values.is_empty() || !values.len().is_multiple_of(columns) {
         return Err("wide row shape mismatch".to_owned());
     }
     let rows = values.len() / columns;
-    if !(1..=BATCH).contains(&rows) {
-        return Err("wide row count must be between one and eight".to_owned());
+    if !(1..=maximum).contains(&rows) {
+        return Err(format!("wide row count must be between one and {maximum}"));
     }
     Ok(rows)
 }
 
-fn padded_rows(values: &[f32], rows: usize, columns: usize) -> Vec<f32> {
-    let mut padded = vec![0.0_f32; BATCH * columns];
+fn padded_rows(values: &[f32], rows: usize, columns: usize, capacity: usize) -> Vec<f32> {
+    let mut padded = vec![0.0_f32; capacity * columns];
     padded[..rows * columns].copy_from_slice(values);
     padded
 }
 
+fn route_buffer_bytes<T>(values: &[T]) -> u64 {
+    std::mem::size_of_val(values) as u64
+}
+
+pub(crate) enum WideSourceRegion<'a> {
+    Mapped(MappedNoCopyRegion<'a>),
+    Resident(OwnedResidentTensorRegion),
+}
+
+impl WideSourceRegion<'_> {
+    pub(crate) fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Mapped(region) => region.bytes,
+            Self::Resident(region) => region.bytes(),
+        }
+    }
+
+    pub(crate) fn tensor_offset(&self) -> usize {
+        match self {
+            Self::Mapped(region) => region.tensor_offset,
+            Self::Resident(region) => region.tensor_offset(),
+        }
+    }
+
+    pub(crate) fn tensor_bytes(&self) -> usize {
+        match self {
+            Self::Mapped(region) => region.tensor_bytes,
+            Self::Resident(region) => region.tensor_bytes(),
+        }
+    }
+
+    pub(crate) fn mapped_bytes(&self) -> u64 {
+        match self {
+            Self::Mapped(region) => region.bytes.len() as u64,
+            Self::Resident(_) => 0,
+        }
+    }
+
+    pub(crate) fn resident_bytes(&self) -> u64 {
+        match self {
+            Self::Mapped(_) => 0,
+            Self::Resident(region) => region.tensor_bytes() as u64,
+        }
+    }
+}
+
 pub(crate) struct WideProjectionBinding<'a> {
-    pub(crate) weight: MappedNoCopyRegion<'a>,
-    pub(crate) scale: MappedNoCopyRegion<'a>,
+    pub(crate) weight: WideSourceRegion<'a>,
+    pub(crate) scale: WideSourceRegion<'a>,
     pub(crate) copy_weight: bool,
     pub(crate) rows: usize,
     pub(crate) columns: usize,
@@ -50,18 +100,21 @@ pub(crate) struct WideMoeExecution {
     pub(crate) unique_experts: usize,
     pub(crate) expert_rows: usize,
     pub(crate) mapped_source_bytes: u64,
+    pub(crate) resident_source_bytes: u64,
 }
 
 pub(crate) struct WideLinearExecution {
     pub(crate) output: Vec<f32>,
     pub(crate) wall_ms: f64,
     pub(crate) mapped_source_bytes: u64,
+    pub(crate) resident_source_bytes: u64,
 }
 
 pub(crate) struct WideMetalMoeRuntime {
     device: metal::Device,
     queue: metal::CommandQueue,
     blockscaled_projection_pipelines: Vec<metal::ComputePipelineState>,
+    fused_gate_up_swiglu_pipelines: Option<Vec<metal::ComputePipelineState>>,
     quantized_dynamic_pipeline: metal::ComputePipelineState,
     swiglu_pipeline: metal::ComputePipelineState,
     round_pipeline: metal::ComputePipelineState,
@@ -110,6 +163,14 @@ struct ExpertBuffers {
 
 impl WideMetalMoeRuntime {
     pub(crate) fn compile(kernel_path: &Path) -> Result<Self, String> {
+        Self::compile_configured(kernel_path, false)
+    }
+
+    pub(crate) fn compile_with_fused_gate_up(kernel_path: &Path) -> Result<Self, String> {
+        Self::compile_configured(kernel_path, true)
+    }
+
+    fn compile_configured(kernel_path: &Path, fused_gate_up: bool) -> Result<Self, String> {
         let source = fs::read_to_string(kernel_path)
             .map_err(|error| format!("{}: {error}", kernel_path.display()))?;
         let device = Device::system_default().ok_or("no Metal device is available")?;
@@ -130,9 +191,16 @@ impl WideMetalMoeRuntime {
                 .new_compute_pipeline_state_with_function(&function)
                 .map_err(|error| format!("wide MoE pipeline {name}: {error}"))
         };
-        let blockscaled_projection_pipelines = (1..=BATCH)
+        let blockscaled_projection_pipelines = (1..=MAX_EXPERT_ROWS)
             .map(|width| pipeline(&format!("block_fp8_gemm{width}_sglang_blockscaled")))
             .collect::<Result<Vec<_>, _>>()?;
+        let fused_gate_up_swiglu_pipelines = fused_gate_up
+            .then(|| {
+                (1..=MAX_EXPERT_ROWS)
+                    .map(|width| pipeline(&format!("fused_block_fp8_gate_up_swiglu{width}")))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?;
         let quantized_dynamic_pipeline = pipeline("dynamic_fp8_quantized_group128")?;
         let swiglu_pipeline = pipeline("bf16_staged_swiglu")?;
         let round_pipeline = pipeline("bf16_round_in_place")?;
@@ -156,6 +224,7 @@ impl WideMetalMoeRuntime {
             device,
             queue,
             blockscaled_projection_pipelines,
+            fused_gate_up_swiglu_pipelines,
             quantized_dynamic_pipeline,
             swiglu_pipeline,
             round_pipeline,
@@ -175,31 +244,31 @@ impl WideMetalMoeRuntime {
         binding: &WideProjectionBinding<'_>,
         full_qkv_layout: bool,
     ) -> Result<WideLinearExecution, String> {
-        let active_rows = active_rows(input, binding.columns)?;
+        let active_rows = active_rows(input, binding.columns, BATCH)?;
         if input.iter().any(|value| !value.is_finite())
-            || binding.weight.tensor_bytes != binding.rows * binding.columns
+            || binding.weight.tensor_bytes() != binding.rows * binding.columns
             || (!full_qkv_layout
-                && binding.scale.tensor_bytes != binding.rows / 128 * (binding.columns / 128) * 4)
+                && binding.scale.tensor_bytes() != binding.rows / 128 * (binding.columns / 128) * 4)
             || (full_qkv_layout
-                && (binding.rows, binding.columns, binding.scale.tensor_bytes)
+                && (binding.rows, binding.columns, binding.scale.tensor_bytes())
                     != (13_568, HIDDEN, 108 * 32 * 4))
         {
             return Err("wide FP8 linear layout mismatch".to_owned());
         }
-        let padded_input = padded_rows(input, active_rows, binding.columns);
+        let padded_input = padded_rows(input, active_rows, binding.columns, BATCH);
         let started = Instant::now();
         let shared = MTLResourceOptions::StorageModeShared;
-        let no_copy = |region: &MappedNoCopyRegion<'_>| {
+        let no_copy = |region: &WideSourceRegion<'_>| {
             self.device.new_buffer_with_bytes_no_copy(
-                region.bytes.as_ptr().cast(),
-                region.bytes.len() as u64,
+                region.bytes().as_ptr().cast(),
+                region.bytes().len() as u64,
                 shared,
                 None,
             )
         };
         let weight = if binding.copy_weight {
-            let bytes = &binding.weight.bytes[binding.weight.tensor_offset
-                ..binding.weight.tensor_offset + binding.weight.tensor_bytes];
+            let bytes = &binding.weight.bytes()[binding.weight.tensor_offset()
+                ..binding.weight.tensor_offset() + binding.weight.tensor_bytes()];
             self.device
                 .new_buffer_with_data(bytes.as_ptr().cast(), bytes.len() as u64, shared)
         } else {
@@ -257,10 +326,10 @@ impl WideMetalMoeRuntime {
             if binding.copy_weight {
                 0
             } else {
-                binding.weight.tensor_offset as u64
+                binding.weight.tensor_offset() as u64
             },
         );
-        encoder.set_buffer(1, Some(&scale), binding.scale.tensor_offset as u64);
+        encoder.set_buffer(1, Some(&scale), binding.scale.tensor_offset() as u64);
         encoder.set_buffer(2, Some(&encoded_buffer), 0);
         encoder.set_buffer(3, Some(&activation_scale_buffer), 0);
         encoder.set_buffer(4, Some(&output), 0);
@@ -310,27 +379,30 @@ impl WideMetalMoeRuntime {
         Ok(WideLinearExecution {
             output: values,
             wall_ms: started.elapsed().as_secs_f64() * 1000.0,
-            mapped_source_bytes: (binding.weight.bytes.len() + binding.scale.bytes.len()) as u64,
+            mapped_source_bytes: binding.weight.mapped_bytes() + binding.scale.mapped_bytes(),
+            resident_source_bytes: binding.weight.resident_bytes() + binding.scale.resident_bytes(),
         })
     }
 
     #[cfg(test)]
-    fn probe_sglang_blockscaled_projection(&self) -> Result<(), String> {
+    fn probe_sglang_blockscaled_projection(&self, active: usize) -> Result<(), String> {
         const ROWS: usize = 128;
         const COLUMNS: usize = 256;
-        const ACTIVE: usize = 2;
-        let input = (0..ACTIVE * COLUMNS)
+        if !(1..=MAX_EXPERT_ROWS).contains(&active) {
+            return Err("SGLang probe width is out of range".to_owned());
+        }
+        let input = (0..active * COLUMNS)
             .map(|index| ((index * 29 % 401) as f32 - 200.0) / 37.0)
             .collect::<Vec<_>>();
-        let quantized = dynamic_fp8_activations(&input, ACTIVE, COLUMNS)?;
+        let quantized = dynamic_fp8_activations(&input, active, COLUMNS)?;
         let weights = (0..ROWS * COLUMNS)
             .map(|index| ((index * 37 + 11) % 0x7f) as u8)
             .collect::<Vec<_>>();
         let weight_scales = (0..ROWS / 128 * COLUMNS / 128)
             .map(|index| 0.003_f32 + index as f32 * 0.0017)
             .collect::<Vec<_>>();
-        let mut expected = vec![0.0_f32; ACTIVE * ROWS];
-        for position in 0..ACTIVE {
+        let mut expected = vec![0.0_f32; active * ROWS];
+        for position in 0..active {
             for row in 0..ROWS {
                 let mut total = 0.0_f32;
                 for block in 0..COLUMNS / 128 {
@@ -403,7 +475,7 @@ impl WideMetalMoeRuntime {
                 depth: 1,
             },
         );
-        encoder.set_compute_pipeline_state(&self.blockscaled_projection_pipelines[ACTIVE - 1]);
+        encoder.set_compute_pipeline_state(&self.blockscaled_projection_pipelines[active - 1]);
         encoder.set_buffer(0, Some(&weight_buffer), 0);
         encoder.set_buffer(1, Some(&weight_scale_buffer), 0);
         encoder.set_buffer(2, Some(&code_buffer), 0);
@@ -411,7 +483,7 @@ impl WideMetalMoeRuntime {
         encoder.set_buffer(4, Some(&output_buffer), 0);
         encoder.set_buffer(5, Some(&shape_buffer), 0);
         encoder.set_buffer(6, Some(&self.lut_buffer), 0);
-        encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * ACTIVE as u64 * 4);
+        encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * active as u64 * 4);
         encoder.dispatch_thread_groups(
             MTLSize {
                 width: ROWS as u64,
@@ -459,25 +531,219 @@ impl WideMetalMoeRuntime {
         Ok(())
     }
 
+    #[cfg(test)]
+    fn probe_fused_gate_up_swiglu(&self, active: usize) -> Result<(), String> {
+        const ROWS: usize = 128;
+        const COLUMNS: usize = 256;
+        if !(1..=MAX_EXPERT_ROWS).contains(&active) {
+            return Err("fused gate/up probe width is out of range".to_owned());
+        }
+        let input = (0..active * COLUMNS)
+            .map(|index| ((index * 31 % 509) as f32 - 254.0) / 43.0)
+            .collect::<Vec<_>>();
+        let gate_weights = (0..ROWS * COLUMNS)
+            .map(|index| {
+                let bits = ((index * 37 + 11) % 0xfe) as u8;
+                if bits == 0x7f { 0x7e } else { bits }
+            })
+            .collect::<Vec<_>>();
+        let up_weights = (0..ROWS * COLUMNS)
+            .map(|index| {
+                let bits = ((index * 53 + 29) % 0xfe) as u8;
+                if bits == 0x7f { 0x7e } else { bits }
+            })
+            .collect::<Vec<_>>();
+        let gate_scales = vec![0.0031_f32, 0.0047];
+        let up_scales = vec![0.0029_f32, 0.0053];
+        let output_values = active * ROWS;
+        let shared = MTLResourceOptions::StorageModeShared;
+        let buffer = |bytes: &[u8]| {
+            self.device
+                .new_buffer_with_data(bytes.as_ptr().cast(), bytes.len() as u64, shared)
+        };
+        let f32_buffer = |values: &[f32]| {
+            self.device.new_buffer_with_data(
+                values.as_ptr().cast(),
+                std::mem::size_of_val(values) as u64,
+                shared,
+            )
+        };
+        let input_buffer = f32_buffer(&input);
+        let code_buffer = self.device.new_buffer(input.len() as u64, shared);
+        let input_scale_buffer = self
+            .device
+            .new_buffer((active * COLUMNS / 128 * 4) as u64, shared);
+        let gate_weight_buffer = buffer(&gate_weights);
+        let up_weight_buffer = buffer(&up_weights);
+        let gate_scale_buffer = f32_buffer(&gate_scales);
+        let up_scale_buffer = f32_buffer(&up_scales);
+        let gate_output = self.device.new_buffer((output_values * 4) as u64, shared);
+        let up_output = self.device.new_buffer((output_values * 4) as u64, shared);
+        let control_hidden = self.device.new_buffer((output_values * 4) as u64, shared);
+        let fused_hidden = self.device.new_buffer((output_values * 4) as u64, shared);
+        let shape = GemvShape {
+            rows: ROWS as u32,
+            columns: COLUMNS as u32,
+            block_rows: 128,
+            block_columns: 128,
+        };
+        let shape_buffer = self.device.new_buffer_with_data(
+            (&shape as *const GemvShape).cast(),
+            std::mem::size_of::<GemvShape>() as u64,
+            shared,
+        );
+        let count = output_values as u32;
+        let count_buffer = self.device.new_buffer_with_data(
+            (&count as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        );
+        let error = 0_u32;
+        let error_buffer = self.device.new_buffer_with_data(
+            (&error as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        );
+        let command = self.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&self.quantized_dynamic_pipeline);
+        encoder.set_buffer(0, Some(&input_buffer), 0);
+        encoder.set_buffer(1, Some(&code_buffer), 0);
+        encoder.set_buffer(2, Some(&input_scale_buffer), 0);
+        encoder.set_buffer(3, Some(&self.lut_buffer), 0);
+        encoder.set_buffer(4, Some(&error_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, 128 * 4);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: (input.len() / 128) as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 128,
+                height: 1,
+                depth: 1,
+            },
+        );
+        let project = |weight: &metal::BufferRef,
+                       scale: &metal::BufferRef,
+                       output: &metal::BufferRef| {
+            encoder.set_compute_pipeline_state(&self.blockscaled_projection_pipelines[active - 1]);
+            encoder.set_buffer(0, Some(weight), 0);
+            encoder.set_buffer(1, Some(scale), 0);
+            encoder.set_buffer(2, Some(&code_buffer), 0);
+            encoder.set_buffer(3, Some(&input_scale_buffer), 0);
+            encoder.set_buffer(4, Some(output), 0);
+            encoder.set_buffer(5, Some(&shape_buffer), 0);
+            encoder.set_buffer(6, Some(&self.lut_buffer), 0);
+            encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * active as u64 * 4);
+            encoder.dispatch_thread_groups(
+                MTLSize {
+                    width: ROWS as u64,
+                    height: 1,
+                    depth: 1,
+                },
+                MTLSize {
+                    width: PROJECTION_LANES,
+                    height: 1,
+                    depth: 1,
+                },
+            );
+        };
+        project(&gate_weight_buffer, &gate_scale_buffer, &gate_output);
+        project(&up_weight_buffer, &up_scale_buffer, &up_output);
+        encoder.set_compute_pipeline_state(&self.swiglu_pipeline);
+        encoder.set_buffer(0, Some(&gate_output), 0);
+        encoder.set_buffer(1, Some(&up_output), 0);
+        encoder.set_buffer(2, Some(&control_hidden), 0);
+        encoder.set_buffer(3, Some(&count_buffer), 0);
+        encoder.set_buffer(4, Some(&error_buffer), 0);
+        encoder.dispatch_threads(
+            MTLSize {
+                width: output_values as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 256,
+                height: 1,
+                depth: 1,
+            },
+        );
+        let pipelines = self
+            .fused_gate_up_swiglu_pipelines
+            .as_ref()
+            .ok_or("fused gate/up pipelines were not requested")?;
+        encoder.set_compute_pipeline_state(&pipelines[active - 1]);
+        encoder.set_buffer(0, Some(&gate_weight_buffer), 0);
+        encoder.set_buffer(1, Some(&gate_scale_buffer), 0);
+        encoder.set_buffer(2, Some(&up_weight_buffer), 0);
+        encoder.set_buffer(3, Some(&up_scale_buffer), 0);
+        encoder.set_buffer(4, Some(&code_buffer), 0);
+        encoder.set_buffer(5, Some(&input_scale_buffer), 0);
+        encoder.set_buffer(6, Some(&fused_hidden), 0);
+        encoder.set_buffer(7, Some(&shape_buffer), 0);
+        encoder.set_buffer(8, Some(&self.lut_buffer), 0);
+        encoder.set_buffer(9, Some(&error_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * active as u64 * 2 * 4);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: ROWS as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: PROJECTION_LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+        if command.status() != MTLCommandBufferStatus::Completed
+            || unsafe { *error_buffer.contents().cast::<u32>() } != 0
+        {
+            return Err("fused gate/up probe command failed".to_owned());
+        }
+        let control = unsafe {
+            std::slice::from_raw_parts(control_hidden.contents().cast::<f32>(), output_values)
+        };
+        let fused = unsafe {
+            std::slice::from_raw_parts(fused_hidden.contents().cast::<f32>(), output_values)
+        };
+        if control != fused {
+            let maximum_error = control
+                .iter()
+                .zip(fused)
+                .map(|(left, right)| (left - right).abs())
+                .fold(0.0_f32, f32::max);
+            return Err(format!(
+                "fused gate/up SwiGLU differs from control: max error {maximum_error}"
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn execute_bf16_linear(
         &self,
         input: &[f32],
-        weight_region: &MappedNoCopyRegion<'_>,
+        weight_region: &WideSourceRegion<'_>,
         rows: usize,
         columns: usize,
     ) -> Result<WideLinearExecution, String> {
-        let active_rows = active_rows(input, columns)?;
+        let active_rows = active_rows(input, columns, BATCH)?;
         if input.iter().any(|value| !value.is_finite())
-            || weight_region.tensor_bytes != rows * columns * 2
+            || weight_region.tensor_bytes() != rows * columns * 2
         {
             return Err("wide BF16 linear layout mismatch".to_owned());
         }
-        let padded_input = padded_rows(input, active_rows, columns);
+        let padded_input = padded_rows(input, active_rows, columns, BATCH);
         let started = Instant::now();
         let shared = MTLResourceOptions::StorageModeShared;
         let weight = self.device.new_buffer_with_bytes_no_copy(
-            weight_region.bytes.as_ptr().cast(),
-            weight_region.bytes.len() as u64,
+            weight_region.bytes().as_ptr().cast(),
+            weight_region.bytes().len() as u64,
             shared,
             None,
         );
@@ -514,7 +780,7 @@ impl WideMetalMoeRuntime {
         let command = self.queue.new_command_buffer();
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.bf16_pipeline);
-        encoder.set_buffer(0, Some(&weight), weight_region.tensor_offset as u64);
+        encoder.set_buffer(0, Some(&weight), weight_region.tensor_offset() as u64);
         encoder.set_buffer(1, Some(&input_buffer), 0);
         encoder.set_buffer(2, Some(&output), 0);
         encoder.set_buffer(3, Some(&shape_buffer), 0);
@@ -562,7 +828,8 @@ impl WideMetalMoeRuntime {
         Ok(WideLinearExecution {
             output: values,
             wall_ms: started.elapsed().as_secs_f64() * 1000.0,
-            mapped_source_bytes: weight_region.bytes.len() as u64,
+            mapped_source_bytes: weight_region.mapped_bytes(),
+            resident_source_bytes: weight_region.resident_bytes(),
         })
     }
 
@@ -571,7 +838,24 @@ impl WideMetalMoeRuntime {
         input: &[f32],
         experts: &[WideExpertBinding<'_>],
     ) -> Result<WideMoeExecution, String> {
-        let active_rows = active_rows(input, HIDDEN)?;
+        self.execute_configured(input, experts, false)
+    }
+
+    pub(crate) fn execute_fused_gate_up(
+        &self,
+        input: &[f32],
+        experts: &[WideExpertBinding<'_>],
+    ) -> Result<WideMoeExecution, String> {
+        self.execute_configured(input, experts, true)
+    }
+
+    fn execute_configured(
+        &self,
+        input: &[f32],
+        experts: &[WideExpertBinding<'_>],
+        fused_gate_up: bool,
+    ) -> Result<WideMoeExecution, String> {
+        let active_rows = active_rows(input, HIDDEN, LAYER_MAJOR_ROWS)?;
         if input.iter().any(|value| !value.is_finite())
             || experts.is_empty()
             || experts
@@ -582,13 +866,12 @@ impl WideMetalMoeRuntime {
         {
             return Err("wide MoE input or schedule mismatch".to_owned());
         }
-        let padded_input = padded_rows(input, active_rows, HIDDEN);
         let started = Instant::now();
         let shared = MTLResourceOptions::StorageModeShared;
         let projection =
             |binding: &WideProjectionBinding<'_>| -> Result<ProjectionBuffers, String> {
-                if binding.weight.tensor_bytes != binding.rows * binding.columns
-                    || binding.scale.tensor_bytes
+                if binding.weight.tensor_bytes() != binding.rows * binding.columns
+                    || binding.scale.tensor_bytes()
                         != binding.rows / 128 * (binding.columns / 128) * 4
                     || binding.rows % 128 != 0
                     || binding.columns % 128 != 0
@@ -596,8 +879,8 @@ impl WideMetalMoeRuntime {
                     return Err("wide MoE projection layout mismatch".to_owned());
                 }
                 let weight = if binding.copy_weight {
-                    let bytes = &binding.weight.bytes[binding.weight.tensor_offset
-                        ..binding.weight.tensor_offset + binding.weight.tensor_bytes];
+                    let bytes = &binding.weight.bytes()[binding.weight.tensor_offset()
+                        ..binding.weight.tensor_offset() + binding.weight.tensor_bytes()];
                     self.device.new_buffer_with_data(
                         bytes.as_ptr().cast(),
                         bytes.len() as u64,
@@ -605,8 +888,8 @@ impl WideMetalMoeRuntime {
                     )
                 } else {
                     self.device.new_buffer_with_bytes_no_copy(
-                        binding.weight.bytes.as_ptr().cast(),
-                        binding.weight.bytes.len() as u64,
+                        binding.weight.bytes().as_ptr().cast(),
+                        binding.weight.bytes().len() as u64,
                         shared,
                         None,
                     )
@@ -614,25 +897,27 @@ impl WideMetalMoeRuntime {
                 Ok(ProjectionBuffers {
                     weight,
                     scale: self.device.new_buffer_with_bytes_no_copy(
-                        binding.scale.bytes.as_ptr().cast(),
-                        binding.scale.bytes.len() as u64,
+                        binding.scale.bytes().as_ptr().cast(),
+                        binding.scale.bytes().len() as u64,
                         shared,
                         None,
                     ),
                     weight_offset: if binding.copy_weight {
                         0
                     } else {
-                        binding.weight.tensor_offset as u64
+                        binding.weight.tensor_offset() as u64
                     },
-                    scale_offset: binding.scale.tensor_offset as u64,
+                    scale_offset: binding.scale.tensor_offset() as u64,
                 })
             };
         let mut mapped_source_bytes = 0_u64;
+        let mut resident_source_bytes = 0_u64;
+        let mut unique_experts = BTreeSet::new();
         let mut buffers = Vec::with_capacity(experts.len());
         for expert in experts {
             let count = expert.positions.len();
             if count == 0
-                || count > BATCH
+                || count > MAX_EXPERT_ROWS
                 || expert.route_weights.len() != count
                 || expert
                     .positions
@@ -651,27 +936,32 @@ impl WideMetalMoeRuntime {
                     expert.expert
                 ));
             }
-            for region in [
-                &expert.gate.weight,
-                &expert.gate.scale,
-                &expert.up.weight,
-                &expert.up.scale,
-                &expert.down.weight,
-                &expert.down.scale,
-            ] {
-                mapped_source_bytes = mapped_source_bytes
-                    .checked_add(region.bytes.len() as u64)
-                    .ok_or("wide MoE mapped-byte overflow")?;
+            if unique_experts.insert(expert.expert) {
+                for region in [
+                    &expert.gate.weight,
+                    &expert.gate.scale,
+                    &expert.up.weight,
+                    &expert.up.scale,
+                    &expert.down.weight,
+                    &expert.down.scale,
+                ] {
+                    mapped_source_bytes = mapped_source_bytes
+                        .checked_add(region.mapped_bytes())
+                        .ok_or("wide MoE mapped-byte overflow")?;
+                    resident_source_bytes = resident_source_bytes
+                        .checked_add(region.resident_bytes())
+                        .ok_or("wide MoE resident-byte overflow")?;
+                }
             }
-            let mut gathered = vec![0.0_f32; BATCH * HIDDEN];
+            let mut gathered = vec![0.0_f32; MAX_EXPERT_ROWS * HIDDEN];
             for (local, &position) in expert.positions.iter().enumerate() {
                 gathered[local * HIDDEN..(local + 1) * HIDDEN].copy_from_slice(
-                    &padded_input[position as usize * HIDDEN..(position as usize + 1) * HIDDEN],
+                    &input[position as usize * HIDDEN..(position as usize + 1) * HIDDEN],
                 );
             }
-            let mut weights = [0.0_f32; BATCH];
+            let mut weights = vec![0.0_f32; MAX_EXPERT_ROWS];
             weights[..count].copy_from_slice(&expert.route_weights);
-            let mut positions = [0_u32; BATCH];
+            let mut positions = vec![0_u32; MAX_EXPERT_ROWS];
             positions[..count].copy_from_slice(&expert.positions);
             let scatter_shape = ScatterShape {
                 count: count as u32,
@@ -691,12 +981,12 @@ impl WideMetalMoeRuntime {
                 down: projection(&expert.down)?,
                 route_weights: self.device.new_buffer_with_data(
                     weights.as_ptr().cast(),
-                    std::mem::size_of_val(&weights) as u64,
+                    route_buffer_bytes(weights.as_slice()),
                     shared,
                 ),
                 positions: self.device.new_buffer_with_data(
                     positions.as_ptr().cast(),
-                    std::mem::size_of_val(&positions) as u64,
+                    route_buffer_bytes(positions.as_slice()),
                     shared,
                 ),
                 scatter_shape: self.device.new_buffer_with_data(
@@ -739,27 +1029,33 @@ impl WideMetalMoeRuntime {
             std::mem::size_of::<GemvShape>() as u64,
             shared,
         );
-        let input_codes = self.device.new_buffer((BATCH * HIDDEN) as u64, shared);
+        let input_codes = self
+            .device
+            .new_buffer((MAX_EXPERT_ROWS * HIDDEN) as u64, shared);
         let input_scales = self
             .device
-            .new_buffer((BATCH * HIDDEN / 128 * 4) as u64, shared);
+            .new_buffer((MAX_EXPERT_ROWS * HIDDEN / 128 * 4) as u64, shared);
         let gate_output = self
             .device
-            .new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
+            .new_buffer((MAX_EXPERT_ROWS * INTERMEDIATE * 4) as u64, shared);
         let up_output = self
             .device
-            .new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
+            .new_buffer((MAX_EXPERT_ROWS * INTERMEDIATE * 4) as u64, shared);
         let hidden_output = self
             .device
-            .new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
+            .new_buffer((MAX_EXPERT_ROWS * INTERMEDIATE * 4) as u64, shared);
         let hidden_codes = self
             .device
-            .new_buffer((BATCH * INTERMEDIATE) as u64, shared);
+            .new_buffer((MAX_EXPERT_ROWS * INTERMEDIATE) as u64, shared);
         let hidden_scales = self
             .device
-            .new_buffer((BATCH * INTERMEDIATE / 128 * 4) as u64, shared);
-        let expert_output = self.device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
-        let block_output = self.device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
+            .new_buffer((MAX_EXPERT_ROWS * INTERMEDIATE / 128 * 4) as u64, shared);
+        let expert_output = self
+            .device
+            .new_buffer((MAX_EXPERT_ROWS * HIDDEN * 4) as u64, shared);
+        let block_output = self
+            .device
+            .new_buffer((active_rows * HIDDEN * 4) as u64, shared);
         let zero = 0_u32;
         let error_buffer = self.device.new_buffer_with_data(
             (&zero as *const u32).cast(),
@@ -777,7 +1073,7 @@ impl WideMetalMoeRuntime {
         let blit = command.new_blit_command_encoder();
         blit.fill_buffer(
             &block_output,
-            NSRange::new(0, (BATCH * HIDDEN * 4) as u64),
+            NSRange::new(0, (active_rows * HIDDEN * 4) as u64),
             0,
         );
         blit.end_encoding();
@@ -836,44 +1132,78 @@ impl WideMetalMoeRuntime {
                 );
                 let _ = columns;
             };
-            project(
-                encoder,
-                &expert.gate,
-                &input_codes,
-                &input_scales,
-                &gate_output,
-                &gate_shape_buffer,
-                INTERMEDIATE,
-                HIDDEN,
-            );
-            project(
-                encoder,
-                &expert.up,
-                &input_codes,
-                &input_scales,
-                &up_output,
-                &gate_shape_buffer,
-                INTERMEDIATE,
-                HIDDEN,
-            );
-            encoder.set_compute_pipeline_state(&self.swiglu_pipeline);
-            encoder.set_buffer(0, Some(&gate_output), 0);
-            encoder.set_buffer(1, Some(&up_output), 0);
-            encoder.set_buffer(2, Some(&hidden_output), 0);
-            encoder.set_buffer(3, Some(&expert.hidden_count), 0);
-            encoder.set_buffer(4, Some(&error_buffer), 0);
-            encoder.dispatch_threads(
-                MTLSize {
-                    width: (expert.count * INTERMEDIATE) as u64,
-                    height: 1,
-                    depth: 1,
-                },
-                MTLSize {
-                    width: 256,
-                    height: 1,
-                    depth: 1,
-                },
-            );
+            if fused_gate_up {
+                let pipelines = self
+                    .fused_gate_up_swiglu_pipelines
+                    .as_ref()
+                    .ok_or("fused gate/up pipelines were not requested")?;
+                encoder.set_compute_pipeline_state(&pipelines[expert.count - 1]);
+                encoder.set_buffer(0, Some(&expert.gate.weight), expert.gate.weight_offset);
+                encoder.set_buffer(1, Some(&expert.gate.scale), expert.gate.scale_offset);
+                encoder.set_buffer(2, Some(&expert.up.weight), expert.up.weight_offset);
+                encoder.set_buffer(3, Some(&expert.up.scale), expert.up.scale_offset);
+                encoder.set_buffer(4, Some(&input_codes), 0);
+                encoder.set_buffer(5, Some(&input_scales), 0);
+                encoder.set_buffer(6, Some(&hidden_output), 0);
+                encoder.set_buffer(7, Some(&gate_shape_buffer), 0);
+                encoder.set_buffer(8, Some(&self.lut_buffer), 0);
+                encoder.set_buffer(9, Some(&error_buffer), 0);
+                encoder.set_threadgroup_memory_length(
+                    0,
+                    PROJECTION_LANES * expert.count as u64 * 2 * 4,
+                );
+                encoder.dispatch_thread_groups(
+                    MTLSize {
+                        width: INTERMEDIATE as u64,
+                        height: 1,
+                        depth: 1,
+                    },
+                    MTLSize {
+                        width: PROJECTION_LANES,
+                        height: 1,
+                        depth: 1,
+                    },
+                );
+            } else {
+                project(
+                    encoder,
+                    &expert.gate,
+                    &input_codes,
+                    &input_scales,
+                    &gate_output,
+                    &gate_shape_buffer,
+                    INTERMEDIATE,
+                    HIDDEN,
+                );
+                project(
+                    encoder,
+                    &expert.up,
+                    &input_codes,
+                    &input_scales,
+                    &up_output,
+                    &gate_shape_buffer,
+                    INTERMEDIATE,
+                    HIDDEN,
+                );
+                encoder.set_compute_pipeline_state(&self.swiglu_pipeline);
+                encoder.set_buffer(0, Some(&gate_output), 0);
+                encoder.set_buffer(1, Some(&up_output), 0);
+                encoder.set_buffer(2, Some(&hidden_output), 0);
+                encoder.set_buffer(3, Some(&expert.hidden_count), 0);
+                encoder.set_buffer(4, Some(&error_buffer), 0);
+                encoder.dispatch_threads(
+                    MTLSize {
+                        width: (expert.count * INTERMEDIATE) as u64,
+                        height: 1,
+                        depth: 1,
+                    },
+                    MTLSize {
+                        width: 256,
+                        height: 1,
+                        depth: 1,
+                    },
+                );
+            }
             encoder.set_compute_pipeline_state(&self.quantized_dynamic_pipeline);
             encoder.set_buffer(0, Some(&hidden_output), 0);
             encoder.set_buffer(1, Some(&hidden_codes), 0);
@@ -965,7 +1295,7 @@ impl WideMetalMoeRuntime {
             return Err(format!("wide MoE semantic kernels set error flags {flags}"));
         }
         let output = unsafe {
-            std::slice::from_raw_parts(block_output.contents().cast::<f32>(), BATCH * HIDDEN)
+            std::slice::from_raw_parts(block_output.contents().cast::<f32>(), active_rows * HIDDEN)
                 .get(..active_rows * HIDDEN)
                 .expect("active wide output is bounded")
                 .to_vec()
@@ -976,9 +1306,10 @@ impl WideMetalMoeRuntime {
         Ok(WideMoeExecution {
             output,
             wall_ms: started.elapsed().as_secs_f64() * 1000.0,
-            unique_experts: buffers.len(),
+            unique_experts: unique_experts.len(),
             expert_rows: buffers.iter().map(|expert| expert.count).sum(),
             mapped_source_bytes,
+            resident_source_bytes,
         })
     }
 }
@@ -988,24 +1319,54 @@ mod tests {
     use super::*;
 
     #[test]
+    fn route_buffers_preserve_all_eight_placements() {
+        let weights = vec![0.125_f32; 8];
+        let positions = (0_u32..8).collect::<Vec<_>>();
+        assert_eq!(route_buffer_bytes(&weights), 8 * 4);
+        assert_eq!(route_buffer_bytes(&positions), 8 * 4);
+    }
+
+    #[test]
     fn sglang_blockscaled_fp8_codes_scales_and_projection_match_cpu_equation() {
         let runtime = WideMetalMoeRuntime::compile(Path::new("kernels/block_fp8_gemv.metal"))
             .expect("compile block-scaled pipelines");
-        runtime
-            .probe_sglang_blockscaled_projection()
-            .expect("block-scaled Metal parity");
+        for active in [2, 9, 26, MAX_EXPERT_ROWS] {
+            runtime
+                .probe_sglang_blockscaled_projection(active)
+                .unwrap_or_else(|error| {
+                    panic!("block-scaled Metal parity width {active}: {error}")
+                });
+        }
+    }
+
+    #[test]
+    fn fused_gate_up_swiglu_is_exact_at_narrow_and_full_expert_widths() {
+        let runtime = WideMetalMoeRuntime::compile_with_fused_gate_up(Path::new(
+            "kernels/block_fp8_gemv.metal",
+        ))
+        .expect("compile fused gate/up pipelines");
+        for active in [2, 9, 26, MAX_EXPERT_ROWS] {
+            runtime
+                .probe_fused_gate_up_swiglu(active)
+                .unwrap_or_else(|error| panic!("fused width {active}: {error}"));
+        }
     }
 
     #[test]
     fn partial_wide_rows_are_zero_padded_without_changing_real_rows() {
         let values = (0..3 * 4).map(|value| value as f32).collect::<Vec<_>>();
-        assert_eq!(active_rows(&values, 4), Ok(3));
-        let padded = padded_rows(&values, 3, 4);
+        assert_eq!(active_rows(&values, 4, BATCH), Ok(3));
+        let padded = padded_rows(&values, 3, 4, BATCH);
         assert_eq!(&padded[..values.len()], values.as_slice());
         assert_eq!(padded.len(), BATCH * 4);
         assert!(padded[values.len()..].iter().all(|value| *value == 0.0));
-        assert!(active_rows(&[], 4).is_err());
-        assert!(active_rows(&[0.0; 5], 4).is_err());
-        assert!(active_rows(&[0.0; 9], 1).is_err());
+        assert!(active_rows(&[], 4, BATCH).is_err());
+        assert!(active_rows(&[0.0; 5], 4, BATCH).is_err());
+        assert!(active_rows(&[0.0; 9], 1, BATCH).is_err());
+        assert_eq!(
+            active_rows(&[0.0; LAYER_MAJOR_ROWS], 1, LAYER_MAJOR_ROWS),
+            Ok(128)
+        );
+        assert!(active_rows(&[0.0; LAYER_MAJOR_ROWS + 1], 1, LAYER_MAJOR_ROWS).is_err());
     }
 }

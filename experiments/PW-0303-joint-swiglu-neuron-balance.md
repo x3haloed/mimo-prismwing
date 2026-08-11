@@ -1,4 +1,4 @@
-# PW-0214 — Joint SwiGLU neuron-balance control
+# PW-0303 — Joint SwiGLU neuron-balance control
 
 - Status: complete
 - Disposition: rejected at the frozen source-F16 symmetry gate
@@ -10,11 +10,11 @@
 - Query authority: PW-0116 corpus
   `b9df976876d63c1ffbbe0c70507aea8b939a749ce5b1db27cbca0b5d82cf802e`
 - Exactness: L3 quantized weights after an exact pre-quantization symmetry
-- Related records: PW-0113, PW-0134, PW-0148, PW-0212, PW-0213
+- Related records: PW-0113, PW-0134, PW-0148, PW-0301, PW-0302
 
 ## Question
 
-PW-0213 rejects treating expert rows as independent vector-query records.
+PW-0302 rejects treating expert rows as independent vector-query records.
 Test a whole-expert degree of freedom that independent matrix quantization
 cannot see. For every SwiGLU hidden neuron `i`, the transformation
 
@@ -28,7 +28,7 @@ PW-0134 does not answer this question. It selected the official AWQ activation-
 mean exponent family at four bits. This experiment selects a weight-geometry
 balance family and scores six-bit complete-expert behavior. It does not repeat
 exact neuron permutation (PW-0113), global-Hessian assignment (PW-0148), or
-independent row sketches (PW-0213).
+independent row sketches (PW-0302).
 
 ## Frozen candidate and controls
 
@@ -98,8 +98,8 @@ graph is therefore not invariant to the declared continuous RMS scale family.
 
 Evidence:
 
-- `PW-0214-layer04-expert096.json`
-  SHA-256 `fa346cf31319c8fcd18f7320ea5841e480e547a3c22b74cdcdd3a1606caa73e6`
+- `PW-0303-layer04-expert096.json`
+  SHA-256 `815cd3cacc9d745c76c6ec9a3c9d57d0885035c5d82c5a46afcd56aafec8992e`
 - source expert archive SHA-256
   `d2a51359c38e754c30d84cc97acc0bca8b7bc8f06a0cb95c6ef851030e740f74`
 - Torch wheel `torch-2.13.0+cpu-cp313-cp313-manylinux_2_28_x86_64.whl`,
@@ -111,8 +111,12 @@ the only large toolchain download; required pure-Python runtime dependencies
 were fetched sequentially after the deliberate `--no-deps` import exposed
 their absence.
 
-The first exact artifact was generated as PW-0161 before discovery that this
-checkout lagged an upstream history already using PW-0158 through PW-0210. It
-is preserved as `PW-0214-pre-renumber-layer04-expert096.json` with SHA-256
+The first exact artifact was generated as PW-0161 before discovery that the
+checkout lagged an upstream history already using that number. It is preserved
+as `PW-0303-pre-renumber-layer04-expert096.json` with SHA-256
 `51a218c6a3e12c0db813e515ff62b8e0e0d979cf22ae1455643decdb273e7a50`.
-The canonical artifact above changes only the experiment identity to PW-0214.
+A second artifact generated as PW-0214 before the active upstream stream
+claimed PW-0211 through PW-0216 is preserved as
+`PW-0303-pre-pw0300-layer04-expert096.json`, SHA-256
+`fa346cf31319c8fcd18f7320ea5841e480e547a3c22b74cdcdd3a1606caa73e6`.
+The canonical artifact above changes only the experiment identity to PW-0303.

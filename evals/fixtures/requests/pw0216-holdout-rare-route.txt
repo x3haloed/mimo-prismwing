@@ -1,0 +1,1 @@
+Relate the semantics of a sequent-calculus cut, an ARMv8 acquire-release pair, a Nix fixed-output derivation, a crystallographic reciprocal lattice, and a Unicode grapheme cluster. Keep the domains distinct and use no headings.

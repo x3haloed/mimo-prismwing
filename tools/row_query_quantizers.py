@@ -1,4 +1,4 @@
-"""Deterministic row-query quantizer primitives for PW-0213.
+"""Deterministic row-query quantizer primitives for PW-0302.
 
 These NumPy references favor auditable semantics over packed-kernel speed.
 """
@@ -119,7 +119,7 @@ def estimate_mse_inner_products(queries: np.ndarray, quantized: dict, signs: np.
 
 
 def turbo_prod_quantize_rows(rows: np.ndarray, signs: np.ndarray, qjl_signs: np.ndarray) -> dict:
-    """Build the 5-bit MSE plus 1-bit structured-QJL PW-0213 candidate."""
+    """Build the 5-bit MSE plus 1-bit structured-QJL PW-0302 candidate."""
     base = quantize_rotated_rows(rows, 5, signs, np.dtype("float16"))
     residual = base["residual"]
     residual_norms = np.linalg.norm(residual, axis=1).astype(np.float16)

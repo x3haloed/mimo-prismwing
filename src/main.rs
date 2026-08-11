@@ -3,9 +3,13 @@ use prismwing::{
     RealAttentionMoeRequest, RealBaseLayerRequest, benchmark_layer4_metal_native_transaction,
     benchmark_layer4_metal_ready_artifact, benchmark_layer4_two_barrier_transaction,
     benchmark_metal_io_acquisition, benchmark_pread_expert_acquisition,
-    build_layer4_metal_ready_artifact, run_arbitrary_text_generation,
-    run_arbitrary_text_route_trace, run_bounded_metal_routed_row, run_layer4_metal_diagnostic,
-    run_metal_base_layer_attention, run_metal_checkpoint_offset_probe, run_metal_direct_fp8_expert,
+    benchmark_uncached_stream_transport, build_layer4_metal_ready_artifact,
+    run_arbitrary_text_generation, run_arbitrary_text_native_mtp_external,
+    run_arbitrary_text_q4_diagnostic, run_arbitrary_text_resident_route_trace,
+    run_arbitrary_text_resident_set_route_trace, run_arbitrary_text_route_trace,
+    run_arbitrary_text_uncached_resident_route_trace, run_bounded_metal_routed_row,
+    run_layer_major_moe_slice, run_layer4_metal_diagnostic, run_metal_base_layer_attention,
+    run_metal_checkpoint_offset_probe, run_metal_direct_fp8_expert,
     run_metal_direct_fp8_expert_batch8_shared_weight, run_metal_direct_mapped_fp8_gemv,
     run_metal_direct_route_replay_fp8_moe_block, run_metal_direct_source_bf16_fp8_gemv,
     run_metal_direct_source_bf16_fp8_gemv_audit,
@@ -18,6 +22,8 @@ use prismwing::{
     run_metal_incremental_text_endpoint, run_metal_mapped_fp8_gemv,
     run_metal_native_distribution_probe, run_metal_noaux_tc_router, run_metal_real_base_layer,
     run_metal_simdgroup_matrix_fp8_moe_block, run_metal_union_parallel_fp8_moe_block,
+    run_native_mtp_prefill_capture, run_native_mtp_window_capture, run_packed_fusion_moe_slice,
+    run_pressure_residency_smoke, run_pressure_resident_checkpoint_pilot,
     run_staged_metal_fp8_expert, run_weight_install_tomography,
     run_wide_metal_jacobi_text_endpoint,
 };
@@ -162,6 +168,14 @@ fn usage() -> ! {
     );
     #[cfg(target_os = "macos")]
     eprintln!(
+        "  prismwing layer-major-moe-slice <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <safety-fixture.json> <authority.json> <input.f32> <reference.f32> <kernel.metal> <output.f32> <report.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing packed-fusion-moe-slice <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <safety-fixture.json> <authority.json> <input.f32> <reference.f32> <kernel.metal> <output.f32> <report.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
         "  prismwing metal-union-parallel-fp8-moe-block <manifest.json> <artifact-dir> <router.safetensors> <kernel.metal> <input.f32> <reference.f32> <output.f32>"
     );
     #[cfg(target_os = "macos")]
@@ -191,6 +205,14 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing arbitrary-text-route-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <1-8-diagnostic-or-32-64-endpoint-max-tokens> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing native-mtp-window-capture <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <ordinary|code|multilingual|rare_route> <hidden.f32> <output.json> <commit>  # exact 64-token run"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing native-mtp-prefill-capture <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <ordinary|code|multilingual|rare_route> <hidden.f32> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -234,6 +256,28 @@ fn usage() -> ! {
     );
     #[cfg(target_os = "macos")]
     eprintln!(
+        "  prismwing benchmark-uncached-stream-transport <checkpoint-dir> <artifact.bin> <artifact-manifest.json> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!("  prismwing pressure-residency-smoke <fixture.json> <output.json> <commit>");
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing pressure-resident-checkpoint-pilot <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <residency-manifest.json> <resident-identity> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing arbitrary-text-resident-route-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <output-tokens> <residency-manifest.json> <resident-identity> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing arbitrary-text-uncached-resident-route-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <output-tokens> <residency-manifest.json> <resident-identity> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing arbitrary-text-resident-set-route-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <output-tokens> <residency-manifest.json> <resident-limit-bytes> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
         "  prismwing real-layer0-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <output-dir> <commit>"
     );
     #[cfg(target_os = "macos")]
@@ -270,6 +314,146 @@ fn usage() -> ! {
 fn main() {
     let arguments: Vec<String> = std::env::args().collect();
     let result: Result<Option<PathBuf>, String> = match arguments.get(1).map(String::as_str) {
+        #[cfg(target_os = "macos")]
+        Some("pressure-residency-smoke") if arguments.len() == 5 => {
+            let fixture = PathBuf::from(&arguments[2]);
+            let output = PathBuf::from(&arguments[3]);
+            run_pressure_residency_smoke(&fixture, &output, &arguments[4]).and_then(|report| {
+                serde_json::to_writer(std::io::stdout(), &report)
+                    .map_err(|error| error.to_string())?;
+                println!();
+                Ok(Some(output))
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("pressure-resident-checkpoint-pilot") if arguments.len() == 10 => {
+            let checkpoint = PathBuf::from(&arguments[2]);
+            let model_lock = PathBuf::from(&arguments[3]);
+            let verification = PathBuf::from(&arguments[4]);
+            let fixture = PathBuf::from(&arguments[5]);
+            let residency = PathBuf::from(&arguments[6]);
+            let output = PathBuf::from(&arguments[8]);
+            run_pressure_resident_checkpoint_pilot(
+                &checkpoint,
+                &model_lock,
+                &verification,
+                &fixture,
+                &residency,
+                &arguments[7],
+                &output,
+                &arguments[9],
+            )
+            .and_then(|report| {
+                serde_json::to_writer(std::io::stdout(), &report)
+                    .map_err(|error| error.to_string())?;
+                println!();
+                Ok(Some(output))
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("arbitrary-text-resident-route-trace") if arguments.len() == 12 => {
+            let output_tokens = arguments[7]
+                .parse::<usize>()
+                .map_err(|error| format!("output token count: {error}"));
+            output_tokens.and_then(|output_tokens| {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let kernel = PathBuf::from(&arguments[5]);
+                let prompt = PathBuf::from(&arguments[6]);
+                let residency = PathBuf::from(&arguments[8]);
+                let output = PathBuf::from(&arguments[10]);
+                run_arbitrary_text_resident_route_trace(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &kernel,
+                    &prompt,
+                    output_tokens,
+                    &residency,
+                    &arguments[9],
+                    &output,
+                    &arguments[11],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output))
+                })
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("arbitrary-text-resident-set-route-trace") if arguments.len() == 12 => {
+            let output_tokens = arguments[7]
+                .parse::<usize>()
+                .map_err(|error| format!("output token count: {error}"));
+            let resident_limit_bytes = arguments[9]
+                .parse::<u64>()
+                .map_err(|error| format!("resident limit bytes: {error}"));
+            output_tokens.and_then(|output_tokens| {
+                resident_limit_bytes.and_then(|resident_limit_bytes| {
+                    let checkpoint = PathBuf::from(&arguments[2]);
+                    let model_lock = PathBuf::from(&arguments[3]);
+                    let verification = PathBuf::from(&arguments[4]);
+                    let kernel = PathBuf::from(&arguments[5]);
+                    let prompt = PathBuf::from(&arguments[6]);
+                    let residency = PathBuf::from(&arguments[8]);
+                    let output = PathBuf::from(&arguments[10]);
+                    run_arbitrary_text_resident_set_route_trace(
+                        &checkpoint,
+                        &model_lock,
+                        &verification,
+                        &kernel,
+                        &prompt,
+                        output_tokens,
+                        &residency,
+                        resident_limit_bytes,
+                        &output,
+                        &arguments[11],
+                    )
+                    .and_then(|report| {
+                        serde_json::to_writer(std::io::stdout(), &report)
+                            .map_err(|error| error.to_string())?;
+                        println!();
+                        Ok(Some(output))
+                    })
+                })
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("arbitrary-text-uncached-resident-route-trace") if arguments.len() == 12 => {
+            let output_tokens = arguments[7]
+                .parse::<usize>()
+                .map_err(|error| format!("output token count: {error}"));
+            output_tokens.and_then(|output_tokens| {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let kernel = PathBuf::from(&arguments[5]);
+                let prompt = PathBuf::from(&arguments[6]);
+                let residency = PathBuf::from(&arguments[8]);
+                let output = PathBuf::from(&arguments[10]);
+                run_arbitrary_text_uncached_resident_route_trace(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &kernel,
+                    &prompt,
+                    output_tokens,
+                    &residency,
+                    &arguments[9],
+                    &output,
+                    &arguments[11],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output))
+                })
+            })
+        }
         #[cfg(target_os = "macos")]
         Some("metal-checkpoint-offset-probe") if arguments.len() == 5 => {
             let source = PathBuf::from(&arguments[2]);
@@ -402,6 +586,68 @@ fn main() {
             })
         }
         #[cfg(target_os = "macos")]
+        Some("arbitrary-text-q4-diagnostic") if arguments.len() == 10 => {
+            let output_tokens = arguments[7]
+                .parse::<usize>()
+                .map_err(|error| format!("output token count: {error}"));
+            let checkpoint = PathBuf::from(&arguments[2]);
+            let model_lock = PathBuf::from(&arguments[3]);
+            let verification = PathBuf::from(&arguments[4]);
+            let kernel = PathBuf::from(&arguments[5]);
+            let prompt = PathBuf::from(&arguments[6]);
+            let output = PathBuf::from(&arguments[8]);
+            output_tokens.and_then(|output_tokens| {
+                run_arbitrary_text_q4_diagnostic(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &kernel,
+                    &prompt,
+                    output_tokens,
+                    &output,
+                    &arguments[9],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output))
+                })
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("arbitrary-text-native-mtp-external") if arguments.len() == 11 => {
+            let output_tokens = arguments[7]
+                .parse::<usize>()
+                .map_err(|error| format!("output token count: {error}"));
+            let checkpoint = PathBuf::from(&arguments[2]);
+            let model_lock = PathBuf::from(&arguments[3]);
+            let verification = PathBuf::from(&arguments[4]);
+            let kernel = PathBuf::from(&arguments[5]);
+            let prompt = PathBuf::from(&arguments[6]);
+            let native_config = PathBuf::from(&arguments[8]);
+            let output = PathBuf::from(&arguments[9]);
+            output_tokens.and_then(|output_tokens| {
+                run_arbitrary_text_native_mtp_external(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &kernel,
+                    &prompt,
+                    output_tokens,
+                    &native_config,
+                    &output,
+                    &arguments[10],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output))
+                })
+            })
+        }
+        #[cfg(target_os = "macos")]
         Some("arbitrary-text-route-trace") if arguments.len() == 10 => {
             let output_tokens = arguments[7]
                 .parse::<usize>()
@@ -431,6 +677,68 @@ fn main() {
                     );
                     Some(output)
                 })
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("native-mtp-window-capture") if arguments.len() == 11 => {
+            let checkpoint = PathBuf::from(&arguments[2]);
+            let model_lock = PathBuf::from(&arguments[3]);
+            let verification = PathBuf::from(&arguments[4]);
+            let kernel = PathBuf::from(&arguments[5]);
+            let prompt = PathBuf::from(&arguments[6]);
+            let hidden = PathBuf::from(&arguments[8]);
+            let output = PathBuf::from(&arguments[9]);
+            run_native_mtp_window_capture(
+                &checkpoint,
+                &model_lock,
+                &verification,
+                &kernel,
+                &prompt,
+                &arguments[7],
+                &hidden,
+                &output,
+                &arguments[10],
+            )
+            .map(|report| {
+                println!(
+                    "captured native-MTP {} verifier window in {:.3} s",
+                    report
+                        .native_mtp_window
+                        .as_ref()
+                        .map_or("unknown", |capture| capture.category.as_str()),
+                    report.complete_wall_ms / 1000.0,
+                );
+                Some(output)
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("native-mtp-prefill-capture") if arguments.len() == 11 => {
+            let checkpoint = PathBuf::from(&arguments[2]);
+            let model_lock = PathBuf::from(&arguments[3]);
+            let verification = PathBuf::from(&arguments[4]);
+            let kernel = PathBuf::from(&arguments[5]);
+            let prompt = PathBuf::from(&arguments[6]);
+            let hidden = PathBuf::from(&arguments[8]);
+            let output = PathBuf::from(&arguments[9]);
+            run_native_mtp_prefill_capture(
+                &checkpoint,
+                &model_lock,
+                &verification,
+                &kernel,
+                &prompt,
+                &arguments[7],
+                &hidden,
+                &output,
+                &arguments[10],
+            )
+            .map(|report| {
+                println!(
+                    "captured native-MTP {} prefill hidden for {} tokens in {:.3} s",
+                    report.target_hidden.category,
+                    report.prompt_token_ids.len(),
+                    report.complete_wall_ms / 1000.0,
+                );
+                Some(output)
             })
         }
         #[cfg(target_os = "macos")]
@@ -685,6 +993,26 @@ fn main() {
                     println!();
                     Ok(Some(output))
                 })
+        }
+        #[cfg(target_os = "macos")]
+        Some("benchmark-uncached-stream-transport") if arguments.len() == 7 => {
+            let checkpoint = PathBuf::from(&arguments[2]);
+            let artifact = PathBuf::from(&arguments[3]);
+            let manifest = PathBuf::from(&arguments[4]);
+            let output = PathBuf::from(&arguments[5]);
+            benchmark_uncached_stream_transport(
+                &checkpoint,
+                &artifact,
+                &manifest,
+                &output,
+                &arguments[6],
+            )
+            .and_then(|report| {
+                serde_json::to_writer(std::io::stdout(), &report)
+                    .map_err(|error| error.to_string())?;
+                println!();
+                Ok(Some(output))
+            })
         }
         #[cfg(target_os = "macos")]
         Some("real-layer0-trace") if arguments.len() == 8 => {
@@ -1614,6 +1942,48 @@ fn main() {
                 println!();
                 Ok(None)
             })
+        }
+        #[cfg(target_os = "macos")]
+        Some("layer-major-moe-slice") if arguments.len() == 13 => {
+            let paths = arguments[2..12]
+                .iter()
+                .map(PathBuf::from)
+                .collect::<Vec<_>>();
+            run_layer_major_moe_slice(
+                &paths[0],
+                &paths[1],
+                &paths[2],
+                &paths[3],
+                &paths[4],
+                &paths[5],
+                &paths[6],
+                &paths[7],
+                &paths[8],
+                &paths[9],
+                &arguments[12],
+            )
+            .map(|_| None)
+        }
+        #[cfg(target_os = "macos")]
+        Some("packed-fusion-moe-slice") if arguments.len() == 13 => {
+            let paths = arguments[2..12]
+                .iter()
+                .map(PathBuf::from)
+                .collect::<Vec<_>>();
+            run_packed_fusion_moe_slice(
+                &paths[0],
+                &paths[1],
+                &paths[2],
+                &paths[3],
+                &paths[4],
+                &paths[5],
+                &paths[6],
+                &paths[7],
+                &paths[8],
+                &paths[9],
+                &arguments[12],
+            )
+            .map(|_| None)
         }
         #[cfg(target_os = "macos")]
         Some("metal-union-parallel-fp8-moe-block") if arguments.len() == 9 => {

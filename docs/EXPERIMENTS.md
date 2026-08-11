@@ -1434,17 +1434,95 @@ Run the following cheap falsifiers in order:
 2. [PW-0207](../experiments/PW-0207-pressure-elastic-resident-working-set.md)
    asks whether the extra RAM can hold the stall-dominant shared spine and
    recurrent expert tiles, selected by measured bytes avoided rather than
-   frequency alone.
+   frequency alone. Its corrected first-transaction offline set fails the 4×
+   physical-read gate at 1.791485× but passes the alternative attributed-wall
+   gate at 3.262043×. Pressure-safe implementation is authorized; high-residency
+   defaults and endpoint claims remain withheld. A clean synthetic smoke now
+   proves owned ordered warning eviction and permanent critical stop through a
+   live Darwin observer lifecycle; it does not yet satisfy the real pressure,
+   12 GiB, transaction, or TPS gates. Its implementation authority now charges
+   every object at 16 KiB page granularity; this changes declared allocation
+   bytes but not the selected set or predicted wall gate.
 3. [PW-0208](../experiments/PW-0208-native-mtp-cost-aware-proposer.md) retests
    MiMo's native MTP only after PW-0206, optimizing accepted tokens per unique
-   expert byte rather than acceptance length in isolation.
+   expert byte rather than acceptance length in isolation. Its balanced,
+   complete-history 32-window corpus and exact checkpoint byte accounting close
+   the predeclared 2× gate without draft execution: perfect q=4 reaches only
+   0.721493× the corrected control rate, while perfect q=8 and an omniscient
+   per-window q selector reach at most 1.051643×. Kill the cost-aware promotion
+   hypothesis, not the possibility of a smaller proposal-latency gain.
 4. [PW-0209](../experiments/PW-0209-layer-major-high-residency-prefill.md)
    separates prefill from decode and tests a layer-major, width-rich M1 Metal
-   path without importing M5 tensor-core claims.
+   path without importing M5 tensor-core claims. Its real context-128 slice is
+   byte-identical to sixteen width-eight controls and improves cold-requested
+   complete layer wall by 1.161492x--1.191567x, but fails the unchanged source
+   gate equally with its control and misses the predeclared 3x continuation
+   gate. Preserve the gain and fixed route-buffer defect; reject whole-prefill
+   implementation under the current storage premise.
 5. [PW-0210](../experiments/PW-0210-simdgroup-packed-domain-fusion.md) tests
    SIMD-group execution where it can remove unpack, scale, reduction, and
-   barrier traffic. It explicitly does not replace a proven GEMM merely for
-   portability.
+   barrier traffic. Its width-2/9/26/32 fixtures and real context-128 output
+   are byte-exact, but cold candidate-control-candidate walls are
+   4,133.170/3,962.599/3,962.030 ms. Reject the performance-neutral fusion
+   under the current storage cut; opt-in reproduction remains available and
+   default runtimes do not initialize the rejected pipelines.
+6. [PW-0211](../experiments/PW-0211-native-mtp-proposal-latency-lower-milestone.md)
+   preserves native MTP as a separately named lower milestone. It asks whether
+   three dense draft layers can replace roughly 140 seconds of same-model
+   proposal work and retain any repeatable positive complete TPS gain under
+   exact ordinary verification; missing 2× or 50 TPS alone is not a kill gate.
+   Its cold candidate-control-candidate ordinary-text sequence emits identical
+   output and improves median complete accepted TPS from 0.011351 to 0.021160,
+   or 1.864046x, with zero swap growth or throttling. This conditionally
+   promotes the Apple-M1 ordinary slice, not the general runtime default;
+   category and holdout broadening remains future work.
+7. [PW-0212](../experiments/PW-0212-corrected-route-predictive-prefetch-oracle.md)
+   rejects runtime prefetch under its frozen 25% traffic-tax and 10%
+   complete-wall gates. A perfect future oracle can hide only 1.616833% of
+   complete wall (7.988956% of verifier wall), and the actually causal
+   previous-layer control recalls only 2.944232%. Preserve category-frequency
+   (32.415642%) and last-route (38.370595%) logical signals as diagnostics, not
+   latency claims. PW-0213 remains independent because it changes transport
+   for demanded bytes rather than predicting future demand.
+8. [PW-0213](../experiments/PW-0213-uncached-page-aligned-stream-transport.md)
+   proves that cacheable routed reads leave 100% of probed source pages
+   resident while `F_NOCACHE` leaves 0%, passing the frozen file-backed gate
+   at about 1.004x read amplification. Two buffers recover 4.523759% against
+   sequential uncached full-layer reads but remain 2.808891% slower than the
+   cacheable control. One bounded verifier pilot is authorized; trailing drop
+   is redundant because uncached source residency is already zero. The pilot
+   preserves exact output and a 7.823701% install gain, but post-prefill
+   accepted TPS regresses 0.570865%. Its apparent 0.621249% complete TPS gain
+   comes from prefill before the mechanism activates. Reject runtime promotion
+   while retaining the lower-level gains.
+9. [PW-0214](../experiments/PW-0214-cost-adaptive-verification-horizon-oracle.md)
+   rejects runtime horizon adaptation under its frozen 5% gate. The optimal
+   aggregate future oracle reaches only 4.681640%; a category-calibrated policy
+   gains 0.933803% overall and 3.268060% on code but regresses ordinary by
+   2.869413%. Preserve those smaller modeled gains and do not erase PW-0211's
+   separately measured native-q4 ordinary result.
+10. [PW-0215](../experiments/PW-0215-native-mtp-slice-broadening.md)
+   broadens PW-0211 through complete interleaved category paths. The code
+   candidate-control-candidate sequence emits identical seven-token output and
+   improves median complete accepted TPS `1.298259x`; post-prefill wall improves
+   `2.633252x`. Multilingual also passes despite its pessimistic pilot: complete
+   TPS improves `1.288837x` and post-prefill wall `2.535071x`. Preserve both
+   conditional slice wins. Rare-route then passes at `1.174140x` complete and
+   `2.457567x` post-prefill. All four frozen text categories are now positive;
+   general promotion still requires longer-output untouched holdouts.
+11. [PW-0216](../experiments/PW-0216-native-mtp-longer-output-holdout.md)
+   freezes a new four-category prompt panel before first execution and begins
+   with a 32-token ordinary candidate-control-candidate sequence. It tests
+   sustained native-MTP acceptance, correction, rollback, and complete-path
+   gain without reusing the mechanism-development prompts. Positive and
+   negative category results are preserved independently.
+
+AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
+and activation values to the old QKV layout. Their measurements remain valid
+for that named authority, but they are not corrected-layout cache,
+representation, or `A/U` constants. PW-0208 repairs only a 32-window text
+slice; broader corrected multilingual, modality, rarity, and context authority
+is still required for general promotion.
 
 Do not combine these mechanisms before their isolated counters pass. The first
 combined endpoint receives a new experiment ID and must report cold and warm

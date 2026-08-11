@@ -1,0 +1,194 @@
+# PW-0211 — Native MTP proposal-latency lower milestone
+
+- Status: complete
+- Disposition: conditional
+- Date: 2026-08-11
+- Execution mode: L2 target-distribution-preserving draft under exact ordinary verification
+- Related records: PW-0103, PW-0205, PW-0206, PW-0207, PW-0208
+
+## Hypothesis and mechanism
+
+PW-0208 proves native MTP cannot deliver its predeclared 2x accepted-token per
+unique-expert-byte gain, even with perfect proposals. It does not bound proposal
+latency. The current corrected q=8 endpoint spends roughly 137--157 seconds per
+window on seven same-model one-row proposal steps and roughly 32--41 seconds on
+one verifier pass.
+
+Hypothesis: the pinned three dense native-MTP layers can replace those seven
+same-model proposal steps cheaply enough that exact verifier-authorized output
+improves complete transaction TPS by any repeatable positive amount. This is a
+lower milestone, not PW-0208 promotion and not a 50-TPS claim.
+
+## Contract
+
+Authenticate the exact MiMo MTP payload and pinned SGLang source revision. For
+each proposal, reconstruct the complete target layer-47 history from the
+hash-bound prefill and retained verifier segments. MiMoV2 layer zero consumes
+tokens shifted by one; layers one and two reuse the same target hidden history
+while rotating input IDs and appending the preceding draft. Begin with q=4,
+the trained three-layer native chain. Any q=8 cycling or tree schedule is a
+separately named modified scheduler.
+
+Record proposal tokens, per-layer and complete proposal wall, target posterior,
+accepted tokens, rollback, exact target routes/bytes, resident state, hardware,
+and commit. CPU reference execution is correctness and feasibility evidence,
+not an accepted TPS result. Runtime promotion requires ordinary verifier-only
+commit and exact observable tokens.
+
+## Cheap falsifier and gates
+
+First reproduce PW-0206's corrected first native proposal with a last-row
+implementation over complete history. Then run one chronological window per
+PW-0208 category. Continue to all 32 only if the reference semantics are exact
+and at least one window shows acceptance worth accelerating.
+
+Build a measured candidate model using native proposal wall plus a real q=4
+verifier wall under the same residency state. Preserve any repeatable positive
+complete-path TPS gain. Kill only when an optimistic latency bound, measured
+acceptance, or implemented complete path shows that no tested schedule can beat
+the corrected Jacobi control; missing 2x or 50 TPS alone does not kill this
+lower-milestone branch.
+
+## Decision
+
+Complete. The repeatable positive ordinary-text lower milestone passes, while
+general runtime-default promotion remains withheld pending other categories and
+holdouts. PW-0208's complete-history manifest SHA-256 is
+`a9bb6bd26bf048a2144133cc0a96023a8af112eae58122b666915149f2993a7b`.
+The four prefill source reports hash to `11a02fd9d653c6351ed22d03f7d39efb80ee8d6009fc9a3d22d41fd2f42d1ddb`,
+`a75aab62fa434f73d8f0053919fc9c3eab68c71e96a690cfed6f8871306b35ae`,
+`b8c68eac9834c24ea09ffa65e7f3f5ef2ef5c015209c862419f4471480e846d2`,
+and `385425155ab48a965169d860ff56c09e8967325e536b72dfd3b5e8e164c83773`.
+
+Clean commit `ba09e9b2a02285a7c94eef288d00f9870558b6e2` adds a
+complete-history last-row reference. It preserves the full history row count
+through the FP8 MLP GEMMs because the readable authority's reduction topology
+is row-count dependent. The known PW-0206 validation emits token `0` and all
+152,576 logits are bit-identical to the earlier full-row oracle. Its report
+hashes to
+`395e61eb628c1b9ec3c892d285f5b3d0bc0749b6e5e7bc782cb5671dd299645f`.
+
+The first chronological window in each category then produces:
+
+| Category | Native q4 block | Target posterior prefix | Native `A` | Control `A` | CPU reference complete ms | Control proposal ms |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| ordinary | `[11941,7949,7324,8628]` | `[7949,7324,8628,2041]` | 3 | 7 | 10,444.325 | 143,313.654 |
+| code | `[3084,2268,1097,3286]` | `[2268,1097,3286,3255]` | 3 | 7 | 8,922.493 | 142,806.753 |
+| multilingual | `[102533,101920,99607,101079]` | `[33108,81812,101920,99607]` | 1 | 7 | 8,699.134 | 138,834.677 |
+| rare-route | `[549,17588,11,308]` | `[17588,11,308,488]` | 3 | 7 | 9,015.061 | 157,260.542 |
+
+The four report hashes are respectively
+`511aa5b4d1353074f193e4c5488d001c3ce1cb0d3b9342f91454a7a9c35a33bc`,
+`3573e1e25472d19523c7ed0e1b617dc0032136aec5cd300ef7c6fdeb86f247fa`,
+`124a8064963d79eadbb303ed2baf9811da6357978557a08abb88cb6b2fb93f2a`,
+and `a82be5904a6ff67d9a86eba164b3a5153470025e22c1b73d3399b7f5c2503bce`.
+Three of four pilots perfectly accept and commit the trained three-token draft;
+the multilingual pilot rejects immediately and commits one verifier correction
+token. This is enough to pass the frozen
+continuation gate, but it is not a corpus mean and the CPU wall is diagnostic,
+not endpoint TPS.
+
+Do not run all 32 proposal references yet. Replay the exact preceding control
+transaction where required, then measure one ordinary q=4 target verifier with
+the frozen native block and the same checkpoint, cache, cold-state, Metal, and
+residency accounting. Only that real verifier wall can estimate a complete
+candidate transaction. If the enclosing model remains positive, integrate the
+native proposer and broaden acceptance measurement; otherwise preserve the
+three positive category results and close only the tested runtime schedule.
+
+Clean q4 diagnostic commit `f0541d167e5784388209f7f46970e6d2461ff2ce`
+replays ordinary transaction zero and reaches the exact transaction-one cache
+state. Its transaction-one proposal `[11941,7949,7324,8628]` and posterior
+`[7949,7324,8628,2041]` are identical to the native pilot. The verification
+helper converges over a four-token prefix including the known anchor. Endpoint
+accounting therefore records `A=3` newly committed tokens, with
+`U=5.377659574468085`, 26,286.0165 ms wall,
+84,815,844,864 logical source bytes, and 84,910,256,128 process-read bytes.
+The report and progress log hash to
+`0537ac6941d7289e857ebe4e6ebdbb223970db2de5c031d518d72a5b360f0c21`
+and `2d65aba15bbecee3d54e55632e0af3b50d5bcf4a0fa0a0120398d0704862f961`.
+
+Composing that real verifier wall with the 10,444.325 ms CPU reference gives a
+diagnostic 36,730.341 ms candidate transaction model, or 0.081676 accepted
+TPS. The matched q8 control is 7 accepted tokens in 178,169.855 ms, or
+0.039288 TPS. The corrected modeled gain is about `2.079x`. The earlier
+0.108902-TPS/2.771859x expression is rejected because it counted the known
+anchor as newly accepted output. The corrected model still passes the integration
+gate but is not a performance claim because proposal and verification were
+measured in separate processes. The next implementation must run the native
+proposal while the real target K/V cache is live, include artifact transfer,
+authentication, correction, and rollback, and report complete transaction
+wall before promotion.
+
+Clean live-integration commit `4762c02059aeee090f8cf16be66a5513af7323f1`
+runs the native proposer against the live target cache, authenticates the child
+request and response, and lets the ordinary verifier authorize every committed
+token. The request emits exactly seven tokens
+`[32,3283,646,11941,7949,7324,8628]`, decoding to
+`A city can significantly reduce summer heat`. Transaction one commits three
+new tokens in 35,570.945 ms, or 0.084338 accepted TPS, versus the matched q8
+control's 0.039288 TPS: a measured `2.146654x` transaction gain. Including
+prefill and transaction zero, complete request wall is 332,964.720 ms versus
+447,480.279 ms for the same-output q4 control, a `1.343927x` gain. These are
+single candidate/control observations, so the result is a positive lower
+milestone rather than a promoted default. The report, progress log, and
+external configuration hash respectively to
+`8bbaeae15a6856790c3f5404c3c58aa7a3b88e11fd751bfd1e3ae3c0b4b16f9f`,
+`37ff78744b5d0ff6e404377ecea61c36df4e5f1f46ea3b046a81abd0f1526b3e`,
+and `cfa9fd57f49ca1dedfd6e3dcd5c3120918884704d9a6ade06ff8bf2b56a19294`.
+
+## Repeated full-path result and disposition
+
+The frozen ordinary request was run candidate-control-candidate from cold
+process starts on the Apple M1 16 GiB host, batch size one and concurrency one.
+Candidate one is clean commit
+`4762c02059aeee090f8cf16be66a5513af7323f1`; the q8 control and candidate two
+are clean commit `e273867c10a3d9400ed907253f108bd2e7259116`. The intervening
+commit changes endpoint-accounting documentation and a corpus-report field; it
+does not change the live proposer path. Every run emits exactly
+`[32,3283,646,11941,7949,7324,8628]` and the same decoded text. The verifier is
+the sole commit authority.
+
+| Measure | Native candidate 1 | q8 control | Native candidate 2 |
+| --- | ---: | ---: | ---: |
+| Prefill wall ms | 257,269.091 | 249,411.671 | 251,707.471 |
+| Proposal wall ms | 21,970.488 | 293,061.016 | 23,196.693 |
+| Verification wall ms | 53,022.214 | 73,462.322 | 53,031.182 |
+| Complete wall ms | 332,964.720 | 616,663.584 | 328,675.174 |
+| Complete accepted TPS (`7 / complete wall`) | 0.021023 | 0.011351 | 0.021298 |
+| Logical source bytes | 427,197,245,056 | 687,955,132,544 | 427,197,245,056 |
+| Process disk bytes read | 420,833,001,472 | 688,709,586,944 | 420,714,541,056 |
+| Conservative peak resident bytes | 4,497,358,848 | 352,337,920 | 4,492,689,408 |
+| Minimum system memory free | 58% | 57% | 53% |
+
+Candidate complete walls differ by 1.2966%. Their median is 330,819.947 ms,
+or 0.021160 accepted TPS, giving a repeatable `1.864046x` complete-request gain
+over the interleaved q8 control. Post-prefill proposal-plus-verification wall
+falls from 366,523.338 ms to a 75,610.289 ms candidate median, a `4.847533x`
+wall gain. At transaction one, native q4 has `A=3`, `U=5.377660`, and median
+0.085603 accepted TPS; q8 has `A=7`, `U=4.255319`, and 0.038036 accepted TPS.
+The acceptance-normalized transaction gain is `2.250573x`. This distinction
+prevents the q4 wall reduction from being confused with equal acceptance
+width.
+
+Candidate two report and progress hashes are
+`3134f9657fc1d4ea4fa2b52bb38a1f7dd73bbe5e1e3d5716e02f15aefd0f9872`
+and `ccb4cd4cb60f02ced8de58ca45a1bfbf7169f80ed75186e6802320012dee0541`.
+Its external configuration hashes to
+`acb17d6f5ed54ea9112ef20ca2e2b3248e55c723b206ea6ef6b425d3ae380c44`.
+The q8 control report and progress hashes are
+`ae415a43ea9e1367248dfb3ad803107042d99ba9484d21a7ac8ff78dbfaa997e`
+and `3beaeab1b2976e38f5691f0f648c0f21e5257aed03e7ab95259eb062bacca99c`.
+An earlier control launch used an incorrect declared commit identity and was
+manually aborted before prefill completion; its empty progress artifact hashes
+to `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+It is rejected and excluded, not erased.
+
+All completed runs record zero swap growth, zero newly throttled pages, and no
+protected-service loss. Promote native q4 only as a conditional ordinary-text
+Apple-M1 lower milestone. Do not make it a general default: code,
+multilingual, rare-route, longer-context, and held-out complete paths remain
+unmeasured, and the external CPU child accounts for roughly 4.5 GB conservative
+peak residency. The next native-MTP work, if revisited, is slice broadening or
+an in-process proposer; the active research sequence advances to PW-0212's
+corrected-route prefetch falsifier before conditional PW-0210 runtime work.

@@ -1,0 +1,38 @@
+{
+  "schema_version": 2,
+  "semantic": "mimo_pw0209_layer43_context128_full_width_source_authority",
+  "revision": "63651580ca774f8504f676040460aed3e1244ac1",
+  "layer": 43,
+  "context": 128,
+  "query_start": 0,
+  "query_count": 128,
+  "seed": 260049,
+  "source_file": "model_pp0_ep0_shard1.safetensors",
+  "source_file_sha256": "7b92a89c4710b0253a15f1355567bbfc94b57cb8fb8a6dbddca01bacf12d0985",
+  "model_source": "modeling_mimo_v2.py",
+  "model_source_sha256": "a8c3cb3aae473bcc15f023010547c919f15eba6546e6ed7efb61a8937b12f3ad",
+  "parameters": {
+    "hidden_size": 4096,
+    "q_heads": 64,
+    "kv_heads": 8,
+    "qk_head_dim": 192,
+    "v_head_dim": 128,
+    "rope_dim": 64,
+    "rope_theta": 10000,
+    "sliding_window": 128,
+    "value_scale": 0.707,
+    "rms_epsilon": 0.00001,
+    "router_experts": 256,
+    "top_k": 8
+  },
+  "tensors": {
+    "model.layers.43.input_layernorm.weight": {"dtype":"BF16","shape":[4096],"data_offsets":[5719181184,5719189376]},
+    "model.layers.43.mlp.gate.e_score_correction_bias": {"dtype":"F32","shape":[256],"data_offsets":[155900928,155901952]},
+    "model.layers.43.mlp.gate.weight": {"dtype":"F32","shape":[256,4096],"data_offsets":[155901952,160096256]},
+    "model.layers.43.post_attention_layernorm.weight": {"dtype":"BF16","shape":[4096],"data_offsets":[5719189376,5719197568]},
+    "model.layers.43.self_attn.attention_sink_bias": {"dtype":"BF16","shape":[64],"data_offsets":[5719197568,5719197696]},
+    "model.layers.43.self_attn.o_proj.weight": {"dtype":"BF16","shape":[4096,8192],"data_offsets":[5719197696,5786306560]},
+    "model.layers.43.self_attn.qkv_proj.weight": {"dtype":"F8_E4M3","shape":[14848,4096],"data_offsets":[10644183936,10705001344]},
+    "model.layers.43.self_attn.qkv_proj.weight_scale_inv": {"dtype":"F32","shape":[116,32],"data_offsets":[160096256,160111104]}
+  }
+}

@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from tools.run_pw0215_polar_row_probe import factor_rows, signed_hadamard
+from tools.run_pw0304_polar_row_probe import factor_rows, signed_hadamard
 
 
 class PW0215PolarRowProbeTests(unittest.TestCase):

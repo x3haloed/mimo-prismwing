@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run PW-0215's bounded recursive-polar row-query probe."""
+"""Run PW-0304's bounded recursive-polar row-query probe."""
 
 from __future__ import annotations
 
@@ -12,14 +12,14 @@ import numpy as np
 
 try:
     from tools.openrouter_reference import atomic_write_new, canonical_json
-    from tools.run_pw0213_projection_probe import (
+    from tools.run_pw0302_projection_probe import (
         CORPUS_SHA256, decode_weight, metrics, sha256_file,
     )
-    from tools.run_pw0214_joint_swiglu_balance import affine6
+    from tools.run_pw0303_joint_swiglu_balance import affine6
 except ModuleNotFoundError:
     from openrouter_reference import atomic_write_new, canonical_json
-    from run_pw0213_projection_probe import CORPUS_SHA256, decode_weight, metrics, sha256_file
-    from run_pw0214_joint_swiglu_balance import affine6
+    from run_pw0302_projection_probe import CORPUS_SHA256, decode_weight, metrics, sha256_file
+    from run_pw0303_joint_swiglu_balance import affine6
 
 
 SEED = 0x215
@@ -124,7 +124,7 @@ def run(source: Path, corpus_path: Path) -> dict:
     weight_error = np.linalg.norm(reconstructed.astype(np.float64) - transformed_weight) / np.linalg.norm(transformed_weight)
     return {
         "schema_version": 1,
-        "evidence_class": "pw0215_recursive_polar_row_query_probe",
+        "evidence_class": "pw0304_recursive_polar_row_query_probe",
         "layer": 4,
         "expert": 96,
         "projection": "gate",

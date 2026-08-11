@@ -6,6 +6,11 @@ use super::{
     sha256_hex, sha256_reader, stable_rms_inverse, validate_fp8_views,
     validate_prevalidated_fp8_views, write_create_new,
 };
+use crate::pressure_residency::{
+    DarwinMemoryPressureObserver, DeclaredResidencyManifest, DeclaredResidentObject,
+    PRESSURE_WARNING, PageAlignedResidentObject, PressureEvent, PressureResidencyController,
+    ResidentTensorIdentity,
+};
 use crate::routed_layer_artifact::{
     RoutedLayerArtifactManifest, RoutedLayerSourceTensor, build_routed_layer_artifact,
     open_routed_layer_artifact,
@@ -18,7 +23,10 @@ use crate::staged_metal_expert::{
 use crate::structured_sparse::{
     VerticalSlashSelection, selected_positions_for_query, vertical_slash_selection,
 };
-use crate::wide_metal_moe::{WideExpertBinding, WideMetalMoeRuntime, WideProjectionBinding};
+use crate::uncached_stream_transport::read_uncached_widened_pair;
+use crate::wide_metal_moe::{
+    WideExpertBinding, WideMetalMoeRuntime, WideProjectionBinding, WideSourceRegion,
+};
 use memmap2::MmapMut;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -26,9 +34,11 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::MetadataExt;
-use std::path::{Component, Path};
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::{FileExt, MetadataExt};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Instant;
 use tokenizers::Tokenizer;
 
@@ -233,6 +243,7 @@ struct VerifiedFile {
 #[derive(Debug, Default, Serialize)]
 pub struct EndpointLedger {
     pub logical_source_bytes: u64,
+    pub resident_source_bytes: u64,
     pub actual_process_disk_bytes_read: u64,
     pub peak_resident_bytes: u64,
     pub fp8_matrices_expanded: u64,
@@ -267,6 +278,7 @@ pub struct MetalExpertLedger {
     pub wide_unique_experts: u64,
     pub wide_wall_ms: f64,
     pub wide_mapped_source_bytes: u64,
+    pub wide_resident_source_bytes: u64,
     #[serde(skip)]
     pub tomography_enabled: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -607,6 +619,35 @@ pub struct WideJacobiTextReport {
 }
 
 #[derive(Debug, Serialize)]
+pub struct PressureResidentCheckpointPilotReport {
+    pub schema_version: u32,
+    pub evidence_class: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub git_dirty: bool,
+    pub checkpoint_verification_sha256: String,
+    pub residency_manifest_sha256: String,
+    pub resident_identity: String,
+    pub tensor_metadata_sha256: String,
+    pub tensor_sha256: BTreeMap<String, String>,
+    pub declared_source_bytes: u64,
+    pub declared_resident_bytes: u64,
+    pub resident_bytes_after_install: u64,
+    pub resident_bytes_after_warning: u64,
+    pub warning_events: Vec<PressureEvent>,
+    pub exact_tensor_bytes_preserved: bool,
+    pub observer_started_and_drained: bool,
+    pub process_disk_bytes_read: u64,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    pub performance_claim: Option<String>,
+    pub scope: &'static str,
+    pub status: &'static str,
+}
+
+#[derive(Debug, Serialize)]
 pub struct GenerationTransactionReport {
     pub index: usize,
     pub proposal_token_ids: Vec<u32>,
@@ -621,11 +662,30 @@ pub struct GenerationTransactionReport {
     #[serde(rename = "U")]
     pub mean_normalized_union: f64,
     pub logical_source_bytes: u64,
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub resident_source_bytes: u64,
     pub process_disk_bytes_read: u64,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub proposal_layer_traces: Vec<Vec<LayerRouteTrace>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub verification_layer_traces: Vec<LayerRouteTrace>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_mtp: Option<NativeMtpTransactionEvidence>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NativeMtpTransactionEvidence {
+    pub request_file: String,
+    pub request_sha256: String,
+    pub hidden_file: String,
+    pub hidden_sha256: String,
+    pub proposal_report_file: String,
+    pub proposal_report_sha256: String,
+    pub target_hidden_rows: usize,
+    pub external_complete_wall_ms: f64,
+    pub logical_source_bytes: u64,
+    pub process_disk_bytes_read: u64,
+    pub process_peak_resident_bytes: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -672,6 +732,99 @@ pub struct ArbitraryTextGenerationReport {
     pub status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub route_trace_captured: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub residency: Option<GenerationResidencyReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_mtp_window: Option<NativeMtpWindowCaptureRecord>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NativeMtpWindowCaptureRecord {
+    pub category: String,
+    pub artifact_file: String,
+    pub artifact_sha256: String,
+    pub windows: usize,
+    pub shape: [usize; 3],
+    pub dtype: &'static str,
+    pub byte_order: &'static str,
+    pub semantic: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NativeMtpPrefillCaptureRecord {
+    pub category: String,
+    pub artifact_file: String,
+    pub artifact_sha256: String,
+    pub shape: [usize; 2],
+    pub dtype: &'static str,
+    pub byte_order: &'static str,
+    pub semantic: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NativeMtpPrefillCaptureReport {
+    pub schema_version: u32,
+    pub evidence_class: &'static str,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub git_dirty: bool,
+    pub model_lock_sha256: &'static str,
+    pub checkpoint_verification_sha256: String,
+    pub tokenizer_sha256: &'static str,
+    pub tokenizer_config_sha256: &'static str,
+    pub kernel_sha256: String,
+    pub metal_device: String,
+    pub user_prompt_utf8: String,
+    pub serialized_prompt_utf8: String,
+    pub prompt_token_ids: Vec<u32>,
+    pub first_anchor_token_id: u32,
+    pub prefill_chunks: usize,
+    pub chunk_layer_traces: Vec<Vec<LayerRouteTrace>>,
+    pub target_hidden: NativeMtpPrefillCaptureRecord,
+    pub ledger: EndpointLedger,
+    pub process_disk_bytes_read: u64,
+    pub peak_resident_bytes: u64,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub complete_wall_ms: f64,
+    pub prefill_wall_ms: f64,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub cache_state: &'static str,
+    pub exactness: &'static str,
+    pub performance_claim: Option<String>,
+    pub status: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GenerationResidencyReport {
+    pub manifest_sha256: String,
+    pub selection: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_limit_bytes: Option<u64>,
+    pub installed_identities: Vec<String>,
+    pub installed_resident_bytes: u64,
+    pub source_transport: &'static str,
+    pub install_logical_source_bytes: u64,
+    pub install_widened_read_bytes: u64,
+    pub install_pread_calls: usize,
+    pub install_transfer_wall_ms: f64,
+    pub resident_source_bytes: u64,
+    pub final_resident_bytes: u64,
+    pub eviction_events: Vec<PressureEvent>,
+    pub pressure_scope: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ResidentInstallEvidence {
+    logical_source_bytes: u64,
+    widened_read_bytes: u64,
+    pread_calls: usize,
+    transfer_wall_ms: f64,
+}
+
+fn is_zero_u64(value: &u64) -> bool {
+    *value == 0
 }
 
 #[derive(Deserialize)]
@@ -1367,6 +1520,39 @@ pub struct RoutedMixtureActivationCorpusReport {
     pub performance_claim: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct LayerMajorMoeReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub authority_sha256: String,
+    pub input_sha256: String,
+    pub reference_sha256: String,
+    pub output_sha256: String,
+    pub rows: usize,
+    pub top_k: usize,
+    pub unique_experts: usize,
+    pub maximum_expert_positions: usize,
+    pub route_ids_exact: bool,
+    pub maximum_route_weight_absolute_error: f32,
+    pub relative_l2: f64,
+    pub maximum_absolute_error: f32,
+    pub metal_wall_ms: f64,
+    pub complete_wall_ms: f64,
+    pub logical_source_bytes: u64,
+    pub process_activity: ProcessActivityDelta,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: usize,
+    #[serde(rename = "U")]
+    pub expert_union_factor: f64,
+    pub performance_claim: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct RouteAuthorityManifest {
     schema_version: u32,
@@ -1511,6 +1697,7 @@ struct NativeDecodeStep {
     output_tokens: Vec<u32>,
     top_logits: Vec<(u32, f32)>,
     full_logits: Vec<f32>,
+    final_hidden: Vec<f32>,
     traces: Vec<LayerRouteTrace>,
     wall_ms: f64,
 }
@@ -1564,10 +1751,12 @@ struct CheckpointTensorSource<'a> {
 }
 
 struct Checkpoint {
+    root: PathBuf,
     weight_map: BTreeMap<String, String>,
     shards: BTreeMap<String, MappedSafetensors>,
     shard_sha256: BTreeMap<String, String>,
     device_drift_files: Vec<String>,
+    resident_controller: Option<Arc<PressureResidencyController>>,
 }
 
 impl Checkpoint {
@@ -1645,11 +1834,17 @@ impl Checkpoint {
             }
         }
         Ok(Self {
+            root: root.to_owned(),
             weight_map,
             shards,
             shard_sha256,
             device_drift_files,
+            resident_controller: None,
         })
+    }
+
+    fn attach_resident_controller(&mut self, controller: Arc<PressureResidencyController>) {
+        self.resident_controller = Some(controller);
     }
 
     fn tensor(&self, name: &str) -> Result<MappedTensorView<'_>, String> {
@@ -1702,6 +1897,42 @@ impl Checkpoint {
             }
             Err(error) => Err(format!("{name}: {error}")),
         }
+    }
+
+    fn wide_projection_region(
+        &self,
+        name: &str,
+        page_bytes: usize,
+    ) -> Result<(WideSourceRegion<'_>, bool), String> {
+        if let Some(controller) = &self.resident_controller {
+            let identity = ResidentTensorIdentity {
+                tensor: name.to_owned(),
+                row: None,
+            };
+            if let Some(region) = controller.resident_tensor(&identity)? {
+                return Ok((WideSourceRegion::Resident(region), false));
+            }
+        }
+        let (region, copy) = self.projection_region(name, page_bytes)?;
+        Ok((WideSourceRegion::Mapped(region), copy))
+    }
+
+    fn wide_tensor_region(
+        &self,
+        name: &str,
+        page_bytes: usize,
+    ) -> Result<WideSourceRegion<'_>, String> {
+        if let Some(controller) = &self.resident_controller {
+            let identity = ResidentTensorIdentity {
+                tensor: name.to_owned(),
+                row: None,
+            };
+            if let Some(region) = controller.resident_tensor(&identity)? {
+                return Ok(WideSourceRegion::Resident(region));
+            }
+        }
+        self.tensor_no_copy_region(name, page_bytes)
+            .map(WideSourceRegion::Mapped)
     }
 
     fn source_tensor(&self, name: &str) -> Result<CheckpointTensorSource<'_>, String> {
@@ -1763,6 +1994,240 @@ impl Checkpoint {
             }
         }
         Ok(())
+    }
+
+    fn copy_declared_resident_object(
+        &self,
+        declaration: &DeclaredResidentObject,
+    ) -> Result<PageAlignedResidentObject, String> {
+        let mut sources = Vec::with_capacity(declaration.tensors.len());
+        for tensor in &declaration.tensors {
+            sources.push((
+                ResidentTensorIdentity {
+                    tensor: tensor.tensor.clone(),
+                    row: tensor.row,
+                },
+                self.declared_resident_tensor_bytes(tensor)?,
+            ));
+        }
+        PageAlignedResidentObject::copy_from_declared(declaration, sources)
+    }
+
+    fn load_declared_resident_object(
+        &self,
+        declaration: &DeclaredResidentObject,
+    ) -> Result<PageAlignedResidentObject, String> {
+        PageAlignedResidentObject::load_from_declared(declaration, |tensor, destination| {
+            let shard = self.shard_for_tensor(&tensor.tensor)?;
+            if shard != tensor.backing_file
+                || self.shard_sha256.get(shard) != Some(&tensor.backing_file_sha256)
+            {
+                return Err(format!(
+                    "{}: resident backing authority mismatch",
+                    tensor.tensor
+                ));
+            }
+            let mapped = self
+                .shards
+                .get(shard)
+                .ok_or_else(|| format!("mapped shard absent: {shard}"))?;
+            let metadata = mapped
+                .tensors
+                .get(&tensor.tensor)
+                .ok_or_else(|| format!("tensor is absent: {}", tensor.tensor))?;
+            if metadata.dtype != tensor.dtype {
+                return Err(format!("{}: resident dtype mismatch", tensor.tensor));
+            }
+            let row_offset = if let Some(row) = tensor.row {
+                let row = usize::try_from(row)
+                    .map_err(|_| format!("{}: resident row does not fit usize", tensor.tensor))?;
+                if metadata.shape.len() < 2
+                    || metadata.shape[1..] != tensor.shape
+                    || row >= metadata.shape[0] as usize
+                {
+                    return Err(format!("{}: resident row shape mismatch", tensor.tensor));
+                }
+                row.checked_mul(destination.len())
+                    .ok_or_else(|| format!("{}: resident row offset overflow", tensor.tensor))?
+            } else {
+                if metadata.shape != tensor.shape || metadata.data_bytes != tensor.bytes {
+                    return Err(format!("{}: resident tensor shape mismatch", tensor.tensor));
+                }
+                0
+            };
+            let absolute_offset = u64::try_from(mapped.payload_start)
+                .ok()
+                .and_then(|offset| offset.checked_add(metadata.data_offsets[0]))
+                .and_then(|offset| offset.checked_add(row_offset as u64))
+                .ok_or_else(|| format!("{}: resident file offset overflow", tensor.tensor))?;
+            let file = File::open(self.root.join(shard))
+                .map_err(|error| format!("{}: direct resident open: {error}", tensor.tensor))?;
+            let mut filled = 0_usize;
+            while filled < destination.len() {
+                let read = file
+                    .read_at(&mut destination[filled..], absolute_offset + filled as u64)
+                    .map_err(|error| format!("{}: direct resident read: {error}", tensor.tensor))?;
+                if read == 0 {
+                    return Err(format!("{}: direct resident read was short", tensor.tensor));
+                }
+                filled += read;
+            }
+            Ok(())
+        })
+    }
+
+    fn load_declared_resident_object_uncached(
+        &self,
+        declaration: &DeclaredResidentObject,
+    ) -> Result<(PageAlignedResidentObject, ResidentInstallEvidence), String> {
+        let mut evidence = ResidentInstallEvidence::default();
+        let resident = PageAlignedResidentObject::load_from_declared_batched(
+            declaration,
+            2,
+            |tensors, destinations| {
+                let mut files = Vec::with_capacity(tensors.len());
+                let mut offsets = Vec::with_capacity(tensors.len());
+                for (tensor, destination) in tensors.iter().zip(destinations.iter()) {
+                    let shard = self.shard_for_tensor(&tensor.tensor)?;
+                    if shard != tensor.backing_file
+                        || self.shard_sha256.get(shard) != Some(&tensor.backing_file_sha256)
+                    {
+                        return Err(format!(
+                            "{}: uncached resident backing authority mismatch",
+                            tensor.tensor
+                        ));
+                    }
+                    let mapped = self
+                        .shards
+                        .get(shard)
+                        .ok_or_else(|| format!("mapped shard absent: {shard}"))?;
+                    let metadata = mapped
+                        .tensors
+                        .get(&tensor.tensor)
+                        .ok_or_else(|| format!("tensor is absent: {}", tensor.tensor))?;
+                    if metadata.dtype != tensor.dtype {
+                        return Err(format!(
+                            "{}: uncached resident dtype mismatch",
+                            tensor.tensor
+                        ));
+                    }
+                    let row_offset = if let Some(row) = tensor.row {
+                        let row = usize::try_from(row).map_err(|_| {
+                            format!(
+                                "{}: uncached resident row does not fit usize",
+                                tensor.tensor
+                            )
+                        })?;
+                        if metadata.shape.len() < 2
+                            || metadata.shape[1..] != tensor.shape
+                            || row >= metadata.shape[0] as usize
+                        {
+                            return Err(format!(
+                                "{}: uncached resident row shape mismatch",
+                                tensor.tensor
+                            ));
+                        }
+                        row.checked_mul(destination.len()).ok_or_else(|| {
+                            format!("{}: uncached resident row offset overflow", tensor.tensor)
+                        })?
+                    } else {
+                        if metadata.shape != tensor.shape || metadata.data_bytes != tensor.bytes {
+                            return Err(format!(
+                                "{}: uncached resident tensor shape mismatch",
+                                tensor.tensor
+                            ));
+                        }
+                        0
+                    };
+                    let absolute_offset = u64::try_from(mapped.payload_start)
+                        .ok()
+                        .and_then(|offset| offset.checked_add(metadata.data_offsets[0]))
+                        .and_then(|offset| offset.checked_add(row_offset as u64))
+                        .ok_or_else(|| {
+                            format!("{}: uncached resident file offset overflow", tensor.tensor)
+                        })?;
+                    let file = File::open(self.root.join(shard)).map_err(|error| {
+                        format!("{}: uncached resident open: {error}", tensor.tensor)
+                    })?;
+                    let file_bytes = file
+                        .metadata()
+                        .map_err(|error| {
+                            format!("{}: uncached resident metadata: {error}", tensor.tensor)
+                        })?
+                        .len();
+                    files.push(file);
+                    offsets.push((absolute_offset, file_bytes));
+                }
+                let sources = files
+                    .iter()
+                    .zip(&offsets)
+                    .map(|(file, (offset, file_bytes))| (file.as_raw_fd(), *offset, *file_bytes))
+                    .collect::<Vec<_>>();
+                let read = read_uncached_widened_pair(&sources, destinations)?;
+                evidence.logical_source_bytes = evidence
+                    .logical_source_bytes
+                    .checked_add(read.logical_bytes)
+                    .ok_or("uncached resident logical byte overflow")?;
+                evidence.widened_read_bytes = evidence
+                    .widened_read_bytes
+                    .checked_add(read.widened_bytes)
+                    .ok_or("uncached resident widened byte overflow")?;
+                evidence.pread_calls = evidence
+                    .pread_calls
+                    .checked_add(read.pread_calls)
+                    .ok_or("uncached resident pread count overflow")?;
+                evidence.transfer_wall_ms += read.wall_ms;
+                Ok(())
+            },
+        )?;
+        if evidence.logical_source_bytes != declaration.source_bytes
+            || evidence.widened_read_bytes < evidence.logical_source_bytes
+            || evidence.widened_read_bytes as f64 / evidence.logical_source_bytes as f64 > 1.05
+            || evidence.pread_calls != declaration.tensors.len()
+        {
+            return Err("uncached resident install accounting gate failed".to_owned());
+        }
+        Ok((resident, evidence))
+    }
+
+    fn declared_resident_tensor_bytes<'a>(
+        &'a self,
+        tensor: &crate::pressure_residency::DeclaredResidentTensor,
+    ) -> Result<&'a [u8], String> {
+        let shard = self.shard_for_tensor(&tensor.tensor)?;
+        if shard != tensor.backing_file
+            || self.shard_sha256.get(shard) != Some(&tensor.backing_file_sha256)
+        {
+            return Err(format!(
+                "{}: resident backing authority mismatch",
+                tensor.tensor
+            ));
+        }
+        let view = self.tensor(&tensor.tensor)?;
+        if view.metadata.dtype != tensor.dtype {
+            return Err(format!("{}: resident dtype mismatch", tensor.tensor));
+        }
+        if let Some(row) = tensor.row {
+            let row = usize::try_from(row)
+                .map_err(|_| format!("{}: resident row does not fit usize", tensor.tensor))?;
+            if view.metadata.shape.len() < 2
+                || view.metadata.shape[1..] != tensor.shape
+                || row >= view.metadata.shape[0] as usize
+            {
+                return Err(format!("{}: resident row shape mismatch", tensor.tensor));
+            }
+            let row_bytes = usize::try_from(tensor.bytes)
+                .map_err(|_| format!("{}: resident row bytes too large", tensor.tensor))?;
+            let start = row
+                .checked_mul(row_bytes)
+                .ok_or_else(|| format!("{}: resident row offset overflow", tensor.tensor))?;
+            Ok(&view.bytes[start..start + row_bytes])
+        } else {
+            if view.metadata.shape != tensor.shape || view.metadata.data_bytes != tensor.bytes {
+                return Err(format!("{}: resident tensor shape mismatch", tensor.tensor));
+            }
+            Ok(view.bytes)
+        }
     }
 }
 
@@ -2678,17 +3143,18 @@ fn wide_fp8_linear(
         }
     }
     let page_bytes = host_page_bytes()?;
-    let (weight_region, copy_weight) = checkpoint.projection_region(weight_name, page_bytes)?;
+    let (weight_region, copy_weight) =
+        checkpoint.wide_projection_region(weight_name, page_bytes)?;
     let binding = WideProjectionBinding {
         weight: weight_region,
         scale: checkpoint
-            .tensor_no_copy_region(&scale_name, page_bytes)
+            .wide_tensor_region(&scale_name, page_bytes)
             .map_err(|error| format!("{scale_name}: {error}"))?,
         copy_weight,
         rows: output_columns,
         columns,
     };
-    let logical_bytes = (binding.weight.tensor_bytes + binding.scale.tensor_bytes) as u64;
+    let logical_bytes = (binding.weight.tensor_bytes() + binding.scale.tensor_bytes()) as u64;
     let execution = runtime.execute_fp8_linear(input, &binding, full_qkv_layout)?;
     ledger.logical_source_bytes = ledger
         .logical_source_bytes
@@ -2697,6 +3163,10 @@ fn wide_fp8_linear(
     ledger.fp8_matrices_expanded += 1;
     ledger.dynamic_activation_groups += (rows * columns / 128) as u64;
     ledger.dynamic_activation_values += (rows * columns) as u64;
+    ledger.resident_source_bytes = ledger
+        .resident_source_bytes
+        .checked_add(execution.resident_source_bytes)
+        .ok_or("resident source byte ledger overflow")?;
     let _ = (execution.wall_ms, execution.mapped_source_bytes);
     Ok(execution.output)
 }
@@ -2933,15 +3403,19 @@ fn wide_bf16_linear(
     }
     let page_bytes = host_page_bytes()?;
     let region = checkpoint
-        .tensor_no_copy_region(weight_name, page_bytes)
+        .wide_tensor_region(weight_name, page_bytes)
         .map_err(|error| format!("{weight_name}: {error}"))?;
-    let logical_bytes = region.tensor_bytes as u64;
+    let logical_bytes = region.tensor_bytes() as u64;
     let execution = runtime.execute_bf16_linear(input, &region, output_columns, columns)?;
     ledger.logical_source_bytes = ledger
         .logical_source_bytes
         .checked_add(logical_bytes)
         .ok_or("wide BF16 logical byte ledger overflow")?;
     ledger.bf16_matrices_expanded += 1;
+    ledger.resident_source_bytes = ledger
+        .resident_source_bytes
+        .checked_add(execution.resident_source_bytes)
+        .ok_or("resident source byte ledger overflow")?;
     let _ = (execution.wall_ms, execution.mapped_source_bytes);
     Ok(execution.output)
 }
@@ -4260,9 +4734,32 @@ fn routed_mlp_metal_wide(
     metal_ledger: &mut MetalExpertLedger,
     runtime: &WideMetalMoeRuntime,
 ) -> Result<RoutedMlpOutput, String> {
-    if !(1..=8).contains(&rows) || input.len() != rows * HIDDEN {
+    routed_mlp_metal_wide_configured(
+        checkpoint,
+        layer,
+        input,
+        rows,
+        ledger,
+        metal_ledger,
+        runtime,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn routed_mlp_metal_wide_configured(
+    checkpoint: &Checkpoint,
+    layer: usize,
+    input: &[f32],
+    rows: usize,
+    ledger: &mut EndpointLedger,
+    metal_ledger: &mut MetalExpertLedger,
+    runtime: &WideMetalMoeRuntime,
+    fused_gate_up: bool,
+) -> Result<RoutedMlpOutput, String> {
+    if !(1..=128).contains(&rows) || input.len() != rows * HIDDEN {
         return Err(format!(
-            "wide Metal routed experts require [8, {HIDDEN}], got [{rows}, {}]",
+            "wide Metal routed experts require [1..=128, {HIDDEN}], got [{rows}, {}]",
             input.len() / rows.max(1)
         ));
     }
@@ -4308,11 +4805,12 @@ fn routed_mlp_metal_wide(
                     "layer {layer} expert {expert} {name}: projection shape mismatch"
                 ));
             }
-            let (weight, copy_weight) = checkpoint.projection_region(&weight_name, page_bytes)?;
+            let (weight, copy_weight) =
+                checkpoint.wide_projection_region(&weight_name, page_bytes)?;
             Ok(WideProjectionBinding {
                 weight,
                 scale: checkpoint
-                    .tensor_no_copy_region(&scale_name, page_bytes)
+                    .wide_tensor_region(&scale_name, page_bytes)
                     .map_err(|error| format!("{scale_name}: {error}"))?,
                 copy_weight,
                 rows,
@@ -4326,7 +4824,7 @@ fn routed_mlp_metal_wide(
             .iter()
             .flat_map(|projection| [&projection.weight, &projection.scale])
             .try_fold(logical_source_bytes, |total, region| {
-                total.checked_add(region.tensor_bytes as u64)
+                total.checked_add(region.tensor_bytes() as u64)
             })
             .ok_or("wide logical source byte ledger overflow")?;
         bindings.push(WideExpertBinding {
@@ -4341,7 +4839,11 @@ fn routed_mlp_metal_wide(
             down,
         });
     }
-    let execution = runtime.execute(input, &bindings)?;
+    let execution = if fused_gate_up {
+        runtime.execute_fused_gate_up(input, &bindings)?
+    } else {
+        runtime.execute(input, &bindings)?
+    };
     if execution.unique_experts != schedule.len() || execution.expert_rows != rows * TOP_K {
         return Err(format!(
             "layer {layer}: wide Metal execution accounting mismatch"
@@ -4351,6 +4853,10 @@ fn routed_mlp_metal_wide(
         .logical_source_bytes
         .checked_add(logical_source_bytes)
         .ok_or("logical byte ledger overflow")?;
+    ledger.resident_source_bytes = ledger
+        .resident_source_bytes
+        .checked_add(execution.resident_source_bytes)
+        .ok_or("resident source byte ledger overflow")?;
     ledger.routed_expert_executions += execution.expert_rows as u64;
     ledger.dynamic_activation_groups += (execution.expert_rows * 80) as u64;
     ledger.dynamic_activation_values += (execution.expert_rows * 10_240) as u64;
@@ -4368,6 +4874,10 @@ fn routed_mlp_metal_wide(
         .wide_mapped_source_bytes
         .checked_add(execution.mapped_source_bytes)
         .ok_or("wide mapped-byte ledger overflow")?;
+    metal_ledger.wide_resident_source_bytes = metal_ledger
+        .wide_resident_source_bytes
+        .checked_add(execution.resident_source_bytes)
+        .ok_or("wide resident-byte ledger overflow")?;
     Ok(RoutedMlpOutput {
         output: execution.output,
         logits: routing.logits,
@@ -4375,6 +4885,405 @@ fn routed_mlp_metal_wide(
         selected: routing.selected,
         weights: routing.weights,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_layer_major_moe_slice(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    safety_fixture_path: &Path,
+    authority_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    kernel_path: &Path,
+    output_path: &Path,
+    report_path: &Path,
+    commit: &str,
+) -> Result<LayerMajorMoeReport, String> {
+    run_layer_major_moe_slice_mode(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        safety_fixture_path,
+        authority_path,
+        input_path,
+        reference_path,
+        kernel_path,
+        output_path,
+        report_path,
+        commit,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_packed_fusion_moe_slice(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    safety_fixture_path: &Path,
+    authority_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    kernel_path: &Path,
+    output_path: &Path,
+    report_path: &Path,
+    commit: &str,
+) -> Result<LayerMajorMoeReport, String> {
+    run_layer_major_moe_slice_mode(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        safety_fixture_path,
+        authority_path,
+        input_path,
+        reference_path,
+        kernel_path,
+        output_path,
+        report_path,
+        commit,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_layer_major_moe_slice_mode(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    safety_fixture_path: &Path,
+    authority_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    kernel_path: &Path,
+    output_path: &Path,
+    report_path: &Path,
+    commit: &str,
+    fused_gate_up: bool,
+) -> Result<LayerMajorMoeReport, String> {
+    const AUTHORITY_SHA256: &str =
+        "14ab8792e4ead565ec91d5768737e5c6518bc2a7d2fdd2cae2a3efa93c5126c9";
+    const INPUT_SHA256: &str = "df5a48213d63651a68ed763f84e0ea0d948151a98f791946ad169acf0b86d1f1";
+    const REFERENCE_SHA256: &str =
+        "8fdafc50400bc323d5fca0c30e5026f179088463ef2a9e5f7fc6981f4f933cd3";
+    const ROWS: usize = 128;
+    if output_path.exists() || report_path.exists() {
+        return Err("refusing to overwrite PW-0209/PW-0210 evidence".to_owned());
+    }
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("PW-0209 commit must be lowercase 40-hex".to_owned());
+    }
+    let git_head = command_output("/usr/bin/git", &["rev-parse", "HEAD"])?;
+    let git_status = command_output("/usr/bin/git", &["status", "--porcelain"])?;
+    if git_head.trim() != commit || !git_status.is_empty() {
+        return Err("PW-0209 evidence requires exact clean Git HEAD".to_owned());
+    }
+    if hash_file(model_lock_path)? != MODEL_LOCK_SHA256
+        || hash_file(authority_path)? != AUTHORITY_SHA256
+        || hash_file(input_path)? != INPUT_SHA256
+        || hash_file(reference_path)? != REFERENCE_SHA256
+    {
+        return Err("PW-0209 authority or reference hash mismatch".to_owned());
+    }
+    let authority: Value = serde_json::from_reader(
+        File::open(authority_path)
+            .map_err(|error| format!("{}: {error}", authority_path.display()))?,
+    )
+    .map_err(|error| format!("PW-0209 authority: {error}"))?;
+    let expected_routes: Vec<Vec<u32>> = serde_json::from_value(
+        authority
+            .get("selected_experts_by_position")
+            .cloned()
+            .ok_or("PW-0209 authority lacks routes")?,
+    )
+    .map_err(|error| format!("PW-0209 routes: {error}"))?;
+    let expected_weights: Vec<Vec<f32>> = serde_json::from_value(
+        authority
+            .get("route_weights_by_position")
+            .cloned()
+            .ok_or("PW-0209 authority lacks route weights")?,
+    )
+    .map_err(|error| format!("PW-0209 route weights: {error}"))?;
+    if authority.get("semantic").and_then(Value::as_str)
+        != Some("mimo_pw0209_layer43_context128_full_width_source_authority")
+        || expected_routes.len() != ROWS
+        || expected_weights.len() != ROWS
+        || expected_routes.iter().any(|row| row.len() != TOP_K)
+        || expected_weights.iter().any(|row| row.len() != TOP_K)
+    {
+        return Err("PW-0209 authority shape mismatch".to_owned());
+    }
+    let safety_fixture: EndpointFixture = serde_json::from_reader(
+        File::open(safety_fixture_path)
+            .map_err(|error| format!("{}: {error}", safety_fixture_path.display()))?,
+    )
+    .map_err(|error| format!("PW-0209 safety fixture: {error}"))?;
+    let verification: CheckpointVerification = serde_json::from_reader(
+        File::open(verification_path)
+            .map_err(|error| format!("{}: {error}", verification_path.display()))?,
+    )
+    .map_err(|error| format!("PW-0209 verification: {error}"))?;
+    if verification.schema_version != 1
+        || verification.evidence_class != "local_checkpoint_lock_verification"
+        || !verification.complete
+        || verification.lock_sha256 != MODEL_LOCK_SHA256
+        || verification.revision != REVISION
+    {
+        return Err("PW-0209 checkpoint verification mismatch".to_owned());
+    }
+    let checkpoint = Checkpoint::open(
+        checkpoint_root,
+        &checkpoint_root.join("model.safetensors.index.json"),
+        &verification,
+    )?;
+    let (_, input) = read_f32_file(input_path, Some(ROWS * HIDDEN))?;
+    let (_, reference) = read_f32_file(reference_path, Some(ROWS * HIDDEN))?;
+    let runtime = if fused_gate_up {
+        WideMetalMoeRuntime::compile_with_fused_gate_up(kernel_path)?
+    } else {
+        WideMetalMoeRuntime::compile(kernel_path)?
+    };
+    let mut safety = SafetyMonitor::start(safety_fixture.safety)?;
+    let experiment = if fused_gate_up { "pw0210" } else { "pw0209" };
+    safety.checkpoint(&format!("{experiment}_authorities_open"), true)?;
+    checkpoint.release_file_pages()?;
+    safety.checkpoint(&format!("{experiment}_candidate_a_cold_prepared"), true)?;
+    let before = process_activity()?;
+    let complete_started = Instant::now();
+    let candidate_before = process_activity()?;
+    let candidate_started = Instant::now();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
+    let mut metal_ledger = MetalExpertLedger::default();
+    let candidate = routed_mlp_metal_wide_configured(
+        &checkpoint,
+        43,
+        &input,
+        ROWS,
+        &mut ledger,
+        &mut metal_ledger,
+        &runtime,
+        fused_gate_up,
+    )?;
+    let candidate_complete_wall_ms = candidate_started.elapsed().as_secs_f64() * 1000.0;
+    let candidate_activity = process_activity()?.checked_delta(candidate_before)?;
+    safety.checkpoint(&format!("{experiment}_candidate_a_complete"), true)?;
+    let route_ids_exact = candidate.selected == expected_routes;
+    let maximum_route_weight_absolute_error = candidate
+        .weights
+        .iter()
+        .flatten()
+        .zip(expected_weights.iter().flatten())
+        .map(|(actual, expected)| (actual - expected).abs())
+        .fold(0.0_f32, f32::max);
+    if !route_ids_exact || maximum_route_weight_absolute_error > 5.0e-7 {
+        return Err("PW-0209 route parity failed".to_owned());
+    }
+    let parity = |actual: &[f32], expected: &[f32]| {
+        let mut reference_squared = 0.0_f64;
+        let mut error_squared = 0.0_f64;
+        let mut maximum_absolute_error = 0.0_f32;
+        for (&actual, &expected) in actual.iter().zip(expected) {
+            let difference = actual - expected;
+            reference_squared += f64::from(expected) * f64::from(expected);
+            error_squared += f64::from(difference) * f64::from(difference);
+            maximum_absolute_error = maximum_absolute_error.max(difference.abs());
+        }
+        (
+            error_squared.sqrt() / reference_squared.sqrt().max(1.0e-20),
+            maximum_absolute_error,
+        )
+    };
+    let (relative_l2, maximum_absolute_error) = parity(&candidate.output, &reference);
+    if !relative_l2.is_finite() || relative_l2 > 5.0e-4 || maximum_absolute_error > 2.0e-2 {
+        let mut width8_output = Vec::with_capacity(reference.len());
+        let mut width8_routes_exact = true;
+        let mut width8_ledger = EndpointLedger::for_checkpoint(&checkpoint);
+        let mut width8_metal_ledger = MetalExpertLedger::default();
+        checkpoint.release_file_pages()?;
+        safety.checkpoint(&format!("{experiment}_control_cold_prepared"), true)?;
+        let width8_before = process_activity()?;
+        let width8_started = Instant::now();
+        if fused_gate_up {
+            let control = routed_mlp_metal_wide(
+                &checkpoint,
+                43,
+                &input,
+                ROWS,
+                &mut width8_ledger,
+                &mut width8_metal_ledger,
+                &runtime,
+            )?;
+            width8_routes_exact &= control.selected == expected_routes
+                && control
+                    .weights
+                    .iter()
+                    .flatten()
+                    .zip(expected_weights.iter().flatten())
+                    .all(|(actual, expected)| (actual - expected).abs() <= 5.0e-7);
+            width8_output.extend_from_slice(&control.output);
+        } else {
+            for chunk in 0..ROWS / 8 {
+                let start = chunk * 8;
+                let end = start + 8;
+                let control = routed_mlp_metal_wide(
+                    &checkpoint,
+                    43,
+                    &input[start * HIDDEN..end * HIDDEN],
+                    8,
+                    &mut width8_ledger,
+                    &mut width8_metal_ledger,
+                    &runtime,
+                )?;
+                width8_routes_exact &= control.selected == expected_routes[start..end]
+                    && control
+                        .weights
+                        .iter()
+                        .flatten()
+                        .zip(expected_weights[start..end].iter().flatten())
+                        .all(|(actual, expected)| (actual - expected).abs() <= 5.0e-7);
+                width8_output.extend_from_slice(&control.output);
+            }
+        }
+        let width8_complete_wall_ms = width8_started.elapsed().as_secs_f64() * 1000.0;
+        let width8_activity = process_activity()?.checked_delta(width8_before)?;
+        safety.checkpoint(&format!("{experiment}_control_complete"), true)?;
+        checkpoint.release_file_pages()?;
+        safety.checkpoint(&format!("{experiment}_candidate_b_cold_prepared"), true)?;
+        let candidate_b_before = process_activity()?;
+        let candidate_b_started = Instant::now();
+        let mut candidate_b_ledger = EndpointLedger::for_checkpoint(&checkpoint);
+        let mut candidate_b_metal_ledger = MetalExpertLedger::default();
+        let candidate_b = routed_mlp_metal_wide_configured(
+            &checkpoint,
+            43,
+            &input,
+            ROWS,
+            &mut candidate_b_ledger,
+            &mut candidate_b_metal_ledger,
+            &runtime,
+            fused_gate_up,
+        )?;
+        let candidate_b_complete_wall_ms = candidate_b_started.elapsed().as_secs_f64() * 1000.0;
+        let candidate_b_activity = process_activity()?.checked_delta(candidate_b_before)?;
+        safety.checkpoint(&format!("{experiment}_candidate_b_complete"), true)?;
+        let (candidate_repeat_relative_l2, candidate_repeat_maximum_absolute_error) =
+            parity(&candidate_b.output, &candidate.output);
+        if candidate_b.selected != candidate.selected
+            || candidate_b.weights != candidate.weights
+            || candidate_repeat_relative_l2 != 0.0
+            || candidate_repeat_maximum_absolute_error != 0.0
+        {
+            return Err("PW-0209 repeated width-128 candidate is not exact".to_owned());
+        }
+        let (width8_relative_l2, width8_maximum_absolute_error) =
+            parity(&width8_output, &reference);
+        let (candidate_to_width8_relative_l2, candidate_to_width8_maximum_absolute_error) =
+            parity(&candidate.output, &width8_output);
+        let candidate_bytes = finite_f32_le_bytes(&candidate.output, ROWS * HIDDEN)?;
+        let width8_bytes = finite_f32_le_bytes(&width8_output, ROWS * HIDDEN)?;
+        let width8_path = report_path.with_extension("width8-control.f32");
+        write_create_new(output_path, &candidate_bytes)?;
+        write_create_new(&width8_path, &width8_bytes)?;
+        let failure = serde_json::json!({
+            "schema_version": 1,
+            "semantic": if fused_gate_up { "mimo_pw0210_layer43_context128_fused_gate_up_swiglu_failure" } else { "mimo_pw0209_layer43_context128_layer_major_metal_moe_failure" },
+            "revision": REVISION,
+            "commit": commit,
+            "authority_sha256": AUTHORITY_SHA256,
+            "input_sha256": INPUT_SHA256,
+            "reference_sha256": REFERENCE_SHA256,
+            "candidate_output_sha256": sha256_hex(&candidate_bytes),
+            "width8_control_output_sha256": sha256_hex(&width8_bytes),
+            "width8_control_file": width8_path.file_name().and_then(|name| name.to_str()),
+            "candidate_mode": if fused_gate_up { "fused_gate_up_swiglu_width128" } else { "unfused_width128" },
+            "control_mode": if fused_gate_up { "unfused_width128" } else { "sixteen_unfused_width8_transactions" },
+            "route_ids_exact": route_ids_exact,
+            "maximum_route_weight_absolute_error": maximum_route_weight_absolute_error,
+            "width128_relative_l2": relative_l2,
+            "width128_maximum_absolute_error": maximum_absolute_error,
+            "width8_routes_exact": width8_routes_exact,
+            "width8_relative_l2": width8_relative_l2,
+            "width8_maximum_absolute_error": width8_maximum_absolute_error,
+            "width128_to_width8_relative_l2": candidate_to_width8_relative_l2,
+            "width128_to_width8_maximum_absolute_error": candidate_to_width8_maximum_absolute_error,
+            "width128_metal_wall_ms": metal_ledger.wide_wall_ms,
+            "width128_complete_wall_ms": candidate_complete_wall_ms,
+            "width128_process_activity": candidate_activity,
+            "width128_logical_source_bytes": ledger.logical_source_bytes,
+            "width8_metal_wall_ms": width8_metal_ledger.wide_wall_ms,
+            "width8_complete_wall_ms": width8_complete_wall_ms,
+            "width8_process_activity": width8_activity,
+            "width8_logical_source_bytes": width8_ledger.logical_source_bytes,
+            "width128_repeat_metal_wall_ms": candidate_b_metal_ledger.wide_wall_ms,
+            "width128_repeat_complete_wall_ms": candidate_b_complete_wall_ms,
+            "width128_repeat_process_activity": candidate_b_activity,
+            "width128_repeat_logical_source_bytes": candidate_b_ledger.logical_source_bytes,
+            "width128_repeat_relative_l2": candidate_repeat_relative_l2,
+            "width128_repeat_maximum_absolute_error": candidate_repeat_maximum_absolute_error,
+            "cache_state": "cold_requested_release_file_pages_before_each_a_control_a_trial",
+            "accepted_tokens": 0,
+            "performance_claim": null,
+        });
+        write_create_new(
+            report_path,
+            &serde_json::to_vec_pretty(&failure).map_err(|error| error.to_string())?,
+        )?;
+        return Err(format!(
+            "{} source parity failed: candidate relative L2 {relative_l2}, max abs {maximum_absolute_error}; control routes exact {width8_routes_exact}, relative L2 {width8_relative_l2}, max abs {width8_maximum_absolute_error}; candidate-to-control relative L2 {candidate_to_width8_relative_l2}, max abs {candidate_to_width8_maximum_absolute_error}",
+            if fused_gate_up { "PW-0210" } else { "PW-0209" }
+        ));
+    }
+    let output_bytes = finite_f32_le_bytes(&candidate.output, ROWS * HIDDEN)?;
+    write_create_new(output_path, &output_bytes)?;
+    checkpoint.release_file_pages()?;
+    safety.checkpoint(&format!("{experiment}_output_complete"), true)?;
+    let complete_wall_ms = complete_started.elapsed().as_secs_f64() * 1000.0;
+    let activity = process_activity()?.checked_delta(before)?;
+    let mut counts = BTreeMap::<u32, usize>::new();
+    for expert in candidate.selected.iter().flatten() {
+        *counts.entry(*expert).or_default() += 1;
+    }
+    let report = LayerMajorMoeReport {
+        schema_version: 1,
+        semantic: if fused_gate_up {
+            "mimo_pw0210_layer43_context128_fused_gate_up_swiglu"
+        } else {
+            "mimo_pw0209_layer43_context128_layer_major_metal_moe"
+        },
+        revision: REVISION,
+        commit: commit.to_owned(),
+        authority_sha256: AUTHORITY_SHA256.to_owned(),
+        input_sha256: INPUT_SHA256.to_owned(),
+        reference_sha256: REFERENCE_SHA256.to_owned(),
+        output_sha256: sha256_hex(&output_bytes),
+        rows: ROWS,
+        top_k: TOP_K,
+        unique_experts: counts.len(),
+        maximum_expert_positions: counts.values().copied().max().unwrap_or(0),
+        route_ids_exact,
+        maximum_route_weight_absolute_error,
+        relative_l2,
+        maximum_absolute_error,
+        metal_wall_ms: metal_ledger.wide_wall_ms,
+        complete_wall_ms,
+        logical_source_bytes: ledger.logical_source_bytes,
+        process_activity: activity,
+        safety_snapshots: safety.snapshots,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        accepted_per_verification: 0,
+        expert_union_factor: counts.len() as f64 / ROWS as f64,
+        performance_claim: None,
+    };
+    let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(report_path, &report_bytes)?;
+    Ok(report)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4529,6 +5438,17 @@ fn top_logits(logits: &[f32], count: usize) -> Result<Vec<(u32, f32)>, String> {
         .take(count)
         .map(|index| (index as u32, logits[index]))
         .collect())
+}
+
+fn finite_f32_le_bytes(values: &[f32], expected_values: usize) -> Result<Vec<u8>, String> {
+    if values.len() != expected_values || values.iter().any(|value| !value.is_finite()) {
+        return Err("float32 capture shape or finiteness gate failed".to_owned());
+    }
+    let mut bytes = Vec::with_capacity(std::mem::size_of_val(values));
+    for value in values {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    Ok(bytes)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4740,6 +5660,7 @@ fn decode_step(
             output_tokens: Vec::new(),
             top_logits: Vec::new(),
             full_logits: Vec::new(),
+            final_hidden: hidden,
             traces,
             wall_ms: started.elapsed().as_secs_f64() * 1000.0,
         });
@@ -4772,6 +5693,17 @@ fn decode_step(
                 ledger,
             )?
         }
+    } else if let Some((runtime, _)) = wide_metal.as_ref() {
+        wide_bf16_linear(
+            checkpoint,
+            "lm_head.weight",
+            &normalized[(rows - 1) * HIDDEN..rows * HIDDEN],
+            1,
+            HIDDEN,
+            config.vocab_size,
+            ledger,
+            runtime,
+        )?
     } else {
         bf16_last_row_linear(
             checkpoint,
@@ -4802,6 +5734,7 @@ fn decode_step(
         output_tokens,
         top_logits: top,
         full_logits: all_logits,
+        final_hidden: hidden,
         traces,
         wall_ms: started.elapsed().as_secs_f64() * 1000.0,
     })
@@ -5399,6 +6332,149 @@ fn accepted_jacobi_tokens(proposal: &[u32], posterior: &[u32]) -> Result<usize, 
         .map_or(proposal.len(), |index| index + 1))
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn run_pressure_resident_checkpoint_pilot(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    residency_manifest_path: &Path,
+    resident_identity: &str,
+    output_path: &Path,
+    commit: &str,
+) -> Result<PressureResidentCheckpointPilotReport, String> {
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("implementation commit must be lowercase 40-hex".to_owned());
+    }
+    let head = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .map_err(|error| format!("git rev-parse HEAD: {error}"))?;
+    let status = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .map_err(|error| format!("git status: {error}"))?;
+    if !head.status.success()
+        || String::from_utf8_lossy(&head.stdout).trim() != commit
+        || !status.status.success()
+        || !status.stdout.is_empty()
+    {
+        return Err("checkpoint residency evidence requires exact clean Git HEAD".to_owned());
+    }
+    let disk_before = process_disk_bytes_read()?;
+    let EndpointAuthority {
+        fixture,
+        mut safety,
+        checkpoint,
+        verification_sha256,
+        ..
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    validate_slow_endpoint_fixture(&fixture)?;
+    let residency_manifest_sha256 = hash_file(residency_manifest_path)?;
+    let manifest = DeclaredResidencyManifest::from_offline_report(residency_manifest_path)?;
+    let declaration = manifest
+        .objects
+        .iter()
+        .find(|object| object.identity == resident_identity)
+        .cloned()
+        .ok_or_else(|| format!("resident identity is not declared: {resident_identity}"))?;
+    safety.checkpoint("pw0207_before_resident_copy", true)?;
+    let controller = PressureResidencyController::new(manifest)?;
+    let observer = DarwinMemoryPressureObserver::start(controller.clone())?;
+    let resident = checkpoint.copy_declared_resident_object(&declaration)?;
+    controller.install_page_aligned(resident_identity, resident)?;
+    let resident_bytes_after_install = controller.resident_bytes()?;
+    safety.checkpoint("pw0207_resident_object_installed", false)?;
+
+    let installed = controller
+        .page_aligned(resident_identity)?
+        .ok_or("installed resident object disappeared")?;
+    let mut tensor_sha256 = BTreeMap::new();
+    let mut exact_tensor_bytes_preserved = true;
+    for tensor in &declaration.tensors {
+        let identity = ResidentTensorIdentity {
+            tensor: tensor.tensor.clone(),
+            row: tensor.row,
+        };
+        let region = installed.tensor_region(&identity)?;
+        let resident_bytes =
+            &region.bytes[region.tensor_offset..region.tensor_offset + region.tensor_bytes];
+        let source_bytes = checkpoint.declared_resident_tensor_bytes(tensor)?;
+        exact_tensor_bytes_preserved &= resident_bytes == source_bytes;
+        let label = tensor.row.map_or_else(
+            || tensor.tensor.clone(),
+            |row| format!("{}:row:{row}", tensor.tensor),
+        );
+        tensor_sha256.insert(label, sha256_hex(resident_bytes));
+    }
+    drop(installed);
+    if !exact_tensor_bytes_preserved {
+        return Err("resident copy changed authoritative tensor bytes".to_owned());
+    }
+    controller.handle_pressure_mask(PRESSURE_WARNING)?;
+    let resident_bytes_after_warning = controller.resident_bytes()?;
+    let warning_events = controller.events()?;
+    drop(observer);
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("pw0207_warning_eviction_complete", true)?;
+    if resident_bytes_after_install != declaration.bytes
+        || resident_bytes_after_warning != 0
+        || warning_events.len() != 1
+        || warning_events[0].evicted_identities != [resident_identity]
+    {
+        return Err("checkpoint resident warning-eviction gate failed".to_owned());
+    }
+    let process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_before)
+        .ok_or("process disk byte counter moved backwards")?;
+    let report = PressureResidentCheckpointPilotReport {
+        schema_version: 1,
+        evidence_class: "pw0207_real_checkpoint_resident_object_pilot",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        git_dirty: false,
+        checkpoint_verification_sha256: verification_sha256,
+        residency_manifest_sha256,
+        resident_identity: declaration.identity,
+        tensor_metadata_sha256: declaration.tensor_metadata_sha256,
+        tensor_sha256,
+        declared_source_bytes: declaration.source_bytes,
+        declared_resident_bytes: declaration.bytes,
+        resident_bytes_after_install,
+        resident_bytes_after_warning,
+        warning_events,
+        exact_tensor_bytes_preserved,
+        observer_started_and_drained: true,
+        process_disk_bytes_read,
+        safety_snapshots: safety.snapshots,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        performance_claim: None,
+        scope: "one real checkpoint object copy and injected warning eviction; not a decoder transaction, real OS warning, or TPS result",
+        status: "passed",
+    };
+    write_create_new(
+        output_path,
+        &serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?,
+    )?;
+    Ok(report)
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct JacobiCommit {
     /// Tokens made observable by this transaction. The proposal anchor was
@@ -5718,6 +6794,188 @@ pub fn run_wide_metal_jacobi_text_endpoint(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn run_native_mtp_prefill_capture(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    category: &str,
+    hidden_output_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<NativeMtpPrefillCaptureReport, String> {
+    if output_path.exists() || hidden_output_path.exists() {
+        return Err("refusing to overwrite native MTP prefill evidence".to_owned());
+    }
+    if !matches!(
+        category,
+        "ordinary" | "code" | "multilingual" | "rare_route"
+    ) {
+        return Err(
+            "native MTP prefill category must be ordinary, code, multilingual, or rare_route"
+                .to_owned(),
+        );
+    }
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("implementation commit must be a lowercase 40-hex Git object".to_owned());
+    }
+    let git_head = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .map_err(|error| format!("git rev-parse HEAD: {error}"))?;
+    let git_status = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .map_err(|error| format!("git status: {error}"))?;
+    let git_dirty = !git_status.stdout.is_empty();
+    if !git_head.status.success()
+        || !git_status.status.success()
+        || String::from_utf8_lossy(&git_head.stdout).trim() != commit
+        || git_dirty
+    {
+        return Err(
+            "native MTP prefill evidence requires the supplied commit to be exact clean Git HEAD"
+                .to_owned(),
+        );
+    }
+
+    const WIDTH: usize = 8;
+    let complete_started = Instant::now();
+    let disk_before = process_disk_bytes_read()?;
+    let user_prompt = fs::read_to_string(prompt_path)
+        .map_err(|error| format!("{}: {error}", prompt_path.display()))?;
+    let (
+        checkpoint,
+        _verification,
+        config,
+        _tokenizer,
+        serialized_prompt,
+        prompt_token_ids,
+        mut safety,
+        verification_sha256,
+    ) = open_arbitrary_text_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        &user_prompt,
+    )?;
+    let runtime = WideMetalMoeRuntime::compile(kernel_path)?;
+    safety.checkpoint("native_mtp_prefill_authorities_open", true)?;
+    let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
+    let prefill_chunks = prompt_token_ids.len().div_ceil(WIDTH);
+    let prefill_started = Instant::now();
+    let mut target_hidden = Vec::with_capacity(prompt_token_ids.len() * HIDDEN);
+    let mut chunk_layer_traces = Vec::with_capacity(prefill_chunks);
+    let mut first_anchor = None;
+    for (chunk_index, chunk) in prompt_token_ids.chunks(WIDTH).enumerate() {
+        let final_chunk = chunk_index + 1 == prefill_chunks;
+        let mut metal_ledger = MetalExpertLedger::default();
+        let step = decode_step(
+            &checkpoint,
+            &config,
+            chunk,
+            &mut caches,
+            &mut ledger,
+            &mut safety,
+            None,
+            None,
+            Some((&runtime, &mut metal_ledger)),
+            None,
+            if final_chunk {
+                DecodeOutput::Logits
+            } else {
+                DecodeOutput::RoutesOnly
+            },
+        )?;
+        if step.final_hidden.len() != chunk.len() * HIDDEN {
+            return Err("native MTP prefill hidden chunk shape mismatch".to_owned());
+        }
+        target_hidden.extend_from_slice(&step.final_hidden);
+        chunk_layer_traces.push(step.traces);
+        if final_chunk {
+            first_anchor = Some(step.output_token);
+        }
+        safety.checkpoint(
+            &format!("native_mtp_prefill_chunk_{chunk_index}_complete"),
+            true,
+        )?;
+    }
+    if target_hidden.len() != prompt_token_ids.len() * HIDDEN
+        || caches
+            .iter()
+            .any(|cache| cache.positions != prompt_token_ids.len() || cache.validate().is_err())
+    {
+        return Err("native MTP prefill target-hidden/cache gate failed".to_owned());
+    }
+    let prefill_wall_ms = prefill_started.elapsed().as_secs_f64() * 1000.0;
+    let artifact_bytes = finite_f32_le_bytes(&target_hidden, prompt_token_ids.len() * HIDDEN)?;
+    write_create_new(hidden_output_path, &artifact_bytes)?;
+    safety.checkpoint("native_mtp_prefill_artifact_complete", true)?;
+    let artifact_file = hidden_output_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("native MTP prefill artifact filename is not UTF-8")?
+        .to_owned();
+    let process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_before)
+        .ok_or("native MTP prefill disk byte counter moved backwards")?;
+    let report = NativeMtpPrefillCaptureReport {
+        schema_version: 1,
+        evidence_class: "pw0208_native_mtp_corrected_prefill_hidden_capture",
+        semantic: "mimo_v2_5_pw0208_corrected_target_layer47_prefill_hidden_capture",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        git_dirty,
+        model_lock_sha256: MODEL_LOCK_SHA256,
+        checkpoint_verification_sha256: verification_sha256,
+        tokenizer_sha256: TOKENIZER_SHA256,
+        tokenizer_config_sha256: TOKENIZER_CONFIG_SHA256,
+        kernel_sha256: hash_file(kernel_path)?,
+        metal_device: runtime.device_name.clone(),
+        user_prompt_utf8: user_prompt,
+        serialized_prompt_utf8: serialized_prompt,
+        prompt_token_ids,
+        first_anchor_token_id: first_anchor.ok_or("native MTP prefill produced no anchor")?,
+        prefill_chunks,
+        chunk_layer_traces,
+        target_hidden: NativeMtpPrefillCaptureRecord {
+            category: category.to_owned(),
+            artifact_file,
+            artifact_sha256: sha256_hex(&artifact_bytes),
+            shape: [target_hidden.len() / HIDDEN, HIDDEN],
+            dtype: "float32",
+            byte_order: "little_endian",
+            semantic: "target_layer_47_final_hidden_before_model_final_norm_for_each_serialized_prompt_token",
+        },
+        ledger,
+        process_disk_bytes_read,
+        peak_resident_bytes: peak_resident_bytes()?,
+        safety_snapshots: safety.snapshots,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        prefill_wall_ms,
+        batch_size: 1,
+        concurrency: 1,
+        cache_state: "cold process start; bounded width-eight chunked corrected target prefill; checkpoint pages released after every layer",
+        exactness: "source checkpoint weights and routes; corrected SGLang-directed QKV layout; target layer-47 hidden before final model norm",
+        performance_claim: None,
+        status: "capture_complete",
+    };
+    write_create_new(
+        output_path,
+        &serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?,
+    )?;
+    Ok(report)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn run_arbitrary_text_generation(
     checkpoint_root: &Path,
     model_lock_path: &Path,
@@ -5738,6 +6996,67 @@ pub fn run_arbitrary_text_generation(
         output_path,
         commit,
         false,
+        None,
+        None,
+        None,
+        8,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_arbitrary_text_q4_diagnostic(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    requested_output_tokens: usize,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        requested_output_tokens,
+        output_path,
+        commit,
+        true,
+        None,
+        None,
+        None,
+        4,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_arbitrary_text_native_mtp_external(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    requested_output_tokens: usize,
+    native_mtp_config_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        requested_output_tokens,
+        output_path,
+        commit,
+        true,
+        None,
+        None,
+        Some(native_mtp_config_path),
+        4,
     )
 }
 
@@ -5762,7 +7081,343 @@ pub fn run_arbitrary_text_route_trace(
         output_path,
         commit,
         true,
+        None,
+        None,
+        None,
+        8,
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_native_mtp_window_capture(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    category: &str,
+    hidden_output_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        64,
+        output_path,
+        commit,
+        true,
+        None,
+        Some(NativeMtpWindowCapture {
+            category,
+            output_path: hidden_output_path,
+        }),
+        None,
+        8,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_arbitrary_text_resident_route_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    requested_output_tokens: usize,
+    residency_manifest_path: &Path,
+    resident_identity: &str,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        requested_output_tokens,
+        output_path,
+        commit,
+        true,
+        Some(GenerationResidencySelection::Single {
+            manifest_path: residency_manifest_path,
+            identity: resident_identity,
+            uncached: false,
+        }),
+        None,
+        None,
+        8,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_arbitrary_text_uncached_resident_route_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    requested_output_tokens: usize,
+    residency_manifest_path: &Path,
+    resident_identity: &str,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        requested_output_tokens,
+        output_path,
+        commit,
+        true,
+        Some(GenerationResidencySelection::Single {
+            manifest_path: residency_manifest_path,
+            identity: resident_identity,
+            uncached: true,
+        }),
+        None,
+        None,
+        8,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_arbitrary_text_resident_set_route_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    requested_output_tokens: usize,
+    residency_manifest_path: &Path,
+    resident_limit_bytes: u64,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        requested_output_tokens,
+        output_path,
+        commit,
+        true,
+        Some(GenerationResidencySelection::RankedPrefix {
+            manifest_path: residency_manifest_path,
+            limit_bytes: resident_limit_bytes,
+        }),
+        None,
+        None,
+        8,
+    )
+}
+
+enum GenerationResidencySelection<'a> {
+    Single {
+        manifest_path: &'a Path,
+        identity: &'a str,
+        uncached: bool,
+    },
+    RankedPrefix {
+        manifest_path: &'a Path,
+        limit_bytes: u64,
+    },
+}
+
+struct NativeMtpWindowCapture<'a> {
+    category: &'a str,
+    output_path: &'a Path,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NativeMtpExternalConfig {
+    schema_version: u32,
+    semantic: String,
+    python_executable: PathBuf,
+    script_path: PathBuf,
+    working_directory: PathBuf,
+    known_prefix: PathBuf,
+    corrected_decode: PathBuf,
+    known_mtp_manifest: PathBuf,
+    source_lock: PathBuf,
+    source_root: PathBuf,
+    script_sha256: String,
+}
+
+impl NativeMtpExternalConfig {
+    fn load(path: &Path) -> Result<Self, String> {
+        let value: Self = serde_json::from_slice(
+            &fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?,
+        )
+        .map_err(|error| format!("native MTP external config: {error}"))?;
+        if value.schema_version != 1
+            || value.semantic != "pw0211_live_native_mtp_external_proposer"
+            || hash_file(&value.script_path)? != value.script_sha256
+            || !value.python_executable.is_file()
+            || !value.working_directory.is_dir()
+        {
+            return Err("native MTP external config authority mismatch".to_owned());
+        }
+        Ok(value)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_external_native_mtp_proposal(
+    native: &NativeMtpExternalConfig,
+    checkpoint_root: &Path,
+    verification_path: &Path,
+    root: &Path,
+    transaction_index: usize,
+    commit: &str,
+    anchor_token_id: u32,
+    mtp_layer0_input_token_ids: &[u32],
+    target_hidden: &[f32],
+) -> Result<(Vec<u32>, NativeMtpTransactionEvidence), String> {
+    let started = Instant::now();
+    let rows = mtp_layer0_input_token_ids.len();
+    let hidden_bytes = finite_f32_le_bytes(target_hidden, rows * HIDDEN)?;
+    let hidden_path = root.join(format!("transaction-{transaction_index:03}-hidden.f32"));
+    let request_path = root.join(format!("transaction-{transaction_index:03}-request.json"));
+    let proposal_root = root.join(format!("transaction-{transaction_index:03}-proposal"));
+    let hidden_sha256 = sha256_hex(&hidden_bytes);
+    write_create_new(&hidden_path, &hidden_bytes)?;
+    let request = serde_json::json!({
+        "schema_version": 1,
+        "semantic": "pw0211_live_target_cache_native_mtp_request",
+        "transaction_index": transaction_index,
+        "target_hidden_file": hidden_path,
+        "target_hidden_sha256": hidden_sha256,
+        "target_hidden_rows": rows,
+        "mtp_layer0_input_token_ids": mtp_layer0_input_token_ids,
+        "anchor_token_id": anchor_token_id,
+    });
+    let request_bytes = serde_json::to_vec_pretty(&request).map_err(|error| error.to_string())?;
+    write_create_new(&request_path, &request_bytes)?;
+    let request_sha256 = sha256_hex(&request_bytes);
+    let output = Command::new(&native.python_executable)
+        .arg(&native.script_path)
+        .arg("--checkpoint")
+        .arg(checkpoint_root)
+        .arg("--verification")
+        .arg(verification_path)
+        .arg("--known-prefix")
+        .arg(&native.known_prefix)
+        .arg("--corrected-decode")
+        .arg(&native.corrected_decode)
+        .arg("--known-mtp-manifest")
+        .arg(&native.known_mtp_manifest)
+        .arg("--source-lock")
+        .arg(&native.source_lock)
+        .arg("--source-root")
+        .arg(&native.source_root)
+        .arg("--live-request")
+        .arg(&request_path)
+        .arg("--output")
+        .arg(&proposal_root)
+        .current_dir(&native.working_directory)
+        .output()
+        .map_err(|error| format!("external native MTP proposer: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "external native MTP proposer failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let proposal_report_path = proposal_root.join("report.json");
+    let proposal_report_bytes = fs::read(&proposal_report_path)
+        .map_err(|error| format!("{}: {error}", proposal_report_path.display()))?;
+    let proposal_report: Value = serde_json::from_slice(&proposal_report_bytes)
+        .map_err(|error| format!("external native MTP proposal report: {error}"))?;
+    let proposal = proposal_report
+        .get("native_mtp_q4_block_token_ids")
+        .and_then(Value::as_array)
+        .ok_or("external native MTP report lacks q4 block")?
+        .iter()
+        .map(|token| {
+            token
+                .as_u64()
+                .and_then(|token| u32::try_from(token).ok())
+                .ok_or("external native MTP report has invalid token")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let native_logical_source_bytes = proposal_report
+        .get("logical_source_bytes")
+        .and_then(Value::as_u64)
+        .ok_or("external native MTP report lacks logical source bytes")?;
+    let native_process_disk_bytes_read = proposal_report
+        .get("process_disk_bytes_read")
+        .and_then(Value::as_u64)
+        .ok_or("external native MTP report lacks process disk bytes")?;
+    let native_process_peak_resident_bytes = proposal_report
+        .get("safety")
+        .and_then(Value::as_array)
+        .and_then(|snapshots| {
+            snapshots
+                .iter()
+                .filter_map(|snapshot| {
+                    snapshot
+                        .get("process_peak_resident_bytes")
+                        .and_then(Value::as_u64)
+                })
+                .max()
+        })
+        .ok_or("external native MTP report lacks peak resident evidence")?;
+    if proposal_report.get("status").and_then(Value::as_str) != Some("passed")
+        || proposal_report
+            .get("evidence_class")
+            .and_then(Value::as_str)
+            != Some("pw0211_live_target_cache_native_mtp_q4_proposal")
+        || proposal_report
+            .pointer("/implementation/commit")
+            .and_then(Value::as_str)
+            != Some(commit)
+        || proposal_report
+            .pointer("/implementation/dirty")
+            .and_then(Value::as_bool)
+            != Some(false)
+        || proposal_report
+            .pointer("/identities/request_sha256")
+            .and_then(Value::as_str)
+            != Some(request_sha256.as_str())
+        || proposal_report
+            .pointer("/identities/target_hidden_sha256")
+            .and_then(Value::as_str)
+            != Some(hidden_sha256.as_str())
+        || proposal_report
+            .get("target_hidden_rows")
+            .and_then(Value::as_u64)
+            != Some(rows as u64)
+        || proposal.len() != 4
+        || proposal[0] != anchor_token_id
+    {
+        return Err("external native MTP proposal report authority mismatch".to_owned());
+    }
+    let evidence = NativeMtpTransactionEvidence {
+        request_file: request_path.display().to_string(),
+        request_sha256,
+        hidden_file: hidden_path.display().to_string(),
+        hidden_sha256,
+        proposal_report_file: proposal_report_path.display().to_string(),
+        proposal_report_sha256: sha256_hex(&proposal_report_bytes),
+        target_hidden_rows: rows,
+        external_complete_wall_ms: started.elapsed().as_secs_f64() * 1000.0,
+        logical_source_bytes: native_logical_source_bytes,
+        process_disk_bytes_read: native_process_disk_bytes_read,
+        process_peak_resident_bytes: native_process_peak_resident_bytes,
+    };
+    Ok((proposal, evidence))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -5776,14 +7431,61 @@ fn run_arbitrary_text_generation_internal(
     output_path: &Path,
     commit: &str,
     capture_route_trace: bool,
+    residency: Option<GenerationResidencySelection<'_>>,
+    native_mtp_capture: Option<NativeMtpWindowCapture<'_>>,
+    native_mtp_external_config_path: Option<&Path>,
+    verifier_width: usize,
 ) -> Result<ArbitraryTextGenerationReport, String> {
-    const WIDTH: usize = 8;
+    const PREFILL_WIDTH: usize = 8;
+    if !(2..=8).contains(&verifier_width) {
+        return Err("generation verifier width must be between two and eight".to_owned());
+    }
     if output_path.exists() {
         return Err(format!("refusing to overwrite {}", output_path.display()));
     }
     let progress_path = output_path.with_extension("progress.jsonl");
     if progress_path.exists() {
         return Err(format!("refusing to overwrite {}", progress_path.display()));
+    }
+    let native_mtp_external = native_mtp_external_config_path
+        .map(NativeMtpExternalConfig::load)
+        .transpose()?;
+    let native_mtp_external_root = output_path.with_extension("native-mtp");
+    if native_mtp_external.is_some() {
+        if verifier_width != 4 || !capture_route_trace || residency.is_some() {
+            return Err(
+                "external native MTP requires non-resident route-traced q4 verification".to_owned(),
+            );
+        }
+        if native_mtp_external_root.exists() {
+            return Err(format!(
+                "refusing to overwrite {}",
+                native_mtp_external_root.display()
+            ));
+        }
+    }
+    if let Some(capture) = &native_mtp_capture {
+        if capture.output_path.exists() {
+            return Err(format!(
+                "refusing to overwrite {}",
+                capture.output_path.display()
+            ));
+        }
+        if !matches!(
+            capture.category,
+            "ordinary" | "code" | "multilingual" | "rare_route"
+        ) {
+            return Err(
+                "native MTP window category must be ordinary, code, multilingual, or rare_route"
+                    .to_owned(),
+            );
+        }
+        if requested_output_tokens != 64 || !capture_route_trace || residency.is_some() {
+            return Err(
+                "native MTP window capture requires one non-resident 64-token route-traced run"
+                    .to_owned(),
+            );
+        }
     }
     if !(1..=8).contains(&requested_output_tokens) && !(32..=64).contains(&requested_output_tokens)
     {
@@ -5810,11 +7512,31 @@ fn run_arbitrary_text_generation_internal(
         return Err("git status failed while recording implementation identity".to_owned());
     }
     let git_dirty = !git_status.stdout.is_empty();
+    if residency.is_some() || native_mtp_external.is_some() {
+        let git_head = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .map_err(|error| format!("git rev-parse HEAD: {error}"))?;
+        if !git_head.status.success()
+            || String::from_utf8_lossy(&git_head.stdout).trim() != commit
+            || git_dirty
+        {
+            return Err(
+                "resident/native-MTP generation evidence requires the supplied commit to be exact clean Git HEAD"
+                    .to_owned(),
+            );
+        }
+    }
+    if native_mtp_external.is_some() {
+        fs::create_dir(&native_mtp_external_root)
+            .map_err(|error| format!("{}: {error}", native_mtp_external_root.display()))?;
+    }
     let preprocessing_started = Instant::now();
     let user_prompt = fs::read_to_string(prompt_path)
         .map_err(|error| format!("{}: {error}", prompt_path.display()))?;
     let (
-        checkpoint,
+        mut checkpoint,
         _verification,
         config,
         tokenizer,
@@ -5840,9 +7562,10 @@ fn run_arbitrary_text_generation_internal(
     let prefill_started = Instant::now();
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
     let mut prefill_ledger = EndpointLedger::for_checkpoint(&checkpoint);
-    let prefill_chunks = prompt_token_ids.len().div_ceil(WIDTH);
+    let prefill_chunks = prompt_token_ids.len().div_ceil(PREFILL_WIDTH);
     let mut first_anchor = None;
-    for (chunk_index, chunk) in prompt_token_ids.chunks(WIDTH).enumerate() {
+    let mut native_target_hidden = Vec::with_capacity(prompt_token_ids.len() * HIDDEN);
+    for (chunk_index, chunk) in prompt_token_ids.chunks(PREFILL_WIDTH).enumerate() {
         let final_chunk = chunk_index + 1 == prefill_chunks;
         let mut metal_ledger = MetalExpertLedger::default();
         let step = decode_step(
@@ -5862,6 +7585,12 @@ fn run_arbitrary_text_generation_internal(
                 DecodeOutput::RoutesOnly
             },
         )?;
+        if native_mtp_external.is_some() {
+            if step.final_hidden.len() != chunk.len() * HIDDEN {
+                return Err("external native MTP prefill hidden shape mismatch".to_owned());
+            }
+            native_target_hidden.extend_from_slice(&step.final_hidden);
+        }
         if final_chunk {
             first_anchor = Some(step.output_token);
         }
@@ -5870,11 +7599,14 @@ fn run_arbitrary_text_generation_internal(
     if caches
         .iter()
         .any(|cache| cache.positions != prompt_token_ids.len() || cache.validate().is_err())
+        || (native_mtp_external.is_some()
+            && native_target_hidden.len() != prompt_token_ids.len() * HIDDEN)
     {
         return Err("chunked arbitrary-prompt prefill K/V gate failed".to_owned());
     }
     let prefill_wall_ms = prefill_started.elapsed().as_secs_f64() * 1000.0;
     let mut generated_token_ids = vec![first_anchor.ok_or("prefill produced no target token")?];
+    let mut native_target_input_ids = prompt_token_ids.clone();
     writeln!(
         progress,
         "{}",
@@ -5896,6 +7628,127 @@ fn run_arbitrary_text_generation_internal(
         prefill_chunks,
         prefill_wall_ms / 1000.0
     );
+    let residency_is_ranked_set = matches!(
+        &residency,
+        Some(GenerationResidencySelection::RankedPrefix { .. })
+    );
+    let residency_is_uncached = matches!(
+        &residency,
+        Some(GenerationResidencySelection::Single { uncached: true, .. })
+    );
+    let mut resident_runtime = None;
+    if let Some(selection) = residency {
+        let (manifest_path, requested_limit_bytes) = match &selection {
+            GenerationResidencySelection::Single { manifest_path, .. } => (*manifest_path, None),
+            GenerationResidencySelection::RankedPrefix {
+                manifest_path,
+                limit_bytes,
+            } => {
+                // Leave 256 MiB below the unchanged 4 GiB post-phase ceiling for
+                // process/runtime state; the live safety monitor remains authoritative.
+                const MAXIMUM_RANKED_PREFIX_BYTES: u64 = 4 * 1024 * 1024 * 1024 - 256 * 1024 * 1024;
+                if *limit_bytes == 0 || *limit_bytes > MAXIMUM_RANKED_PREFIX_BYTES {
+                    return Err(format!(
+                        "ranked resident set must be between 1 and {MAXIMUM_RANKED_PREFIX_BYTES} bytes under the unchanged post-phase safety ceiling"
+                    ));
+                }
+                (*manifest_path, Some(*limit_bytes))
+            }
+        };
+        let manifest_sha256 = hash_file(manifest_path)?;
+        let manifest = DeclaredResidencyManifest::from_offline_report(manifest_path)?;
+        let uncached_install = matches!(
+            &selection,
+            GenerationResidencySelection::Single { uncached: true, .. }
+        );
+        let declarations = match selection {
+            GenerationResidencySelection::Single { identity, .. } => vec![
+                manifest
+                    .objects
+                    .iter()
+                    .find(|object| object.identity == identity)
+                    .cloned()
+                    .ok_or_else(|| format!("resident identity is not declared: {identity}"))?,
+            ],
+            GenerationResidencySelection::RankedPrefix { limit_bytes, .. } => {
+                let mut selected = Vec::new();
+                let mut bytes = 0_u64;
+                for object in &manifest.objects {
+                    let Some(next) = bytes.checked_add(object.bytes) else {
+                        return Err("ranked resident byte selection overflow".to_owned());
+                    };
+                    if next > limit_bytes {
+                        break;
+                    }
+                    selected.push(object.clone());
+                    bytes = next;
+                }
+                if selected.is_empty() {
+                    return Err("ranked resident limit selects no complete object".to_owned());
+                }
+                selected
+            }
+        };
+        safety.checkpoint("generation_before_resident_install", true)?;
+        let controller = PressureResidencyController::new(manifest)?;
+        let observer = DarwinMemoryPressureObserver::start(controller.clone())?;
+        let mut installed_bytes = 0_u64;
+        let mut install_evidence = ResidentInstallEvidence::default();
+        for (index, declaration) in declarations.iter().enumerate() {
+            let resident = if uncached_install {
+                let (resident, object_evidence) =
+                    checkpoint.load_declared_resident_object_uncached(declaration)?;
+                install_evidence.logical_source_bytes += object_evidence.logical_source_bytes;
+                install_evidence.widened_read_bytes += object_evidence.widened_read_bytes;
+                install_evidence.pread_calls += object_evidence.pread_calls;
+                install_evidence.transfer_wall_ms += object_evidence.transfer_wall_ms;
+                resident
+            } else {
+                let started = Instant::now();
+                let resident = checkpoint.load_declared_resident_object(declaration)?;
+                install_evidence.logical_source_bytes += declaration.source_bytes;
+                install_evidence.widened_read_bytes += declaration.source_bytes;
+                install_evidence.pread_calls += declaration.tensors.len();
+                install_evidence.transfer_wall_ms += started.elapsed().as_secs_f64() * 1000.0;
+                resident
+            };
+            controller.install_page_aligned(&declaration.identity, resident)?;
+            installed_bytes = installed_bytes
+                .checked_add(declaration.bytes)
+                .ok_or("generation installed resident byte overflow")?;
+            checkpoint.release_file_pages()?;
+            safety.checkpoint(
+                &format!("generation_resident_install_{}_complete", index + 1),
+                true,
+            )?;
+        }
+        if controller.resident_bytes()? != installed_bytes {
+            return Err("generation resident install byte gate failed".to_owned());
+        }
+        let installed_identities = declarations
+            .iter()
+            .map(|object| object.identity.clone())
+            .collect::<Vec<_>>();
+        let mut expected_eviction = declarations.clone();
+        expected_eviction.sort_by_key(|object| object.warning_eviction_order);
+        let expected_eviction = expected_eviction
+            .into_iter()
+            .map(|object| object.identity)
+            .collect::<Vec<_>>();
+        checkpoint.attach_resident_controller(controller.clone());
+        safety.checkpoint("generation_resident_install_complete", false)?;
+        resident_runtime = Some((
+            controller,
+            observer,
+            manifest_sha256,
+            installed_identities,
+            expected_eviction,
+            installed_bytes,
+            requested_limit_bytes,
+            uncached_install,
+            install_evidence,
+        ));
+    }
     let mut next_anchor = generated_token_ids[0];
     let mut transactions = Vec::new();
     let mut proposal_wall_ms = 0.0;
@@ -5908,36 +7761,66 @@ fn run_arbitrary_text_generation_internal(
     };
     let mut stop_reason = "requested_maximum";
     let mut completed_response = false;
+    let mut native_mtp_hidden = Vec::new();
+    let mut native_child_process_disk_bytes_read = 0_u64;
 
     while generated_token_ids.len() < requested_output_tokens && !completed_response {
         let transaction_index = transactions.len();
         let transaction_disk_before = process_disk_bytes_read()?;
         let proposal_started = Instant::now();
-        let mut proposal = Vec::with_capacity(WIDTH);
-        let mut proposal_layer_traces = Vec::with_capacity(WIDTH - 1);
-        proposal.push(next_anchor);
-        let mut proposal_caches = caches.clone();
+        let mut proposal = Vec::with_capacity(verifier_width);
+        let mut proposal_layer_traces = Vec::with_capacity(verifier_width - 1);
         let mut proposal_ledger = EndpointLedger::for_checkpoint(&checkpoint);
-        for _ in 1..WIDTH {
-            let mut metal_ledger = MetalExpertLedger::default();
-            let step = decode_step(
-                &checkpoint,
-                &config,
-                std::slice::from_ref(proposal.last().expect("proposal anchor exists")),
-                &mut proposal_caches,
-                &mut proposal_ledger,
-                &mut safety,
-                None,
-                None,
-                Some((&runtime, &mut metal_ledger)),
-                None,
-                DecodeOutput::Logits,
-            )?;
-            proposal.push(step.output_token);
-            if capture_route_trace {
-                proposal_layer_traces.push(step.traces);
+        let native_mtp_transaction = if let Some(native) = &native_mtp_external {
+            if native_target_hidden.len() != native_target_input_ids.len() * HIDDEN
+                || native_target_input_ids.len() < 2
+            {
+                return Err("live native MTP target history mismatch".to_owned());
             }
-        }
+            let mut mtp_input_ids = native_target_input_ids[1..].to_vec();
+            mtp_input_ids.push(next_anchor);
+            let (native_proposal, evidence) = run_external_native_mtp_proposal(
+                native,
+                checkpoint_root,
+                verification_path,
+                &native_mtp_external_root,
+                transaction_index,
+                commit,
+                next_anchor,
+                &mtp_input_ids,
+                &native_target_hidden,
+            )?;
+            proposal = native_proposal;
+            safety.checkpoint(
+                &format!("native_mtp_transaction_{transaction_index}_proposal_complete"),
+                true,
+            )?;
+            Some(evidence)
+        } else {
+            proposal.push(next_anchor);
+            let mut proposal_caches = caches.clone();
+            for _ in 1..verifier_width {
+                let mut metal_ledger = MetalExpertLedger::default();
+                let step = decode_step(
+                    &checkpoint,
+                    &config,
+                    std::slice::from_ref(proposal.last().expect("proposal anchor exists")),
+                    &mut proposal_caches,
+                    &mut proposal_ledger,
+                    &mut safety,
+                    None,
+                    None,
+                    Some((&runtime, &mut metal_ledger)),
+                    None,
+                    DecodeOutput::Logits,
+                )?;
+                proposal.push(step.output_token);
+                if capture_route_trace {
+                    proposal_layer_traces.push(step.traces);
+                }
+            }
+            None
+        };
         let proposal_elapsed_ms = proposal_started.elapsed().as_secs_f64() * 1000.0;
         proposal_wall_ms += proposal_elapsed_ms;
 
@@ -5961,6 +7844,13 @@ fn run_arbitrary_text_generation_internal(
             None,
             DecodeOutput::AllLogits,
         )?;
+        if native_mtp_capture.is_some() {
+            if verified.final_hidden.len() != verifier_width * HIDDEN {
+                return Err("native MTP verifier hidden capture cardinality gate failed".to_owned());
+            }
+            native_mtp_hidden.push(verified.final_hidden.clone());
+        }
+        let verified_final_hidden = verified.final_hidden;
         let verified_output_tokens = verified.output_tokens;
         let verification_layer_traces = verified.traces;
         let commit_result = commit_jacobi_transaction(&proposal, &verified_output_tokens)?;
@@ -5987,7 +7877,8 @@ fn run_arbitrary_text_generation_internal(
         {
             generated_token_ids.push(token);
             observable_emitted_token_ids.push(token);
-            if requested_output_tokens > 8
+            if native_mtp_capture.is_none()
+                && requested_output_tokens > 8
                 && generated_token_ids.len() >= minimum_output_tokens
                 && completed_sentence_count(
                     &tokenizer
@@ -6011,6 +7902,22 @@ fn run_arbitrary_text_generation_internal(
                 cache.truncate(exact_retained)?;
             }
         }
+        if native_mtp_external.is_some() {
+            let retained_hidden_values = retained_proposal_rows
+                .checked_mul(HIDDEN)
+                .ok_or("native MTP retained hidden cardinality overflow")?;
+            if retained_hidden_values > verified_final_hidden.len()
+                || retained_proposal_rows > proposal.len()
+            {
+                return Err("native MTP retained history exceeds verified rows".to_owned());
+            }
+            native_target_hidden
+                .extend_from_slice(&verified_final_hidden[..retained_hidden_values]);
+            native_target_input_ids.extend_from_slice(&proposal[..retained_proposal_rows]);
+            if native_target_hidden.len() != native_target_input_ids.len() * HIDDEN {
+                return Err("native MTP retained history pairing mismatch".to_owned());
+            }
+        }
         next_anchor = *generated_token_ids
             .last()
             .ok_or("generation lost its committed anchor")?;
@@ -6021,13 +7928,30 @@ fn run_arbitrary_text_generation_internal(
         {
             return Err("generation next-anchor authority mismatch".to_owned());
         }
-        let transaction_disk_bytes = process_disk_bytes_read()?
+        let rust_transaction_disk_bytes = process_disk_bytes_read()?
             .checked_sub(transaction_disk_before)
             .ok_or("transaction disk byte counter moved backwards")?;
+        let native_logical_source_bytes = native_mtp_transaction
+            .as_ref()
+            .map_or(0, |evidence| evidence.logical_source_bytes);
+        let native_process_disk_bytes_read = native_mtp_transaction
+            .as_ref()
+            .map_or(0, |evidence| evidence.process_disk_bytes_read);
+        native_child_process_disk_bytes_read = native_child_process_disk_bytes_read
+            .checked_add(native_process_disk_bytes_read)
+            .ok_or("native MTP child disk byte counter overflow")?;
+        let transaction_disk_bytes = rust_transaction_disk_bytes
+            .checked_add(native_process_disk_bytes_read)
+            .ok_or("transaction process-tree disk byte counter overflow")?;
         let transaction_logical_bytes = proposal_ledger
             .logical_source_bytes
             .checked_add(verification_ledger.logical_source_bytes)
+            .and_then(|bytes| bytes.checked_add(native_logical_source_bytes))
             .ok_or("transaction logical byte ledger overflow")?;
+        let transaction_resident_bytes = proposal_ledger
+            .resident_source_bytes
+            .checked_add(verification_ledger.resident_source_bytes)
+            .ok_or("transaction resident-source byte ledger overflow")?;
         logical_source_bytes = logical_source_bytes
             .checked_add(transaction_logical_bytes)
             .ok_or("generation logical byte ledger overflow")?;
@@ -6046,6 +7970,7 @@ fn run_arbitrary_text_generation_internal(
             verification_wall_ms: verification_elapsed_ms,
             mean_normalized_union,
             logical_source_bytes: transaction_logical_bytes,
+            resident_source_bytes: transaction_resident_bytes,
             process_disk_bytes_read: transaction_disk_bytes,
             proposal_layer_traces,
             verification_layer_traces: if capture_route_trace {
@@ -6053,6 +7978,7 @@ fn run_arbitrary_text_generation_internal(
             } else {
                 Vec::new()
             },
+            native_mtp: native_mtp_transaction,
         });
         writeln!(
             progress,
@@ -6103,25 +8029,153 @@ fn run_arbitrary_text_generation_internal(
     let generated_text = tokenizer
         .decode(&generated_token_ids, false)
         .map_err(|error| format!("tokenizer generated decode: {error}"))?;
+    let residency = if let Some((
+        controller,
+        observer,
+        manifest_sha256,
+        installed_identities,
+        expected_eviction,
+        installed_bytes,
+        requested_limit_bytes,
+        uncached_install,
+        install_evidence,
+    )) = resident_runtime
+    {
+        controller.handle_pressure_mask(PRESSURE_WARNING)?;
+        drop(observer);
+        let final_resident_bytes = controller.resident_bytes()?;
+        let eviction_events = controller.events()?;
+        if final_resident_bytes != 0
+            || eviction_events
+                .last()
+                .is_none_or(|event| event.evicted_identities != expected_eviction)
+        {
+            return Err("generation resident final eviction gate failed".to_owned());
+        }
+        safety.checkpoint("generation_resident_eviction_complete", true)?;
+        Some(GenerationResidencyReport {
+            manifest_sha256,
+            selection: if requested_limit_bytes.is_some() {
+                "offline_ratio_ranked_complete_object_prefix".to_owned()
+            } else {
+                "single_declared_object".to_owned()
+            },
+            requested_limit_bytes,
+            installed_identities,
+            installed_resident_bytes: installed_bytes,
+            source_transport: if uncached_install {
+                "page_aligned_f_nocache_f_rdahead_zero_two_buffer_pread"
+            } else {
+                "cacheable_exact_pread"
+            },
+            install_logical_source_bytes: install_evidence.logical_source_bytes,
+            install_widened_read_bytes: install_evidence.widened_read_bytes,
+            install_pread_calls: install_evidence.pread_calls,
+            install_transfer_wall_ms: install_evidence.transfer_wall_ms,
+            resident_source_bytes: transactions
+                .iter()
+                .map(|transaction| transaction.resident_source_bytes)
+                .sum(),
+            final_resident_bytes,
+            eviction_events,
+            pressure_scope: "injected warning after transaction; live Darwin observer active during resident use",
+        })
+    } else {
+        None
+    };
     safety.checkpoint("arbitrary_generation_complete", true)?;
     let complete_wall_ms = complete_started.elapsed().as_secs_f64() * 1000.0;
     let process_disk_bytes_read = process_disk_bytes_read()?
         .checked_sub(complete_disk_before)
-        .ok_or("complete disk byte counter moved backwards")?;
+        .and_then(|bytes| bytes.checked_add(native_child_process_disk_bytes_read))
+        .ok_or("complete process-tree disk byte counter moved backwards or overflowed")?;
     progress
         .sync_all()
         .map_err(|error| format!("progress final sync: {error}"))?;
     drop(progress);
     let progress_sha256 = hash_file(&progress_path)?;
     let accepted_tokens = generated_token_ids.len();
+    let native_mtp_window = if let Some(capture) = native_mtp_capture {
+        if native_mtp_hidden.len() < 8 {
+            return Err("native MTP run captured fewer than eight verifier windows".to_owned());
+        }
+        let window_count = native_mtp_hidden.len();
+        let hidden = native_mtp_hidden.into_iter().flatten().collect::<Vec<_>>();
+        let artifact_bytes = finite_f32_le_bytes(&hidden, window_count * verifier_width * HIDDEN)?;
+        write_create_new(capture.output_path, &artifact_bytes)?;
+        let artifact_file = capture
+            .output_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("native MTP hidden artifact filename is not UTF-8")?
+            .to_owned();
+        Some(NativeMtpWindowCaptureRecord {
+            category: capture.category.to_owned(),
+            artifact_file,
+            artifact_sha256: sha256_hex(&artifact_bytes),
+            windows: window_count,
+            shape: [window_count, verifier_width, HIDDEN],
+            dtype: "float32",
+            byte_order: "little_endian",
+            semantic: "consecutive_target_layer_47_final_hidden_before_model_final_norm_for_each_width_eight_verifier_window_and_row",
+        })
+    } else {
+        None
+    };
+    let rust_peak_resident_bytes = peak_resident_bytes()?;
+    let native_child_peak_resident_bytes = transactions
+        .iter()
+        .filter_map(|transaction| {
+            transaction
+                .native_mtp
+                .as_ref()
+                .map(|evidence| evidence.process_peak_resident_bytes)
+        })
+        .max()
+        .unwrap_or(0);
+    let combined_peak_resident_bytes = rust_peak_resident_bytes
+        .checked_add(native_child_peak_resident_bytes)
+        .ok_or("combined native MTP peak resident byte overflow")?;
     let report = ArbitraryTextGenerationReport {
-        schema_version: if capture_route_trace { 3 } else { 2 },
-        evidence_class: if requested_output_tokens <= 8 {
+        schema_version: if residency_is_uncached {
+            8
+        } else if native_mtp_external.is_some() {
+            7
+        } else if native_mtp_window.is_some() {
+            6
+        } else if residency.is_some() {
+            if residency_is_ranked_set { 5 } else { 4 }
+        } else if capture_route_trace {
+            3
+        } else {
+            2
+        },
+        evidence_class: if residency_is_uncached {
+            "pw0213_uncached_two_buffer_single_object_verifier_pilot"
+        } else if native_mtp_external.is_some() {
+            "pw0211_live_cache_native_mtp_q4_generation"
+        } else if native_mtp_window.is_some() {
+            "pw0208_native_mtp_corrected_window_capture"
+        } else if residency_is_ranked_set {
+            "pw0207_bounded_ranked_pressure_resident_route_trace"
+        } else if residency.is_some() {
+            "pw0207_single_object_pressure_resident_route_trace"
+        } else if requested_output_tokens <= 8 {
             "pw0205_arbitrary_prompt_bounded_generation_probe"
         } else {
             "pw0205_arbitrary_prompt_corrected_qkv_target_proposed_generation"
         },
-        semantic: if requested_output_tokens <= 8 {
+        semantic: if residency_is_uncached {
+            "mimo_v2_5_pw0213_uncached_two_buffer_single_object_exact_verification"
+        } else if native_mtp_external.is_some() {
+            "mimo_v2_5_pw0211_external_cpu_native_mtp_q4_exact_verification"
+        } else if native_mtp_window.is_some() {
+            "mimo_v2_5_pw0208_native_mtp_corrected_verifier_window_capture"
+        } else if residency_is_ranked_set {
+            "mimo_v2_5_pw0207_bounded_ranked_resident_sglang_directed_generation"
+        } else if residency.is_some() {
+            "mimo_v2_5_pw0207_single_object_resident_sglang_directed_generation"
+        } else if requested_output_tokens <= 8 {
             "mimo_v2_5_sglang_directed_blockscaled_qkv_deinterleaved_generation_probe"
         } else {
             "mimo_v2_5_sglang_directed_blockscaled_qkv_deinterleaved_text_generation"
@@ -6154,18 +8208,30 @@ fn run_arbitrary_text_generation_internal(
         complete_wall_ms,
         logical_source_bytes,
         process_disk_bytes_read,
-        peak_resident_bytes: peak_resident_bytes()?,
+        peak_resident_bytes: combined_peak_resident_bytes,
         safety_snapshots: safety.snapshots,
         batch_size: 1,
         concurrency: 1,
-        verifier_width: WIDTH,
-        exactness: if requested_output_tokens <= 8 {
+        verifier_width,
+        exactness: if native_mtp_external.is_some() {
+            "L2 target-distribution-preserving native MiMo MTP draft with ordinary exact verifier-only commit and rollback"
+        } else if requested_output_tokens <= 8 {
             "PW-0205 diagnostic: SGLang-directed 128-column block-scaled FP8 QKV, ordinary spine, and routed MoE projections"
         } else {
             "source checkpoint weights and routes; four checkpoint-TP QKV shards deinterleaved per pinned SGLang loader; 128-column block-scaled FP8 Metal reductions; no draft token commits before verifier acceptance"
         },
-        proposer: "greedy source-checkpoint proposer using the same retained K/V, deinterleaved checkpoint-TP QKV layout, and SGLang-directed block-scaled Metal arithmetic",
-        cache_state: "cold process start; bounded width-eight chunked prefill; process-local Metal pipelines; checkpoint pages released after every layer",
+        proposer: if native_mtp_external.is_some() {
+            "authenticated three-layer native MiMo MTP CPU reference over complete live target layer-47 history"
+        } else {
+            "greedy source-checkpoint proposer using the same retained K/V, deinterleaved checkpoint-TP QKV layout, and SGLang-directed block-scaled Metal arithmetic"
+        },
+        cache_state: if residency_is_uncached {
+            "cold process start; cacheable prefill released per layer; one declared expert installed from page-widened F_NOCACHE two-buffer reads; retained K/V and resident expert through one exact q8 transaction"
+        } else if native_mtp_external.is_some() {
+            "cold process start; live retained target K/V and layer-47 history; external CPU native-MTP child per q4 transaction; checkpoint pages released after every target layer"
+        } else {
+            "cold process start; bounded width-eight chunked prefill; process-local Metal pipelines; checkpoint pages released after every layer"
+        },
         status: if requested_output_tokens <= 8 {
             "diagnostic_generation_complete"
         } else if stop_reason == "completed_second_sentence" {
@@ -6174,6 +8240,8 @@ fn run_arbitrary_text_generation_internal(
             "execution_complete_quality_unassessed"
         },
         route_trace_captured: capture_route_trace.then_some(true),
+        residency,
+        native_mtp_window,
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;
@@ -11357,6 +13425,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_mtp_hidden_artifact_is_exact_finite_little_endian_f32() {
+        let values = [1.0_f32, -2.5, 0.0, f32::MIN_POSITIVE];
+        let bytes = finite_f32_le_bytes(&values, values.len()).expect("valid capture");
+        assert_eq!(bytes.len(), values.len() * 4);
+        assert_eq!(&bytes[0..4], &1.0_f32.to_le_bytes());
+        assert_eq!(&bytes[4..8], &(-2.5_f32).to_le_bytes());
+        assert!(finite_f32_le_bytes(&values, values.len() + 1).is_err());
+        assert!(finite_f32_le_bytes(&[f32::NAN], 1).is_err());
+        assert!(finite_f32_le_bytes(&[f32::INFINITY], 1).is_err());
+    }
+
+    #[test]
     fn arbitrary_user_text_uses_the_pinned_single_turn_chat_serialization() {
         assert_eq!(
             serialize_single_user_chat("Hello"),
@@ -11404,13 +13484,17 @@ mod tests {
             verification_wall_ms: 2.0,
             mean_normalized_union: 1.0,
             logical_source_bytes: 3,
+            resident_source_bytes: 0,
             process_disk_bytes_read: 4,
             proposal_layer_traces: Vec::new(),
             verification_layer_traces: Vec::new(),
+            native_mtp: None,
         };
         let without_json = serde_json::to_value(&without_trace).expect("serialize control");
         assert!(without_json.get("proposal_layer_traces").is_none());
         assert!(without_json.get("verification_layer_traces").is_none());
+        assert!(without_json.get("resident_source_bytes").is_none());
+        assert!(without_json.get("native_mtp").is_none());
 
         let with_trace = GenerationTransactionReport {
             proposal_layer_traces: vec![vec![trace]],

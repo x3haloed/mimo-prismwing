@@ -15,6 +15,8 @@ mod metal_io_acquisition;
 #[cfg(target_os = "macos")]
 mod pread_expert_acquisition;
 #[cfg(target_os = "macos")]
+pub mod pressure_residency;
+#[cfg(target_os = "macos")]
 mod routed_layer_artifact;
 #[cfg(target_os = "macos")]
 mod staged_metal_expert;
@@ -22,6 +24,8 @@ mod staged_metal_expert;
 mod structured_sparse;
 #[cfg(target_os = "macos")]
 mod text_endpoint;
+#[cfg(target_os = "macos")]
+mod uncached_stream_transport;
 #[cfg(target_os = "macos")]
 mod wide_metal_moe;
 #[cfg(target_os = "macos")]
@@ -31,6 +35,8 @@ pub use pread_expert_acquisition::{
     PreadExpertAcquisitionReport, benchmark_pread_expert_acquisition,
 };
 #[cfg(target_os = "macos")]
+pub use pressure_residency::{PressureResidencySmokeReport, run_pressure_residency_smoke};
+#[cfg(target_os = "macos")]
 pub use staged_metal_expert::{
     BoundedRoutedRowReport, StagedMetalExpertReport, run_bounded_metal_routed_row,
     run_staged_metal_fp8_expert,
@@ -39,22 +45,33 @@ pub use staged_metal_expert::{
 pub use text_endpoint::{
     ArbitraryTextGenerationReport, FullPrefixTraceReport, GlobalAttentionSparsityTraceReport,
     Layer0TraceReport, Layer1ExpertTraceReport, Layer1RoutingTraceReport,
-    Layer4MetalDiagnosticReport, MetalIncrementalTextReport, MetalNativeRoutedLayerBenchmarkReport,
-    PrefillRouteCoverageLedger, PrefillRouteCoverageTraceReport, RouteOnlyTraceReport,
+    Layer4MetalDiagnosticReport, LayerMajorMoeReport, MetalIncrementalTextReport,
+    MetalNativeRoutedLayerBenchmarkReport, NativeMtpPrefillCaptureReport,
+    PrefillRouteCoverageLedger, PrefillRouteCoverageTraceReport,
+    PressureResidentCheckpointPilotReport, RouteOnlyTraceReport,
     RoutedLayerArtifactBenchmarkReport, RoutedLayerArtifactBuildReport,
     RoutedMixtureActivationCorpusReport, StructuredSparseTraceReport, TextEndpointReport,
     TwoBarrierRoutedLayerBenchmarkReport, WideJacobiTextReport, WideJacobiTrial,
     benchmark_layer4_metal_native_transaction, benchmark_layer4_metal_ready_artifact,
     benchmark_layer4_two_barrier_transaction, build_layer4_metal_ready_artifact,
-    run_arbitrary_text_generation, run_arbitrary_text_route_trace, run_full_prefix_trace,
+    run_arbitrary_text_generation, run_arbitrary_text_native_mtp_external,
+    run_arbitrary_text_q4_diagnostic, run_arbitrary_text_resident_route_trace,
+    run_arbitrary_text_resident_set_route_trace, run_arbitrary_text_route_trace,
+    run_arbitrary_text_uncached_resident_route_trace, run_full_prefix_trace,
     run_global_attention_capture_smoke, run_global_attention_sparsity_trace,
-    run_layer4_metal_diagnostic, run_metal_incremental_text_endpoint,
-    run_metal_native_distribution_probe, run_prefill_route_coverage_trace, run_real_layer0_trace,
-    run_real_layer1_expert_trace, run_real_layer1_routing_trace, run_real_layer2_trace,
-    run_real_layer4_trace, run_real_layer7_trace, run_real_routed_layer_trace,
-    run_route_only_trace, run_routed_mixture_activation_corpus, run_slow_text_endpoint,
+    run_layer_major_moe_slice, run_layer4_metal_diagnostic, run_metal_incremental_text_endpoint,
+    run_metal_native_distribution_probe, run_native_mtp_prefill_capture,
+    run_native_mtp_window_capture, run_packed_fusion_moe_slice, run_prefill_route_coverage_trace,
+    run_pressure_resident_checkpoint_pilot, run_real_layer0_trace, run_real_layer1_expert_trace,
+    run_real_layer1_routing_trace, run_real_layer2_trace, run_real_layer4_trace,
+    run_real_layer7_trace, run_real_routed_layer_trace, run_route_only_trace,
+    run_routed_mixture_activation_corpus, run_slow_text_endpoint,
     run_structured_sparse_layer0_trace, run_weight_install_tomography,
     run_wide_metal_jacobi_text_endpoint,
+};
+#[cfg(target_os = "macos")]
+pub use uncached_stream_transport::{
+    UncachedStreamTransportReport, benchmark_uncached_stream_transport,
 };
 
 const MAX_HEADER_BYTES: u64 = 256 * 1024 * 1024;

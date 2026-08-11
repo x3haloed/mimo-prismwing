@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run PW-0214's joint up-row/down-column balance control."""
+"""Run PW-0303's joint up-row/down-column balance control."""
 
 from __future__ import annotations
 
@@ -14,12 +14,12 @@ import torch.nn.functional as functional
 
 try:
     from tools.openrouter_reference import atomic_write_new, canonical_json
-    from tools.run_pw0213_projection_probe import (
+    from tools.run_pw0302_projection_probe import (
         CORPUS_SHA256, decode_weight, metrics, sha256_file,
     )
 except ModuleNotFoundError:
     from openrouter_reference import atomic_write_new, canonical_json
-    from run_pw0213_projection_probe import (
+    from run_pw0302_projection_probe import (
         CORPUS_SHA256, decode_weight, metrics, sha256_file,
     )
 
@@ -154,7 +154,7 @@ def run(source: Path, corpus_path: Path, layer: int, expert: int) -> dict:
     if symmetry_failure is not None:
         return {
             "schema_version": 1,
-            "evidence_class": "pw0214_joint_swiglu_neuron_balance_control",
+            "evidence_class": "pw0303_joint_swiglu_neuron_balance_control",
             "layer": layer,
             "expert": expert,
             "train_positions": train_positions,
@@ -196,7 +196,7 @@ def run(source: Path, corpus_path: Path, layer: int, expert: int) -> dict:
     identity = {name: affine6(weight) for name, weight in weights.items()}
     return {
         "schema_version": 1,
-        "evidence_class": "pw0214_joint_swiglu_neuron_balance_control",
+        "evidence_class": "pw0303_joint_swiglu_neuron_balance_control",
         "layer": layer,
         "expert": expert,
         "train_positions": train_positions,

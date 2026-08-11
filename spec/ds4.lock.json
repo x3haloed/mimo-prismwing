@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/antirez/ds4",
+  "revision": "84cc882352757baf628a1776badf7cc54d584e28",
+  "license": "MIT",
+  "files": {
+    "LICENSE": "9f13072241f0c2f4a92036b7e9f744525e4f16e29d162d11ccf7dacc34f61056",
+    "README.md": "1b86257fc6478921c2aa28b9c0d4ba1bf671e1ce69b1dc946afeec9f6a9370be",
+    "QA_BEFORE_RELEASES.md": "e2e02edce06c0b876693bd4b70bcc2da29ca8ab1cd6af6b09fe128f304656f96",
+    "ds4.c": "d8eb30a0581015cb75f9b5eb343cf469241f7b5104e37e89b21c2f320d8a2d45",
+    "ds4_metal.m": "e76062656a6adf0710fd07865ee20f2489f4d3144462f13d82b4539c0dc8152d",
+    "metal/moe.metal": "42ecbaf00cc239d06b1d5dd1aedcc9e508570171c5126750c9ee51e8445a04d9",
+    "metal/dense.metal": "29ab6ab533be38e8780db04b7b2dcaf4be8de840be150a74fdf6d8812df51e48"
+  }
+}

@@ -1,4 +1,4 @@
-# PW-0211 — FP8 symbol census and executable-subset preflight
+# PW-0300 — FP8 symbol census and executable-subset preflight
 
 - Status: completed
 - Disposition: conditional
@@ -68,7 +68,7 @@ logits, cold decode speed, or endpoint behavior.
 ## Evidence
 
 Evidence is stored outside Git under
-`/srv/residents/thimble/root/evidence/mimo-prismwing/PW-0211/`:
+`/srv/residents/thimble/root/evidence/mimo-prismwing/PW-0300/`:
 
 - `train-census.json` —
   `abc2ef97a15a286c8ddd71dac0773c5d43eb0e308b8791b9d87b4fee74835c37`

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one bounded PW-0213 real-query projection probe."""
+"""Run one bounded PW-0302 real-query projection probe."""
 
 from __future__ import annotations
 
@@ -146,7 +146,7 @@ def run(source: Path, corpus: Path, layer: int, expert: int, projection: str, se
     rows, columns = weight.shape
     return {
         "schema_version": 1,
-        "evidence_class": "pw0213_bounded_real_query_projection_probe",
+        "evidence_class": "pw0302_bounded_real_query_projection_probe",
         "layer": layer,
         "expert": expert,
         "projection": projection,

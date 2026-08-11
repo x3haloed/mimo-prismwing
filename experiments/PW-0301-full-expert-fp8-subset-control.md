@@ -1,4 +1,4 @@
-# PW-0212 — Full-expert FP8-subset six-bit control
+# PW-0301 — Full-expert FP8-subset six-bit control
 
 - Status: complete
 - Disposition: rejected
@@ -8,11 +8,11 @@
 - Checkpoint: XiaomiMiMo/MiMo-V2.5 revision
   `63651580ca774f8504f676040460aed3e1244ac1`
 - Exactness: L3 modified weight representation
-- Related records: PW-0129, PW-0138, PW-0148, PW-0211
+- Related records: PW-0129, PW-0138, PW-0148, PW-0300
 
 ## Question
 
-PW-0211 rejects the proposed exact palettes but leaves a 6-bit FP8-subset
+PW-0300 rejects the proposed exact palettes but leaves a 6-bit FP8-subset
 representation at almost exactly 75% of source weight bytes. Determine whether
 its sampled reconstruction results survive complete representative experts and
 whether it improves on a same-weight affine six-bit round-to-nearest control
@@ -104,9 +104,9 @@ control occupies 78.125% of weight bytes under the declared scale/bias ledger.
 
 Evidence is preserved outside Git at:
 
-- `evidence/mimo-prismwing/PW-0212/full-expert-census.json`, SHA-256
+- `evidence/mimo-prismwing/PW-0301/full-expert-census.json`, SHA-256
   `1c7530c51b763a6e45510533c281a9a2c1506014b1fb45ce5c701a495a61bb03`;
-- `evidence/mimo-prismwing/PW-0212/analysis.json`, SHA-256
+- `evidence/mimo-prismwing/PW-0301/analysis.json`, SHA-256
   `57011d3e4e5c6d09a70ed7c4bf988b516e97f749e4bdf698ff1c556461017282`.
 
 ## Decision

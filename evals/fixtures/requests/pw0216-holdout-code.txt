@@ -1,0 +1,1 @@
+Design a Rust API for decoding a bounded binary message whose fields include a version byte, a little-endian length, a borrowed payload, and a trailing checksum. State the safety invariants and show focused tests for malformed inputs.

@@ -1018,8 +1018,172 @@ PW_DEFINE_BLOCKSCALED_GEMM(5)
 PW_DEFINE_BLOCKSCALED_GEMM(6)
 PW_DEFINE_BLOCKSCALED_GEMM(7)
 PW_DEFINE_BLOCKSCALED_GEMM(8)
+PW_DEFINE_BLOCKSCALED_GEMM(9)
+PW_DEFINE_BLOCKSCALED_GEMM(10)
+PW_DEFINE_BLOCKSCALED_GEMM(11)
+PW_DEFINE_BLOCKSCALED_GEMM(12)
+PW_DEFINE_BLOCKSCALED_GEMM(13)
+PW_DEFINE_BLOCKSCALED_GEMM(14)
+PW_DEFINE_BLOCKSCALED_GEMM(15)
+PW_DEFINE_BLOCKSCALED_GEMM(16)
+PW_DEFINE_BLOCKSCALED_GEMM(17)
+PW_DEFINE_BLOCKSCALED_GEMM(18)
+PW_DEFINE_BLOCKSCALED_GEMM(19)
+PW_DEFINE_BLOCKSCALED_GEMM(20)
+PW_DEFINE_BLOCKSCALED_GEMM(21)
+PW_DEFINE_BLOCKSCALED_GEMM(22)
+PW_DEFINE_BLOCKSCALED_GEMM(23)
+PW_DEFINE_BLOCKSCALED_GEMM(24)
+PW_DEFINE_BLOCKSCALED_GEMM(25)
+PW_DEFINE_BLOCKSCALED_GEMM(26)
+PW_DEFINE_BLOCKSCALED_GEMM(27)
+PW_DEFINE_BLOCKSCALED_GEMM(28)
+PW_DEFINE_BLOCKSCALED_GEMM(29)
+PW_DEFINE_BLOCKSCALED_GEMM(30)
+PW_DEFINE_BLOCKSCALED_GEMM(31)
+PW_DEFINE_BLOCKSCALED_GEMM(32)
 
 #undef PW_DEFINE_BLOCKSCALED_GEMM
+
+template <uint active>
+inline void fused_block_fp8_gate_up_swiglu_impl(
+    device const uchar *gate_weights,
+    device const float *gate_weight_scales,
+    device const uchar *up_weights,
+    device const float *up_weight_scales,
+    device const uchar *input_codes,
+    device const float *input_scales,
+    device float *hidden,
+    constant GemvShape &shape,
+    constant float *decode_lut,
+    device atomic_uint *error_flags,
+    threadgroup float *partial,
+    uint row,
+    uint lane,
+    uint lanes) {
+    if (row >= shape.rows || lanes != 64 || shape.block_rows != 128 ||
+        shape.block_columns != 128 || shape.columns % 128 != 0) {
+        return;
+    }
+    const uint row_offset = row * shape.columns;
+    const uint blocks = shape.columns / 128;
+    const uint weight_scale_offset = (row / 128) * blocks;
+    float gate_totals[active];
+    float up_totals[active];
+    for (uint position = 0; position < active; ++position) {
+        gate_totals[position] = 0.0f;
+        up_totals[position] = 0.0f;
+    }
+    for (uint block = 0; block < blocks; ++block) {
+        const uint column_base = block * 128;
+        for (uint position = 0; position < active; ++position) {
+            float gate_dot = 0.0f;
+            float up_dot = 0.0f;
+            for (uint within = lane; within < 128; within += lanes) {
+                const uint column = column_base + within;
+                const float activation =
+                    decode_lut[input_codes[position * shape.columns + column]];
+                gate_dot += decode_lut[gate_weights[row_offset + column]] * activation;
+                up_dot += decode_lut[up_weights[row_offset + column]] * activation;
+            }
+            const uint partial_base = (lane * active + position) * 2;
+            partial[partial_base] = gate_dot;
+            partial[partial_base + 1] = up_dot;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+            if (lane < offset) {
+                for (uint position = 0; position < active; ++position) {
+                    const uint destination = (lane * active + position) * 2;
+                    const uint source = ((lane + offset) * active + position) * 2;
+                    partial[destination] += partial[source];
+                    partial[destination + 1] += partial[source + 1];
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        if (lane == 0) {
+            for (uint position = 0; position < active; ++position) {
+                const uint reduced = position * 2;
+                const float input_scale = input_scales[position * blocks + block];
+                gate_totals[position] += partial[reduced] *
+                    gate_weight_scales[weight_scale_offset + block] * input_scale;
+                up_totals[position] += partial[reduced + 1] *
+                    up_weight_scales[weight_scale_offset + block] * input_scale;
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        for (uint position = 0; position < active; ++position) {
+            const float rounded_gate = pw_round_bf16(gate_totals[position]);
+            const float rounded_up = pw_round_bf16(up_totals[position]);
+            const float silu = pw_round_bf16(
+                rounded_gate / (1.0f + exp(-rounded_gate)));
+            const float result = pw_round_bf16(silu * rounded_up);
+            if (!isfinite(result)) {
+                atomic_fetch_or_explicit(error_flags, 128u, memory_order_relaxed);
+            }
+            hidden[position * shape.rows + row] = result;
+        }
+    }
+}
+
+#define PW_DEFINE_FUSED_GATE_UP_SWIGLU(WIDTH) \
+kernel void fused_block_fp8_gate_up_swiglu##WIDTH( \
+    device const uchar *gate_weights [[buffer(0)]], \
+    device const float *gate_weight_scales [[buffer(1)]], \
+    device const uchar *up_weights [[buffer(2)]], \
+    device const float *up_weight_scales [[buffer(3)]], \
+    device const uchar *input_codes [[buffer(4)]], \
+    device const float *input_scales [[buffer(5)]], \
+    device float *hidden [[buffer(6)]], \
+    constant GemvShape &shape [[buffer(7)]], \
+    constant float *decode_lut [[buffer(8)]], \
+    device atomic_uint *error_flags [[buffer(9)]], \
+    threadgroup float *partial [[threadgroup(0)]], \
+    uint row [[threadgroup_position_in_grid]], \
+    uint lane [[thread_index_in_threadgroup]], \
+    uint lanes [[threads_per_threadgroup]]) { \
+    fused_block_fp8_gate_up_swiglu_impl<WIDTH>(gate_weights, gate_weight_scales, \
+        up_weights, up_weight_scales, input_codes, input_scales, hidden, shape, \
+        decode_lut, error_flags, partial, row, lane, lanes); \
+}
+
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(1)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(2)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(3)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(4)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(5)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(6)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(7)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(8)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(9)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(10)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(11)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(12)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(13)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(14)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(15)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(16)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(17)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(18)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(19)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(20)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(21)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(22)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(23)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(24)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(25)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(26)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(27)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(28)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(29)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(30)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(31)
+PW_DEFINE_FUSED_GATE_UP_SWIGLU(32)
+
+#undef PW_DEFINE_FUSED_GATE_UP_SWIGLU
 
 kernel void block_fp8_gemm8_simdgroup_matrix_lut_blocked(
     device const uchar *weights [[buffer(0)]],

@@ -1,4 +1,4 @@
-# PW-0213 — Real-query row-representation control
+# PW-0302 — Real-query row-representation control
 
 - Status: complete
 - Disposition: rejected at bounded early-gate probe
@@ -11,11 +11,11 @@
   `b9df976876d63c1ffbbe0c70507aea8b939a749ce5b1db27cbca0b5d82cf802e`
 - Exactness: L3 modified weight representations
 - Related records: PW-0020, PW-0116, PW-0138, PW-0141, PW-0148,
-  PW-0211, PW-0212
+  PW-0300, PW-0301
 
 ## Question
 
-PW-0212 rejects a greedy tile-local FP8 subset because parameter-space error
+PW-0301 rejects a greedy tile-local FP8 subset because parameter-space error
 is strongly nonuniform across experts and projections. Test the more relevant
 object directly: can a row be stored as a compact query structure that
 estimates `w dot x` on real routed queries more accurately than conventional
@@ -49,7 +49,7 @@ Evaluate all candidates on identical source rows and validation queries:
 
 1. **Affine6 RTN control.** Independent 128-value row groups, six-bit codes,
    and F16 scale/bias, matching PW-0148's byte semantics.
-2. **FP8-subset6 control.** The rejected PW-0212 tile-local greedy 64-source-
+2. **FP8-subset6 control.** The rejected PW-0301 tile-local greedy 64-source-
    value codebook, retained to connect weight error to dot-product error.
 3. **TurboQuant-MSE6.** One deterministic seeded randomized Walsh-Hadamard
    rotation shared by a projection, followed by a frozen six-bit scalar
@@ -121,7 +121,7 @@ holdout access, endpoint claim, or throughput promotion.
 
 ## Pre-execution boundary (resolved)
 
-The Linux resident host initially had the pinned PW-0212 source-weight census but not the
+The Linux resident host initially had the pinned PW-0301 source-weight census but not the
 132,120,576-byte raw PW-0116 corpus. Its recorded path is on the prior Mac:
 `/Users/chad/Models/mimo-prismwing/evidence/PW-0116/corpus-001/`. Harness and
 fixture work proceeded locally while a hash-preserving transfer was arranged;
@@ -139,7 +139,7 @@ archive hashes to
 `d2a51359610d5851b8769cc2ceaaf31813042cb1a5a7c3758781e506f83a0f74`.
 
 The frozen cheapest failure boundary was layer 4 / expert 96 / gate, the same
-projection on which PW-0212 showed its clearest nonuniform regression. Its 56
+projection on which PW-0301 showed its clearest nonuniform regression. Its 56
 real validation queries give affine6 RTN relative L2 `0.00636152`.
 
 Across seeds 16001–16005:

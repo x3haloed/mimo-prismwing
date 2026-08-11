@@ -21,6 +21,12 @@ from tools.generate_base_decoder_layer_moe_fixture import (
 
 
 class BaseDecoderLayerFixtureTests(unittest.TestCase):
+    def test_pw0209_full_width_fixture_is_accepted(self):
+        fixture = json.loads(
+            Path("evals/fixtures/real/pw0209-layer43-context128-full-width.json").read_text()
+        )
+        validate_semantic_fixture(fixture)
+
     def test_semantic_fixture_locks_real_layer_shape(self):
         fixture = json.loads(
             Path("evals/fixtures/real/base-layer43-context128.json").read_text()
