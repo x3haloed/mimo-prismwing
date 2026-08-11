@@ -3965,3 +3965,22 @@ short retention proves that the sentence boundary does not leave hidden cache
 rows. Promote the arbitrary-text causal path and corrected QKV/cache semantics
 within the explicitly named SGLang-directed mode. Preserve target-faithful
 arithmetic, hosted parity, multimodal coverage, and 50 TPS as unpassed gates.
+
+PW-0206's first corrected source-faithful audit proves the old-layout proposer
+authorities are non-portable rather than merely suspect. On the frozen Hello
+prompt, corrected QKV changes the greedy token from 264 to 9707, changes all
+1,269 routed positions across all 47 MoE layers, and then produces local tokens
+`[9707,0]` (`Hello!`), exactly matching the frozen hosted fixture. The corrected
+prefix and two-token decode hash to
+`0002c617c5459d7531de99e779ecad7335afc1e6f86cbbb6071afa23da107807`
+and `f405225ea063bf3bfaf38a450fe752dc32c5afe54f69f5803c3ae61308caab2d`.
+
+This also supersedes PW-0103's rejection of native MTP on that trace. Pairing
+the corrected layer-47 states with target transition `9707 -> 0` makes MTP
+layer zero propose token 0 at rank one instead of placing the stale target at
+rank 175. The corrected MTP manifest hashes to
+`07233ee71f194c887d96aac2cb341239df1728a7e05fc36f692a1188c65b3379`.
+Reopen native MTP through PW-0208's cost-aware chained test; do not infer
+multi-token acceptance or TPS from one correct proposal. PW-0206 still owes the
+corrected DFlash and width-eight `A/U` authorities, so PW-0203's physical bound
+is not yet transferable. No throughput-model constant changes at this stage.

@@ -1020,6 +1020,16 @@
             "exact_target_posterior": true,
             "status": "rejected_for_one_tps; complete_accelerated_control_retained; target_faithful_weights_routes_named_l3_reduction",
             "provenance": "PW-0203 corrected-semantic run-004; report 8febe98c77fe779b7ff896205bdcf9086efed5ffc6052ca6ddb173fc5d563b01; Apple M1 16 GiB internal SSD; git a50aadb343320d09a0003c1cacc482f9ee2b8a2d dirty"
+        },
+        "pw0206_corrected_native_mtp_prerequisite": {
+            "target_anchor_token_id": 9707,
+            "target_next_token_id": 0,
+            "mtp_proposal_token_id": 0,
+            "target_token_rank_in_mtp_logits": 1,
+            "complete_wall_ms_diagnostic": 6198.230166977737,
+            "accepted_tokens": 0,
+            "status": "native_mtp_branch_reopened; single_proposal_prerequisite_only; no_endpoint_tps",
+            "provenance": "PW-0206 partial; corrected prefix 0002c617c5459d7531de99e779ecad7335afc1e6f86cbbb6071afa23da107807; corrected decode f405225ea063bf3bfaf38a450fe752dc32c5afe54f69f5803c3ae61308caab2d; MTP manifest 07233ee71f194c887d96aac2cb341239df1728a7e05fc36f692a1188c65b3379; Apple M1 16 GiB internal SSD; git 134020acbecb4882912b96d6397b1d0b173a07c2 clean"
         }
     }
 }

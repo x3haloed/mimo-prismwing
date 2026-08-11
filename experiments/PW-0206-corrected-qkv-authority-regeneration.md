@@ -1,7 +1,7 @@
 # PW-0206 — Corrected-QKV proposal authority regeneration
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: running
+- Disposition: conditional; native-MTP branch reopened, remaining authorities pending
 - Date: 2026-08-10
 - Execution mode: target-faithful audit plus separately named modified controls
 - Related records: PW-0102, PW-0103, PW-0150, PW-0186, PW-0187, PW-0203, PW-0205
@@ -45,7 +45,41 @@ non-portable and regenerate its cheapest downstream bound. Do not rerun a full
 endpoint until that bound can alter a branch decision. Record old/new token
 IDs, `A`, `U`, routes, logical and physical bytes, cold/warm state, and safety.
 
+## Partial result — corrected prefix, decode, and native MTP
+
+Clean commit `23d37093c613c979f567755bc3a1e33d09b0eb69` regenerates the
+27-token Hello prefix with deinterleaved QKV. Its manifest hashes to
+`0002c617c5459d7531de99e779ecad7335afc1e6f86cbbb6071afa23da107807`.
+The greedy token changes from old-layout token 264 to token 9707 (`Hello`),
+and all 1,269 routed positions across all 47 MoE layers change expert sets.
+The corrected layer-47 capture hashes to
+`e485df1c61820505c431b390825849ae05af0b190a568dae023ec7a215644fbe`.
+
+The subsequent two-token source-faithful retained-cache decode hashes to
+`f405225ea063bf3bfaf38a450fe752dc32c5afe54f69f5803c3ae61308caab2d`
+and produces `[9707,0]`, exactly the frozen hosted `Hello!` fixture. Complete
+wall is 1,343.751 seconds; peak RSS is 4,446,715,904 bytes, minimum free memory
+is 69%, and swap growth and new throttled pages are zero.
+
+Commit `134020acbecb4882912b96d6397b1d0b173a07c2` then reruns native MTP
+layer zero against the corrected layer-47 states and shifted target pair
+`9707 -> 0`. The result reverses PW-0103: MTP proposes token 0 at rank one,
+with logit 25.5. The manifest and full-logit capture hash to
+`07233ee71f194c887d96aac2cb341239df1728a7e05fc36f692a1188c65b3379`
+and `72adac56eb786f95a84bd18f655bdfe5a65202798cc96644aa9b52af6466c3dd`.
+It completes in 6.198 seconds, peaks at 3,867,754,496-byte RSS, and passes the
+same zero-swap, zero-throttling safety gate.
+
+This is a causal prerequisite, not accepted TPS. It reopens PW-0208 and makes
+PW-0103's rejection explicitly non-portable to corrected QKV semantics. The
+DFlash control and corrected width-eight Jacobi/`A/U` authorities remain
+pending, so PW-0206 is not complete and PW-0203's economics are not yet carried
+forward.
+
 ## Decision
 
-Unexecuted. This audit is the prerequisite for PW-0208 and for any claim that
-PW-0203's wide-verifier economics survive PW-0205's semantic repair.
+Continue. The cheap falsifier decisively rejects trace identity: token IDs and
+every route set changed. Promote the corrected prefix/decode authorities and
+reopen native MTP for cost-aware chaining, while completing the remaining
+proposal and `A/U` regeneration before endpoint performance work. No measured
+throughput constant changes at this partial checkpoint.

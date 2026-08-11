@@ -1418,7 +1418,10 @@ Run the following cheap falsifiers in order:
 
 1. [PW-0206](../experiments/PW-0206-corrected-qkv-authority-regeneration.md)
    regenerates the proposal and `A/U` authorities whose inputs depended on the
-   old QKV interpretation. It is a prerequisite audit, not an optimization.
+   old QKV interpretation. Its first completed slice changes every routed
+   position, restores source-faithful `Hello!`, and reverses PW-0103 by making
+   native MTP's first proposal exactly correct. The DFlash and width-eight
+   `A/U` authorities remain pending; this is still an audit, not an optimization.
 2. [PW-0207](../experiments/PW-0207-pressure-elastic-resident-working-set.md)
    asks whether the extra RAM can hold the stall-dominant shared spine and
    recurrent expert tiles, selected by measured bytes avoided rather than
