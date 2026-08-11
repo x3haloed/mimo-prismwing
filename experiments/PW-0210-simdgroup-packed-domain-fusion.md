@@ -32,6 +32,16 @@ Track packed/source bytes, decoded bytes materialized, threadgroup and device
 traffic, command buffers, barriers, GPU time, complete wall, and numerical
 error. Storage-only or unpack-only speed is diagnostic.
 
+Before kernel work, add a precision-crossing ledger for each large candidate
+intermediate: producer arithmetic precision, stored precision, consumer load
+conversion, and actual multiply precision. A move such as F32-memory-F16 to
+F16-memory-F16 is L1 only when a discriminating fixture proves the earlier
+narrowing is bit-identical at the consumer boundary; otherwise it is a
+separately named L3 approximation. Also audit independent immediate consumers
+of the same large input for horizontal fusion, while preserving each original
+reduction tree. DS4 commit `84cc882352757baf628a1776badf7cc54d584e28` is a
+pinned design prior for both shapes, not Prismwing performance evidence.
+
 ## Cheap falsifier and gates
 
 Before kernel work, bind the proposal to PW-0111's cold decomposition. Even

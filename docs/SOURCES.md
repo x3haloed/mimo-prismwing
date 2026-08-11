@@ -868,3 +868,21 @@ The Apple and VectorWare links are dated navigation references rather than
 immutable identity evidence; any experiment that depends on an exact API or
 implementation must capture and hash the relevant specification or source
 revision in its own record before execution.
+
+## DS4 execution and streaming priors
+
+- Antirez, DS4 repository commit
+  `84cc882352757baf628a1776badf7cc54d584e28`, accessed and captured
+  2026-08-11: <https://github.com/antirez/ds4>.
+- Tkhr-sait, *Metal SSD-streaming benchmark m4 max 128GB results and
+  improvement proposals*, DS4 issue 437, accessed 2026-08-11:
+  <https://github.com/antirez/ds4/issues/437>.
+
+The selected repository files are pinned by `spec/ds4.lock.json`. Decision:
+primary implementation authority for DS4's own fused routed-MoE,
+consumer-matched intermediate, confidence-gated speculation, and mainline
+read-advice shapes. Issue 437 is an external measured prototype report for
+page-aligned no-cache transport, disabled automatic read-ahead, owned double
+buffers, and trailing advice. Neither source establishes MiMo correctness,
+Prismwing TPS, or transferable acceptance; they guide PW-0210, PW-0213, and
+PW-0214 falsifiers only.

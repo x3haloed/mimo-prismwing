@@ -43,6 +43,13 @@ lead time. Kill implementation if even the offline bounded oracle cannot hide
 at least 10% of complete transaction wall without exceeding a fixed 25% demand
 bandwidth tax. Preserve smaller logical predictability results as diagnostics.
 
+Model cacheable/mapped transport separately from uncached owned transport.
+DS4 mainline's bounded `F_RDADVISE` is a design prior for issuing known ranges;
+the `F_NOCACHE`/disabled-`F_RDAHEAD` prototype in issue 437 is not a free grant.
+PW-0212 may authorize which ranges and lead times matter, but PW-0213 must
+measure whether the alternate transport changes physical latency or page-cache
+pressure.
+
 Only a calibration-frozen predictor that passes every text category may enter
 a cold runtime pilot. Runtime promotion requires bounded queues, demand
 priority, exact output parity, Gate 8, attributed physical I/O, and a repeated

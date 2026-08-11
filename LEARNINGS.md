@@ -4222,3 +4222,18 @@ swap growth, throttling, and protected-service loss remain zero. This changes
 the ordinary Apple-M1 performance belief and throughput constants, but not the
 general default: other categories, contexts, and holdouts still require live
 full-path evidence.
+
+AN-0002 audits the owner-supplied DS4 review against pinned commit
+`84cc882352757baf628a1776badf7cc54d584e28`. DS4 genuinely strengthens the
+shape prior for PW-0210: it fuses routed gate/up reduction through SwiGLU and
+uses an F16 materialized intermediate when the down consumer's MMA path loads
+half. It does not change PW-0210's 1.026x impossible-best Prismwing cold-layer
+bound, so execution remains conditional. DS4 issue 437's page-aligned
+`F_NOCACHE`, disabled automatic read-ahead, owned double-buffer, and trailing-
+drop result is a measured prototype rather than mainline authority; preserve it
+as PW-0213's exact transport falsifier. Confidence-gated speculation motivates
+PW-0214's corrected-route cost-adaptive `q` oracle without importing DS4
+thresholds. A local audit also closes the suspected accepted-token replay bug:
+Prismwing already retains verifier-produced K/V and final-hidden rows and only
+truncates rejected suffix state. The review changes research branches, not a
+throughput constant or runtime default.

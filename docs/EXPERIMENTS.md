@@ -1473,6 +1473,16 @@ Run the following cheap falsifiers in order:
    bounded demand-priority prefetch early enough to hide a material share of
    acquisition wall. It separates logical recall from physical latency and
    uses PW-0208 rather than PW-0112's superseded-layout routes.
+8. [PW-0213](../experiments/PW-0213-uncached-page-aligned-stream-transport.md)
+   tests whether cacheable routed streaming creates a harmful second
+   file-backed representation. Its first exact substitution isolates aligned
+   `F_NOCACHE` transport and disabled automatic read-ahead before adding
+   double-buffer overlap or trailing-page advice.
+9. [PW-0214](../experiments/PW-0214-cost-adaptive-verification-horizon-oracle.md)
+   treats `q=2..8` as a physical policy variable, pricing marginal accepted
+   progress against corrected route union, proposal wall, verifier width, and
+   acquisition. Offline future selection is only an upper bound; implementation
+   requires a calibration-frozen causal policy that passes every text category.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
