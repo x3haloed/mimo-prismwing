@@ -622,6 +622,10 @@ pub struct GenerationTransactionReport {
     pub mean_normalized_union: f64,
     pub logical_source_bytes: u64,
     pub process_disk_bytes_read: u64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub proposal_layer_traces: Vec<Vec<LayerRouteTrace>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub verification_layer_traces: Vec<LayerRouteTrace>,
 }
 
 #[derive(Debug, Serialize)]
@@ -666,6 +670,8 @@ pub struct ArbitraryTextGenerationReport {
     pub proposer: &'static str,
     pub cache_state: &'static str,
     pub status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub route_trace_captured: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -5722,6 +5728,55 @@ pub fn run_arbitrary_text_generation(
     output_path: &Path,
     commit: &str,
 ) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        requested_output_tokens,
+        output_path,
+        commit,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_arbitrary_text_route_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    requested_output_tokens: usize,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        requested_output_tokens,
+        output_path,
+        commit,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_arbitrary_text_generation_internal(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    requested_output_tokens: usize,
+    output_path: &Path,
+    commit: &str,
+    capture_route_trace: bool,
+) -> Result<ArbitraryTextGenerationReport, String> {
     const WIDTH: usize = 8;
     if output_path.exists() {
         return Err(format!("refusing to overwrite {}", output_path.display()));
@@ -5859,6 +5914,7 @@ pub fn run_arbitrary_text_generation(
         let transaction_disk_before = process_disk_bytes_read()?;
         let proposal_started = Instant::now();
         let mut proposal = Vec::with_capacity(WIDTH);
+        let mut proposal_layer_traces = Vec::with_capacity(WIDTH - 1);
         proposal.push(next_anchor);
         let mut proposal_caches = caches.clone();
         let mut proposal_ledger = EndpointLedger::for_checkpoint(&checkpoint);
@@ -5878,6 +5934,9 @@ pub fn run_arbitrary_text_generation(
                 DecodeOutput::Logits,
             )?;
             proposal.push(step.output_token);
+            if capture_route_trace {
+                proposal_layer_traces.push(step.traces);
+            }
         }
         let proposal_elapsed_ms = proposal_started.elapsed().as_secs_f64() * 1000.0;
         proposal_wall_ms += proposal_elapsed_ms;
@@ -5902,7 +5961,9 @@ pub fn run_arbitrary_text_generation(
             None,
             DecodeOutput::AllLogits,
         )?;
-        let commit_result = commit_jacobi_transaction(&proposal, &verified.output_tokens)?;
+        let verified_output_tokens = verified.output_tokens;
+        let verification_layer_traces = verified.traces;
+        let commit_result = commit_jacobi_transaction(&proposal, &verified_output_tokens)?;
         let retained_positions = base_positions
             .checked_add(commit_result.retained_proposal_rows)
             .ok_or("generation retained position overflow")?;
@@ -5911,7 +5972,7 @@ pub fn run_arbitrary_text_generation(
         }
         let verification_elapsed_ms = verification_started.elapsed().as_secs_f64() * 1000.0;
         verification_wall_ms += verification_elapsed_ms;
-        let mean_normalized_union = verified.traces[1..]
+        let mean_normalized_union = verification_layer_traces[1..]
             .iter()
             .map(|trace| trace.expert_union_factor)
             .sum::<f64>()
@@ -5975,7 +6036,7 @@ pub fn run_arbitrary_text_generation(
         transactions.push(GenerationTransactionReport {
             index: transaction_index,
             proposal_token_ids: proposal,
-            posterior_token_ids: verified.output_tokens,
+            posterior_token_ids: verified_output_tokens,
             verifier_authorized_token_ids: commit_result.emitted_token_ids,
             emitted_token_ids: observable_emitted_token_ids,
             verifier_retained_proposal_rows,
@@ -5986,6 +6047,12 @@ pub fn run_arbitrary_text_generation(
             mean_normalized_union,
             logical_source_bytes: transaction_logical_bytes,
             process_disk_bytes_read: transaction_disk_bytes,
+            proposal_layer_traces,
+            verification_layer_traces: if capture_route_trace {
+                verification_layer_traces
+            } else {
+                Vec::new()
+            },
         });
         writeln!(
             progress,
@@ -6048,7 +6115,7 @@ pub fn run_arbitrary_text_generation(
     let progress_sha256 = hash_file(&progress_path)?;
     let accepted_tokens = generated_token_ids.len();
     let report = ArbitraryTextGenerationReport {
-        schema_version: 2,
+        schema_version: if capture_route_trace { 3 } else { 2 },
         evidence_class: if requested_output_tokens <= 8 {
             "pw0205_arbitrary_prompt_bounded_generation_probe"
         } else {
@@ -6106,6 +6173,7 @@ pub fn run_arbitrary_text_generation(
         } else {
             "execution_complete_quality_unassessed"
         },
+        route_trace_captured: capture_route_trace.then_some(true),
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;
@@ -11310,6 +11378,59 @@ mod tests {
             2
         );
         assert_eq!(completed_sentence_count("unfinished"), 0);
+    }
+
+    #[test]
+    fn opt_in_generation_route_trace_is_additive_and_exact() {
+        let trace = LayerRouteTrace {
+            layer: 1,
+            attention: "sliding_window_128",
+            cache_length: 9,
+            selected_experts_by_position: vec![vec![7, 3]],
+            route_weights_by_position: vec![vec![0.75, 0.25]],
+            expert_union_factor: 1.0,
+            wall_ms: 2.0,
+        };
+        let without_trace = GenerationTransactionReport {
+            index: 0,
+            proposal_token_ids: vec![1, 2],
+            posterior_token_ids: vec![2, 3],
+            verifier_authorized_token_ids: vec![2],
+            emitted_token_ids: vec![2],
+            verifier_retained_proposal_rows: 1,
+            retained_proposal_rows: 1,
+            proposal_converged: true,
+            proposal_wall_ms: 1.0,
+            verification_wall_ms: 2.0,
+            mean_normalized_union: 1.0,
+            logical_source_bytes: 3,
+            process_disk_bytes_read: 4,
+            proposal_layer_traces: Vec::new(),
+            verification_layer_traces: Vec::new(),
+        };
+        let without_json = serde_json::to_value(&without_trace).expect("serialize control");
+        assert!(without_json.get("proposal_layer_traces").is_none());
+        assert!(without_json.get("verification_layer_traces").is_none());
+
+        let with_trace = GenerationTransactionReport {
+            proposal_layer_traces: vec![vec![trace]],
+            verification_layer_traces: vec![LayerRouteTrace {
+                layer: 1,
+                attention: "sliding_window_128",
+                cache_length: 10,
+                selected_experts_by_position: vec![vec![7, 3]],
+                route_weights_by_position: vec![vec![0.75, 0.25]],
+                expert_union_factor: 1.0,
+                wall_ms: 3.0,
+            }],
+            ..without_trace
+        };
+        let with_json = serde_json::to_value(&with_trace).expect("serialize trace");
+        assert_eq!(with_json["proposal_layer_traces"][0][0]["layer"], 1);
+        assert_eq!(
+            with_json["verification_layer_traces"][0]["selected_experts_by_position"][0],
+            serde_json::json!([7, 3])
+        );
     }
 
     #[test]
