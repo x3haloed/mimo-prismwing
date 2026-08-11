@@ -90,7 +90,7 @@ def generate(
         raise ValueError("PW-0209 full-width authority hash mismatch")
     authority = json.loads(authority_path.read_text())
     if (
-        authority.get("schema_version") != 2
+        authority.get("schema_version") != 1
         or authority.get("semantic")
         != "mimo_pw0209_layer43_context128_full_width_source_authority"
         or authority.get("revision") != REVISION
