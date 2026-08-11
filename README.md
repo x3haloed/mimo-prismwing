@@ -1,115 +1,115 @@
 # MiMo Prismwing
 
-**A consumer-hardware runtime research project for full-capability Xiaomi
-MiMo-V2.5.**
+Prismwing is a consumer-hardware runtime research project for the full-capability
+open-weight Xiaomi MiMo-V2.5 model. The starting machine is a 16 GB Apple M1 Mac
+mini; a tightly bounded local companion appliance is allowed by the target, but
+hosted inference is not.
 
-`mimo-prismwing` keeps the bird lineage of
-[TurboFieldfare](https://github.com/drumih/turbo-fieldfare) and
-[Swiftlet](https://github.com/leonickson1/Swiftlet). “Prismwing” points at the
-reason for targeting MiMo: one language backbone integrates text, images,
-audio, and video.
+The project is not finished. Its final gate remains a near-equivalent native
+multimodal runtime sustaining at least **50 accepted tokens/s** for one
+interactive request. The current complete text path is still orders of
+magnitude slower, hosted accumulated parity is incomplete, and native image,
+audio, video, and mixed-modality delivery are not yet proven.
 
-## Milestone: coherent arbitrary-prompt generation
+What has changed is the quality of the evidence: Prismwing now has a real,
+bounded, arbitrary-prompt causal path through the pinned checkpoint, an
+accelerated all-layer verifier, and a native MiMo MTP proposer whose exact
+verifier-authorized gains repeat across categories and an untouched 32-token
+holdout.
 
-Prismwing now takes an arbitrary text prompt through real chat preprocessing,
-tokenization, causal prefill, a real source-checkpoint proposer, accelerated
-width-eight verification, verifier-only commit, and cache rollback on a
-**16 GB Apple M1**. PW-0205 run 009 produced 47 coherent committed tokens and
-stopped after its second completed sentence. Its complete cold process took
-1,790.268 seconds, or **0.026253 complete-path tokens/s** including prefill.
+## Current frontier
 
-This is explicitly **SGLang-directed modified arithmetic**, not
-target-faithful arithmetic. It does not meet the 50 TPS target, prove hosted
-parity, or complete the multimodal scope. What it establishes is narrower and
-real: the accelerated verifier is connected to a reproducible arbitrary-text
-causal path rather than only a frozen verifier transaction. See
-[the PW-0205 reproduction and audit procedure](docs/PW0205_REPRODUCTION.md).
+All measurements below are batch one, concurrency one on the 16 GB Apple M1.
+They are different cuts of the system and must not be compared as if they were
+the same endpoint.
 
-## Milestone: the first complete accelerated wide verifier
+| Frontier | Best supported result | Boundary |
+| --- | ---: | --- |
+| Untouched 32-token native-MTP holdout | **0.045978 accepted TPS**, **1.722×** the q8 control | Complete request, including prefill; ordinary-text holdout only so far |
+| Native-MTP seven-token category panel | **1.864× ordinary**, **1.298× code**, **1.289× multilingual**, **1.174× rare-route** | Complete exact-output requests; conditional, not a general default |
+| Accelerated width-eight verifier | **0.219850 accepted TPS warm** | Post-prefill verifier transaction; proposal generation excluded |
+| Layer-major routed-MoE prefill slice | **1.161×–1.192×** | One real layer; misses its 3× continuation and absolute numerical gates |
+| Earlier arbitrary-prompt endpoint | **0.026253 complete-path TPS**, 47 coherent tokens | SGLang-directed modified arithmetic; retained as a control |
 
-Prismwing now runs a complete, eight-position MiMo-V2.5 Jacobi verification
-transaction on a **16 GB base Apple M1** at **0.21985 accepted tokens per
-second** warm. It uses the unmodified, pinned source checkpoint and the Mac's
-internal SSD—no accelerator, server, or new-hardware sidecar.
-
-That is not the project's final 50 TPS target. It is a substantial milestone:
-the project has moved from component experiments and slow reference walks to a
-real, memory-safe accelerated path through all 48 layers, all 47 routed MoE
-layers, retained K/V, final normalization, and all eight required LM-head
-rows.
-
-### What the evidence supports
-
-| Measurement | PW-0203 run 004 |
-| --- | ---: |
-| Warm accepted throughput | **0.219849686 TPS** |
-| Cold accepted throughput | **0.218103927 TPS** |
-| Accepted tokens / verifier width | **5 / 8** (`A=5`, `q=8`) |
-| Mean normalized expert union | **2.085106** |
-| Warm complete verifier wall time | **22.742812 s** |
-| Warm physical checkpoint reads | **27,508,178,944 bytes** |
-| Peak process resident memory | **695,681,024 bytes** |
-| Swap growth / newly throttled pages | **0 / 0** |
-
-Both cold and warm trials produced the exact frozen target posterior:
+The strongest new result is [PW-0216](experiments/PW-0216-native-mtp-longer-output-holdout.md).
+The prompt panel was hash-frozen before execution. On the first 32-token
+ordinary holdout, two native-q4 candidates produced byte-identical output to the
+q8 control and repeated the same committed-token sequence:
 
 ```text
-[13, 15, 13, 15, 481, 13, 15, 15]
+[3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 3]
 ```
 
-The final path is **3.42×** faster than PW-0203's first complete Metal-MoE
-variant (`0.06422` warm TPS). The run report hashes to
-`8febe98c77fe779b7ff896205bdcf9086efed5ffc6052ca6ddb173fc5d563b01`;
-the full experiment record and the progression through all four runs are in
-[PW-0203](experiments/PW-0203-wide-source-jacobi-endpoint.md).
+Candidate median complete wall time was 695.983 s versus 1,198.644 s for the
+control. Post-prefill wall improved 2.264×, logical source traffic fell 34.05%,
+and measured process reads fell 37.01%. All runs recorded zero swap growth,
+zero newly throttled pages, and no protected-service loss. Code, multilingual,
+and rare-route 32-token holdouts remain frozen and pending.
 
-The boundary matters. This is steady-state, post-prefill **wide verification
-throughput** for one hash-pinned, target-generated Jacobi block at batch one
-and concurrency one. The 34.230-second authenticated K/V hydration is setup
-outside the timed interval, and proposal generation is not part of this
-transaction. The result is not ordinary autoregressive generation TPS, a
-production server claim, source-BLAS component parity, or completion of the
-50 TPS target. The weights and routing are source-authority; reduction
-arithmetic is the explicitly named Metal-native L3 mode.
+[PW-0215](experiments/PW-0215-native-mtp-slice-broadening.md) supplies the
+shorter category breadth. Every ordinary, code, multilingual, and rare-route
+candidate/control/candidate sequence emitted identical verifier-authorized
+output and showed a repeatable positive complete-path gain. These smaller gains
+matter: Prismwing preserves useful advances even when they cannot by themselves
+reach 50 TPS.
 
-## What made it possible
+## What actually runs
 
-- **Direct checkpoint execution.** Page-rounded regions of the original
-  safetensors shards are bound directly to Metal. Prismwing does not build a
-  roughly 303 GB repacked expert bank. One QKV tensor that ends at shard EOF
-  uses a bounded 60.8 MB copied fallback; page-coverable tensors remain
-  no-copy.
-- **Width-specialized FP8 MoE kernels.** Compile-time-specialized kernels for
-  one through eight rows match each expert's actual placement count, perform
-  dynamic group-128 E4M3FN activation quantization, and keep route-weighted
-  scatter inside the GPU transaction.
-- **A genuinely wide transaction.** Eight proposed positions are verified
-  together across 64 routed placements per layer, allowing reused experts to
-  do useful matrix-shaped work rather than repeating token-major GEMV.
-- **Metal across the language spine.** Direct-checkpoint kernels cover
-  attention QKV and output projections, dense layer zero, the routed layers,
-  final normalization, and the eight LM-head rows. A dedicated QKV kernel
-  handles MiMo's nonuniform source scale layout.
-- **Authenticated cache hydration.** Hash-locked PW-0187 source prefill states
-  reconstruct real per-layer K/V by replaying checkpoint attention outside
-  the timed steady-state interval, avoiding a prohibitively slow CPU expert
-  prefill inside the benchmark.
-- **Measure model work once.** The complete checkpoint receipt authorizes
-  already-verified FP8 content, so repeated per-request payload scans were
-  removed. Heavy OS safety probes were moved around—not out of—the complete
-  transaction. Layout checks, process-memory limits, free-memory checks, swap
-  checks, and protected-service checks still fail closed.
+The current text runtime crosses one native authority from UTF-8 input to
+observable decoded output:
 
-## Build locally
+1. pinned chat serialization and tokenizer;
+2. bounded causal prefill through all 48 decoder layers;
+3. retained per-layer K/V and target hidden history;
+4. an authenticated three-layer native MiMo MTP q4 proposer;
+5. source-checkpoint wide verification across attention, routers, all selected
+   experts, residuals, final normalization, and LM-head rows;
+6. verifier-only commit, rejected-suffix rollback, and continued generation;
+7. content-addressed timing, route, byte, residency, and safety evidence.
 
-The accelerated path currently targets Apple Silicon and Metal. The reference
-environment is macOS on a 16 GB M1 with the internal SSD. A source build needs:
+The accelerated implementation binds page-rounded regions of the original
+safetensors shards directly to Metal where possible. Width-specialized FP8 MoE
+kernels cover actual expert placement counts; a dedicated QKV path handles
+MiMo's nonuniform scale layout. Checkpoint views and large phase resources are
+released aggressively enough to keep complete walks safe on the shared 16 GB
+host.
 
-- Xcode Command Line Tools;
-- stable Rust with edition 2024 support (Rust 1.85 or newer);
-- Python 3.11 or newer for evidence and checkpoint utilities; and
-- enough storage for the pinned checkpoint: 315.7 GB of tensor data, plus
-  download and evidence headroom.
+The exactness boundary is important. Native MTP is used only as a draft; the
+target verifier is the sole authority for committed tokens. However, the
+current fast verifier uses a separately named Metal-native numerical mode, and
+whole-model hosted-reference parity remains unproven. Prismwing does not call
+this target-faithful delivery yet.
+
+## Research that changed direction
+
+Recent work has also closed several tempting paths instead of leaving them as
+speculation:
+
+- PW-0209 found and fixed a production route-buffer bug that copied only 24
+  bytes of route weights/positions. Its layer-major path retained a real
+  16.1%–19.2% slice gain but failed the frozen promotion gate.
+- PW-0210 proved packed gate/up-to-SwiGLU fusion byte-exact, then rejected it as
+  performance-neutral under the storage-dominated cut.
+- PW-0212 rejected corrected-route predictive prefetch because even a bounded
+  future oracle could hide only 1.62% of complete wall.
+- PW-0213 preserved lower-level uncached-I/O and install gains while rejecting
+  runtime promotion on a post-prefill regression.
+- PW-0214 preserved category-specific horizon gains but rejected runtime
+  adaptation below its frozen 5% oracle ceiling.
+- PW-0300 through PW-0304 audited a new weight-representation line. Exact small
+  FP8 palettes were ruled out; the tested six-bit subset, independent row-query,
+  joint SwiGLU balance, and recursive polar forms all failed their predeclared
+  fidelity or equal-traffic gates. Their negative results narrow the next
+  representation search rather than weakening acceptance thresholds.
+
+The append-only reasoning and evidence history lives in
+[LEARNINGS.md](LEARNINGS.md) and the [experiment ledger](experiments/README.md).
+
+## Build
+
+The accelerated runtime targets Apple Silicon and Metal. A source build needs
+Xcode Command Line Tools, stable Rust with edition 2024 support, and Python 3.11
+or newer for evidence utilities.
 
 ```sh
 git clone https://github.com/x3haloed/mimo-prismwing.git
@@ -121,26 +121,14 @@ cargo test --release
 python3 -m unittest discover -s tests
 ```
 
-The Python suite is a collection of independently runnable research fixtures;
-some tests require optional packages or large artifacts. The Rust build and
-tests do not download model weights.
+Tests do not download model weights. Some Python fixtures require optional
+packages or external content-addressed evidence.
 
-## Reproduce the PW-0203 milestone
+## Checkpoint authority
 
-The benchmark fails closed unless every authority matches. You need:
-
-1. the complete `XiaomiMiMo/MiMo-V2.5` checkpoint at revision
-   `63651580ca774f8504f676040460aed3e1244ac1`;
-2. a complete checkpoint-verification receipt created by
-   `tools/checkpoint_lock.py`;
-3. the 32 MB PW-0187 run-001 authority directory, whose `manifest.json` hashes
-   to `a1066fafa979b923f9c2f5d259ff85b2f3d5aa2e77400e8b7075a48f3fa67950`;
-4. the committed endpoint fixture and Metal kernel; and
-5. an otherwise idle Apple Silicon Mac with enough free memory and no active
-   memory pressure.
-
-The current Hugging Face CLI can fetch the exact revision into a chosen local
-directory ([download documentation](https://huggingface.co/docs/huggingface_hub/en/guides/cli)):
+Runtime evidence is pinned to XiaomiMiMo/MiMo-V2.5 revision
+`63651580ca774f8504f676040460aed3e1244ac1`. The full installation is roughly
+294 GiB on disk and must match [spec/model.lock.json](spec/model.lock.json).
 
 ```sh
 python3 -m venv .venv
@@ -154,127 +142,82 @@ hf download XiaomiMiMo/MiMo-V2.5 \
   --revision 63651580ca774f8504f676040460aed3e1244ac1 \
   --local-dir "$PW_CHECKPOINT_ROOT"
 
-mkdir -p "$PW_EVIDENCE_ROOT/PW-0049"
+mkdir -p "$PW_EVIDENCE_ROOT/checkpoint"
 python3 tools/checkpoint_lock.py verify \
   --lock spec/model.lock.json \
   --checkpoint-dir "$PW_CHECKPOINT_ROOT" \
   --require-complete \
-  --manifest "$PW_EVIDENCE_ROOT/PW-0049/checkpoint-verification.json"
+  --manifest "$PW_EVIDENCE_ROOT/checkpoint/checkpoint-verification.json"
 ```
 
-Checkpoint receipts deliberately bind the verified file installation, and
-the frozen PW-0187 authority binds the receipt used to create it. Therefore a
-freshly downloaded installation is an **independent evidence epoch**, not a
-byte-for-byte replay of the original receipt. Regenerate the prerequisite
-authority ladder described by [PW-0187](experiments/PW-0187-jacobi-third-iteration.md),
-or obtain the original installation-bound receipt and authority bundle. Do not
-edit hashes to bypass this gate.
+Receipts bind the verified installation, not merely filenames. Do not edit
+hashes or metadata to reuse an authority after files move or change. Large raw
+evidence and weights stay outside Git; the repository commits schemas, hashes,
+small fixtures, and summarized results.
 
-With matching authorities in place, build from a clean commit and run:
+The CLI exposes the research entry points. Run `target/release/prismwing`
+without arguments for their exact signatures. Reproducing a promoted result
+also requires the experiment's frozen authorities and a clean commit matching
+the report; start with the reproduction notes in the relevant experiment
+record rather than treating a component command as endpoint TPS.
 
-```sh
-export PW_RUN_COMMIT="$(git rev-parse HEAD)"
-mkdir -p "$PW_EVIDENCE_ROOT/PW-0203/reproduction"
+## Mission and definition of done
 
-target/release/prismwing wide-metal-jacobi-text-endpoint \
-  "$PW_CHECKPOINT_ROOT" \
-  spec/model.lock.json \
-  "$PW_EVIDENCE_ROOT/PW-0049/checkpoint-verification.json" \
-  evals/fixtures/real/pw0052-chat-endpoint.json \
-  "$PW_EVIDENCE_ROOT/PW-0187/run-001/manifest.json" \
-  kernels/block_fp8_gemv.metal \
-  "$PW_EVIDENCE_ROOT/PW-0203/reproduction/report.json" \
-  "$PW_RUN_COMMIT"
+Prismwing is complete only when every gate in [TARGET.md](TARGET.md) passes from
+a clean checkout. In condensed form:
 
-python3 - <<'PY'
-import json
-import os
-from pathlib import Path
+- exact, auditable model/tokenizer/processor and hosted-reference locks;
+- native local text, image, multi-image, audio, video, mixed-modality, tool,
+  multi-turn, and long-context execution;
+- near-equivalent distributions over at least 100,000 scored tokens, plus
+  capability non-inferiority;
+- median batch-one decode of at least 50 accepted TPS after an 8K prefill,
+  with the required tail, latency, power, and sustained-run gates;
+- three cold reproductions, a warm run, raw content-addressed evidence, and an
+  independent reproduction.
 
-report = json.loads(
-    Path(os.environ["PW_EVIDENCE_ROOT"], "PW-0203/reproduction/report.json")
-    .read_text()
-)
-for trial in report["trials"]:
-    print(trial["cache_state"], trial["accepted_tps"], trial["posterior_token_ids"])
-PY
-```
+The 100-TPS result is a stretch goal. Proposed tokens, aggregate multi-user TPS,
+kernel-only timing, decompression-only timing, or modified-model output do not
+satisfy the primary target. See [RED_LINES.md](RED_LINES.md).
 
-For a valid comparison, record the emitted report hash, cold and warm state,
-`A`, `U`, bytes moved, wall time, memory/swap observations, hardware, and Git
-commit. Do not compare a kernel-only or storage-only microbenchmark with the
-complete verifier number.
+## Near-term frontier
 
-## Mission
+The active sequence is deliberately evidence-first:
 
-Make the open MiMo-V2.5 checkpoint run locally on a 16 GB M1 Mac mini while
-preserving the model's full input modalities and producing demonstrably
-near-equivalent behavior to a pinned hosted copy of `xiaomi/mimo-v2.5` on
-OpenRouter.
-
-The primary completion target remains **at least 50 accepted output tokens per
-second for a single interactive request**. One hundred TPS is a stretch target.
-Neither proposed speculative tokens nor aggregate batched throughput count as
-interactive output TPS.
-
-## Definition of done
-
-The project is complete only when every required gate in [TARGET.md](TARGET.md)
-passes from a clean checkout:
-
-1. The model, tokenizer, preprocessing, hardware, and hosted reference are
-   pinned and auditable.
-2. Text, image, multi-image, audio, video, and mixed-modality inputs run through
-   the native MiMo path locally.
-3. Logprob comparisons and capability tests meet the near-equivalence
-   thresholds, including separate modality and tail-case checks.
-4. Batch-one decode sustains at least 50 accepted TPS on the declared local
-   consumer system.
-5. The run is reproducible and publishes raw evidence—not only a summary.
-
-See [RED_LINES.md](RED_LINES.md) for shortcuts that do not count.
-
-## Research stance
-
-- Treat storage capacity, storage traffic, executable memory traffic, compute,
-  and sequential barriers as separate budgets.
-- Measure accepted tokens per byte moved, not advertised device bandwidth.
-- Put approximations on the draft side of exact verification when possible.
-- Call a modified or distilled model what it is.
-- Prefer cheap kill tests before runtime construction or hardware purchases.
-- Preserve rare modalities and capabilities, not only average text quality.
+1. finish the frozen PW-0216 code, multilingual, and rare-route 32-token
+   holdouts;
+2. reduce native proposer embodiment cost without changing its authority;
+3. attack the dominant prefill/storage cut while preserving the smaller
+   verified gains already found;
+4. close accumulated hosted-reference parity and expand the causal path through
+   native modalities;
+5. continue representation research only through predeclared cheap falsifiers
+   and real-query controls.
 
 ## Repository map
 
-- [TARGET.md](TARGET.md) — normative completion criteria.
-- [RED_LINES.md](RED_LINES.md) — boundaries the project will not cross.
-- [LEARNINGS.md](LEARNINGS.md) — evidence and deductions accumulated so far.
-- [docs/WORKFLOW.md](docs/WORKFLOW.md) — reference-first implementation,
-  optimization, promotion, reversal, and documentation loops.
-- [docs/VALIDATION_PROTOCOL.md](docs/VALIDATION_PROTOCOL.md) — hosted-reference,
-  logprob, capability, and performance methodology.
-- [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) — staged experiments and kill
-  criteria.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — causal, topology, and
-  implementation contract.
-- [docs/EMBODIMENT_JUMPS.md](docs/EMBODIMENT_JUMPS.md) — predeclared
-  architecture-level compression hypotheses and their test order.
+- [TARGET.md](TARGET.md) — normative completion and stopping conditions.
+- [RED_LINES.md](RED_LINES.md) — shortcuts that do not count.
+- [LEARNINGS.md](LEARNINGS.md) — durable evidence, reversals, and deductions.
+- [docs/WORKFLOW.md](docs/WORKFLOW.md) — experiment and promotion discipline.
+- [docs/VALIDATION_PROTOCOL.md](docs/VALIDATION_PROTOCOL.md) — fidelity and
+  performance methodology.
+- [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) — active staged research plan.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — runtime causal and topology
+  contract.
 - [docs/SOURCES.md](docs/SOURCES.md) — pinned source and decision ledger.
-- [experiments/README.md](experiments/README.md) — append-only experiment ledger
-  and record template.
-- [spec/acceptance.yaml](spec/acceptance.yaml) — machine-readable acceptance
-  thresholds.
+- [spec/throughput-model.json](spec/throughput-model.json) — measured and modeled
+  constants with provenance.
 - [evals/README.md](evals/README.md) — fixture and evidence layout.
 
-## Terminology
+## Terms
 
-- **Reference checkpoint:** the exact open-weight revision and tokenizer pinned
-  by checksum.
-- **Hosted reference:** a frozen OpenRouter response corpus from a pinned
-  MiMo-V2.5 endpoint and request configuration.
-- **Accepted TPS:** committed output tokens divided by complete decode-loop wall
-  time, including drafting, verification, misses, transfers, and rollback.
-- **Target-faithful:** original weights, routing, and target distribution apart
-  from documented finite-precision effects.
-- **Modified MiMo:** any changed weights, routing, topology, expert count, or
-  accepted unverified surrogate output.
+- **Accepted TPS:** verifier-committed output tokens divided by the declared
+  complete timed interval, including drafting, verification, misses, transfers,
+  synchronization, and rollback.
+- **Target-faithful:** original weights, routing, model distribution, and named
+  source semantics apart from documented finite-precision effects.
+- **Modified mode:** any changed weights, routing, topology, expert count, or
+  accepted surrogate output; it remains named separately even when useful.
+- **Component result:** a kernel, layer, storage, or verifier measurement that
+  diagnoses a cut but is not complete endpoint throughput.
