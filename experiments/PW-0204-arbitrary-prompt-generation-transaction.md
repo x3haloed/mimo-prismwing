@@ -106,6 +106,16 @@ projection-region authority and applies equally to routed expert weights;
 page-coverable tensors remain no-copy, scales remain no-copy, and no tensor
 content or arithmetic changes.
 
+After that repair, the real prompt crossed the routed layer that had failed and
+reached the last partial prefill chunk. It then failed closed because the
+PW-0203 spine wrappers admitted exactly eight rows even though the ordinary FP8
+projection kernels were already specialized for widths one through eight.
+The Metal runtime now owns one bounded-row rule: one through eight real rows are
+copied unchanged into an eight-row buffer, unused rows are exactly zero, kernels
+execute the same per-row arithmetic, and only real rows can route, scatter,
+round, update K/V, or become observable. A deterministic fixture covers row
+identity, zero padding, malformed shapes, empty input, and widths above eight.
+
 The first public runtime input is
 `evals/fixtures/requests/pw0204-arbitrary-text.txt`. It asks for a concise,
 programmatically inspectable two-sentence explanation and contains no route,

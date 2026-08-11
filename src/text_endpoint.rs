@@ -2624,7 +2624,7 @@ fn wide_fp8_linear(
     ledger: &mut EndpointLedger,
     runtime: &WideMetalMoeRuntime,
 ) -> Result<Vec<f32>, String> {
-    if rows != 8 || input.len() != rows * columns {
+    if !(1..=8).contains(&rows) || input.len() != rows * columns {
         return Err(format!(
             "{weight_name}: wide FP8 linear input shape mismatch"
         ));
@@ -2837,7 +2837,7 @@ fn wide_bf16_linear(
     ledger: &mut EndpointLedger,
     runtime: &WideMetalMoeRuntime,
 ) -> Result<Vec<f32>, String> {
-    if rows != 8 || input.len() != rows * columns {
+    if !(1..=8).contains(&rows) || input.len() != rows * columns {
         return Err(format!(
             "{weight_name}: wide BF16 linear input shape mismatch"
         ));
@@ -4178,7 +4178,7 @@ fn routed_mlp_metal_wide(
     metal_ledger: &mut MetalExpertLedger,
     runtime: &WideMetalMoeRuntime,
 ) -> Result<RoutedMlpOutput, String> {
-    if rows != 8 || input.len() != rows * HIDDEN {
+    if !(1..=8).contains(&rows) || input.len() != rows * HIDDEN {
         return Err(format!(
             "wide Metal routed experts require [8, {HIDDEN}], got [{rows}, {}]",
             input.len() / rows.max(1)

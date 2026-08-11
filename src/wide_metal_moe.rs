@@ -9,6 +9,23 @@ const HIDDEN: usize = 4096;
 const INTERMEDIATE: usize = 2048;
 const PROJECTION_LANES: u64 = 64;
 
+fn active_rows(values: &[f32], columns: usize) -> Result<usize, String> {
+    if columns == 0 || values.is_empty() || !values.len().is_multiple_of(columns) {
+        return Err("wide row shape mismatch".to_owned());
+    }
+    let rows = values.len() / columns;
+    if !(1..=BATCH).contains(&rows) {
+        return Err("wide row count must be between one and eight".to_owned());
+    }
+    Ok(rows)
+}
+
+fn padded_rows(values: &[f32], rows: usize, columns: usize) -> Vec<f32> {
+    let mut padded = vec![0.0_f32; BATCH * columns];
+    padded[..rows * columns].copy_from_slice(values);
+    padded
+}
+
 pub(crate) struct WideProjectionBinding<'a> {
     pub(crate) weight: MappedNoCopyRegion<'a>,
     pub(crate) scale: MappedNoCopyRegion<'a>,
@@ -154,8 +171,8 @@ impl WideMetalMoeRuntime {
         binding: &WideProjectionBinding<'_>,
         full_qkv_layout: bool,
     ) -> Result<WideLinearExecution, String> {
-        if input.len() != BATCH * binding.columns
-            || input.iter().any(|value| !value.is_finite())
+        let active_rows = active_rows(input, binding.columns)?;
+        if input.iter().any(|value| !value.is_finite())
             || binding.weight.tensor_bytes != binding.rows * binding.columns
             || (!full_qkv_layout
                 && binding.scale.tensor_bytes != binding.rows / 128 * (binding.columns / 128) * 4)
@@ -165,6 +182,7 @@ impl WideMetalMoeRuntime {
         {
             return Err("wide FP8 linear layout mismatch".to_owned());
         }
+        let padded_input = padded_rows(input, active_rows, binding.columns);
         let started = Instant::now();
         let shared = MTLResourceOptions::StorageModeShared;
         let no_copy = |region: &MappedNoCopyRegion<'_>| {
@@ -185,11 +203,13 @@ impl WideMetalMoeRuntime {
         };
         let scale = no_copy(&binding.scale);
         let input_buffer = self.device.new_buffer_with_data(
-            input.as_ptr().cast(),
-            std::mem::size_of_val(input) as u64,
+            padded_input.as_ptr().cast(),
+            std::mem::size_of_val(padded_input.as_slice()) as u64,
             shared,
         );
-        let staged = self.device.new_buffer((input.len() * 4) as u64, shared);
+        let staged = self
+            .device
+            .new_buffer((padded_input.len() * 4) as u64, shared);
         let output_count = BATCH * binding.rows;
         let output = self.device.new_buffer((output_count * 4) as u64, shared);
         let error = 0_u32;
@@ -225,7 +245,7 @@ impl WideMetalMoeRuntime {
         encoder.set_threadgroup_memory_length(0, 128 * 4);
         encoder.dispatch_thread_groups(
             MTLSize {
-                width: (input.len() / 128) as u64,
+                width: (padded_input.len() / 128) as u64,
                 height: 1,
                 depth: 1,
             },
@@ -291,9 +311,10 @@ impl WideMetalMoeRuntime {
         {
             return Err("wide FP8 linear Metal transaction failed".to_owned());
         }
-        let values = unsafe {
+        let mut values = unsafe {
             std::slice::from_raw_parts(output.contents().cast::<f32>(), output_count).to_vec()
         };
+        values.truncate(active_rows * binding.rows);
         Ok(WideLinearExecution {
             output: values,
             wall_ms: started.elapsed().as_secs_f64() * 1000.0,
@@ -308,12 +329,13 @@ impl WideMetalMoeRuntime {
         rows: usize,
         columns: usize,
     ) -> Result<WideLinearExecution, String> {
-        if input.len() != BATCH * columns
-            || input.iter().any(|value| !value.is_finite())
+        let active_rows = active_rows(input, columns)?;
+        if input.iter().any(|value| !value.is_finite())
             || weight_region.tensor_bytes != rows * columns * 2
         {
             return Err("wide BF16 linear layout mismatch".to_owned());
         }
+        let padded_input = padded_rows(input, active_rows, columns);
         let started = Instant::now();
         let shared = MTLResourceOptions::StorageModeShared;
         let weight = self.device.new_buffer_with_bytes_no_copy(
@@ -323,8 +345,8 @@ impl WideMetalMoeRuntime {
             None,
         );
         let input_buffer = self.device.new_buffer_with_data(
-            input.as_ptr().cast(),
-            std::mem::size_of_val(input) as u64,
+            padded_input.as_ptr().cast(),
+            std::mem::size_of_val(padded_input.as_slice()) as u64,
             shared,
         );
         let output_count = BATCH * rows;
@@ -396,9 +418,10 @@ impl WideMetalMoeRuntime {
         {
             return Err("wide BF16 linear Metal transaction failed".to_owned());
         }
-        let values = unsafe {
+        let mut values = unsafe {
             std::slice::from_raw_parts(output.contents().cast::<f32>(), output_count).to_vec()
         };
+        values.truncate(active_rows * rows);
         Ok(WideLinearExecution {
             output: values,
             wall_ms: started.elapsed().as_secs_f64() * 1000.0,
@@ -411,17 +434,18 @@ impl WideMetalMoeRuntime {
         input: &[f32],
         experts: &[WideExpertBinding<'_>],
     ) -> Result<WideMoeExecution, String> {
-        if input.len() != BATCH * HIDDEN
-            || input.iter().any(|value| !value.is_finite())
+        let active_rows = active_rows(input, HIDDEN)?;
+        if input.iter().any(|value| !value.is_finite())
             || experts.is_empty()
             || experts
                 .iter()
                 .map(|expert| expert.positions.len())
                 .sum::<usize>()
-                != BATCH * 8
+                != active_rows * 8
         {
             return Err("wide MoE input or schedule mismatch".to_owned());
         }
+        let padded_input = padded_rows(input, active_rows, HIDDEN);
         let started = Instant::now();
         let shared = MTLResourceOptions::StorageModeShared;
         let projection =
@@ -476,7 +500,7 @@ impl WideMetalMoeRuntime {
                 || expert
                     .positions
                     .iter()
-                    .any(|position| *position as usize >= BATCH)
+                    .any(|position| *position as usize >= active_rows)
                 || expert
                     .route_weights
                     .iter()
@@ -505,7 +529,7 @@ impl WideMetalMoeRuntime {
             let mut gathered = vec![0.0_f32; BATCH * HIDDEN];
             for (local, &position) in expert.positions.iter().enumerate() {
                 gathered[local * HIDDEN..(local + 1) * HIDDEN].copy_from_slice(
-                    &input[position as usize * HIDDEN..(position as usize + 1) * HIDDEN],
+                    &padded_input[position as usize * HIDDEN..(position as usize + 1) * HIDDEN],
                 );
             }
             let mut weights = [0.0_f32; BATCH];
@@ -599,7 +623,7 @@ impl WideMetalMoeRuntime {
             std::mem::size_of::<u32>() as u64,
             shared,
         );
-        let block_count = (BATCH * HIDDEN) as u32;
+        let block_count = (active_rows * HIDDEN) as u32;
         let block_count_buffer = self.device.new_buffer_with_data(
             (&block_count as *const u32).cast(),
             std::mem::size_of::<u32>() as u64,
@@ -792,6 +816,8 @@ impl WideMetalMoeRuntime {
         }
         let output = unsafe {
             std::slice::from_raw_parts(block_output.contents().cast::<f32>(), BATCH * HIDDEN)
+                .get(..active_rows * HIDDEN)
+                .expect("active wide output is bounded")
                 .to_vec()
         };
         if output.iter().any(|value| !value.is_finite()) {
@@ -804,5 +830,23 @@ impl WideMetalMoeRuntime {
             expert_rows: buffers.iter().map(|expert| expert.count).sum(),
             mapped_source_bytes,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partial_wide_rows_are_zero_padded_without_changing_real_rows() {
+        let values = (0..3 * 4).map(|value| value as f32).collect::<Vec<_>>();
+        assert_eq!(active_rows(&values, 4), Ok(3));
+        let padded = padded_rows(&values, 3, 4);
+        assert_eq!(&padded[..values.len()], values.as_slice());
+        assert_eq!(padded.len(), BATCH * 4);
+        assert!(padded[values.len()..].iter().all(|value| *value == 0.0));
+        assert!(active_rows(&[], 4).is_err());
+        assert!(active_rows(&[0.0; 5], 4).is_err());
+        assert!(active_rows(&[0.0; 9], 1).is_err());
     }
 }
