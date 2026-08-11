@@ -1,5 +1,6 @@
 use super::text_endpoint::dynamic_fp8_activations;
 use super::{MappedNoCopyRegion, decode_f8_e4m3fn};
+use crate::pressure_residency::OwnedResidentTensorRegion;
 use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize, NSRange};
 use std::fs;
 use std::path::Path;
@@ -27,9 +28,51 @@ fn padded_rows(values: &[f32], rows: usize, columns: usize) -> Vec<f32> {
     padded
 }
 
+pub(crate) enum WideSourceRegion<'a> {
+    Mapped(MappedNoCopyRegion<'a>),
+    Resident(OwnedResidentTensorRegion),
+}
+
+impl WideSourceRegion<'_> {
+    pub(crate) fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Mapped(region) => region.bytes,
+            Self::Resident(region) => region.bytes(),
+        }
+    }
+
+    pub(crate) fn tensor_offset(&self) -> usize {
+        match self {
+            Self::Mapped(region) => region.tensor_offset,
+            Self::Resident(region) => region.tensor_offset(),
+        }
+    }
+
+    pub(crate) fn tensor_bytes(&self) -> usize {
+        match self {
+            Self::Mapped(region) => region.tensor_bytes,
+            Self::Resident(region) => region.tensor_bytes(),
+        }
+    }
+
+    pub(crate) fn mapped_bytes(&self) -> u64 {
+        match self {
+            Self::Mapped(region) => region.bytes.len() as u64,
+            Self::Resident(_) => 0,
+        }
+    }
+
+    pub(crate) fn resident_bytes(&self) -> u64 {
+        match self {
+            Self::Mapped(_) => 0,
+            Self::Resident(region) => region.tensor_bytes() as u64,
+        }
+    }
+}
+
 pub(crate) struct WideProjectionBinding<'a> {
-    pub(crate) weight: MappedNoCopyRegion<'a>,
-    pub(crate) scale: MappedNoCopyRegion<'a>,
+    pub(crate) weight: WideSourceRegion<'a>,
+    pub(crate) scale: WideSourceRegion<'a>,
     pub(crate) copy_weight: bool,
     pub(crate) rows: usize,
     pub(crate) columns: usize,
@@ -50,12 +93,14 @@ pub(crate) struct WideMoeExecution {
     pub(crate) unique_experts: usize,
     pub(crate) expert_rows: usize,
     pub(crate) mapped_source_bytes: u64,
+    pub(crate) resident_source_bytes: u64,
 }
 
 pub(crate) struct WideLinearExecution {
     pub(crate) output: Vec<f32>,
     pub(crate) wall_ms: f64,
     pub(crate) mapped_source_bytes: u64,
+    pub(crate) resident_source_bytes: u64,
 }
 
 pub(crate) struct WideMetalMoeRuntime {
@@ -177,11 +222,11 @@ impl WideMetalMoeRuntime {
     ) -> Result<WideLinearExecution, String> {
         let active_rows = active_rows(input, binding.columns)?;
         if input.iter().any(|value| !value.is_finite())
-            || binding.weight.tensor_bytes != binding.rows * binding.columns
+            || binding.weight.tensor_bytes() != binding.rows * binding.columns
             || (!full_qkv_layout
-                && binding.scale.tensor_bytes != binding.rows / 128 * (binding.columns / 128) * 4)
+                && binding.scale.tensor_bytes() != binding.rows / 128 * (binding.columns / 128) * 4)
             || (full_qkv_layout
-                && (binding.rows, binding.columns, binding.scale.tensor_bytes)
+                && (binding.rows, binding.columns, binding.scale.tensor_bytes())
                     != (13_568, HIDDEN, 108 * 32 * 4))
         {
             return Err("wide FP8 linear layout mismatch".to_owned());
@@ -189,17 +234,17 @@ impl WideMetalMoeRuntime {
         let padded_input = padded_rows(input, active_rows, binding.columns);
         let started = Instant::now();
         let shared = MTLResourceOptions::StorageModeShared;
-        let no_copy = |region: &MappedNoCopyRegion<'_>| {
+        let no_copy = |region: &WideSourceRegion<'_>| {
             self.device.new_buffer_with_bytes_no_copy(
-                region.bytes.as_ptr().cast(),
-                region.bytes.len() as u64,
+                region.bytes().as_ptr().cast(),
+                region.bytes().len() as u64,
                 shared,
                 None,
             )
         };
         let weight = if binding.copy_weight {
-            let bytes = &binding.weight.bytes[binding.weight.tensor_offset
-                ..binding.weight.tensor_offset + binding.weight.tensor_bytes];
+            let bytes = &binding.weight.bytes()[binding.weight.tensor_offset()
+                ..binding.weight.tensor_offset() + binding.weight.tensor_bytes()];
             self.device
                 .new_buffer_with_data(bytes.as_ptr().cast(), bytes.len() as u64, shared)
         } else {
@@ -257,10 +302,10 @@ impl WideMetalMoeRuntime {
             if binding.copy_weight {
                 0
             } else {
-                binding.weight.tensor_offset as u64
+                binding.weight.tensor_offset() as u64
             },
         );
-        encoder.set_buffer(1, Some(&scale), binding.scale.tensor_offset as u64);
+        encoder.set_buffer(1, Some(&scale), binding.scale.tensor_offset() as u64);
         encoder.set_buffer(2, Some(&encoded_buffer), 0);
         encoder.set_buffer(3, Some(&activation_scale_buffer), 0);
         encoder.set_buffer(4, Some(&output), 0);
@@ -310,7 +355,8 @@ impl WideMetalMoeRuntime {
         Ok(WideLinearExecution {
             output: values,
             wall_ms: started.elapsed().as_secs_f64() * 1000.0,
-            mapped_source_bytes: (binding.weight.bytes.len() + binding.scale.bytes.len()) as u64,
+            mapped_source_bytes: binding.weight.mapped_bytes() + binding.scale.mapped_bytes(),
+            resident_source_bytes: binding.weight.resident_bytes() + binding.scale.resident_bytes(),
         })
     }
 
@@ -563,6 +609,7 @@ impl WideMetalMoeRuntime {
             output: values,
             wall_ms: started.elapsed().as_secs_f64() * 1000.0,
             mapped_source_bytes: weight_region.bytes.len() as u64,
+            resident_source_bytes: 0,
         })
     }
 
@@ -587,8 +634,8 @@ impl WideMetalMoeRuntime {
         let shared = MTLResourceOptions::StorageModeShared;
         let projection =
             |binding: &WideProjectionBinding<'_>| -> Result<ProjectionBuffers, String> {
-                if binding.weight.tensor_bytes != binding.rows * binding.columns
-                    || binding.scale.tensor_bytes
+                if binding.weight.tensor_bytes() != binding.rows * binding.columns
+                    || binding.scale.tensor_bytes()
                         != binding.rows / 128 * (binding.columns / 128) * 4
                     || binding.rows % 128 != 0
                     || binding.columns % 128 != 0
@@ -596,8 +643,8 @@ impl WideMetalMoeRuntime {
                     return Err("wide MoE projection layout mismatch".to_owned());
                 }
                 let weight = if binding.copy_weight {
-                    let bytes = &binding.weight.bytes[binding.weight.tensor_offset
-                        ..binding.weight.tensor_offset + binding.weight.tensor_bytes];
+                    let bytes = &binding.weight.bytes()[binding.weight.tensor_offset()
+                        ..binding.weight.tensor_offset() + binding.weight.tensor_bytes()];
                     self.device.new_buffer_with_data(
                         bytes.as_ptr().cast(),
                         bytes.len() as u64,
@@ -605,8 +652,8 @@ impl WideMetalMoeRuntime {
                     )
                 } else {
                     self.device.new_buffer_with_bytes_no_copy(
-                        binding.weight.bytes.as_ptr().cast(),
-                        binding.weight.bytes.len() as u64,
+                        binding.weight.bytes().as_ptr().cast(),
+                        binding.weight.bytes().len() as u64,
                         shared,
                         None,
                     )
@@ -614,20 +661,21 @@ impl WideMetalMoeRuntime {
                 Ok(ProjectionBuffers {
                     weight,
                     scale: self.device.new_buffer_with_bytes_no_copy(
-                        binding.scale.bytes.as_ptr().cast(),
-                        binding.scale.bytes.len() as u64,
+                        binding.scale.bytes().as_ptr().cast(),
+                        binding.scale.bytes().len() as u64,
                         shared,
                         None,
                     ),
                     weight_offset: if binding.copy_weight {
                         0
                     } else {
-                        binding.weight.tensor_offset as u64
+                        binding.weight.tensor_offset() as u64
                     },
-                    scale_offset: binding.scale.tensor_offset as u64,
+                    scale_offset: binding.scale.tensor_offset() as u64,
                 })
             };
         let mut mapped_source_bytes = 0_u64;
+        let mut resident_source_bytes = 0_u64;
         let mut buffers = Vec::with_capacity(experts.len());
         for expert in experts {
             let count = expert.positions.len();
@@ -660,8 +708,11 @@ impl WideMetalMoeRuntime {
                 &expert.down.scale,
             ] {
                 mapped_source_bytes = mapped_source_bytes
-                    .checked_add(region.bytes.len() as u64)
+                    .checked_add(region.mapped_bytes())
                     .ok_or("wide MoE mapped-byte overflow")?;
+                resident_source_bytes = resident_source_bytes
+                    .checked_add(region.resident_bytes())
+                    .ok_or("wide MoE resident-byte overflow")?;
             }
             let mut gathered = vec![0.0_f32; BATCH * HIDDEN];
             for (local, &position) in expert.positions.iter().enumerate() {
@@ -979,6 +1030,7 @@ impl WideMetalMoeRuntime {
             unique_experts: buffers.len(),
             expert_rows: buffers.iter().map(|expert| expert.count).sum(),
             mapped_source_bytes,
+            resident_source_bytes,
         })
     }
 }

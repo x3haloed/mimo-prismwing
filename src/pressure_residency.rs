@@ -283,6 +283,26 @@ pub struct PageAlignedResidentObject {
     tensor_metadata_sha256: String,
 }
 
+pub struct OwnedResidentTensorRegion {
+    backing: Arc<PageAlignedResidentObject>,
+    tensor_offset: usize,
+    tensor_bytes: usize,
+}
+
+impl OwnedResidentTensorRegion {
+    pub fn bytes(&self) -> &[u8] {
+        &self.backing.mapping
+    }
+
+    pub fn tensor_offset(&self) -> usize {
+        self.tensor_offset
+    }
+
+    pub fn tensor_bytes(&self) -> usize {
+        self.tensor_bytes
+    }
+}
+
 impl PageAlignedResidentObject {
     pub fn copy_from_declared<'a, I>(
         declaration: &DeclaredResidentObject,
@@ -363,6 +383,21 @@ impl PageAlignedResidentObject {
             tensor_bytes: range.len(),
         })
     }
+
+    pub fn owned_tensor_region(
+        self: &Arc<Self>,
+        identity: &ResidentTensorIdentity,
+    ) -> Result<OwnedResidentTensorRegion, String> {
+        let range = self
+            .tensor_ranges
+            .get(identity)
+            .ok_or_else(|| format!("resident tensor absent: {}", identity.tensor))?;
+        Ok(OwnedResidentTensorRegion {
+            backing: self.clone(),
+            tensor_offset: range.start,
+            tensor_bytes: range.len(),
+        })
+    }
 }
 
 struct InstalledResident {
@@ -391,6 +426,7 @@ struct ResidencyState {
 pub struct PressureResidencyController {
     manifest: DeclaredResidencyManifest,
     declarations: BTreeMap<String, DeclaredResidentObject>,
+    tensor_objects: BTreeMap<ResidentTensorIdentity, String>,
     state: Mutex<ResidencyState>,
 }
 
@@ -403,9 +439,25 @@ impl PressureResidencyController {
             .cloned()
             .map(|object| (object.identity.clone(), object))
             .collect();
+        let mut tensor_objects = BTreeMap::new();
+        for object in &manifest.objects {
+            for tensor in &object.tensors {
+                let identity = ResidentTensorIdentity {
+                    tensor: tensor.tensor.clone(),
+                    row: tensor.row,
+                };
+                if tensor_objects
+                    .insert(identity, object.identity.clone())
+                    .is_some()
+                {
+                    return Err("resident tensor is declared by multiple objects".to_owned());
+                }
+            }
+        }
         Ok(Arc::new(Self {
             manifest,
             declarations,
+            tensor_objects,
             state: Mutex::new(ResidencyState {
                 installed: BTreeMap::new(),
                 resident_bytes: 0,
@@ -498,6 +550,18 @@ impl PressureResidencyController {
                 .ok_or_else(|| format!("resident payload type mismatch for {identity}"))?
         };
         Ok(Some(object))
+    }
+
+    pub fn resident_tensor(
+        &self,
+        identity: &ResidentTensorIdentity,
+    ) -> Result<Option<OwnedResidentTensorRegion>, String> {
+        let Some(object_identity) = self.tensor_objects.get(identity) else {
+            return Ok(None);
+        };
+        self.page_aligned(object_identity)?
+            .map(|object| object.owned_tensor_region(identity))
+            .transpose()
     }
 
     pub fn resident_bytes(&self) -> Result<u64, String> {

@@ -23,7 +23,9 @@ use crate::staged_metal_expert::{
 use crate::structured_sparse::{
     VerticalSlashSelection, selected_positions_for_query, vertical_slash_selection,
 };
-use crate::wide_metal_moe::{WideExpertBinding, WideMetalMoeRuntime, WideProjectionBinding};
+use crate::wide_metal_moe::{
+    WideExpertBinding, WideMetalMoeRuntime, WideProjectionBinding, WideSourceRegion,
+};
 use memmap2::MmapMut;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -34,6 +36,7 @@ use std::io::Write;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path};
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Instant;
 use tokenizers::Tokenizer;
 
@@ -238,6 +241,7 @@ struct VerifiedFile {
 #[derive(Debug, Default, Serialize)]
 pub struct EndpointLedger {
     pub logical_source_bytes: u64,
+    pub resident_source_bytes: u64,
     pub actual_process_disk_bytes_read: u64,
     pub peak_resident_bytes: u64,
     pub fp8_matrices_expanded: u64,
@@ -272,6 +276,7 @@ pub struct MetalExpertLedger {
     pub wide_unique_experts: u64,
     pub wide_wall_ms: f64,
     pub wide_mapped_source_bytes: u64,
+    pub wide_resident_source_bytes: u64,
     #[serde(skip)]
     pub tomography_enabled: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -655,6 +660,8 @@ pub struct GenerationTransactionReport {
     #[serde(rename = "U")]
     pub mean_normalized_union: f64,
     pub logical_source_bytes: u64,
+    #[serde(skip_serializing_if = "is_zero_u64")]
+    pub resident_source_bytes: u64,
     pub process_disk_bytes_read: u64,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub proposal_layer_traces: Vec<Vec<LayerRouteTrace>>,
@@ -706,6 +713,23 @@ pub struct ArbitraryTextGenerationReport {
     pub status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub route_trace_captured: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub residency: Option<GenerationResidencyReport>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GenerationResidencyReport {
+    pub manifest_sha256: String,
+    pub installed_identities: Vec<String>,
+    pub installed_resident_bytes: u64,
+    pub resident_source_bytes: u64,
+    pub final_resident_bytes: u64,
+    pub eviction_events: Vec<PressureEvent>,
+    pub pressure_scope: &'static str,
+}
+
+fn is_zero_u64(value: &u64) -> bool {
+    *value == 0
 }
 
 #[derive(Deserialize)]
@@ -1602,6 +1626,7 @@ struct Checkpoint {
     shards: BTreeMap<String, MappedSafetensors>,
     shard_sha256: BTreeMap<String, String>,
     device_drift_files: Vec<String>,
+    resident_controller: Option<Arc<PressureResidencyController>>,
 }
 
 impl Checkpoint {
@@ -1683,7 +1708,12 @@ impl Checkpoint {
             shards,
             shard_sha256,
             device_drift_files,
+            resident_controller: None,
         })
+    }
+
+    fn attach_resident_controller(&mut self, controller: Arc<PressureResidencyController>) {
+        self.resident_controller = Some(controller);
     }
 
     fn tensor(&self, name: &str) -> Result<MappedTensorView<'_>, String> {
@@ -1736,6 +1766,42 @@ impl Checkpoint {
             }
             Err(error) => Err(format!("{name}: {error}")),
         }
+    }
+
+    fn wide_projection_region(
+        &self,
+        name: &str,
+        page_bytes: usize,
+    ) -> Result<(WideSourceRegion<'_>, bool), String> {
+        if let Some(controller) = &self.resident_controller {
+            let identity = ResidentTensorIdentity {
+                tensor: name.to_owned(),
+                row: None,
+            };
+            if let Some(region) = controller.resident_tensor(&identity)? {
+                return Ok((WideSourceRegion::Resident(region), false));
+            }
+        }
+        let (region, copy) = self.projection_region(name, page_bytes)?;
+        Ok((WideSourceRegion::Mapped(region), copy))
+    }
+
+    fn wide_tensor_region(
+        &self,
+        name: &str,
+        page_bytes: usize,
+    ) -> Result<WideSourceRegion<'_>, String> {
+        if let Some(controller) = &self.resident_controller {
+            let identity = ResidentTensorIdentity {
+                tensor: name.to_owned(),
+                row: None,
+            };
+            if let Some(region) = controller.resident_tensor(&identity)? {
+                return Ok(WideSourceRegion::Resident(region));
+            }
+        }
+        self.tensor_no_copy_region(name, page_bytes)
+            .map(WideSourceRegion::Mapped)
     }
 
     fn source_tensor(&self, name: &str) -> Result<CheckpointTensorSource<'_>, String> {
@@ -2769,17 +2835,18 @@ fn wide_fp8_linear(
         }
     }
     let page_bytes = host_page_bytes()?;
-    let (weight_region, copy_weight) = checkpoint.projection_region(weight_name, page_bytes)?;
+    let (weight_region, copy_weight) =
+        checkpoint.wide_projection_region(weight_name, page_bytes)?;
     let binding = WideProjectionBinding {
         weight: weight_region,
         scale: checkpoint
-            .tensor_no_copy_region(&scale_name, page_bytes)
+            .wide_tensor_region(&scale_name, page_bytes)
             .map_err(|error| format!("{scale_name}: {error}"))?,
         copy_weight,
         rows: output_columns,
         columns,
     };
-    let logical_bytes = (binding.weight.tensor_bytes + binding.scale.tensor_bytes) as u64;
+    let logical_bytes = (binding.weight.tensor_bytes() + binding.scale.tensor_bytes()) as u64;
     let execution = runtime.execute_fp8_linear(input, &binding, full_qkv_layout)?;
     ledger.logical_source_bytes = ledger
         .logical_source_bytes
@@ -2788,6 +2855,10 @@ fn wide_fp8_linear(
     ledger.fp8_matrices_expanded += 1;
     ledger.dynamic_activation_groups += (rows * columns / 128) as u64;
     ledger.dynamic_activation_values += (rows * columns) as u64;
+    ledger.resident_source_bytes = ledger
+        .resident_source_bytes
+        .checked_add(execution.resident_source_bytes)
+        .ok_or("resident source byte ledger overflow")?;
     let _ = (execution.wall_ms, execution.mapped_source_bytes);
     Ok(execution.output)
 }
@@ -4399,11 +4470,12 @@ fn routed_mlp_metal_wide(
                     "layer {layer} expert {expert} {name}: projection shape mismatch"
                 ));
             }
-            let (weight, copy_weight) = checkpoint.projection_region(&weight_name, page_bytes)?;
+            let (weight, copy_weight) =
+                checkpoint.wide_projection_region(&weight_name, page_bytes)?;
             Ok(WideProjectionBinding {
                 weight,
                 scale: checkpoint
-                    .tensor_no_copy_region(&scale_name, page_bytes)
+                    .wide_tensor_region(&scale_name, page_bytes)
                     .map_err(|error| format!("{scale_name}: {error}"))?,
                 copy_weight,
                 rows,
@@ -4417,7 +4489,7 @@ fn routed_mlp_metal_wide(
             .iter()
             .flat_map(|projection| [&projection.weight, &projection.scale])
             .try_fold(logical_source_bytes, |total, region| {
-                total.checked_add(region.tensor_bytes as u64)
+                total.checked_add(region.tensor_bytes() as u64)
             })
             .ok_or("wide logical source byte ledger overflow")?;
         bindings.push(WideExpertBinding {
@@ -4442,6 +4514,10 @@ fn routed_mlp_metal_wide(
         .logical_source_bytes
         .checked_add(logical_source_bytes)
         .ok_or("logical byte ledger overflow")?;
+    ledger.resident_source_bytes = ledger
+        .resident_source_bytes
+        .checked_add(execution.resident_source_bytes)
+        .ok_or("resident source byte ledger overflow")?;
     ledger.routed_expert_executions += execution.expert_rows as u64;
     ledger.dynamic_activation_groups += (execution.expert_rows * 80) as u64;
     ledger.dynamic_activation_values += (execution.expert_rows * 10_240) as u64;
@@ -4459,6 +4535,10 @@ fn routed_mlp_metal_wide(
         .wide_mapped_source_bytes
         .checked_add(execution.mapped_source_bytes)
         .ok_or("wide mapped-byte ledger overflow")?;
+    metal_ledger.wide_resident_source_bytes = metal_ledger
+        .wide_resident_source_bytes
+        .checked_add(execution.resident_source_bytes)
+        .ok_or("wide resident-byte ledger overflow")?;
     Ok(RoutedMlpOutput {
         output: execution.output,
         logits: routing.logits,
@@ -5972,6 +6052,7 @@ pub fn run_arbitrary_text_generation(
         output_path,
         commit,
         false,
+        None,
     )
 }
 
@@ -5996,6 +6077,34 @@ pub fn run_arbitrary_text_route_trace(
         output_path,
         commit,
         true,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_arbitrary_text_resident_route_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    requested_output_tokens: usize,
+    residency_manifest_path: &Path,
+    resident_identity: &str,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        requested_output_tokens,
+        output_path,
+        commit,
+        true,
+        Some((residency_manifest_path, resident_identity)),
     )
 }
 
@@ -6010,6 +6119,7 @@ fn run_arbitrary_text_generation_internal(
     output_path: &Path,
     commit: &str,
     capture_route_trace: bool,
+    residency: Option<(&Path, &str)>,
 ) -> Result<ArbitraryTextGenerationReport, String> {
     const WIDTH: usize = 8;
     if output_path.exists() {
@@ -6044,11 +6154,27 @@ fn run_arbitrary_text_generation_internal(
         return Err("git status failed while recording implementation identity".to_owned());
     }
     let git_dirty = !git_status.stdout.is_empty();
+    if residency.is_some() {
+        let git_head = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .map_err(|error| format!("git rev-parse HEAD: {error}"))?;
+        if !git_head.status.success()
+            || String::from_utf8_lossy(&git_head.stdout).trim() != commit
+            || git_dirty
+        {
+            return Err(
+                "resident generation evidence requires the supplied commit to be exact clean Git HEAD"
+                    .to_owned(),
+            );
+        }
+    }
     let preprocessing_started = Instant::now();
     let user_prompt = fs::read_to_string(prompt_path)
         .map_err(|error| format!("{}: {error}", prompt_path.display()))?;
     let (
-        checkpoint,
+        mut checkpoint,
         _verification,
         config,
         tokenizer,
@@ -6130,6 +6256,34 @@ fn run_arbitrary_text_generation_internal(
         prefill_chunks,
         prefill_wall_ms / 1000.0
     );
+    let mut resident_runtime = None;
+    if let Some((manifest_path, resident_identity)) = residency {
+        let manifest_sha256 = hash_file(manifest_path)?;
+        let manifest = DeclaredResidencyManifest::from_offline_report(manifest_path)?;
+        let declaration = manifest
+            .objects
+            .iter()
+            .find(|object| object.identity == resident_identity)
+            .cloned()
+            .ok_or_else(|| format!("resident identity is not declared: {resident_identity}"))?;
+        safety.checkpoint("generation_before_resident_install", true)?;
+        let controller = PressureResidencyController::new(manifest)?;
+        let observer = DarwinMemoryPressureObserver::start(controller.clone())?;
+        let resident = checkpoint.copy_declared_resident_object(&declaration)?;
+        controller.install_page_aligned(resident_identity, resident)?;
+        if controller.resident_bytes()? != declaration.bytes {
+            return Err("generation resident install byte gate failed".to_owned());
+        }
+        checkpoint.attach_resident_controller(controller.clone());
+        safety.checkpoint("generation_resident_install_complete", false)?;
+        resident_runtime = Some((
+            controller,
+            observer,
+            manifest_sha256,
+            declaration.identity,
+            declaration.bytes,
+        ));
+    }
     let mut next_anchor = generated_token_ids[0];
     let mut transactions = Vec::new();
     let mut proposal_wall_ms = 0.0;
@@ -6262,6 +6416,10 @@ fn run_arbitrary_text_generation_internal(
             .logical_source_bytes
             .checked_add(verification_ledger.logical_source_bytes)
             .ok_or("transaction logical byte ledger overflow")?;
+        let transaction_resident_bytes = proposal_ledger
+            .resident_source_bytes
+            .checked_add(verification_ledger.resident_source_bytes)
+            .ok_or("transaction resident-source byte ledger overflow")?;
         logical_source_bytes = logical_source_bytes
             .checked_add(transaction_logical_bytes)
             .ok_or("generation logical byte ledger overflow")?;
@@ -6280,6 +6438,7 @@ fn run_arbitrary_text_generation_internal(
             verification_wall_ms: verification_elapsed_ms,
             mean_normalized_union,
             logical_source_bytes: transaction_logical_bytes,
+            resident_source_bytes: transaction_resident_bytes,
             process_disk_bytes_read: transaction_disk_bytes,
             proposal_layer_traces,
             verification_layer_traces: if capture_route_trace {
@@ -6337,6 +6496,41 @@ fn run_arbitrary_text_generation_internal(
     let generated_text = tokenizer
         .decode(&generated_token_ids, false)
         .map_err(|error| format!("tokenizer generated decode: {error}"))?;
+    let residency = if let Some((
+        controller,
+        observer,
+        manifest_sha256,
+        identity,
+        installed_bytes,
+    )) = resident_runtime
+    {
+        controller.handle_pressure_mask(PRESSURE_WARNING)?;
+        drop(observer);
+        let final_resident_bytes = controller.resident_bytes()?;
+        let eviction_events = controller.events()?;
+        if final_resident_bytes != 0
+            || eviction_events
+                .last()
+                .is_none_or(|event| event.evicted_identities != [identity.as_str()])
+        {
+            return Err("generation resident final eviction gate failed".to_owned());
+        }
+        safety.checkpoint("generation_resident_eviction_complete", true)?;
+        Some(GenerationResidencyReport {
+            manifest_sha256,
+            installed_identities: vec![identity],
+            installed_resident_bytes: installed_bytes,
+            resident_source_bytes: transactions
+                .iter()
+                .map(|transaction| transaction.resident_source_bytes)
+                .sum(),
+            final_resident_bytes,
+            eviction_events,
+            pressure_scope: "injected warning after transaction; live Darwin observer active during resident use",
+        })
+    } else {
+        None
+    };
     safety.checkpoint("arbitrary_generation_complete", true)?;
     let complete_wall_ms = complete_started.elapsed().as_secs_f64() * 1000.0;
     let process_disk_bytes_read = process_disk_bytes_read()?
@@ -6349,13 +6543,23 @@ fn run_arbitrary_text_generation_internal(
     let progress_sha256 = hash_file(&progress_path)?;
     let accepted_tokens = generated_token_ids.len();
     let report = ArbitraryTextGenerationReport {
-        schema_version: if capture_route_trace { 3 } else { 2 },
-        evidence_class: if requested_output_tokens <= 8 {
+        schema_version: if residency.is_some() {
+            4
+        } else if capture_route_trace {
+            3
+        } else {
+            2
+        },
+        evidence_class: if residency.is_some() {
+            "pw0207_single_object_pressure_resident_route_trace"
+        } else if requested_output_tokens <= 8 {
             "pw0205_arbitrary_prompt_bounded_generation_probe"
         } else {
             "pw0205_arbitrary_prompt_corrected_qkv_target_proposed_generation"
         },
-        semantic: if requested_output_tokens <= 8 {
+        semantic: if residency.is_some() {
+            "mimo_v2_5_pw0207_single_object_resident_sglang_directed_generation"
+        } else if requested_output_tokens <= 8 {
             "mimo_v2_5_sglang_directed_blockscaled_qkv_deinterleaved_generation_probe"
         } else {
             "mimo_v2_5_sglang_directed_blockscaled_qkv_deinterleaved_text_generation"
@@ -6408,6 +6612,7 @@ fn run_arbitrary_text_generation_internal(
             "execution_complete_quality_unassessed"
         },
         route_trace_captured: capture_route_trace.then_some(true),
+        residency,
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;
@@ -11638,6 +11843,7 @@ mod tests {
             verification_wall_ms: 2.0,
             mean_normalized_union: 1.0,
             logical_source_bytes: 3,
+            resident_source_bytes: 0,
             process_disk_bytes_read: 4,
             proposal_layer_traces: Vec::new(),
             verification_layer_traces: Vec::new(),
@@ -11645,6 +11851,7 @@ mod tests {
         let without_json = serde_json::to_value(&without_trace).expect("serialize control");
         assert!(without_json.get("proposal_layer_traces").is_none());
         assert!(without_json.get("verification_layer_traces").is_none());
+        assert!(without_json.get("resident_source_bytes").is_none());
 
         let with_trace = GenerationTransactionReport {
             proposal_layer_traces: vec![vec![trace]],
