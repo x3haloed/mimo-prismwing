@@ -667,6 +667,23 @@ pub struct GenerationTransactionReport {
     pub proposal_layer_traces: Vec<Vec<LayerRouteTrace>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub verification_layer_traces: Vec<LayerRouteTrace>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_mtp: Option<NativeMtpTransactionEvidence>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NativeMtpTransactionEvidence {
+    pub request_file: String,
+    pub request_sha256: String,
+    pub hidden_file: String,
+    pub hidden_sha256: String,
+    pub proposal_report_file: String,
+    pub proposal_report_sha256: String,
+    pub target_hidden_rows: usize,
+    pub external_complete_wall_ms: f64,
+    pub logical_source_bytes: u64,
+    pub process_disk_bytes_read: u64,
+    pub process_peak_resident_bytes: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -6393,6 +6410,7 @@ pub fn run_arbitrary_text_generation(
         false,
         None,
         None,
+        None,
         8,
     )
 }
@@ -6420,6 +6438,36 @@ pub fn run_arbitrary_text_q4_diagnostic(
         true,
         None,
         None,
+        None,
+        4,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_arbitrary_text_native_mtp_external(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    requested_output_tokens: usize,
+    native_mtp_config_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        requested_output_tokens,
+        output_path,
+        commit,
+        true,
+        None,
+        None,
+        Some(native_mtp_config_path),
         4,
     )
 }
@@ -6445,6 +6493,7 @@ pub fn run_arbitrary_text_route_trace(
         output_path,
         commit,
         true,
+        None,
         None,
         None,
         8,
@@ -6478,6 +6527,7 @@ pub fn run_native_mtp_window_capture(
             category,
             output_path: hidden_output_path,
         }),
+        None,
         8,
     )
 }
@@ -6509,6 +6559,7 @@ pub fn run_arbitrary_text_resident_route_trace(
             manifest_path: residency_manifest_path,
             identity: resident_identity,
         }),
+        None,
         None,
         8,
     )
@@ -6542,6 +6593,7 @@ pub fn run_arbitrary_text_resident_set_route_trace(
             limit_bytes: resident_limit_bytes,
         }),
         None,
+        None,
         8,
     )
 }
@@ -6562,6 +6614,188 @@ struct NativeMtpWindowCapture<'a> {
     output_path: &'a Path,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NativeMtpExternalConfig {
+    schema_version: u32,
+    semantic: String,
+    python_executable: PathBuf,
+    script_path: PathBuf,
+    working_directory: PathBuf,
+    known_prefix: PathBuf,
+    corrected_decode: PathBuf,
+    known_mtp_manifest: PathBuf,
+    source_lock: PathBuf,
+    source_root: PathBuf,
+    script_sha256: String,
+}
+
+impl NativeMtpExternalConfig {
+    fn load(path: &Path) -> Result<Self, String> {
+        let value: Self = serde_json::from_slice(
+            &fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?,
+        )
+        .map_err(|error| format!("native MTP external config: {error}"))?;
+        if value.schema_version != 1
+            || value.semantic != "pw0211_live_native_mtp_external_proposer"
+            || hash_file(&value.script_path)? != value.script_sha256
+            || !value.python_executable.is_file()
+            || !value.working_directory.is_dir()
+        {
+            return Err("native MTP external config authority mismatch".to_owned());
+        }
+        Ok(value)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_external_native_mtp_proposal(
+    native: &NativeMtpExternalConfig,
+    checkpoint_root: &Path,
+    verification_path: &Path,
+    root: &Path,
+    transaction_index: usize,
+    commit: &str,
+    anchor_token_id: u32,
+    mtp_layer0_input_token_ids: &[u32],
+    target_hidden: &[f32],
+) -> Result<(Vec<u32>, NativeMtpTransactionEvidence), String> {
+    let started = Instant::now();
+    let rows = mtp_layer0_input_token_ids.len();
+    let hidden_bytes = finite_f32_le_bytes(target_hidden, rows * HIDDEN)?;
+    let hidden_path = root.join(format!("transaction-{transaction_index:03}-hidden.f32"));
+    let request_path = root.join(format!("transaction-{transaction_index:03}-request.json"));
+    let proposal_root = root.join(format!("transaction-{transaction_index:03}-proposal"));
+    let hidden_sha256 = sha256_hex(&hidden_bytes);
+    write_create_new(&hidden_path, &hidden_bytes)?;
+    let request = serde_json::json!({
+        "schema_version": 1,
+        "semantic": "pw0211_live_target_cache_native_mtp_request",
+        "transaction_index": transaction_index,
+        "target_hidden_file": hidden_path,
+        "target_hidden_sha256": hidden_sha256,
+        "target_hidden_rows": rows,
+        "mtp_layer0_input_token_ids": mtp_layer0_input_token_ids,
+        "anchor_token_id": anchor_token_id,
+    });
+    let request_bytes = serde_json::to_vec_pretty(&request).map_err(|error| error.to_string())?;
+    write_create_new(&request_path, &request_bytes)?;
+    let request_sha256 = sha256_hex(&request_bytes);
+    let output = Command::new(&native.python_executable)
+        .arg(&native.script_path)
+        .arg("--checkpoint")
+        .arg(checkpoint_root)
+        .arg("--verification")
+        .arg(verification_path)
+        .arg("--known-prefix")
+        .arg(&native.known_prefix)
+        .arg("--corrected-decode")
+        .arg(&native.corrected_decode)
+        .arg("--known-mtp-manifest")
+        .arg(&native.known_mtp_manifest)
+        .arg("--source-lock")
+        .arg(&native.source_lock)
+        .arg("--source-root")
+        .arg(&native.source_root)
+        .arg("--live-request")
+        .arg(&request_path)
+        .arg("--output")
+        .arg(&proposal_root)
+        .current_dir(&native.working_directory)
+        .output()
+        .map_err(|error| format!("external native MTP proposer: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "external native MTP proposer failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let proposal_report_path = proposal_root.join("report.json");
+    let proposal_report_bytes = fs::read(&proposal_report_path)
+        .map_err(|error| format!("{}: {error}", proposal_report_path.display()))?;
+    let proposal_report: Value = serde_json::from_slice(&proposal_report_bytes)
+        .map_err(|error| format!("external native MTP proposal report: {error}"))?;
+    let proposal = proposal_report
+        .get("native_mtp_q4_block_token_ids")
+        .and_then(Value::as_array)
+        .ok_or("external native MTP report lacks q4 block")?
+        .iter()
+        .map(|token| {
+            token
+                .as_u64()
+                .and_then(|token| u32::try_from(token).ok())
+                .ok_or("external native MTP report has invalid token")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let native_logical_source_bytes = proposal_report
+        .get("logical_source_bytes")
+        .and_then(Value::as_u64)
+        .ok_or("external native MTP report lacks logical source bytes")?;
+    let native_process_disk_bytes_read = proposal_report
+        .get("process_disk_bytes_read")
+        .and_then(Value::as_u64)
+        .ok_or("external native MTP report lacks process disk bytes")?;
+    let native_process_peak_resident_bytes = proposal_report
+        .get("safety")
+        .and_then(Value::as_array)
+        .and_then(|snapshots| {
+            snapshots
+                .iter()
+                .filter_map(|snapshot| {
+                    snapshot
+                        .get("process_peak_resident_bytes")
+                        .and_then(Value::as_u64)
+                })
+                .max()
+        })
+        .ok_or("external native MTP report lacks peak resident evidence")?;
+    if proposal_report.get("status").and_then(Value::as_str) != Some("passed")
+        || proposal_report
+            .get("evidence_class")
+            .and_then(Value::as_str)
+            != Some("pw0211_live_target_cache_native_mtp_q4_proposal")
+        || proposal_report
+            .pointer("/implementation/commit")
+            .and_then(Value::as_str)
+            != Some(commit)
+        || proposal_report
+            .pointer("/implementation/dirty")
+            .and_then(Value::as_bool)
+            != Some(false)
+        || proposal_report
+            .pointer("/identities/request_sha256")
+            .and_then(Value::as_str)
+            != Some(request_sha256.as_str())
+        || proposal_report
+            .pointer("/identities/target_hidden_sha256")
+            .and_then(Value::as_str)
+            != Some(hidden_sha256.as_str())
+        || proposal_report
+            .get("target_hidden_rows")
+            .and_then(Value::as_u64)
+            != Some(rows as u64)
+        || proposal.len() != 4
+        || proposal[0] != anchor_token_id
+    {
+        return Err("external native MTP proposal report authority mismatch".to_owned());
+    }
+    let evidence = NativeMtpTransactionEvidence {
+        request_file: request_path.display().to_string(),
+        request_sha256,
+        hidden_file: hidden_path.display().to_string(),
+        hidden_sha256,
+        proposal_report_file: proposal_report_path.display().to_string(),
+        proposal_report_sha256: sha256_hex(&proposal_report_bytes),
+        target_hidden_rows: rows,
+        external_complete_wall_ms: started.elapsed().as_secs_f64() * 1000.0,
+        logical_source_bytes: native_logical_source_bytes,
+        process_disk_bytes_read: native_process_disk_bytes_read,
+        process_peak_resident_bytes: native_process_peak_resident_bytes,
+    };
+    Ok((proposal, evidence))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_arbitrary_text_generation_internal(
     checkpoint_root: &Path,
@@ -6575,6 +6809,7 @@ fn run_arbitrary_text_generation_internal(
     capture_route_trace: bool,
     residency: Option<GenerationResidencySelection<'_>>,
     native_mtp_capture: Option<NativeMtpWindowCapture<'_>>,
+    native_mtp_external_config_path: Option<&Path>,
     verifier_width: usize,
 ) -> Result<ArbitraryTextGenerationReport, String> {
     const PREFILL_WIDTH: usize = 8;
@@ -6587,6 +6822,23 @@ fn run_arbitrary_text_generation_internal(
     let progress_path = output_path.with_extension("progress.jsonl");
     if progress_path.exists() {
         return Err(format!("refusing to overwrite {}", progress_path.display()));
+    }
+    let native_mtp_external = native_mtp_external_config_path
+        .map(NativeMtpExternalConfig::load)
+        .transpose()?;
+    let native_mtp_external_root = output_path.with_extension("native-mtp");
+    if native_mtp_external.is_some() {
+        if verifier_width != 4 || !capture_route_trace || residency.is_some() {
+            return Err(
+                "external native MTP requires non-resident route-traced q4 verification".to_owned(),
+            );
+        }
+        if native_mtp_external_root.exists() {
+            return Err(format!(
+                "refusing to overwrite {}",
+                native_mtp_external_root.display()
+            ));
+        }
     }
     if let Some(capture) = &native_mtp_capture {
         if capture.output_path.exists() {
@@ -6636,7 +6888,7 @@ fn run_arbitrary_text_generation_internal(
         return Err("git status failed while recording implementation identity".to_owned());
     }
     let git_dirty = !git_status.stdout.is_empty();
-    if residency.is_some() {
+    if residency.is_some() || native_mtp_external.is_some() {
         let git_head = Command::new("git")
             .args(["rev-parse", "HEAD"])
             .current_dir(env!("CARGO_MANIFEST_DIR"))
@@ -6647,10 +6899,14 @@ fn run_arbitrary_text_generation_internal(
             || git_dirty
         {
             return Err(
-                "resident generation evidence requires the supplied commit to be exact clean Git HEAD"
+                "resident/native-MTP generation evidence requires the supplied commit to be exact clean Git HEAD"
                     .to_owned(),
             );
         }
+    }
+    if native_mtp_external.is_some() {
+        fs::create_dir(&native_mtp_external_root)
+            .map_err(|error| format!("{}: {error}", native_mtp_external_root.display()))?;
     }
     let preprocessing_started = Instant::now();
     let user_prompt = fs::read_to_string(prompt_path)
@@ -6684,6 +6940,7 @@ fn run_arbitrary_text_generation_internal(
     let mut prefill_ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let prefill_chunks = prompt_token_ids.len().div_ceil(PREFILL_WIDTH);
     let mut first_anchor = None;
+    let mut native_target_hidden = Vec::with_capacity(prompt_token_ids.len() * HIDDEN);
     for (chunk_index, chunk) in prompt_token_ids.chunks(PREFILL_WIDTH).enumerate() {
         let final_chunk = chunk_index + 1 == prefill_chunks;
         let mut metal_ledger = MetalExpertLedger::default();
@@ -6704,6 +6961,12 @@ fn run_arbitrary_text_generation_internal(
                 DecodeOutput::RoutesOnly
             },
         )?;
+        if native_mtp_external.is_some() {
+            if step.final_hidden.len() != chunk.len() * HIDDEN {
+                return Err("external native MTP prefill hidden shape mismatch".to_owned());
+            }
+            native_target_hidden.extend_from_slice(&step.final_hidden);
+        }
         if final_chunk {
             first_anchor = Some(step.output_token);
         }
@@ -6712,11 +6975,14 @@ fn run_arbitrary_text_generation_internal(
     if caches
         .iter()
         .any(|cache| cache.positions != prompt_token_ids.len() || cache.validate().is_err())
+        || (native_mtp_external.is_some()
+            && native_target_hidden.len() != prompt_token_ids.len() * HIDDEN)
     {
         return Err("chunked arbitrary-prompt prefill K/V gate failed".to_owned());
     }
     let prefill_wall_ms = prefill_started.elapsed().as_secs_f64() * 1000.0;
     let mut generated_token_ids = vec![first_anchor.ok_or("prefill produced no target token")?];
+    let mut native_target_input_ids = prompt_token_ids.clone();
     writeln!(
         progress,
         "{}",
@@ -6845,6 +7111,7 @@ fn run_arbitrary_text_generation_internal(
     let mut stop_reason = "requested_maximum";
     let mut completed_response = false;
     let mut native_mtp_hidden = Vec::new();
+    let mut native_child_process_disk_bytes_read = 0_u64;
 
     while generated_token_ids.len() < requested_output_tokens && !completed_response {
         let transaction_index = transactions.len();
@@ -6852,29 +7119,57 @@ fn run_arbitrary_text_generation_internal(
         let proposal_started = Instant::now();
         let mut proposal = Vec::with_capacity(verifier_width);
         let mut proposal_layer_traces = Vec::with_capacity(verifier_width - 1);
-        proposal.push(next_anchor);
-        let mut proposal_caches = caches.clone();
         let mut proposal_ledger = EndpointLedger::for_checkpoint(&checkpoint);
-        for _ in 1..verifier_width {
-            let mut metal_ledger = MetalExpertLedger::default();
-            let step = decode_step(
-                &checkpoint,
-                &config,
-                std::slice::from_ref(proposal.last().expect("proposal anchor exists")),
-                &mut proposal_caches,
-                &mut proposal_ledger,
-                &mut safety,
-                None,
-                None,
-                Some((&runtime, &mut metal_ledger)),
-                None,
-                DecodeOutput::Logits,
-            )?;
-            proposal.push(step.output_token);
-            if capture_route_trace {
-                proposal_layer_traces.push(step.traces);
+        let native_mtp_transaction = if let Some(native) = &native_mtp_external {
+            if native_target_hidden.len() != native_target_input_ids.len() * HIDDEN
+                || native_target_input_ids.len() < 2
+            {
+                return Err("live native MTP target history mismatch".to_owned());
             }
-        }
+            let mut mtp_input_ids = native_target_input_ids[1..].to_vec();
+            mtp_input_ids.push(next_anchor);
+            let (native_proposal, evidence) = run_external_native_mtp_proposal(
+                native,
+                checkpoint_root,
+                verification_path,
+                &native_mtp_external_root,
+                transaction_index,
+                commit,
+                next_anchor,
+                &mtp_input_ids,
+                &native_target_hidden,
+            )?;
+            proposal = native_proposal;
+            safety.checkpoint(
+                &format!("native_mtp_transaction_{transaction_index}_proposal_complete"),
+                true,
+            )?;
+            Some(evidence)
+        } else {
+            proposal.push(next_anchor);
+            let mut proposal_caches = caches.clone();
+            for _ in 1..verifier_width {
+                let mut metal_ledger = MetalExpertLedger::default();
+                let step = decode_step(
+                    &checkpoint,
+                    &config,
+                    std::slice::from_ref(proposal.last().expect("proposal anchor exists")),
+                    &mut proposal_caches,
+                    &mut proposal_ledger,
+                    &mut safety,
+                    None,
+                    None,
+                    Some((&runtime, &mut metal_ledger)),
+                    None,
+                    DecodeOutput::Logits,
+                )?;
+                proposal.push(step.output_token);
+                if capture_route_trace {
+                    proposal_layer_traces.push(step.traces);
+                }
+            }
+            None
+        };
         let proposal_elapsed_ms = proposal_started.elapsed().as_secs_f64() * 1000.0;
         proposal_wall_ms += proposal_elapsed_ms;
 
@@ -6904,6 +7199,7 @@ fn run_arbitrary_text_generation_internal(
             }
             native_mtp_hidden.push(verified.final_hidden.clone());
         }
+        let verified_final_hidden = verified.final_hidden;
         let verified_output_tokens = verified.output_tokens;
         let verification_layer_traces = verified.traces;
         let commit_result = commit_jacobi_transaction(&proposal, &verified_output_tokens)?;
@@ -6955,6 +7251,22 @@ fn run_arbitrary_text_generation_internal(
                 cache.truncate(exact_retained)?;
             }
         }
+        if native_mtp_external.is_some() {
+            let retained_hidden_values = retained_proposal_rows
+                .checked_mul(HIDDEN)
+                .ok_or("native MTP retained hidden cardinality overflow")?;
+            if retained_hidden_values > verified_final_hidden.len()
+                || retained_proposal_rows > proposal.len()
+            {
+                return Err("native MTP retained history exceeds verified rows".to_owned());
+            }
+            native_target_hidden
+                .extend_from_slice(&verified_final_hidden[..retained_hidden_values]);
+            native_target_input_ids.extend_from_slice(&proposal[..retained_proposal_rows]);
+            if native_target_hidden.len() != native_target_input_ids.len() * HIDDEN {
+                return Err("native MTP retained history pairing mismatch".to_owned());
+            }
+        }
         next_anchor = *generated_token_ids
             .last()
             .ok_or("generation lost its committed anchor")?;
@@ -6965,12 +7277,25 @@ fn run_arbitrary_text_generation_internal(
         {
             return Err("generation next-anchor authority mismatch".to_owned());
         }
-        let transaction_disk_bytes = process_disk_bytes_read()?
+        let rust_transaction_disk_bytes = process_disk_bytes_read()?
             .checked_sub(transaction_disk_before)
             .ok_or("transaction disk byte counter moved backwards")?;
+        let native_logical_source_bytes = native_mtp_transaction
+            .as_ref()
+            .map_or(0, |evidence| evidence.logical_source_bytes);
+        let native_process_disk_bytes_read = native_mtp_transaction
+            .as_ref()
+            .map_or(0, |evidence| evidence.process_disk_bytes_read);
+        native_child_process_disk_bytes_read = native_child_process_disk_bytes_read
+            .checked_add(native_process_disk_bytes_read)
+            .ok_or("native MTP child disk byte counter overflow")?;
+        let transaction_disk_bytes = rust_transaction_disk_bytes
+            .checked_add(native_process_disk_bytes_read)
+            .ok_or("transaction process-tree disk byte counter overflow")?;
         let transaction_logical_bytes = proposal_ledger
             .logical_source_bytes
             .checked_add(verification_ledger.logical_source_bytes)
+            .and_then(|bytes| bytes.checked_add(native_logical_source_bytes))
             .ok_or("transaction logical byte ledger overflow")?;
         let transaction_resident_bytes = proposal_ledger
             .resident_source_bytes
@@ -7002,6 +7327,7 @@ fn run_arbitrary_text_generation_internal(
             } else {
                 Vec::new()
             },
+            native_mtp: native_mtp_transaction,
         });
         writeln!(
             progress,
@@ -7099,7 +7425,8 @@ fn run_arbitrary_text_generation_internal(
     let complete_wall_ms = complete_started.elapsed().as_secs_f64() * 1000.0;
     let process_disk_bytes_read = process_disk_bytes_read()?
         .checked_sub(complete_disk_before)
-        .ok_or("complete disk byte counter moved backwards")?;
+        .and_then(|bytes| bytes.checked_add(native_child_process_disk_bytes_read))
+        .ok_or("complete process-tree disk byte counter moved backwards or overflowed")?;
     progress
         .sync_all()
         .map_err(|error| format!("progress final sync: {error}"))?;
@@ -7133,8 +7460,24 @@ fn run_arbitrary_text_generation_internal(
     } else {
         None
     };
+    let rust_peak_resident_bytes = peak_resident_bytes()?;
+    let native_child_peak_resident_bytes = transactions
+        .iter()
+        .filter_map(|transaction| {
+            transaction
+                .native_mtp
+                .as_ref()
+                .map(|evidence| evidence.process_peak_resident_bytes)
+        })
+        .max()
+        .unwrap_or(0);
+    let combined_peak_resident_bytes = rust_peak_resident_bytes
+        .checked_add(native_child_peak_resident_bytes)
+        .ok_or("combined native MTP peak resident byte overflow")?;
     let report = ArbitraryTextGenerationReport {
-        schema_version: if native_mtp_window.is_some() {
+        schema_version: if native_mtp_external.is_some() {
+            7
+        } else if native_mtp_window.is_some() {
             6
         } else if residency.is_some() {
             if residency_is_ranked_set { 5 } else { 4 }
@@ -7143,7 +7486,9 @@ fn run_arbitrary_text_generation_internal(
         } else {
             2
         },
-        evidence_class: if native_mtp_window.is_some() {
+        evidence_class: if native_mtp_external.is_some() {
+            "pw0211_live_cache_native_mtp_q4_generation"
+        } else if native_mtp_window.is_some() {
             "pw0208_native_mtp_corrected_window_capture"
         } else if residency_is_ranked_set {
             "pw0207_bounded_ranked_pressure_resident_route_trace"
@@ -7154,7 +7499,9 @@ fn run_arbitrary_text_generation_internal(
         } else {
             "pw0205_arbitrary_prompt_corrected_qkv_target_proposed_generation"
         },
-        semantic: if native_mtp_window.is_some() {
+        semantic: if native_mtp_external.is_some() {
+            "mimo_v2_5_pw0211_external_cpu_native_mtp_q4_exact_verification"
+        } else if native_mtp_window.is_some() {
             "mimo_v2_5_pw0208_native_mtp_corrected_verifier_window_capture"
         } else if residency_is_ranked_set {
             "mimo_v2_5_pw0207_bounded_ranked_resident_sglang_directed_generation"
@@ -7193,18 +7540,28 @@ fn run_arbitrary_text_generation_internal(
         complete_wall_ms,
         logical_source_bytes,
         process_disk_bytes_read,
-        peak_resident_bytes: peak_resident_bytes()?,
+        peak_resident_bytes: combined_peak_resident_bytes,
         safety_snapshots: safety.snapshots,
         batch_size: 1,
         concurrency: 1,
         verifier_width,
-        exactness: if requested_output_tokens <= 8 {
+        exactness: if native_mtp_external.is_some() {
+            "L2 target-distribution-preserving native MiMo MTP draft with ordinary exact verifier-only commit and rollback"
+        } else if requested_output_tokens <= 8 {
             "PW-0205 diagnostic: SGLang-directed 128-column block-scaled FP8 QKV, ordinary spine, and routed MoE projections"
         } else {
             "source checkpoint weights and routes; four checkpoint-TP QKV shards deinterleaved per pinned SGLang loader; 128-column block-scaled FP8 Metal reductions; no draft token commits before verifier acceptance"
         },
-        proposer: "greedy source-checkpoint proposer using the same retained K/V, deinterleaved checkpoint-TP QKV layout, and SGLang-directed block-scaled Metal arithmetic",
-        cache_state: "cold process start; bounded width-eight chunked prefill; process-local Metal pipelines; checkpoint pages released after every layer",
+        proposer: if native_mtp_external.is_some() {
+            "authenticated three-layer native MiMo MTP CPU reference over complete live target layer-47 history"
+        } else {
+            "greedy source-checkpoint proposer using the same retained K/V, deinterleaved checkpoint-TP QKV layout, and SGLang-directed block-scaled Metal arithmetic"
+        },
+        cache_state: if native_mtp_external.is_some() {
+            "cold process start; live retained target K/V and layer-47 history; external CPU native-MTP child per q4 transaction; checkpoint pages released after every target layer"
+        } else {
+            "cold process start; bounded width-eight chunked prefill; process-local Metal pipelines; checkpoint pages released after every layer"
+        },
         status: if requested_output_tokens <= 8 {
             "diagnostic_generation_complete"
         } else if stop_reason == "completed_second_sentence" {
@@ -12461,11 +12818,13 @@ mod tests {
             process_disk_bytes_read: 4,
             proposal_layer_traces: Vec::new(),
             verification_layer_traces: Vec::new(),
+            native_mtp: None,
         };
         let without_json = serde_json::to_value(&without_trace).expect("serialize control");
         assert!(without_json.get("proposal_layer_traces").is_none());
         assert!(without_json.get("verification_layer_traces").is_none());
         assert!(without_json.get("resident_source_bytes").is_none());
+        assert!(without_json.get("native_mtp").is_none());
 
         let with_trace = GenerationTransactionReport {
             proposal_layer_traces: vec![vec![trace]],

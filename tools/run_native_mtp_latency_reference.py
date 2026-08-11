@@ -243,6 +243,87 @@ def run_corpus(arguments: argparse.Namespace, safety: HostSafetyMonitor) -> dict
     }
 
 
+def run_live_request(arguments: argparse.Namespace, safety: HostSafetyMonitor) -> dict[str, Any]:
+    started = time.monotonic()
+    checkpoint, mtp_path, _, identities, _, _, _ = base_authorities(arguments)
+    request_bytes = arguments.live_request.read_bytes()
+    request = json.loads(request_bytes)
+    hidden_path = Path(request.get("target_hidden_file", ""))
+    rows = request.get("target_hidden_rows")
+    input_ids = request.get("mtp_layer0_input_token_ids")
+    anchor = request.get("anchor_token_id")
+    if (
+        request.get("schema_version") != 1
+        or request.get("semantic") != "pw0211_live_target_cache_native_mtp_request"
+        or not isinstance(rows, int)
+        or rows < 1
+        or not isinstance(input_ids, list)
+        or len(input_ids) != rows
+        or input_ids[-1] != anchor
+        or sha256_file(hidden_path) != request.get("target_hidden_sha256")
+    ):
+        raise ValueError("live native MTP request authority mismatch")
+    values = np.fromfile(hidden_path, dtype="<f4")
+    if values.size != rows * 4096 or not np.isfinite(values).all():
+        raise ValueError("live native MTP target hidden payload mismatch")
+    target_hidden = torch.from_numpy(values.reshape(rows, 4096).copy()).to(torch.bfloat16)
+    safety.checkpoint("live_request_authority_authenticated")
+    layer_records = []
+    proposals = []
+    for layer in range(3):
+        layer_started = time.monotonic()
+        layer_result = generate_layer_proposal(
+            checkpoint, mtp_path, layer, target_hidden, input_ids, safety.checkpoint
+        )
+        proposals.append(layer_result.proposal_token_id)
+        layer_records.append({
+            "layer": layer,
+            "proposal_token_id": layer_result.proposal_token_id,
+            "logits_sha256": logits_identity(layer_result.logits),
+            "timings_ms": {
+                **layer_result.timings_ms,
+                "complete": (time.monotonic() - layer_started) * 1000,
+            },
+        })
+        del layer_result
+        if layer < 2:
+            input_ids = rotate_mtp_input_ids(input_ids, proposals[-1])
+    block = q4_proposal_block(anchor, proposals)
+    commit, dirty = source_control()
+    snapshots = safety.evidence()
+    process_disk_bytes_read = (
+        snapshots[-1]["process_disk_bytes_read"] - snapshots[0]["process_disk_bytes_read"]
+    )
+    logical_source_bytes = (
+        3 * 396_466_816
+        + 3 * rows * 4096 * 2
+        + 3 * 152_576 * 4096 * 2
+    )
+    return {
+        "schema_version": 1,
+        "evidence_class": "pw0211_live_target_cache_native_mtp_q4_proposal",
+        "status": "passed",
+        "identities": {
+            **identities,
+            "request_sha256": hashlib.sha256(request_bytes).hexdigest(),
+            "target_hidden_sha256": request["target_hidden_sha256"],
+        },
+        "implementation": {"commit": commit, "dirty": dirty},
+        "target_hidden_rows": rows,
+        "anchor_token_id": anchor,
+        "native_mtp_q4_block_token_ids": block,
+        "layer_results": layer_records,
+        "logical_source_bytes": logical_source_bytes,
+        "process_disk_bytes_read": process_disk_bytes_read,
+        "timings_ms": {"complete": (time.monotonic() - started) * 1000},
+        "hardware": {"machine": platform.machine(), "platform": platform.platform()},
+        "runtime": {"python": sys.version, "torch": torch.__version__, "numpy": np.__version__},
+        "safety": snapshots,
+        "accepted_tokens": 0,
+        "performance_claim": None,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True, type=Path)
@@ -255,6 +336,7 @@ def main() -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--validate-known", action="store_true")
     mode.add_argument("--corpus-manifest", type=Path)
+    mode.add_argument("--live-request", type=Path)
     parser.add_argument("--corpus-index", type=int, default=0)
     parser.add_argument("--output", required=True, type=Path)
     arguments = parser.parse_args()
@@ -262,7 +344,12 @@ def main() -> int:
     try:
         torch.set_num_threads(1)
         arguments.output.mkdir(parents=True, exist_ok=False)
-        report = run_known(arguments, safety) if arguments.validate_known else run_corpus(arguments, safety)
+        if arguments.validate_known:
+            report = run_known(arguments, safety)
+        elif arguments.live_request is not None:
+            report = run_live_request(arguments, safety)
+        else:
+            report = run_corpus(arguments, safety)
         atomic_write_new(arguments.output / "report.json", canonical_json(report))
         print(json.dumps({
             "output": str(arguments.output),
