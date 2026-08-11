@@ -4137,3 +4137,20 @@ with 57% free memory and no swap/throttling. Preserve and carry this conditional
 gain forward, but close the high-residency branch: it misses the predeclared 2x
 gate, cannot authorize endpoint promotion, and has no meaningful remaining
 prefix within the required 256 MiB reserve.
+
+PW-0208's corrected 32-window corpus kills the native-MTP cost-aware
+expert-byte hypothesis more strongly than an observed draft failure. The
+complete-history manifest hashes to
+`a9bb6bd26bf048a2144133cc0a96023a8af112eae58122b666915149f2993a7b`.
+Corrected Jacobi commits `A=213` across 53,251 exact layer/expert units. Even an
+omniscient q=4 proposer reaches only 0.721493x its accepted-token/unique-byte
+rate; perfect q=8 and a per-window q oracle reach at most 1.051643x. The clean
+upper-bound report hashes to
+`3aaca59be0e000cac77d5a36b8e3b9d2e2fc5bbb02792c8846dae3da16747f8c`.
+Reject PW-0208's 2x cost gate without spending compute on real proposals.
+
+Do not supersede PW-0206's corrected native-MTP first-token recovery or infer
+that native MTP has no value. PW-0208 bounds verifier expert bytes, not the
+roughly 140-second same-model proposal wall. Preserve native MTP as PW-0211's
+separately named proposal-latency lower milestone; any repeatable positive
+complete TPS gain remains valuable even though the 2x and 50-TPS gates fail.

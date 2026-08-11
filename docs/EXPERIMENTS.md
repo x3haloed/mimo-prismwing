@@ -1445,7 +1445,12 @@ Run the following cheap falsifiers in order:
    bytes but not the selected set or predicted wall gate.
 3. [PW-0208](../experiments/PW-0208-native-mtp-cost-aware-proposer.md) retests
    MiMo's native MTP only after PW-0206, optimizing accepted tokens per unique
-   expert byte rather than acceptance length in isolation.
+   expert byte rather than acceptance length in isolation. Its balanced,
+   complete-history 32-window corpus and exact checkpoint byte accounting close
+   the predeclared 2× gate without draft execution: perfect q=4 reaches only
+   0.721493× the corrected control rate, while perfect q=8 and an omniscient
+   per-window q selector reach at most 1.051643×. Kill the cost-aware promotion
+   hypothesis, not the possibility of a smaller proposal-latency gain.
 4. [PW-0209](../experiments/PW-0209-layer-major-high-residency-prefill.md)
    separates prefill from decode and tests a layer-major, width-rich M1 Metal
    path without importing M5 tensor-core claims.
@@ -1453,6 +1458,11 @@ Run the following cheap falsifiers in order:
    SIMD-group execution where it can remove unpack, scale, reduction, and
    barrier traffic. It explicitly does not replace a proven GEMM merely for
    portability.
+6. [PW-0211](../experiments/PW-0211-native-mtp-proposal-latency-lower-milestone.md)
+   preserves native MTP as a separately named lower milestone. It asks whether
+   three dense draft layers can replace roughly 140 seconds of same-model
+   proposal work and retain any repeatable positive complete TPS gain under
+   exact ordinary verification; missing 2× or 50 TPS alone is not a kill gate.
 
 Do not combine these mechanisms before their isolated counters pass. The first
 combined endpoint receives a new experiment ID and must report cold and warm

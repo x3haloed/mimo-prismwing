@@ -1197,6 +1197,23 @@
             "minimum_system_memory_free_percent": 57,
             "status": "conditional_lower_milestone_promoted; exact_and_pressure_safe; two_x_endpoint_gate_failed; pw0207_complete",
             "provenance": "PW-0207 final A-B-A; resident reports c3daf8a6b21b497eb618ccdfba2be66583eefcbb85343b4a7c9d7528bc0f6c83 and 7fa83f81f4658b4c11609cf0e41faf82127ce20d217ac1a674cf67fb7ef03560 around mapped report 72734073fed9d109d158e551a58cde8a1030d0077ba1ed263a87882710f7976d; Apple M1 16 GiB internal SSD; git 07f591aaed56fbe9aaacbedb85085a9c1f5b3c8e clean"
+        },
+        "pw0208_native_mtp_cost_upper_bound": {
+            "windows": 32,
+            "control_accepted_tokens_A": 213,
+            "control_layer_expert_units": 53251,
+            "expert_bytes_per_layer_expert": 25171968,
+            "control_unique_expert_bytes": 1340432467968,
+            "perfect_q4_maximum_accepted_tokens_A": 96,
+            "perfect_q4_layer_expert_units": 33265,
+            "perfect_q4_gain_vs_control": 0.7214925809176417,
+            "perfect_q8_maximum_accepted_tokens_A": 224,
+            "perfect_q8_layer_expert_units": 53251,
+            "perfect_q8_gain_vs_control": 1.051643192488263,
+            "perfect_per_window_q_oracle_gain_vs_control": 1.051643192488263,
+            "required_gain": 2.0,
+            "status": "cost_efficiency_gate_impossible; pw0208_complete; native_mtp_latency_only_lower_milestone_preserved_as_pw0211; no_endpoint_tps",
+            "provenance": "PW-0208 perfect-proposal upper bound 3aaca59be0e000cac77d5a36b8e3b9d2e2fc5bbb02792c8846dae3da16747f8c over complete-history corpus manifest a9bb6bd26bf048a2144133cc0a96023a8af112eae58122b666915149f2993a7b; exact pinned checkpoint expert layouts; git c7fe4a348908dcf4f654a4b4b9831aaf10af7312 clean"
         }
     }
 }
