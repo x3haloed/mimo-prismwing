@@ -681,7 +681,6 @@ impl WideMetalMoeRuntime {
         let mut mapped_source_bytes = 0_u64;
         let mut resident_source_bytes = 0_u64;
         let mut unique_experts = BTreeSet::new();
-        let mut buffers = Vec::with_capacity(experts.len());
         for expert in experts {
             let count = expert.positions.len();
             if count == 0
@@ -721,58 +720,6 @@ impl WideMetalMoeRuntime {
                         .ok_or("wide MoE resident-byte overflow")?;
                 }
             }
-            let mut gathered = vec![0.0_f32; MAX_EXPERT_ROWS * HIDDEN];
-            for (local, &position) in expert.positions.iter().enumerate() {
-                gathered[local * HIDDEN..(local + 1) * HIDDEN].copy_from_slice(
-                    &input[position as usize * HIDDEN..(position as usize + 1) * HIDDEN],
-                );
-            }
-            let mut weights = vec![0.0_f32; MAX_EXPERT_ROWS];
-            weights[..count].copy_from_slice(&expert.route_weights);
-            let mut positions = vec![0_u32; MAX_EXPERT_ROWS];
-            positions[..count].copy_from_slice(&expert.positions);
-            let scatter_shape = ScatterShape {
-                count: count as u32,
-                width: HIDDEN as u32,
-            };
-            let hidden_count = (count * INTERMEDIATE) as u32;
-            let output_count = (count * HIDDEN) as u32;
-            buffers.push(ExpertBuffers {
-                count,
-                input: self.device.new_buffer_with_data(
-                    gathered.as_ptr().cast(),
-                    std::mem::size_of_val(gathered.as_slice()) as u64,
-                    shared,
-                ),
-                gate: projection(&expert.gate)?,
-                up: projection(&expert.up)?,
-                down: projection(&expert.down)?,
-                route_weights: self.device.new_buffer_with_data(
-                    weights.as_ptr().cast(),
-                    std::mem::size_of_val(&weights) as u64,
-                    shared,
-                ),
-                positions: self.device.new_buffer_with_data(
-                    positions.as_ptr().cast(),
-                    std::mem::size_of_val(&positions) as u64,
-                    shared,
-                ),
-                scatter_shape: self.device.new_buffer_with_data(
-                    (&scatter_shape as *const ScatterShape).cast(),
-                    std::mem::size_of::<ScatterShape>() as u64,
-                    shared,
-                ),
-                hidden_count: self.device.new_buffer_with_data(
-                    (&hidden_count as *const u32).cast(),
-                    std::mem::size_of::<u32>() as u64,
-                    shared,
-                ),
-                output_count: self.device.new_buffer_with_data(
-                    (&output_count as *const u32).cast(),
-                    std::mem::size_of::<u32>() as u64,
-                    shared,
-                ),
-            });
         }
 
         let gate_shape = GemvShape {
@@ -837,16 +784,82 @@ impl WideMetalMoeRuntime {
             shared,
         );
 
-        let command = self.queue.new_command_buffer();
-        let blit = command.new_blit_command_encoder();
+        let zero_command = self.queue.new_command_buffer();
+        let blit = zero_command.new_blit_command_encoder();
         blit.fill_buffer(
             &block_output,
             NSRange::new(0, (active_rows * HIDDEN * 4) as u64),
             0,
         );
         blit.end_encoding();
-        let encoder = command.new_compute_command_encoder();
-        for expert in &buffers {
+        zero_command.commit();
+        zero_command.wait_until_completed();
+        if zero_command.status() != MTLCommandBufferStatus::Completed {
+            return Err(format!(
+                "wide MoE zero command failed: {:?}",
+                zero_command.status()
+            ));
+        }
+        for binding in experts {
+            // Keep checkpoint mappings alive for the complete layer-major
+            // transaction, but materialize only one expert's Metal buffers at
+            // a time. Context-128 schedules otherwise exceed a stable live
+            // resource set even though buffer creation reports success.
+            let count = binding.positions.len();
+            let mut gathered = vec![0.0_f32; MAX_EXPERT_ROWS * HIDDEN];
+            for (local, &position) in binding.positions.iter().enumerate() {
+                gathered[local * HIDDEN..(local + 1) * HIDDEN].copy_from_slice(
+                    &input[position as usize * HIDDEN..(position as usize + 1) * HIDDEN],
+                );
+            }
+            let mut weights = vec![0.0_f32; MAX_EXPERT_ROWS];
+            weights[..count].copy_from_slice(&binding.route_weights);
+            let mut positions = vec![0_u32; MAX_EXPERT_ROWS];
+            positions[..count].copy_from_slice(&binding.positions);
+            let scatter_shape = ScatterShape {
+                count: count as u32,
+                width: HIDDEN as u32,
+            };
+            let hidden_count = (count * INTERMEDIATE) as u32;
+            let output_count = (count * HIDDEN) as u32;
+            let expert = ExpertBuffers {
+                count,
+                input: self.device.new_buffer_with_data(
+                    gathered.as_ptr().cast(),
+                    std::mem::size_of_val(gathered.as_slice()) as u64,
+                    shared,
+                ),
+                gate: projection(&binding.gate)?,
+                up: projection(&binding.up)?,
+                down: projection(&binding.down)?,
+                route_weights: self.device.new_buffer_with_data(
+                    weights.as_ptr().cast(),
+                    std::mem::size_of_val(&weights) as u64,
+                    shared,
+                ),
+                positions: self.device.new_buffer_with_data(
+                    positions.as_ptr().cast(),
+                    std::mem::size_of_val(&positions) as u64,
+                    shared,
+                ),
+                scatter_shape: self.device.new_buffer_with_data(
+                    (&scatter_shape as *const ScatterShape).cast(),
+                    std::mem::size_of::<ScatterShape>() as u64,
+                    shared,
+                ),
+                hidden_count: self.device.new_buffer_with_data(
+                    (&hidden_count as *const u32).cast(),
+                    std::mem::size_of::<u32>() as u64,
+                    shared,
+                ),
+                output_count: self.device.new_buffer_with_data(
+                    (&output_count as *const u32).cast(),
+                    std::mem::size_of::<u32>() as u64,
+                    shared,
+                ),
+            };
+            let command = self.queue.new_command_buffer();
+            let encoder = command.new_compute_command_encoder();
             let pipeline = &self.blockscaled_projection_pipelines[expert.count - 1];
             encoder.set_compute_pipeline_state(&self.quantized_dynamic_pipeline);
             encoder.set_buffer(0, Some(&expert.input), 0);
@@ -1001,7 +1014,18 @@ impl WideMetalMoeRuntime {
                     depth: 1,
                 },
             );
+            encoder.end_encoding();
+            command.commit();
+            command.wait_until_completed();
+            if command.status() != MTLCommandBufferStatus::Completed {
+                return Err(format!(
+                    "wide MoE expert command failed: {:?}",
+                    command.status()
+                ));
+            }
         }
+        let command = self.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.round_pipeline);
         encoder.set_buffer(0, Some(&block_output), 0);
         encoder.set_buffer(1, Some(&block_count_buffer), 0);
@@ -1041,7 +1065,7 @@ impl WideMetalMoeRuntime {
             output,
             wall_ms: started.elapsed().as_secs_f64() * 1000.0,
             unique_experts: unique_experts.len(),
-            expert_rows: buffers.iter().map(|expert| expert.count).sum(),
+            expert_rows: experts.iter().map(|expert| expert.positions.len()).sum(),
             mapped_source_bytes,
             resident_source_bytes,
         })
