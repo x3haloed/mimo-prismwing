@@ -25,15 +25,36 @@ PROMPTS = {
     "rare_route": "pw0208-rare-route.txt",
 }
 WINDOW_BYTES = 8 * 4096 * 4
+HIDDEN_ROW_BYTES = 4096 * 4
+FIRST_MTP_EVALUABLE_TRANSACTION = 1
 
 
 def route_counts(report: dict[str, Any]) -> Counter[tuple[int, int]]:
     counts: Counter[tuple[int, int]] = Counter()
-    for transaction in report["transactions"][:PRIMARY_WINDOWS]:
+    start = FIRST_MTP_EVALUABLE_TRANSACTION
+    for transaction in report["transactions"][start : start + PRIMARY_WINDOWS]:
         for layer in transaction["verification_layer_traces"][1:]:
             for row in layer["selected_experts_by_position"]:
                 counts.update((layer["layer"], expert) for expert in row)
     return counts
+
+
+def mtp_target_hidden_binding(report: dict[str, Any], transaction_index: int) -> dict[str, int]:
+    if transaction_index < 1:
+        raise ValueError("transaction zero lacks the preceding target-hidden authority")
+    previous = report["transactions"][transaction_index - 1]
+    if previous["index"] != transaction_index - 1:
+        raise ValueError("preceding transaction index mismatch")
+    row = previous["retained_proposal_rows"] - 1
+    if not 0 <= row < 8:
+        raise ValueError("preceding retained row cannot supply MTP target hidden")
+    return {
+        "target_hidden_source_transaction_index": transaction_index - 1,
+        "target_hidden_source_row": row,
+        "target_hidden_byte_offset":
+            (transaction_index - 1) * WINDOW_BYTES + row * HIDDEN_ROW_BYTES,
+        "target_hidden_byte_length": HIDDEN_ROW_BYTES,
+    }
 
 
 def git_identity(repo: Path) -> tuple[str, bool]:
@@ -85,16 +106,18 @@ def build_manifest(evidence_root: Path, repo: Path) -> dict[str, Any]:
                 "peak_resident_bytes": result["peak_resident_bytes"],
             }
         )
-        for transaction in report["transactions"][:PRIMARY_WINDOWS]:
+        start = FIRST_MTP_EVALUABLE_TRANSACTION
+        for transaction in report["transactions"][start : start + PRIMARY_WINDOWS]:
             index = transaction["index"]
+            hidden_binding = mtp_target_hidden_binding(report, index)
             accepted = len(transaction["emitted_token_ids"])
             primary_windows.append(
                 {
                     "corpus_index": len(primary_windows),
                     "category": category,
                     "transaction_index": index,
-                    "hidden_byte_offset": index * WINDOW_BYTES,
-                    "hidden_byte_length": WINDOW_BYTES,
+                    **hidden_binding,
+                    "anchor_token_id": transaction["proposal_token_ids"][0],
                     "proposal_token_ids": transaction["proposal_token_ids"],
                     "posterior_token_ids": transaction["posterior_token_ids"],
                     "verifier_authorized_token_ids": transaction["verifier_authorized_token_ids"],
@@ -128,10 +151,11 @@ def build_manifest(evidence_root: Path, repo: Path) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "evidence_class": "pw0208_balanced_corrected_native_mtp_window_corpus",
-        "semantic": "first_eight_chronological_width_eight_corrected_verifier_windows_per_category",
+        "semantic": "first_eight_chronological_mtp_evaluable_corrected_verifier_windows_per_category_using_the_preceding_retained_target_hidden_row",
         "builder_commit": commit,
         "builder_git_dirty": dirty,
-        "window_shape": [8, 4096],
+        "verifier_window_shape": [8, 4096],
+        "mtp_target_hidden_shape": [4096],
         "hidden_dtype": "float32_little_endian",
         "sources": sources,
         "primary_windows": primary_windows,
