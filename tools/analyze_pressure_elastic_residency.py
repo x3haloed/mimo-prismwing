@@ -28,6 +28,7 @@ INDEX_SHA256 = "f2e1774c9acf9a62338b68c144e6fc7a66495e59f2e64b3078c1b7ef5a196816
 REVISION = "63651580ca774f8504f676040460aed3e1244ac1"
 TRACE_COMMIT = "871db1ff3c3f654d9184de22c958c877e1402006"
 CAPACITY_BYTES = 12 * 1024**3
+RESIDENT_PAGE_BYTES = 16 * 1024
 EXPERT_BYTES = 25_171_968
 EMBEDDING_ROW_BYTES = 4096 * 2
 ITEM_BYTES = {"F8_E4M3": 1, "BF16": 2, "F32": 4}
@@ -151,6 +152,12 @@ def select_static_residents(objects: list[dict[str, Any]], capacity: int) -> lis
         selected.append(row)
         used += row["bytes"]
     return selected
+
+
+def resident_allocation_bytes(source_bytes: int) -> int:
+    if source_bytes <= 0:
+        raise ValueError("resident source bytes must be positive")
+    return ((source_bytes + RESIDENT_PAGE_BYTES - 1) // RESIDENT_PAGE_BYTES) * RESIDENT_PAGE_BYTES
 
 
 def authenticate_inputs(
@@ -295,22 +302,24 @@ def analyze(
         object_authority[identity] = {
             "identity": identity,
             "category": "shared_spine",
-            "bytes": row["bytes"],
+            "source_bytes": row["bytes"],
+            "bytes": resident_allocation_bytes(row["bytes"]),
             "tensor_metadata_sha256": hashlib.sha256(canonical_json(row)).hexdigest(),
             "tensors": [row],
         }
     for layer, expert in used_experts:
         rows = [metadata[name] for name in expert_tensor_names(layer, expert)]
         identity = f"expert:{layer}:{expert}"
-        size = sum(row["bytes"] for row in rows)
-        if size != EXPERT_BYTES:
+        source_size = sum(row["bytes"] for row in rows)
+        if source_size != EXPERT_BYTES:
             raise ValueError("expert bundle byte identity changed")
         object_authority[identity] = {
             "identity": identity,
             "category": "routed_expert",
             "layer": layer,
             "expert": expert,
-            "bytes": size,
+            "source_bytes": source_size,
+            "bytes": resident_allocation_bytes(source_size),
             "tensor_metadata_sha256": hashlib.sha256(canonical_json(rows)).hexdigest(),
             "tensors": rows,
         }
@@ -329,7 +338,8 @@ def analyze(
             "row": token,
             "dtype": source["dtype"],
             "shape": [4096],
-            "bytes": EMBEDDING_ROW_BYTES,
+            "source_bytes": EMBEDDING_ROW_BYTES,
+            "bytes": resident_allocation_bytes(EMBEDDING_ROW_BYTES),
             "backing_file": source["backing_file"],
             "backing_file_sha256": source["backing_file_sha256"],
         }
@@ -374,7 +384,7 @@ def analyze(
     logical_by_phase = Counter()
     expert_by_phase = Counter()
     for identity, phase in zip(accesses, access_phases, strict=True):
-        size = object_authority[identity]["bytes"]
+        size = object_authority[identity]["source_bytes"]
         logical_by_phase[phase] += size
         if object_authority[identity]["category"] == "routed_expert":
             expert_by_phase[phase] += size
@@ -396,7 +406,7 @@ def analyze(
     candidates = []
     for identity, authority in object_authority.items():
         count = counts[identity]
-        avoided = max(0, count - 1) * authority["bytes"]
+        avoided = max(0, count - 1) * authority["source_bytes"]
         reuse = [right - left for left, right in zip(positions[identity], positions[identity][1:])]
         stall = avoided * rates[authority["category"]]
         candidates.append(
@@ -482,6 +492,7 @@ def analyze(
         },
         "residency_manifest": {
             "capacity_bytes": CAPACITY_BYTES,
+            "allocation_alignment_bytes": RESIDENT_PAGE_BYTES,
             "selected_bytes": selected_bytes,
             "unallocated_bytes": CAPACITY_BYTES - selected_bytes,
             "persistent_lifetime": "one repeated decoder transaction",

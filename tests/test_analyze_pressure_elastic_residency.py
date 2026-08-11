@@ -1,6 +1,7 @@
 import unittest
 
 from tools.analyze_pressure_elastic_residency import (
+    resident_allocation_bytes,
     select_static_residents,
     solve_attributed_rates,
 )
@@ -53,6 +54,13 @@ class PressureElasticResidencyTests(unittest.TestCase):
             solve_attributed_rates(1, 1, 1, 1, 1.0, 1.0)
         with self.assertRaisesRegex(ValueError, "non-positive"):
             solve_attributed_rates(10, 1, 1, 10, 1.0, 100.0)
+
+    def test_resident_allocations_are_charged_at_host_page_granularity(self):
+        self.assertEqual(resident_allocation_bytes(1), 16_384)
+        self.assertEqual(resident_allocation_bytes(16_384), 16_384)
+        self.assertEqual(resident_allocation_bytes(25_171_968), 25_182_208)
+        with self.assertRaisesRegex(ValueError, "positive"):
+            resident_allocation_bytes(0)
 
 
 if __name__ == "__main__":
