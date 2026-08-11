@@ -80,6 +80,7 @@ FIRST_LOGITS_SHA256 = "c43be0909487235bddfe6e0de69aa42a98339faf43cd6b77d6ef4b5f1
 PW0206_PREFIX_SHA256 = "0002c617c5459d7531de99e779ecad7335afc1e6f86cbbb6071afa23da107807"
 PW0206_DECODE_SHA256 = "f405225ea063bf3bfaf38a450fe752dc32c5afe54f69f5803c3ae61308caab2d"
 PW0206_DFLASH_SHA256 = "e5084e606349fb9fe0b01f8e5505f43fa58969cae5398330b343f40dab7228c9"
+PW0206_DFLASH_TARGET_SHA256 = "edf677be8406bd663e0d99b67c8cfb12fdad3914a100dbfd31f9d92b4787693e"
 PW0206_FIRST_LOGITS_SHA256 = "2302a23b67083bad89f020302c87e8c6ec2409ced3ad640be0f7733e7fb71cce"
 PROPOSED_BLOCK = [264, 1773, 102092, 102092, 102092, 1773, 1773, 1773]
 PW0206_PROPOSED_BLOCK = [9707, 0, 0, 0, 0, 0, 0, 0]
@@ -102,7 +103,7 @@ def authenticate_authorities(
     cached_manifest_path: Path | None,
     draft_paths: list[Path],
     corrected_decode_path: Path | None = None,
-) -> tuple[dict[str, Any], dict[str, Any], int, int, str]:
+) -> tuple[dict[str, Any], dict[str, Any], int, int]:
     corrected = corrected_decode_path is not None
     expected_prefix_hash = PW0206_PREFIX_SHA256 if corrected else PW0091_SHA256
     expected_first_logits_hash = (
@@ -148,7 +149,7 @@ def authenticate_authorities(
             "pw0206_prefix_manifest_sha256": PW0206_PREFIX_SHA256,
             "pw0206_target_decode_sha256": PW0206_DECODE_SHA256,
             "pw0206_dflash_manifest_sha256": PW0206_DFLASH_SHA256,
-        }, expected_first_token, 0, "pw0206_corrected_qkv_dflash_block_verification"
+        }, expected_first_token, 0
 
     if cached_manifest_path is None:
         raise ValueError("legacy target verification requires cached authority")
@@ -177,12 +178,12 @@ def authenticate_authorities(
         "pw0091_manifest_sha256": PW0091_SHA256,
         "pw0095_manifest_sha256": PW0095_SHA256,
         "draft_manifest_sha256": expected_hashes,
-    }, expected_first_token, 13, "pw0102_source_target_dflash_block_verification"
+    }, expected_first_token, 13
 
 
 def jacobi_successor_block(proposed: list[int], posterior: list[int]) -> list[int]:
     """Shift one authenticated greedy target posterior into the next Jacobi row."""
-    if len(proposed) != Q or len(posterior) != Q or proposed[0] != 264:
+    if len(proposed) != Q or len(posterior) != Q or proposed[0] < 0:
         raise ValueError("Jacobi successor shape or anchor mismatch")
     if any(not isinstance(token, int) or not 0 <= token < 152576 for token in posterior):
         raise ValueError("Jacobi successor posterior token domain mismatch")
@@ -191,12 +192,36 @@ def jacobi_successor_block(proposed: list[int], posterior: list[int]) -> list[in
 
 def selected_proposed_block(arguments: argparse.Namespace) -> tuple[list[int], str, dict[str, Any]]:
     if getattr(arguments, "corrected_decode", None) is not None:
-        if (
-            getattr(arguments, "jacobi_second_iteration", False)
-            or getattr(arguments, "jacobi_third_iteration", False)
-            or getattr(arguments, "prior_target_manifest", None) is not None
-        ):
-            raise ValueError("corrected DFlash verification cannot use legacy Jacobi authorities")
+        second = getattr(arguments, "jacobi_second_iteration", False)
+        third = getattr(arguments, "jacobi_third_iteration", False)
+        prior_path = getattr(arguments, "prior_target_manifest", None)
+        if second and third:
+            raise ValueError("select exactly one corrected Jacobi iteration")
+        if third:
+            raise ValueError("corrected Jacobi third iteration lacks an authenticated predecessor")
+        if second:
+            if prior_path is None or sha256_file(prior_path) != PW0206_DFLASH_TARGET_SHA256:
+                raise ValueError("corrected Jacobi prior target manifest hash mismatch")
+            prior = json.loads(prior_path.read_text())
+            if (
+                prior.get("status") != "passed"
+                or prior.get("evidence_class")
+                != "pw0206_corrected_qkv_dflash_block_verification"
+                or prior.get("proposed_block_token_ids") != PW0206_PROPOSED_BLOCK
+                or prior.get("target_posterior_token_ids")
+                != [0, 2585, 2585, 2585, 2585, 2585, 2585, 2585]
+                or prior.get("greedy_verification", {}).get("accepted_length_a") != 2
+            ):
+                raise ValueError("corrected Jacobi prior target semantic identity mismatch")
+            return (
+                jacobi_successor_block(
+                    PW0206_PROPOSED_BLOCK, prior["target_posterior_token_ids"]
+                ),
+                "pw0206_corrected_qkv_jacobi_second_iteration",
+                {"pw0206_dflash_target_manifest_sha256": PW0206_DFLASH_TARGET_SHA256},
+            )
+        if prior_path is not None:
+            raise ValueError("corrected prior target authority requires Jacobi iteration")
         return (
             PW0206_PROPOSED_BLOCK,
             "pw0206_corrected_qkv_dflash_block_verification",
@@ -417,7 +442,6 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
         identities,
         first_target_token,
         expected_first_posterior_token,
-        authenticated_evidence_class,
     ) = authenticate_authorities(
         arguments.prefix_manifest,
         arguments.cached_manifest,
@@ -425,8 +449,6 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
         arguments.corrected_decode,
     )
     proposed_block, evidence_class, proposal_identity = selected_proposed_block(arguments)
-    if evidence_class != authenticated_evidence_class:
-        raise ValueError("proposal and authenticated authority modes disagree")
     identities.update(proposal_identity)
     checkpoint = ShardedCheckpoint(arguments.checkpoint, arguments.verification)
     safety.checkpoint("authorities_and_checkpoint_open")
