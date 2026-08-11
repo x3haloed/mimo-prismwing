@@ -69,9 +69,9 @@ def build_schedule(selected: np.ndarray, weights: np.ndarray) -> dict[int, dict[
 
 
 def dequantize(tensors_by_shard: dict, index: dict[str, str], name: str) -> torch.Tensor:
-    tensors = tensors_by_shard[index[name]]
-    weight = tensors.get_tensor(name).float()
-    scale = tensors.get_tensor(name + "_scale_inv").float()
+    weight = tensors_by_shard[index[name]].get_tensor(name).float()
+    scale_name = name + "_scale_inv"
+    scale = tensors_by_shard[index[scale_name]].get_tensor(scale_name).float()
     if weight.ndim != 2 or tuple(scale.shape) != (
         weight.shape[0] // 128,
         weight.shape[1] // 128,
