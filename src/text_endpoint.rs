@@ -4701,9 +4701,9 @@ fn routed_mlp_metal_wide(
     metal_ledger: &mut MetalExpertLedger,
     runtime: &WideMetalMoeRuntime,
 ) -> Result<RoutedMlpOutput, String> {
-    if !(1..=8).contains(&rows) || input.len() != rows * HIDDEN {
+    if !(1..=128).contains(&rows) || input.len() != rows * HIDDEN {
         return Err(format!(
-            "wide Metal routed experts require [8, {HIDDEN}], got [{rows}, {}]",
+            "wide Metal routed experts require [1..=128, {HIDDEN}], got [{rows}, {}]",
             input.len() / rows.max(1)
         ));
     }

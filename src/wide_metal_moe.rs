@@ -7,23 +7,25 @@ use std::path::Path;
 use std::time::Instant;
 
 const BATCH: usize = 8;
+const LAYER_MAJOR_ROWS: usize = 128;
+const MAX_EXPERT_ROWS: usize = 32;
 const HIDDEN: usize = 4096;
 const INTERMEDIATE: usize = 2048;
 const PROJECTION_LANES: u64 = 64;
 
-fn active_rows(values: &[f32], columns: usize) -> Result<usize, String> {
+fn active_rows(values: &[f32], columns: usize, maximum: usize) -> Result<usize, String> {
     if columns == 0 || values.is_empty() || !values.len().is_multiple_of(columns) {
         return Err("wide row shape mismatch".to_owned());
     }
     let rows = values.len() / columns;
-    if !(1..=BATCH).contains(&rows) {
-        return Err("wide row count must be between one and eight".to_owned());
+    if !(1..=maximum).contains(&rows) {
+        return Err(format!("wide row count must be between one and {maximum}"));
     }
     Ok(rows)
 }
 
-fn padded_rows(values: &[f32], rows: usize, columns: usize) -> Vec<f32> {
-    let mut padded = vec![0.0_f32; BATCH * columns];
+fn padded_rows(values: &[f32], rows: usize, columns: usize, capacity: usize) -> Vec<f32> {
+    let mut padded = vec![0.0_f32; capacity * columns];
     padded[..rows * columns].copy_from_slice(values);
     padded
 }
@@ -175,7 +177,7 @@ impl WideMetalMoeRuntime {
                 .new_compute_pipeline_state_with_function(&function)
                 .map_err(|error| format!("wide MoE pipeline {name}: {error}"))
         };
-        let blockscaled_projection_pipelines = (1..=BATCH)
+        let blockscaled_projection_pipelines = (1..=MAX_EXPERT_ROWS)
             .map(|width| pipeline(&format!("block_fp8_gemm{width}_sglang_blockscaled")))
             .collect::<Result<Vec<_>, _>>()?;
         let quantized_dynamic_pipeline = pipeline("dynamic_fp8_quantized_group128")?;
@@ -220,7 +222,7 @@ impl WideMetalMoeRuntime {
         binding: &WideProjectionBinding<'_>,
         full_qkv_layout: bool,
     ) -> Result<WideLinearExecution, String> {
-        let active_rows = active_rows(input, binding.columns)?;
+        let active_rows = active_rows(input, binding.columns, BATCH)?;
         if input.iter().any(|value| !value.is_finite())
             || binding.weight.tensor_bytes() != binding.rows * binding.columns
             || (!full_qkv_layout
@@ -231,7 +233,7 @@ impl WideMetalMoeRuntime {
         {
             return Err("wide FP8 linear layout mismatch".to_owned());
         }
-        let padded_input = padded_rows(input, active_rows, binding.columns);
+        let padded_input = padded_rows(input, active_rows, binding.columns, BATCH);
         let started = Instant::now();
         let shared = MTLResourceOptions::StorageModeShared;
         let no_copy = |region: &WideSourceRegion<'_>| {
@@ -512,13 +514,13 @@ impl WideMetalMoeRuntime {
         rows: usize,
         columns: usize,
     ) -> Result<WideLinearExecution, String> {
-        let active_rows = active_rows(input, columns)?;
+        let active_rows = active_rows(input, columns, BATCH)?;
         if input.iter().any(|value| !value.is_finite())
             || weight_region.tensor_bytes() != rows * columns * 2
         {
             return Err("wide BF16 linear layout mismatch".to_owned());
         }
-        let padded_input = padded_rows(input, active_rows, columns);
+        let padded_input = padded_rows(input, active_rows, columns, BATCH);
         let started = Instant::now();
         let shared = MTLResourceOptions::StorageModeShared;
         let weight = self.device.new_buffer_with_bytes_no_copy(
@@ -618,7 +620,7 @@ impl WideMetalMoeRuntime {
         input: &[f32],
         experts: &[WideExpertBinding<'_>],
     ) -> Result<WideMoeExecution, String> {
-        let active_rows = active_rows(input, HIDDEN)?;
+        let active_rows = active_rows(input, HIDDEN, LAYER_MAJOR_ROWS)?;
         if input.iter().any(|value| !value.is_finite())
             || experts.is_empty()
             || experts
@@ -629,7 +631,6 @@ impl WideMetalMoeRuntime {
         {
             return Err("wide MoE input or schedule mismatch".to_owned());
         }
-        let padded_input = padded_rows(input, active_rows, HIDDEN);
         let started = Instant::now();
         let shared = MTLResourceOptions::StorageModeShared;
         let projection =
@@ -680,7 +681,7 @@ impl WideMetalMoeRuntime {
         for expert in experts {
             let count = expert.positions.len();
             if count == 0
-                || count > BATCH
+                || count > MAX_EXPERT_ROWS
                 || expert.route_weights.len() != count
                 || expert
                     .positions
@@ -714,15 +715,15 @@ impl WideMetalMoeRuntime {
                     .checked_add(region.resident_bytes())
                     .ok_or("wide MoE resident-byte overflow")?;
             }
-            let mut gathered = vec![0.0_f32; BATCH * HIDDEN];
+            let mut gathered = vec![0.0_f32; MAX_EXPERT_ROWS * HIDDEN];
             for (local, &position) in expert.positions.iter().enumerate() {
                 gathered[local * HIDDEN..(local + 1) * HIDDEN].copy_from_slice(
-                    &padded_input[position as usize * HIDDEN..(position as usize + 1) * HIDDEN],
+                    &input[position as usize * HIDDEN..(position as usize + 1) * HIDDEN],
                 );
             }
-            let mut weights = [0.0_f32; BATCH];
+            let mut weights = vec![0.0_f32; MAX_EXPERT_ROWS];
             weights[..count].copy_from_slice(&expert.route_weights);
-            let mut positions = [0_u32; BATCH];
+            let mut positions = vec![0_u32; MAX_EXPERT_ROWS];
             positions[..count].copy_from_slice(&expert.positions);
             let scatter_shape = ScatterShape {
                 count: count as u32,
@@ -790,27 +791,33 @@ impl WideMetalMoeRuntime {
             std::mem::size_of::<GemvShape>() as u64,
             shared,
         );
-        let input_codes = self.device.new_buffer((BATCH * HIDDEN) as u64, shared);
+        let input_codes = self
+            .device
+            .new_buffer((MAX_EXPERT_ROWS * HIDDEN) as u64, shared);
         let input_scales = self
             .device
-            .new_buffer((BATCH * HIDDEN / 128 * 4) as u64, shared);
+            .new_buffer((MAX_EXPERT_ROWS * HIDDEN / 128 * 4) as u64, shared);
         let gate_output = self
             .device
-            .new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
+            .new_buffer((MAX_EXPERT_ROWS * INTERMEDIATE * 4) as u64, shared);
         let up_output = self
             .device
-            .new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
+            .new_buffer((MAX_EXPERT_ROWS * INTERMEDIATE * 4) as u64, shared);
         let hidden_output = self
             .device
-            .new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
+            .new_buffer((MAX_EXPERT_ROWS * INTERMEDIATE * 4) as u64, shared);
         let hidden_codes = self
             .device
-            .new_buffer((BATCH * INTERMEDIATE) as u64, shared);
+            .new_buffer((MAX_EXPERT_ROWS * INTERMEDIATE) as u64, shared);
         let hidden_scales = self
             .device
-            .new_buffer((BATCH * INTERMEDIATE / 128 * 4) as u64, shared);
-        let expert_output = self.device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
-        let block_output = self.device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
+            .new_buffer((MAX_EXPERT_ROWS * INTERMEDIATE / 128 * 4) as u64, shared);
+        let expert_output = self
+            .device
+            .new_buffer((MAX_EXPERT_ROWS * HIDDEN * 4) as u64, shared);
+        let block_output = self
+            .device
+            .new_buffer((active_rows * HIDDEN * 4) as u64, shared);
         let zero = 0_u32;
         let error_buffer = self.device.new_buffer_with_data(
             (&zero as *const u32).cast(),
@@ -828,7 +835,7 @@ impl WideMetalMoeRuntime {
         let blit = command.new_blit_command_encoder();
         blit.fill_buffer(
             &block_output,
-            NSRange::new(0, (BATCH * HIDDEN * 4) as u64),
+            NSRange::new(0, (active_rows * HIDDEN * 4) as u64),
             0,
         );
         blit.end_encoding();
@@ -1016,7 +1023,7 @@ impl WideMetalMoeRuntime {
             return Err(format!("wide MoE semantic kernels set error flags {flags}"));
         }
         let output = unsafe {
-            std::slice::from_raw_parts(block_output.contents().cast::<f32>(), BATCH * HIDDEN)
+            std::slice::from_raw_parts(block_output.contents().cast::<f32>(), active_rows * HIDDEN)
                 .get(..active_rows * HIDDEN)
                 .expect("active wide output is bounded")
                 .to_vec()
@@ -1051,13 +1058,13 @@ mod tests {
     #[test]
     fn partial_wide_rows_are_zero_padded_without_changing_real_rows() {
         let values = (0..3 * 4).map(|value| value as f32).collect::<Vec<_>>();
-        assert_eq!(active_rows(&values, 4), Ok(3));
-        let padded = padded_rows(&values, 3, 4);
+        assert_eq!(active_rows(&values, 4, BATCH), Ok(3));
+        let padded = padded_rows(&values, 3, 4, BATCH);
         assert_eq!(&padded[..values.len()], values.as_slice());
         assert_eq!(padded.len(), BATCH * 4);
         assert!(padded[values.len()..].iter().all(|value| *value == 0.0));
-        assert!(active_rows(&[], 4).is_err());
-        assert!(active_rows(&[0.0; 5], 4).is_err());
-        assert!(active_rows(&[0.0; 9], 1).is_err());
+        assert!(active_rows(&[], 4, BATCH).is_err());
+        assert!(active_rows(&[0.0; 5], 4, BATCH).is_err());
+        assert!(active_rows(&[0.0; 9], 1, BATCH).is_err());
     }
 }
