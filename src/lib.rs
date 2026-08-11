@@ -33,6 +33,8 @@ pub use pread_expert_acquisition::{
     PreadExpertAcquisitionReport, benchmark_pread_expert_acquisition,
 };
 #[cfg(target_os = "macos")]
+pub use pressure_residency::{PressureResidencySmokeReport, run_pressure_residency_smoke};
+#[cfg(target_os = "macos")]
 pub use staged_metal_expert::{
     BoundedRoutedRowReport, StagedMetalExpertReport, run_bounded_metal_routed_row,
     run_staged_metal_fp8_expert,

@@ -6,9 +6,11 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{c_char, c_ulong, c_void};
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -406,6 +408,165 @@ impl Drop for DarwinMemoryPressureObserver {
             drop(Box::from_raw(self.context));
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+pub struct PressureResidencySmokeReport {
+    pub schema_version: u32,
+    pub evidence_class: &'static str,
+    pub implementation_commit: String,
+    pub fixture_sha256: String,
+    pub declared_objects: usize,
+    pub declared_bytes: u64,
+    pub observer_started_and_drained: bool,
+    pub normal_event_retained_bytes: u64,
+    pub warning_events: Vec<PressureEvent>,
+    pub warning_payloads_dropped: usize,
+    pub critical_events: Vec<PressureEvent>,
+    pub critical_payloads_dropped: usize,
+    pub critical_regrowth_rejected: bool,
+    pub passed: bool,
+    pub scope: &'static str,
+}
+
+struct SmokePayload {
+    _bytes: Vec<u8>,
+    drops: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl Drop for SmokePayload {
+    fn drop(&mut self) {
+        self.drops.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+pub fn run_pressure_residency_smoke(
+    fixture_path: &Path,
+    output_path: &Path,
+    implementation_commit: &str,
+) -> Result<PressureResidencySmokeReport, String> {
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    if implementation_commit.len() != 40
+        || !implementation_commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("implementation commit must be lowercase 40-hex".to_owned());
+    }
+    let fixture_bytes =
+        fs::read(fixture_path).map_err(|error| format!("{}: {error}", fixture_path.display()))?;
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let manifest = DeclaredResidencyManifest::from_offline_report(fixture_path)?;
+    if manifest.objects.len() < 2 || manifest.selected_bytes > 1024 * 1024 {
+        return Err("pressure smoke requires a bounded synthetic manifest".to_owned());
+    }
+
+    let install_all = |controller: &PressureResidencyController,
+                       drops: &Arc<std::sync::atomic::AtomicUsize>|
+     -> Result<(), String> {
+        for object in &manifest.objects {
+            controller.install(
+                &object.identity,
+                object.bytes,
+                &object.tensor_metadata_sha256,
+                SmokePayload {
+                    _bytes: vec![0_u8; object.bytes as usize],
+                    drops: drops.clone(),
+                },
+            )?;
+        }
+        Ok(())
+    };
+
+    let warning = PressureResidencyController::new(manifest.clone())?;
+    let warning_drops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    install_all(&warning, &warning_drops)?;
+    {
+        let observer = DarwinMemoryPressureObserver::start(warning.clone())?;
+        drop(observer);
+    }
+    warning.handle_pressure_mask(PRESSURE_NORMAL)?;
+    let normal_event_retained_bytes = warning.resident_bytes()?;
+    warning.handle_pressure_mask(PRESSURE_WARNING)?;
+    let warning_events = warning.events()?;
+    let warning_payloads_dropped = warning_drops.load(std::sync::atomic::Ordering::SeqCst);
+
+    let critical = PressureResidencyController::new(manifest.clone())?;
+    let critical_drops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let first = &manifest.objects[0];
+    critical.install(
+        &first.identity,
+        first.bytes,
+        &first.tensor_metadata_sha256,
+        SmokePayload {
+            _bytes: vec![0_u8; first.bytes as usize],
+            drops: critical_drops.clone(),
+        },
+    )?;
+    critical.handle_pressure_mask(PRESSURE_CRITICAL)?;
+    let second = &manifest.objects[1];
+    let critical_regrowth_rejected = critical
+        .install(
+            &second.identity,
+            second.bytes,
+            &second.tensor_metadata_sha256,
+            SmokePayload {
+                _bytes: vec![0_u8; second.bytes as usize],
+                drops: critical_drops.clone(),
+            },
+        )
+        .is_err();
+    let critical_events = critical.events()?;
+    let critical_payloads_dropped = critical_drops.load(std::sync::atomic::Ordering::SeqCst);
+    let expected_order = {
+        let mut objects = manifest.objects.clone();
+        objects.sort_by_key(|object| object.warning_eviction_order);
+        objects
+            .into_iter()
+            .map(|object| object.identity)
+            .collect::<Vec<_>>()
+    };
+    let passed = normal_event_retained_bytes == manifest.selected_bytes
+        && warning.resident_bytes()? == 0
+        && warning_payloads_dropped == manifest.objects.len()
+        && warning_events.len() == 2
+        && warning_events[1].evicted_identities == expected_order
+        && critical.resident_bytes()? == 0
+        && critical.growth_stopped()?
+        && critical_payloads_dropped == 2
+        && critical_regrowth_rejected;
+    if !passed {
+        return Err("pressure residency smoke gate failed".to_owned());
+    }
+    let report = PressureResidencySmokeReport {
+        schema_version: 1,
+        evidence_class: "pw0207_synthetic_pressure_residency_smoke",
+        implementation_commit: implementation_commit.to_owned(),
+        fixture_sha256,
+        declared_objects: manifest.objects.len(),
+        declared_bytes: manifest.selected_bytes,
+        observer_started_and_drained: true,
+        normal_event_retained_bytes,
+        warning_events,
+        warning_payloads_dropped,
+        critical_events,
+        critical_payloads_dropped,
+        critical_regrowth_rejected,
+        passed,
+        scope: "synthetic injected pressure; validates ownership and callbacks but is not a real 12 GiB cache or OS warning event",
+    };
+    let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output_path)
+        .map_err(|error| format!("{}: {error}", output_path.display()))?;
+    output
+        .write_all(&bytes)
+        .map_err(|error| format!("{}: {error}", output_path.display()))?;
+    Ok(report)
 }
 
 #[cfg(test)]

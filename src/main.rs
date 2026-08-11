@@ -18,7 +18,7 @@ use prismwing::{
     run_metal_incremental_text_endpoint, run_metal_mapped_fp8_gemv,
     run_metal_native_distribution_probe, run_metal_noaux_tc_router, run_metal_real_base_layer,
     run_metal_simdgroup_matrix_fp8_moe_block, run_metal_union_parallel_fp8_moe_block,
-    run_staged_metal_fp8_expert, run_weight_install_tomography,
+    run_pressure_residency_smoke, run_staged_metal_fp8_expert, run_weight_install_tomography,
     run_wide_metal_jacobi_text_endpoint,
 };
 use prismwing::{
@@ -233,6 +233,8 @@ fn usage() -> ! {
         "  prismwing benchmark-pread-expert-acquisition <artifact.bin> <artifact-manifest.json> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
+    eprintln!("  prismwing pressure-residency-smoke <fixture.json> <output.json> <commit>");
+    #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing real-layer0-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <output-dir> <commit>"
     );
@@ -270,6 +272,17 @@ fn usage() -> ! {
 fn main() {
     let arguments: Vec<String> = std::env::args().collect();
     let result: Result<Option<PathBuf>, String> = match arguments.get(1).map(String::as_str) {
+        #[cfg(target_os = "macos")]
+        Some("pressure-residency-smoke") if arguments.len() == 5 => {
+            let fixture = PathBuf::from(&arguments[2]);
+            let output = PathBuf::from(&arguments[3]);
+            run_pressure_residency_smoke(&fixture, &output, &arguments[4]).and_then(|report| {
+                serde_json::to_writer(std::io::stdout(), &report)
+                    .map_err(|error| error.to_string())?;
+                println!();
+                Ok(Some(output))
+            })
+        }
         #[cfg(target_os = "macos")]
         Some("metal-checkpoint-offset-probe") if arguments.len() == 5 => {
             let source = PathBuf::from(&arguments[2]);
