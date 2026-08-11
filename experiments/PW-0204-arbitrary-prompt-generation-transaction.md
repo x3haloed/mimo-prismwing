@@ -86,3 +86,8 @@ only after it produces real proposals and preserves target verification.
 
 Real checkpoint execution and evidence remain unexecuted, so accepted endpoint
 tokens and endpoint TPS remain zero.
+
+The first public runtime input is
+`evals/fixtures/requests/pw0204-arbitrary-text.txt`. It asks for a concise,
+programmatically inspectable two-sentence explanation and contains no route,
+answer, proposal, or runtime-specific hint.
