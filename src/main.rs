@@ -3,11 +3,11 @@ use prismwing::{
     RealAttentionMoeRequest, RealBaseLayerRequest, benchmark_layer4_metal_native_transaction,
     benchmark_layer4_metal_ready_artifact, benchmark_layer4_two_barrier_transaction,
     benchmark_metal_io_acquisition, benchmark_pread_expert_acquisition,
-    build_layer4_metal_ready_artifact, run_bounded_metal_routed_row, run_layer4_metal_diagnostic,
-    run_metal_base_layer_attention, run_metal_checkpoint_offset_probe, run_metal_direct_fp8_expert,
-    run_metal_direct_fp8_expert_batch8_shared_weight, run_metal_direct_mapped_fp8_gemv,
-    run_metal_direct_route_replay_fp8_moe_block, run_metal_direct_source_bf16_fp8_gemv,
-    run_metal_direct_source_bf16_fp8_gemv_audit,
+    build_layer4_metal_ready_artifact, run_arbitrary_text_generation, run_bounded_metal_routed_row,
+    run_layer4_metal_diagnostic, run_metal_base_layer_attention, run_metal_checkpoint_offset_probe,
+    run_metal_direct_fp8_expert, run_metal_direct_fp8_expert_batch8_shared_weight,
+    run_metal_direct_mapped_fp8_gemv, run_metal_direct_route_replay_fp8_moe_block,
+    run_metal_direct_source_bf16_fp8_gemv, run_metal_direct_source_bf16_fp8_gemv_audit,
     run_metal_direct_source_bf16_reduction_width_fp8_moe_block,
     run_metal_direct_source_bf16_route_replay_fp8_moe_block,
     run_metal_direct_source_bf16_silu_lut_route_replay_fp8_moe_block,
@@ -185,6 +185,10 @@ fn usage() -> ! {
     );
     #[cfg(target_os = "macos")]
     eprintln!(
+        "  prismwing arbitrary-text-generate <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <32-64-output-tokens> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
         "  prismwing weight-install-tomography <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <oracle-manifest.json> <kernel.metal> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
@@ -353,6 +357,39 @@ fn main() {
                     .map_err(|error| error.to_string())?;
                 println!();
                 Ok(Some(output))
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("arbitrary-text-generate") if arguments.len() == 10 => {
+            let output_tokens = arguments[7]
+                .parse::<usize>()
+                .map_err(|error| format!("output token count: {error}"));
+            output_tokens.and_then(|output_tokens| {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let kernel = PathBuf::from(&arguments[5]);
+                let prompt = PathBuf::from(&arguments[6]);
+                let output = PathBuf::from(&arguments[8]);
+                run_arbitrary_text_generation(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &kernel,
+                    &prompt,
+                    output_tokens,
+                    &output,
+                    &arguments[9],
+                )
+                .map(|report| {
+                    println!(
+                        "generated {} committed tokens in {:.3} s: {}",
+                        report.accepted_tokens,
+                        report.complete_wall_ms / 1000.0,
+                        report.generated_text
+                    );
+                    Some(output)
+                })
             })
         }
         #[cfg(target_os = "macos")]

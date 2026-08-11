@@ -33,6 +33,11 @@ use tokenizers::Tokenizer;
 
 const REVISION: &str = "63651580ca774f8504f676040460aed3e1244ac1";
 const MODEL_LOCK_SHA256: &str = "df8c74e6f9e1cef154aae5881b9042777653206aaff72855f7b1a1340e0d1050";
+const CONFIG_SHA256: &str = "292a60e74ae9a6d53422b31b21468ce2111c0ab3f7f7a4f4e9c7cd5133b96587";
+const INDEX_SHA256: &str = "f2e1774c9acf9a62338b68c144e6fc7a66495e59f2e64b3078c1b7ef5a196816";
+const TOKENIZER_SHA256: &str = "633518aad78f9f61bae2ae420d621215754a4424c918b052cd8c22a3b59e99d2";
+const TOKENIZER_CONFIG_SHA256: &str =
+    "fd34b805f75a890a5c123d79a2982bbe240b3b6efb156d22401bd619484d9bd2";
 const HIDDEN: usize = 4096;
 const HEADS: usize = 64;
 const QK_HEAD_DIM: usize = 192;
@@ -597,6 +602,63 @@ pub struct WideJacobiTextReport {
     pub cache_authority: &'static str,
     pub performance_claim: Option<String>,
     pub promotion_gates_passed: bool,
+    pub status: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GenerationTransactionReport {
+    pub index: usize,
+    pub proposal_token_ids: Vec<u32>,
+    pub posterior_token_ids: Vec<u32>,
+    pub emitted_token_ids: Vec<u32>,
+    pub retained_proposal_rows: usize,
+    pub proposal_converged: bool,
+    pub proposal_wall_ms: f64,
+    pub verification_wall_ms: f64,
+    #[serde(rename = "U")]
+    pub mean_normalized_union: f64,
+    pub logical_source_bytes: u64,
+    pub process_disk_bytes_read: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ArbitraryTextGenerationReport {
+    pub schema_version: u32,
+    pub evidence_class: &'static str,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub git_dirty: bool,
+    pub model_lock_sha256: &'static str,
+    pub checkpoint_verification_sha256: String,
+    pub tokenizer_sha256: &'static str,
+    pub tokenizer_config_sha256: &'static str,
+    pub kernel_sha256: String,
+    pub metal_device: String,
+    pub user_prompt_utf8: String,
+    pub serialized_prompt_utf8: String,
+    pub prompt_token_ids: Vec<u32>,
+    pub generated_token_ids: Vec<u32>,
+    pub generated_text: String,
+    pub requested_output_tokens: usize,
+    pub accepted_tokens: usize,
+    pub prefill_chunks: usize,
+    pub transactions: Vec<GenerationTransactionReport>,
+    pub preprocessing_wall_ms: f64,
+    pub prefill_wall_ms: f64,
+    pub proposal_wall_ms: f64,
+    pub verification_wall_ms: f64,
+    pub complete_wall_ms: f64,
+    pub logical_source_bytes: u64,
+    pub process_disk_bytes_read: u64,
+    pub peak_resident_bytes: u64,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub verifier_width: usize,
+    pub exactness: &'static str,
+    pub proposer: &'static str,
+    pub cache_state: &'static str,
     pub status: &'static str,
 }
 
@@ -4734,6 +4796,112 @@ fn open_endpoint_authority(
     })
 }
 
+fn serialize_single_user_chat(user_prompt: &str) -> Result<String, String> {
+    if user_prompt.is_empty() || user_prompt.chars().any(|character| character == '\0') {
+        return Err("user prompt must be nonempty UTF-8 without NUL".to_owned());
+    }
+    Ok(format!(
+        "<|im_start|>system\nYou are MiMo, a helpful AI assistant engineered by Xiaomi.<|im_end|><|im_start|>user\n{user_prompt}<|im_end|><|im_start|>assistant\n<think></think>"
+    ))
+}
+
+fn open_arbitrary_text_authority(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    user_prompt: &str,
+) -> Result<
+    (
+        Checkpoint,
+        CheckpointVerification,
+        ModelConfig,
+        Tokenizer,
+        String,
+        Vec<u32>,
+        SafetyMonitor,
+        String,
+    ),
+    String,
+> {
+    if hash_file(model_lock_path)? != MODEL_LOCK_SHA256 {
+        return Err("model lock SHA-256 mismatch".to_owned());
+    }
+    for (name, expected) in [
+        ("config.json", CONFIG_SHA256),
+        ("model.safetensors.index.json", INDEX_SHA256),
+        ("tokenizer.json", TOKENIZER_SHA256),
+        ("tokenizer_config.json", TOKENIZER_CONFIG_SHA256),
+    ] {
+        if hash_file(&checkpoint_root.join(name))? != expected {
+            return Err(format!("{name} SHA-256 mismatch"));
+        }
+    }
+    let verification_sha256 = hash_file(verification_path)?;
+    let verification: CheckpointVerification = serde_json::from_reader(
+        File::open(verification_path)
+            .map_err(|error| format!("{}: {error}", verification_path.display()))?,
+    )
+    .map_err(|error| format!("checkpoint verification: {error}"))?;
+    if verification.schema_version != 1
+        || verification.evidence_class != "local_checkpoint_lock_verification"
+        || !verification.complete
+        || verification.lock_sha256 != MODEL_LOCK_SHA256
+        || verification.revision != REVISION
+    {
+        return Err("checkpoint verification identity mismatch".to_owned());
+    }
+    let config: ModelConfig = serde_json::from_reader(
+        File::open(checkpoint_root.join("config.json")).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| format!("model config: {error}"))?;
+    validate_config(&config)?;
+    let tokenizer = Tokenizer::from_file(checkpoint_root.join("tokenizer.json"))
+        .map_err(|error| format!("tokenizer load: {error}"))?;
+    let serialized_prompt = serialize_single_user_chat(user_prompt)?;
+    let prompt_token_ids = tokenizer
+        .encode(serialized_prompt.clone(), false)
+        .map_err(|error| format!("tokenizer encode: {error}"))?
+        .get_ids()
+        .to_vec();
+    if prompt_token_ids.is_empty()
+        || tokenizer
+            .decode(&prompt_token_ids, false)
+            .map_err(|error| format!("tokenizer decode: {error}"))?
+            != serialized_prompt
+    {
+        return Err("arbitrary prompt tokenizer round trip mismatch".to_owned());
+    }
+    let checkpoint = Checkpoint::open(
+        checkpoint_root,
+        &checkpoint_root.join("model.safetensors.index.json"),
+        &verification,
+    )?;
+    let safety = SafetyMonitor::start(SafetyFixture {
+        minimum_system_memory_free_percent: 20,
+        maximum_process_physical_footprint_bytes: 8 * 1024 * 1024 * 1024,
+        maximum_post_phase_physical_footprint_bytes: 4 * 1024 * 1024 * 1024,
+        maximum_swap_growth_bytes: 512 * 1024 * 1024,
+        maximum_new_throttled_pages: 0,
+        require_malloc_pressure_relief: true,
+        protect_resident_services: vec![
+            "ChatGPT".to_owned(),
+            "WindowServer".to_owned(),
+            "nxnode".to_owned(),
+            "syncthing".to_owned(),
+        ],
+    })?;
+    Ok((
+        checkpoint,
+        verification,
+        config,
+        tokenizer,
+        serialized_prompt,
+        prompt_token_ids,
+        safety,
+        verification_sha256,
+    ))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_slow_text_endpoint(
     checkpoint_root: &Path,
@@ -5439,6 +5607,275 @@ pub fn run_wide_metal_jacobi_text_endpoint(
         } else {
             "candidate_gates_failed"
         },
+    };
+    let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(output_path, &report_bytes)?;
+    Ok(report)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_arbitrary_text_generation(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    requested_output_tokens: usize,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    const WIDTH: usize = 8;
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    if !(32..=64).contains(&requested_output_tokens) {
+        return Err("arbitrary text generation requires 32 through 64 output tokens".to_owned());
+    }
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("implementation commit must be a lowercase 40-hex Git object".to_owned());
+    }
+    let complete_started = Instant::now();
+    let complete_disk_before = process_disk_bytes_read()?;
+    let git_status = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .map_err(|error| format!("git status: {error}"))?;
+    if !git_status.status.success() {
+        return Err("git status failed while recording implementation identity".to_owned());
+    }
+    let git_dirty = !git_status.stdout.is_empty();
+    let preprocessing_started = Instant::now();
+    let user_prompt = fs::read_to_string(prompt_path)
+        .map_err(|error| format!("{}: {error}", prompt_path.display()))?;
+    let (
+        checkpoint,
+        _verification,
+        config,
+        tokenizer,
+        serialized_prompt,
+        prompt_token_ids,
+        mut safety,
+        verification_sha256,
+    ) = open_arbitrary_text_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        &user_prompt,
+    )?;
+    let preprocessing_wall_ms = preprocessing_started.elapsed().as_secs_f64() * 1000.0;
+    let runtime = WideMetalMoeRuntime::compile(kernel_path)?;
+    safety.checkpoint("arbitrary_generation_authorities_open", true)?;
+
+    let prefill_started = Instant::now();
+    let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
+    let mut prefill_ledger = EndpointLedger::for_checkpoint(&checkpoint);
+    let prefill_chunks = prompt_token_ids.len().div_ceil(WIDTH);
+    let mut first_anchor = None;
+    for (chunk_index, chunk) in prompt_token_ids.chunks(WIDTH).enumerate() {
+        let final_chunk = chunk_index + 1 == prefill_chunks;
+        let mut metal_ledger = MetalExpertLedger::default();
+        let step = decode_step(
+            &checkpoint,
+            &config,
+            chunk,
+            &mut caches,
+            &mut prefill_ledger,
+            &mut safety,
+            None,
+            None,
+            Some((&runtime, &mut metal_ledger)),
+            None,
+            if final_chunk {
+                DecodeOutput::Logits
+            } else {
+                DecodeOutput::RoutesOnly
+            },
+        )?;
+        if final_chunk {
+            first_anchor = Some(step.output_token);
+        }
+        safety.checkpoint(&format!("prefill_chunk_{chunk_index}_complete"), true)?;
+    }
+    if caches
+        .iter()
+        .any(|cache| cache.positions != prompt_token_ids.len() || cache.validate().is_err())
+    {
+        return Err("chunked arbitrary-prompt prefill K/V gate failed".to_owned());
+    }
+    let prefill_wall_ms = prefill_started.elapsed().as_secs_f64() * 1000.0;
+    let mut generated_token_ids = vec![first_anchor.ok_or("prefill produced no target token")?];
+    let mut next_anchor = generated_token_ids[0];
+    let mut transactions = Vec::new();
+    let mut proposal_wall_ms = 0.0;
+    let mut verification_wall_ms = 0.0;
+    let mut logical_source_bytes = prefill_ledger.logical_source_bytes;
+
+    while generated_token_ids.len() < requested_output_tokens {
+        let transaction_index = transactions.len();
+        let transaction_disk_before = process_disk_bytes_read()?;
+        let proposal_started = Instant::now();
+        let mut proposal = Vec::with_capacity(WIDTH);
+        proposal.push(next_anchor);
+        let mut proposal_caches = caches.clone();
+        let mut proposal_ledger = EndpointLedger::for_checkpoint(&checkpoint);
+        for _ in 1..WIDTH {
+            let mut metal_ledger = MetalExpertLedger::default();
+            let step = decode_step(
+                &checkpoint,
+                &config,
+                std::slice::from_ref(proposal.last().expect("proposal anchor exists")),
+                &mut proposal_caches,
+                &mut proposal_ledger,
+                &mut safety,
+                None,
+                None,
+                Some((&runtime, &mut metal_ledger)),
+                None,
+                DecodeOutput::Logits,
+            )?;
+            proposal.push(step.output_token);
+        }
+        let proposal_elapsed_ms = proposal_started.elapsed().as_secs_f64() * 1000.0;
+        proposal_wall_ms += proposal_elapsed_ms;
+
+        let verification_started = Instant::now();
+        let base_positions = caches
+            .first()
+            .ok_or("generation cache set is empty")?
+            .positions;
+        let mut verification_ledger = EndpointLedger::for_checkpoint(&checkpoint);
+        let mut verification_metal_ledger = MetalExpertLedger::default();
+        let verified = decode_step(
+            &checkpoint,
+            &config,
+            &proposal,
+            &mut caches,
+            &mut verification_ledger,
+            &mut safety,
+            None,
+            None,
+            Some((&runtime, &mut verification_metal_ledger)),
+            None,
+            DecodeOutput::AllLogits,
+        )?;
+        let commit_result = commit_jacobi_transaction(&proposal, &verified.output_tokens)?;
+        let retained_positions = base_positions
+            .checked_add(commit_result.retained_proposal_rows)
+            .ok_or("generation retained position overflow")?;
+        for cache in &mut caches {
+            cache.truncate(retained_positions)?;
+        }
+        let verification_elapsed_ms = verification_started.elapsed().as_secs_f64() * 1000.0;
+        verification_wall_ms += verification_elapsed_ms;
+        let mean_normalized_union = verified.traces[1..]
+            .iter()
+            .map(|trace| trace.expert_union_factor)
+            .sum::<f64>()
+            / 47.0;
+        let remaining = requested_output_tokens - generated_token_ids.len();
+        generated_token_ids.extend(
+            commit_result
+                .emitted_token_ids
+                .iter()
+                .copied()
+                .take(remaining),
+        );
+        if generated_token_ids.len() == requested_output_tokens {
+            let exact_retained = prompt_token_ids.len() + generated_token_ids.len() - 1;
+            for cache in &mut caches {
+                cache.truncate(exact_retained)?;
+            }
+        }
+        next_anchor = *generated_token_ids
+            .last()
+            .ok_or("generation lost its committed anchor")?;
+        let transaction_disk_bytes = process_disk_bytes_read()?
+            .checked_sub(transaction_disk_before)
+            .ok_or("transaction disk byte counter moved backwards")?;
+        let transaction_logical_bytes = proposal_ledger
+            .logical_source_bytes
+            .checked_add(verification_ledger.logical_source_bytes)
+            .ok_or("transaction logical byte ledger overflow")?;
+        logical_source_bytes = logical_source_bytes
+            .checked_add(transaction_logical_bytes)
+            .ok_or("generation logical byte ledger overflow")?;
+        transactions.push(GenerationTransactionReport {
+            index: transaction_index,
+            proposal_token_ids: proposal,
+            posterior_token_ids: verified.output_tokens,
+            emitted_token_ids: commit_result.emitted_token_ids,
+            retained_proposal_rows: commit_result.retained_proposal_rows,
+            proposal_converged: commit_result.proposal_converged,
+            proposal_wall_ms: proposal_elapsed_ms,
+            verification_wall_ms: verification_elapsed_ms,
+            mean_normalized_union,
+            logical_source_bytes: transaction_logical_bytes,
+            process_disk_bytes_read: transaction_disk_bytes,
+        });
+        safety.checkpoint(
+            &format!("generation_transaction_{transaction_index}_complete"),
+            true,
+        )?;
+    }
+    if generated_token_ids.len() != requested_output_tokens
+        || caches.iter().any(|cache| {
+            cache.positions != prompt_token_ids.len() + generated_token_ids.len() - 1
+                || cache.validate().is_err()
+        })
+    {
+        return Err("committed generation/cache length gate failed".to_owned());
+    }
+    let generated_text = tokenizer
+        .decode(&generated_token_ids, false)
+        .map_err(|error| format!("tokenizer generated decode: {error}"))?;
+    safety.checkpoint("arbitrary_generation_complete", true)?;
+    let complete_wall_ms = complete_started.elapsed().as_secs_f64() * 1000.0;
+    let process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(complete_disk_before)
+        .ok_or("complete disk byte counter moved backwards")?;
+    let report = ArbitraryTextGenerationReport {
+        schema_version: 1,
+        evidence_class: "pw0204_arbitrary_prompt_target_proposed_generation",
+        semantic: "mimo_v2_5_target_faithful_text_generation_metal_native_l3",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        git_dirty,
+        model_lock_sha256: MODEL_LOCK_SHA256,
+        checkpoint_verification_sha256: verification_sha256,
+        tokenizer_sha256: TOKENIZER_SHA256,
+        tokenizer_config_sha256: TOKENIZER_CONFIG_SHA256,
+        kernel_sha256: hash_file(kernel_path)?,
+        metal_device: runtime.device_name.clone(),
+        user_prompt_utf8: user_prompt,
+        serialized_prompt_utf8: serialized_prompt,
+        prompt_token_ids,
+        generated_token_ids,
+        generated_text,
+        requested_output_tokens,
+        accepted_tokens: requested_output_tokens,
+        prefill_chunks,
+        transactions,
+        preprocessing_wall_ms,
+        prefill_wall_ms,
+        proposal_wall_ms,
+        verification_wall_ms,
+        complete_wall_ms,
+        logical_source_bytes,
+        process_disk_bytes_read,
+        peak_resident_bytes: peak_resident_bytes()?,
+        safety_snapshots: safety.snapshots,
+        batch_size: 1,
+        concurrency: 1,
+        verifier_width: WIDTH,
+        exactness: "source checkpoint target and proposer with Metal-native L3 reductions; no draft token commits before target verification",
+        proposer: "greedy source-checkpoint target proposer using the same retained K/V and Metal-native L3 arithmetic",
+        cache_state: "cold process start; bounded width-eight chunked prefill; process-local Metal pipelines; checkpoint pages released after every layer",
+        status: "completed",
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;
@@ -10620,6 +11057,20 @@ pub fn run_full_prefix_trace(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arbitrary_user_text_uses_the_pinned_single_turn_chat_serialization() {
+        assert_eq!(
+            serialize_single_user_chat("Hello"),
+            Ok(CHAT_PROMPT.to_owned())
+        );
+        assert_eq!(
+            serialize_single_user_chat("line one\nline two").unwrap(),
+            "<|im_start|>system\nYou are MiMo, a helpful AI assistant engineered by Xiaomi.<|im_end|><|im_start|>user\nline one\nline two<|im_end|><|im_start|>assistant\n<think></think>"
+        );
+        assert!(serialize_single_user_chat("").is_err());
+        assert!(serialize_single_user_chat("bad\0prompt").is_err());
+    }
 
     #[test]
     fn jacobi_acceptance_counts_the_correction_at_first_mismatch() {

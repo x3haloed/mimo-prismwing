@@ -66,6 +66,23 @@ PW-0203 acceptance authority. The production K/V representation now has a
 fail-closed rollback operation, and PW-0203 applies the same transaction result
 to discard rejected proposal rows after verification. Deterministic tests cover
 mismatch correction, convergence, malformed widths, rollback preservation,
-rollback-to-empty, and attempted rollback growth. Repeated runtime integration
-and real checkpoint evidence remain unexecuted, so accepted endpoint tokens and
-endpoint TPS remain zero.
+rollback-to-empty, and attempted rollback growth.
+
+The first repeated runtime path is now implemented as
+`arbitrary-text-generate`. It authenticates the model, tokenizer, source
+checkpoint, receipt, kernel, commit, and dirty state; applies the pinned
+single-user chat serialization to UTF-8 read from a file; prefills in bounded
+width-eight chunks; obtains each width-eight proposal greedily from the same
+source checkpoint; verifies it with the PW-0203 wide path; commits through the
+transaction authority; and repeats until exactly 32–64 tokens are observable.
+Complete wall time includes authority opening, preprocessing, Metal compilation,
+prefill, proposing, verification, rollback, decoding, and safety probes.
+
+The target itself is deliberately the initial proposer. This is computationally
+redundant and not a performance candidate, but it crosses the arbitrary-input
+and repeated-state risk frontier without accepting an unverified draft or
+creating another model-semantic authority. A faster proposer may replace it
+only after it produces real proposals and preserves target verification.
+
+Real checkpoint execution and evidence remain unexecuted, so accepted endpoint
+tokens and endpoint TPS remain zero.
