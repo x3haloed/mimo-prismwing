@@ -101,6 +101,30 @@ kernel void bf16_staged_swiglu(
     hidden[index] = result;
 }
 
+kernel void bf16_staged_swiglu_lut(
+    device float *gate [[buffer(0)]],
+    device float *up [[buffer(1)]],
+    device float *hidden [[buffer(2)]],
+    constant uint &count [[buffer(3)]],
+    device atomic_uint *error_flags [[buffer(4)]],
+    constant float *silu_lut [[buffer(5)]],
+    uint index [[thread_position_in_grid]]) {
+    if (index >= count) {
+        return;
+    }
+    const float rounded_gate = pw_round_bf16(gate[index]);
+    const float rounded_up = pw_round_bf16(up[index]);
+    const uint lut_index = as_type<uint>(rounded_gate) >> 16;
+    const float silu = silu_lut[lut_index];
+    const float result = pw_round_bf16(silu * rounded_up);
+    if (!isfinite(rounded_gate) || !isfinite(rounded_up) || !isfinite(result)) {
+        atomic_fetch_or_explicit(error_flags, 64u, memory_order_relaxed);
+    }
+    gate[index] = rounded_gate;
+    up[index] = rounded_up;
+    hidden[index] = result;
+}
+
 struct RoutedReductionShape {
     uint experts;
     uint width;
@@ -132,6 +156,21 @@ kernel void route_weighted_reduce_bf16(
         atomic_fetch_or_explicit(error_flags, 16u, memory_order_relaxed);
     }
     routed[column] = result;
+}
+
+kernel void bf16_round_in_place(
+    device float *values [[buffer(0)]],
+    constant uint &count [[buffer(1)]],
+    device atomic_uint *error_flags [[buffer(2)]],
+    uint index [[thread_position_in_grid]]) {
+    if (index >= count) {
+        return;
+    }
+    const float rounded = pw_round_bf16(values[index]);
+    if (!isfinite(rounded)) {
+        atomic_fetch_or_explicit(error_flags, 32u, memory_order_relaxed);
+    }
+    values[index] = rounded;
 }
 
 struct GemvShape {
@@ -248,6 +287,64 @@ kernel void bf16_gemm8_shared_weight(
             for (uint position = 0; position < batch; ++position) {
                 partial[lane * batch + position] +=
                     partial[(lane + offset) * batch + position];
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        for (uint position = 0; position < batch; ++position) {
+            output[position * shape.rows + row] = partial[position];
+        }
+    }
+}
+
+kernel void full_qkv_fp8_gemm8_shared_weight_lut_blocked(
+    device const uchar *weights [[buffer(0)]],
+    device const float *scales [[buffer(1)]],
+    device const float *input [[buffer(2)]],
+    device float *output [[buffer(3)]],
+    constant GemvShape &shape [[buffer(4)]],
+    constant float *decode_lut [[buffer(5)]],
+    threadgroup float *partial [[threadgroup(0)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    constexpr uint batch = 8;
+    if (row >= shape.rows || shape.rows != 13568 || shape.columns != 4096 ||
+        shape.block_rows != 128 || shape.block_columns != 128) {
+        return;
+    }
+    uint scale_row;
+    if (row < 12288) {
+        scale_row = row / 128;
+    } else if (row < 13056) {
+        const uint local = row - 12288;
+        scale_row = 96 + (local / 192) * 2 + (local % 192) / 128;
+    } else {
+        scale_row = 104 + (row - 13056) / 128;
+    }
+    const uint row_offset = row * shape.columns;
+    const uint scale_columns = 32;
+    float sums[batch] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    for (uint block = 0; block < scale_columns; ++block) {
+        const float scale = scales[scale_row * scale_columns + block];
+        const uint column_base = block * 128;
+        for (uint within = lane; within < 128; within += lanes) {
+            const uint column = column_base + within;
+            const float weight = decode_lut[weights[row_offset + column]] * scale;
+            for (uint position = 0; position < batch; ++position) {
+                sums[position] += weight * input[position * shape.columns + column];
+            }
+        }
+    }
+    for (uint position = 0; position < batch; ++position) {
+        partial[lane * batch + position] = sums[position];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+        if (lane < offset) {
+            for (uint position = 0; position < batch; ++position) {
+                partial[lane * batch + position] += partial[(lane + offset) * batch + position];
             }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -490,6 +587,139 @@ kernel void block_fp8_gemm8_shared_weight_lut_blocked(
         }
     }
 }
+
+kernel void block_fp8_gemm_active_shared_weight_lut_blocked(
+    device const uchar *weights [[buffer(0)]],
+    device const float *scales [[buffer(1)]],
+    device const float *input [[buffer(2)]],
+    device float *output [[buffer(3)]],
+    constant GemvShape &shape [[buffer(4)]],
+    constant float *decode_lut [[buffer(5)]],
+    constant uint &active_count [[buffer(6)]],
+    threadgroup float *partial [[threadgroup(0)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    constexpr uint capacity = 8;
+    if (row >= shape.rows || active_count == 0 || active_count > capacity ||
+        shape.block_rows == 0 || shape.block_columns == 0 ||
+        shape.columns % shape.block_columns != 0) {
+        return;
+    }
+    const uint row_offset = row * shape.columns;
+    const uint scale_columns = shape.columns / shape.block_columns;
+    const uint scale_row_offset = (row / shape.block_rows) * scale_columns;
+    float sums[capacity] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    for (uint block = 0; block < scale_columns; ++block) {
+        const float scale = scales[scale_row_offset + block];
+        const uint column_base = block * shape.block_columns;
+        for (uint within = lane; within < shape.block_columns; within += lanes) {
+            const uint column = column_base + within;
+            const float weight = decode_lut[weights[row_offset + column]] * scale;
+            for (uint position = 0; position < active_count; ++position) {
+                sums[position] += weight * input[position * shape.columns + column];
+            }
+        }
+    }
+    for (uint position = 0; position < active_count; ++position) {
+        partial[lane * capacity + position] = sums[position];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+        if (lane < offset) {
+            for (uint position = 0; position < active_count; ++position) {
+                partial[lane * capacity + position] +=
+                    partial[(lane + offset) * capacity + position];
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        for (uint position = 0; position < active_count; ++position) {
+            output[position * shape.rows + row] = partial[position];
+        }
+    }
+}
+
+template <uint active>
+inline void block_fp8_gemm_specialized_impl(
+    device const uchar *weights,
+    device const float *scales,
+    device const float *input,
+    device float *output,
+    constant GemvShape &shape,
+    constant float *decode_lut,
+    threadgroup float *partial,
+    uint row,
+    uint lane,
+    uint lanes) {
+    if (row >= shape.rows || shape.block_rows == 0 || shape.block_columns == 0 ||
+        shape.columns % shape.block_columns != 0) {
+        return;
+    }
+    const uint row_offset = row * shape.columns;
+    const uint scale_columns = shape.columns / shape.block_columns;
+    const uint scale_row_offset = (row / shape.block_rows) * scale_columns;
+    float sums[active];
+    for (uint position = 0; position < active; ++position) {
+        sums[position] = 0.0f;
+    }
+    for (uint block = 0; block < scale_columns; ++block) {
+        const float scale = scales[scale_row_offset + block];
+        const uint column_base = block * shape.block_columns;
+        for (uint within = lane; within < shape.block_columns; within += lanes) {
+            const uint column = column_base + within;
+            const float weight = decode_lut[weights[row_offset + column]] * scale;
+            for (uint position = 0; position < active; ++position) {
+                sums[position] += weight * input[position * shape.columns + column];
+            }
+        }
+    }
+    for (uint position = 0; position < active; ++position) {
+        partial[lane * active + position] = sums[position];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+        if (lane < offset) {
+            for (uint position = 0; position < active; ++position) {
+                partial[lane * active + position] +=
+                    partial[(lane + offset) * active + position];
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        for (uint position = 0; position < active; ++position) {
+            output[position * shape.rows + row] = partial[position];
+        }
+    }
+}
+
+#define PW_DEFINE_SPECIALIZED_GEMM(WIDTH) \
+kernel void block_fp8_gemm##WIDTH##_shared_weight_lut_blocked( \
+    device const uchar *weights [[buffer(0)]], \
+    device const float *scales [[buffer(1)]], \
+    device const float *input [[buffer(2)]], \
+    device float *output [[buffer(3)]], \
+    constant GemvShape &shape [[buffer(4)]], \
+    constant float *decode_lut [[buffer(5)]], \
+    threadgroup float *partial [[threadgroup(0)]], \
+    uint row [[threadgroup_position_in_grid]], \
+    uint lane [[thread_index_in_threadgroup]], \
+    uint lanes [[threads_per_threadgroup]]) { \
+    block_fp8_gemm_specialized_impl<WIDTH>( \
+        weights, scales, input, output, shape, decode_lut, partial, row, lane, lanes); \
+}
+
+PW_DEFINE_SPECIALIZED_GEMM(1)
+PW_DEFINE_SPECIALIZED_GEMM(2)
+PW_DEFINE_SPECIALIZED_GEMM(3)
+PW_DEFINE_SPECIALIZED_GEMM(4)
+PW_DEFINE_SPECIALIZED_GEMM(5)
+PW_DEFINE_SPECIALIZED_GEMM(6)
+PW_DEFINE_SPECIALIZED_GEMM(7)
+
+#undef PW_DEFINE_SPECIALIZED_GEMM
 
 kernel void block_fp8_gemm8_simdgroup_matrix_lut_blocked(
     device const uchar *weights [[buffer(0)]],

@@ -3576,3 +3576,317 @@ Gate 8 passes at 70% minimum free memory, 790,664,192-byte maximum footprint,
 815,284,224-byte peak RSS, zero swap growth or throttling, and 23,102,976
 bytes after release. PW-0176 records zero accepted tokens, no endpoint TPS,
 and no throughput-model constant change.
+
+PW-0177 separates compressed expert arithmetic from acquisition topology on
+the onboard M1. Core ML executes a real row-scaled vector-code expert at
+1.4222 ms warm median and 2.2138 ms p95 from a 13,140,830-byte package, versus
+1.3651 ms and 2.3983 ms for the 50,364,779-byte FP16 control. Thus compressed
+resident arithmetic is viable and does not inherently require dense expansion
+or a warm latency penalty on this substrate.
+
+The exact untrained four-effective-bit rule is not viable: validation relative
+L2 is `0.159577` and maximum-row relative L2 is `0.180525`, while the FP16
+control passes at `0.036504` and `0.046242`. The earlier implication that a
+directly executable vector code might supply enough fidelity merely by
+changing the lookup geometry is superseded for this fitting rule. Training,
+activation-aware assignments, or a different program family remains distinct.
+
+Acquisition is an independent rejection. The vector package takes 503.257 ms
+to load and 7.109 ms for its first prediction. Kill route-time per-expert Core
+ML package switching even if a future codebook repairs fidelity; 376 expert
+executions per accepted second allow only about 2.66 ms each for the entire
+expert transaction. Any continuing Core ML branch must be a resident shared
+multi-expert transaction and must not preload the full routed bank. The
+content-addressed report hashes to
+`911f1db4b0c7d3f0af068a1f55acc78c8a7b3993ae3cea228bee91adc1ad756c`.
+PW-0177 records zero accepted tokens and changes no throughput-model constant.
+
+PW-0178 shows that changing vector orientation does not by itself solve the
+low-rate fidelity problem. Input-subvector codebooks have a compelling exact
+ledger—6,291,456 code bytes/expert, 2,365,587,456 code bytes for 376 expert
+executions, and 246,415,360 resident codebook bytes across 47 layers—but the
+favorable private layer-46/expert-28 oracle reaches `0.207785` validation
+relative L2 and `0.240740` maximum-row error. Gate and up already fail at
+`0.119019` and `0.084431`; training error remains `0.191608`.
+
+Private per-expert 256-centroid input-group codebooks are a capacity upper
+bound on layer-shared codebooks at the same two-index-bit rate. Kill that
+single-codebook family rather than building shared fitting or a packed kernel.
+The physical dataflow remains useful only if a separately charged low-rank or
+multi-codebook residual, or recovery training, closes the large error without
+erasing the traffic advantage. The report hashes to
+`1311a8ced8ea4d376229efc9e1508542e5023d41b8f9cec546fcaab3548ac559`.
+PW-0178 leaves the holdout sealed, records zero accepted tokens, and changes no
+measured throughput-model constant.
+
+PW-0179 rejects the hypothesis that PW-0178's two-bit error is a compact
+low-rank residual. Rank 96—the last point inside the frozen 75%-of-INT4 and
+8%-extra-MAC envelope—still yields `0.198209` complete-expert validation L2.
+Diagnostic rank 128 reaches only `0.196296`, captures just
+`0.232786/0.231847/0.401065` of gate/up/down residual energy, and already grows
+to `0.823529` of affine-INT4 bytes with `0.09375` of source MACs.
+
+The residual is broadly distributed rather than a few missing directions.
+Kill low-rank weight repair on this two-bit core; more rank gives back the
+traffic and compute needed for 1 TPS. The report hashes to
+`afbf05fde482f234f2bf6f19176cdf363d25835ae282407f3d39436a9fe9d4df`.
+Only a non-low-rank trained representation remains distinct. PW-0179 keeps the
+holdout sealed, accepts zero tokens, and changes no throughput-model constant.
+
+PW-0180 rejects the last cheap trained repair on the two-bit subvector core.
+Continuous centroid optimization is not blocked by scalar rounding: its F32
+train objective falls `55.875%`. Yet F16-staged frozen validation worsens to
+`0.340665` complete-expert L2 and `0.445062` maximum-row error; gate/up reach
+`1.234581/0.742788`. The optimization memorizes the narrow routed trace and
+does not learn a transferable codebook rule.
+
+Kill fixed-index centroid-only recovery and do not scale it to shared experts
+or tune its schedule on visible validation. The report hashes to
+`cbc780d45eda7be74c50955019b62514e0a5b885cb1c16d0796f85dbfa3a80c3`.
+PW-0180 keeps the holdout sealed, accepts zero tokens, and changes no measured
+throughput-model constant.
+
+PW-0181 closes the existing-M1 one-TPS frontier without a success claim. The
+15.206-ms warm one-barrier routed layer would total 0.714682 seconds across 47
+layers, but sustained residency is impossible. PW-0104's impossible 8 GiB
+offline-Belady oracle still misses 39.962569% of exact expert accesses. Applied
+to PW-0108's measured 2.727590-second acquisition, misses alone take 1.090015
+seconds. Perfectly overlap all warm MoE compute and add only the promoted
+0.131220-second attention subtotal: the lower bound is 1.221235 seconds, or at
+most 0.818843 TPS, before every remaining endpoint operation. A causal cache
+and physically admissible footprint are worse.
+
+The new lossy escape paths fail independently: PW-0177 at `0.159577`, PW-0178
+at `0.207785`, PW-0179 rank 96 at `0.198209`, and PW-0180 after training at
+`0.340665` validation relative L2. More bits/rank/private state gives back the
+traffic advantage; per-expert Core ML loading is 510.365 ms; wide speculation
+cannot overcome route union. With sidecar probes excluded and every cheap
+training prerequisite failed, no evidence-backed onboard hypothesis remains.
+PW-0181 records zero accepted tokens, no endpoint TPS, and no throughput-model
+constant change.
+
+PW-0182 tests the changed premise supplied by MLX 0.31.2's directly executable
+microscaling formats. MXFP4 exactly matches the 13,369,344-byte INT4 envelope
+and executes a real deep expert in `0.587479` ms warm median, but complete
+validation relative L2 is `0.193978`. NVFP4 reaches `0.167407` at 1.0588 times
+INT4 bytes; affine group-32 reaches `0.134476` at 1.1765 times. Fast compressed
+arithmetic is real, but none of these four-bit number systems supplies MiMo's
+missing fidelity. The report hashes to
+`db62501ba622bb09a18db327c06cc883ab51ec978836f6d0dc703ab72ebbf485`.
+
+PW-0183 rejects the hypothesis that spending extra bits only on the down
+projection repairs that failure. `3/3/6` gate/up/down exactly matches INT4
+bytes and runs in `0.597708` ms, but complete validation error is `0.255800`;
+gate/up already fail at `0.163618/0.113376`. Even `4/4/8` remains at
+`0.123779` while growing to 1.313725 times INT4 bytes. The report hashes to
+`38a6ac68ce858bd0e7e06ffa8a31974ea625e6cf1648d554801d2dc289506fb0`.
+Keep mixed precision available only with a different learned representation,
+not as projection-only bit allocation. Zero tokens are accepted and no
+throughput constant changes.
+
+PW-0184 attacks the assumption that every selected expert must read every
+source-weight column. At the minimum useful 25% per-token column sparsity,
+weight-aware scoring yields `0.108212` complete-expert error and `0.131193`
+maximum-row error; magnitude-only scoring is slightly worse at `0.110157`.
+The best gate/up errors are still `0.064557/0.046195`, and 40--50% sparsity
+degrades monotonically. The current TEAL/WiSparse activation-sparsity premise
+therefore does not transfer to this deep routed MiMo control at the required
+fidelity. Kill direct channel deletion before storage or kernel work. The
+report hashes to
+`6bd4a396d9c4139bf6a60c1c920ae8ff7169040857b093399b97b815350798d7`.
+Zero tokens are accepted and no
+throughput constant changes.
+
+PW-0185 rejects exact prompt lookup as the one-TPS escape on PW-0112's
+authenticated text suffix. The strongest deliberately permissive minimum-one-
+token, `q=4` rule commits 137 target tokens in 126 passes (`A=1.087302`), with
+maximum `A=4`. Even at impossible `U=1`, PW-0181's miss term remains
+`1.002496` seconds per accepted token before attention, verification overhead,
+or any remaining endpoint work. Minimum n-gram two falls to `A=1.037879`; four
+or higher accepts no draft token. The report hashes to
+`be1709777b2b2402c0419c917f010389fcffa0dc1fa9169ac6a72ec26a20a2d6`.
+This closes history repetition on the trace, not target-generated Jacobi or
+lookahead candidates. Zero executed tokens and no throughput constant change.
+
+PW-0186 supplies the first positive changed premise after PW-0181. PW-0102's
+authenticated posterior is shifted into a second Jacobi block without a draft
+model. Exact source verification accepts `A=3` at mean normalized expert union
+`U=2.268617`, giving `A/U=1.322392`. The frozen favorable physical expression
+is `0.868016` seconds per accepted token (`1.152053` TPS) before dense work, LM
+head, correction, rollback, or a real wide Metal transaction. This is a
+continuation gate, not endpoint throughput.
+
+The posterior is `[13,15,13,15,15,15,15,264]`; its manifest hashes to
+`f773fa2859f08b57f851944aa8ba0ef9b502040058580a9344be4ce3ee1e1d1c`.
+The CPU source oracle takes 274.337 seconds post-prefill. Gate 8 passes with
+59% minimum free memory, 4,022,747,136-byte peak RSS, 208,292,928-byte maximum
+physical footprint, zero swap growth or throttling, and stable services.
+Promote one third/convergence iteration; change no measured throughput constant.
+
+PW-0187 strengthens that changed premise enough to promote physical
+integration. A third authenticated Jacobi iteration proposes
+`[264,13,15,13,15,15,15,15]`, produces posterior
+`[13,15,13,15,481,13,15,15]`, and accepts `A=5` at mean normalized expert
+union `U=2.050532`. Thus `A/U=2.438392`; PW-0181's frozen favorable expression
+falls to `0.473266` seconds per accepted token, or `2.112976` TPS before all
+omitted work. This is not endpoint throughput, but it rejects the previous
+belief that route union necessarily destroys target-generated wide decoding
+on the authenticated suffix. The manifest hashes to
+`a1066fafa979b923f9c2f5d259ff85b2f3d5aa2e77400e8b7075a48f3fa67950`.
+Promote a production-shaped wide Metal verifier using original-checkpoint
+page-rounded no-copy bindings; do not build the approximately 303 GB repacked
+bank and do not change a measured throughput constant yet.
+
+PW-0188 validates that physical binding premise on the real checkpoint. The
+layer-46 expert-28 gate tensor begins 14,712 bytes into a 16,384-byte page; a
+page-rounded read-only mapping binds through Metal with that explicit buffer
+offset, zero source-copy bytes, and exact GPU/CPU samples at the first, middle,
+and final tensor bytes. Mapping overhead is only 16,384 bytes over the
+8,388,608-byte tensor. The report hashes to
+`9e9bfd44287ab2c74df915d6c242320145387366f34755e7dcdd918f30ae4a7a`.
+This supersedes the assumption that a page-aligned approximately 303 GB
+repacked expert bank is required for Metal no-copy execution. Promote a real
+FP8 projection parity test through the original shard mapping; the byte-sample
+timing is diagnostic and changes no throughput constant.
+
+PW-0189 prevents physical success from silently changing numerical semantics.
+The first direct-checkpoint real FP8 projection fails PW-0101's source-BF16
+authority at `0.00617527` relative L2 and `0.0678575` maximum error because the
+current Metal kernel omits source dynamic activation FP8 quantization and BF16
+output staging. This is consistent with PW-0114's explicitly modified
+`metal-native-l3` result, not a new target-faithful path. Reject the projection
+under the source contract; separately test no-copy versus copied/readable
+equivalence only under the already named L3 semantic.
+
+PW-0190 passes that isolated L3 physical gate. Real layer-4 expert-64 gate
+weights and scales bind directly from the original shard at offsets 3,264 and
+7,360 with zero copied source bytes. The unchanged Metal projection reaches
+`9.13839e-7` relative L2 and `1.19209e-5` maximum error against the readable
+mapped-FP8/F32 authority, with a 0.579-ms warm median. The report hashes to
+`f3b2aaa099cd0c47b29efa4bfe41279ec608b6ea974528d0945112f113a70f31`.
+Promote a complete direct-checkpoint expert under the named L3 semantic only;
+PW-0189 remains the target-faithful rejection and no endpoint constant changes.
+
+PW-0191 completes the no-copy expert rung without an external sidecar or
+repacked artifact. Six page-rounded original-shard bindings execute the real
+layer-43 expert-32 gate/up/SwiGLU/down path with zero copied source bytes and
+reproduce PW-0034's output SHA exactly. Complete error is `4.69754e-7` relative
+L2 and `4.45652e-11` maximum absolute; cold and warm-median command times are
+2.997 and 1.078 ms. The runtime report hashes to
+`f45ed1c4becbb3640948bf26d7455c8a8b8f1a3bb29e9ecc6b3ed5d1cf3f61d4`.
+Promote heterogeneous original-shard scheduling in named L3 mode. Target-BF16
+fidelity and endpoint accepted-token execution remain separate gates.
+
+PW-0192 proves that direct checkpoint binding preserves the width-reuse
+primitive. One real expert executes eight deterministic rows through the
+shared-weight GEMM8 transaction with zero copied source bytes, `1.62608e-6`
+complete relative L2, and a 2.104-ms warm median (0.263 ms/position, 3.881x
+over PW-0034 batch one). The corrected report hashes to
+`0471f6932abecd830da7cc42ac3da05345d67b249f6937d3cabae85d52a8eb24`
+and reports zero executed/accepted tokens and `A=0`; the eight rows are not
+misreported as acceptance. Promote a heterogeneous PW-0187-route scheduling
+probe in named L3 mode, not an endpoint constant.
+
+PW-0193 crosses from shared-expert width to the real PW-0187 layer-43 union.
+Seventeen original-shard experts and all 64 routed placements reproduce an
+independent weighted-mixture authority at `1.49824e-6` relative L2 with zero
+copied source bytes. Warm layer wall is 32.906 ms, but the cause is now
+specific: fixed batch eight executes 136 rows for 64 placements, or 112.5%
+padding overhead. The report hashes to
+`cf86d431140848bb090eac05e0ad2309c0fb61bed3b0ca071f3cdd1cc3818e6a`.
+Promote a count-aware 1--8-row shared-weight kernel. The APFS device authority
+changed uniformly while size, inode, nanosecond mtime, and pinned hashes stayed
+fixed; record the `16777233 -> 16777231` transition and fail closed on a
+nonuniform transition.
+
+PW-0194 rejects runtime count-awareness despite perfect causal isolation. It
+executes exactly 64 rows, preserves PW-0193's output SHA, and passes its active-
+count fixture at `1.67638e-8`, but warm wall regresses from 32.906 to 62.600 ms.
+The report hashes to
+`6c7a22ce209fc6ac429d21daab3691cf584d8ea3b5cf26932aef83bc47a5493e`.
+The changed premise is compiler specialization: test eight compile-time widths
+so Metal can unroll position loops; do not retain the dynamic-count kernel.
+
+PW-0195 validates compiler specialization as the missing condition. Widths
+one through eight all pass their correctness fixtures; the real route union is
+byte-identical to PW-0193 while warm wall falls to 19.745 ms, 1.667x faster than
+fixed batch eight and 3.170x faster than runtime counts. The report hashes to
+`bfbfed78d13ad80b47a6dc1cedefea3fdb9ce7ef2ff8add015f071283a0a0450`.
+Promote compile-time width selection by authenticated placement count across
+the direct-checkpoint L3 verifier. A layer-43-only warm extrapolation is about
+0.1866 MoE seconds per PW-0187 accepted token; it is diagnostic, not endpoint
+TPS or source-fidelity evidence.
+
+PW-0196 reverses PW-0189's broad numerical rejection. Exact readable dynamic
+group-128 activation quantize/dequantize before the unchanged direct Metal
+projection and BF16 staging afterward reproduce PW-0101 byte for byte. The
+report hashes to
+`f7cc290c12293de07f3061e15747054e7cdec75f96313b8465e5fcacf4352b6a`.
+The source-weight reduction topology is therefore not independently blocking
+on that real projection; promote GPU-resident semantic adapters, not the
+adapter-excluding timing.
+
+PW-0197 then rejects the first complete wide source-semantic composition. Its
+BF16 staging fixture passes, all 64 placements execute, and maximum output
+error is only `2.38419e-7`, but relative L2 is `0.00272864` against the frozen
+`2e-5` gate because the routed authority has a very small norm. Do not hide this
+behind absolute tolerance or promote its timing. The next falsifier should use
+the finite BF16 domain to replace backend-dependent SwiGLU transcendental
+evaluation with an authenticated lookup, then remeasure the unchanged output
+gate before blaming batched projection reduction.
+
+PW-0198 performs that finite-domain isolation and rejects the hypothesis. A
+256-KiB BF16 SiLU table eliminates Metal transcendental evaluation and passes
+an exact CPU fixture, yet produces the exact same rejected output SHA as
+PW-0197. The mismatch is therefore upstream in projection arithmetic on this
+fixture. Test a bounded family of parallel reduction widths before designing a
+new accumulator; do not retain the lookup as a correctness repair.
+
+PW-0199 rejects the remaining ordinary tree-width family. Sixteen lanes is the
+best of 16/32/64/128/256 but still reaches only `0.00263641` relative L2; the
+others cluster near `0.00271--0.00273`, all with the same `2.38419e-7` maximum
+error. Stop tuning power-of-two lane counts. A future exact local experiment
+must change the accumulation representation (for example a bounded exact or
+source-calibrated accumulator), while the endpoint branch must separately test
+whether this cancellation-sensitive synthetic fixture predicts whole-model
+token identity under the already frozen endpoint gates.
+
+PW-0200 narrows that cancellation mismatch to nine BF16 values among 65,536
+real projection outputs (`0.0137%`); 15 of 24 projections are byte-exact and
+19 pass the unchanged gate. PW-0201 then rejects the intuitive repair: a
+correctly rounded float64 dot matches Metal at eight of those nine sites, not
+the source BLAS result. Source fidelity is an association property, not a
+mathematical-accuracy property. PW-0202 closes the conservative sparse repair
+escape because its fail-closed forward-error certificate flags `65.7455%` of
+all rows despite capturing all nine misses. Preserve the source-BLAS sparse
+shape observation, but do not promote it without a new non-calibrated
+certificate.
+
+PW-0203 reverses the belief that PW-0197's cancellation-sensitive layer gate
+predicts endpoint failure. A complete eight-position verifier using the same
+named L3 projection reductions reproduces the frozen posterior
+`[13,15,13,15,481,13,15,15]` in every cold and warm run, with exact `A=5`.
+Endpoint behavioral gates, not an ill-conditioned synthetic mixture norm, are
+the authority for this acknowledged arithmetic reordering.
+
+PW-0203 also replaces component extrapolation with a measured complete-path
+constant. Direct-checkpoint Metal MoE alone leaves warm throughput at
+`0.06422` accepted TPS. Extending direct Metal execution through attention,
+dense layer zero, and the eight-row LM head reaches `0.09302`. Removing
+duplicate per-request FP8 scans and moving heavyweight OS monitoring outside
+model time reaches `0.21985` warm accepted TPS, 22.743 seconds per target
+verification, with 27,508,178,944 physical bytes read. The new best verifier
+is a real `3.42x` gain over the first PW-0203 variant, but still misses one TPS
+by `4.5546x`.
+
+The final bottleneck is physical embodiment rather than ordinary kernel
+tuning. Correctly labeled run 004's 47 MoE transactions take 10.435 seconds while reading
+19.812 GB of page-rounded expert regions, and the complete transaction reads
+27.508 GB. The 16 GiB host cannot retain that exact working set; PW-0108 can
+improve acquisition topology only partially, PW-0181's impossible 8 GiB
+Belady premise is already below one TPS before the full spine, and the tested
+four-bit executable representations fail held-out fidelity. Therefore reject
+the current `q=8` source-FP8/internal-SSD branch for one TPS. A future reopening
+requires a genuinely changed premise—held-out-passing executable-byte
+reduction or a MiMo-specific long-horizon proposer—not another lane count,
+content scan, safety-placement tweak, or hardware sidecar probe.

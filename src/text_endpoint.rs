@@ -1,9 +1,10 @@
 //! PW-0050 bounded, target-faithful slow text endpoint.
 
 use super::{
-    MappedSafetensors, MappedTensorView, UniqueJson, ValidatedMappedFp8,
+    MappedNoCopyRegion, MappedSafetensors, MappedTensorView, UniqueJson, ValidatedMappedFp8,
     accelerate_sgemm_right_transposed, decode_bf16_tensor, decode_fp8_matrix_f32, read_f32_file,
-    sha256_hex, sha256_reader, stable_rms_inverse, validate_fp8_views, write_create_new,
+    sha256_hex, sha256_reader, stable_rms_inverse, validate_fp8_views,
+    validate_prevalidated_fp8_views, write_create_new,
 };
 use crate::routed_layer_artifact::{
     RoutedLayerArtifactManifest, RoutedLayerSourceTensor, build_routed_layer_artifact,
@@ -17,6 +18,7 @@ use crate::staged_metal_expert::{
 use crate::structured_sparse::{
     VerticalSlashSelection, selected_positions_for_query, vertical_slash_selection,
 };
+use crate::wide_metal_moe::{WideExpertBinding, WideMetalMoeRuntime, WideProjectionBinding};
 use memmap2::MmapMut;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -254,6 +256,11 @@ pub struct MetalExpertLedger {
     pub released_projection_buffers: u64,
     pub sparse_decoded_weight_bytes: u64,
     pub sparse_repair_counts: [u64; 3],
+    pub wide_transactions: u64,
+    pub wide_expert_rows: u64,
+    pub wide_unique_experts: u64,
+    pub wide_wall_ms: f64,
+    pub wide_mapped_source_bytes: u64,
     #[serde(skip)]
     pub tomography_enabled: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -540,6 +547,55 @@ pub struct MetalIncrementalTextReport {
     pub output_committed: bool,
     pub performance_claim: Option<String>,
     pub implementation: &'static str,
+    pub promotion_gates_passed: bool,
+    pub status: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WideJacobiTrial {
+    pub cache_state: &'static str,
+    pub posterior_token_ids: Vec<u32>,
+    pub accepted_tokens: usize,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: usize,
+    #[serde(rename = "U")]
+    pub mean_normalized_union: f64,
+    pub accepted_tps: f64,
+    pub wall_ms: f64,
+    pub process_disk_bytes_read: u64,
+    pub ledger: EndpointLedger,
+    pub metal_ledger: MetalExpertLedger,
+    pub layer_traces: Vec<LayerRouteTrace>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WideJacobiTextReport {
+    pub schema_version: u32,
+    pub evidence_class: &'static str,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub git_dirty: bool,
+    pub fixture_sha256: String,
+    pub checkpoint_verification_sha256: String,
+    pub jacobi_authority_sha256: String,
+    pub kernel_sha256: String,
+    pub kernel_compile_ms: f64,
+    pub metal_device: String,
+    pub prompt_token_ids: Vec<u32>,
+    pub proposed_block_token_ids: Vec<u32>,
+    pub target_posterior_token_ids: Vec<u32>,
+    pub trials: Vec<WideJacobiTrial>,
+    pub setup_ledger: EndpointLedger,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub setup_wall_ms: f64,
+    pub complete_wall_ms: f64,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub q: usize,
+    pub numerics: &'static str,
+    pub cache_authority: &'static str,
+    pub performance_claim: Option<String>,
     pub promotion_gates_passed: bool,
     pub status: &'static str,
 }
@@ -1374,6 +1430,7 @@ struct MixtureLayerInternalCapture {
 
 struct NativeDecodeStep {
     output_token: u32,
+    output_tokens: Vec<u32>,
     top_logits: Vec<(u32, f32)>,
     full_logits: Vec<f32>,
     traces: Vec<LayerRouteTrace>,
@@ -1383,6 +1440,7 @@ struct NativeDecodeStep {
 #[derive(Clone, Copy)]
 enum DecodeOutput {
     Logits,
+    AllLogits,
     RoutesOnly,
 }
 
@@ -1534,6 +1592,18 @@ impl Checkpoint {
             .ok_or_else(|| format!("tensor absent from checkpoint index: {name}"))
     }
 
+    fn tensor_no_copy_region(
+        &self,
+        name: &str,
+        page_bytes: usize,
+    ) -> Result<MappedNoCopyRegion<'_>, String> {
+        let shard = self.shard_for_tensor(name)?;
+        self.shards
+            .get(shard)
+            .ok_or_else(|| format!("mapped shard absent: {shard}"))?
+            .tensor_no_copy_region(name, page_bytes)
+    }
+
     fn source_tensor(&self, name: &str) -> Result<CheckpointTensorSource<'_>, String> {
         let shard = self.shard_for_tensor(name)?;
         let mapped = self
@@ -1596,7 +1666,7 @@ impl Checkpoint {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct LayerKvCache {
     keys: Vec<f32>,
     values: Vec<f32>,
@@ -2316,14 +2386,14 @@ fn round_bf16(value: f32) -> f32 {
     f32::from_bits(bits.wrapping_add(rounding_bias) & 0xffff_0000)
 }
 
-fn round_bf16_values(values: &mut [f32]) {
+pub(crate) fn round_bf16_values(values: &mut [f32]) {
     for value in values {
         *value = round_bf16(*value);
     }
 }
 
-struct DynamicFp8Activations {
-    dequantized: Vec<f32>,
+pub(crate) struct DynamicFp8Activations {
+    pub(crate) dequantized: Vec<f32>,
     scales: Vec<f32>,
     encoded: Vec<u8>,
 }
@@ -2351,7 +2421,7 @@ fn encode_f8_e4m3fn(value: f32) -> Result<u8, String> {
     Ok(best | if value.is_sign_negative() { 0x80 } else { 0 })
 }
 
-fn dynamic_fp8_activations(
+pub(crate) fn dynamic_fp8_activations(
     input: &[f32],
     rows: usize,
     columns: usize,
@@ -2437,6 +2507,78 @@ fn fp8_linear(
     };
     release_matrix_transients(checkpoint)?;
     Ok(output)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn wide_fp8_linear(
+    checkpoint: &Checkpoint,
+    weight_name: &str,
+    input: &[f32],
+    rows: usize,
+    columns: usize,
+    output_columns: usize,
+    full_qkv_layout: bool,
+    ledger: &mut EndpointLedger,
+    runtime: &WideMetalMoeRuntime,
+) -> Result<Vec<f32>, String> {
+    if rows != 8 || input.len() != rows * columns {
+        return Err(format!(
+            "{weight_name}: wide FP8 linear input shape mismatch"
+        ));
+    }
+    let scale_name = format!("{weight_name}_scale_inv");
+    let weight = checkpoint.tensor(weight_name)?;
+    let scale = checkpoint.tensor(&scale_name)?;
+    if full_qkv_layout {
+        if (output_columns, columns) != (13_568, HIDDEN)
+            || weight.metadata.dtype != "F8_E4M3"
+            || weight.metadata.shape != [output_columns as u64, columns as u64]
+            || scale.metadata.dtype != "F32"
+            || scale.metadata.shape != [108, 32]
+        {
+            return Err(format!("{weight_name}: wide full-QKV layout mismatch"));
+        }
+    } else {
+        let validated = validate_prevalidated_fp8_views(weight, scale, &input[..columns])?;
+        if (validated.rows, validated.columns) != (output_columns, columns) {
+            return Err(format!("{weight_name}: wide FP8 weight shape mismatch"));
+        }
+    }
+    let page_bytes = host_page_bytes()?;
+    let (weight_region, copy_weight) =
+        match checkpoint.tensor_no_copy_region(weight_name, page_bytes) {
+            Ok(region) => (region, false),
+            Err(error) if error == "page-rounded tensor interval exceeds the file mapping" => {
+                let fallback = checkpoint.tensor(weight_name)?;
+                (
+                    MappedNoCopyRegion {
+                        bytes: fallback.bytes,
+                        tensor_offset: 0,
+                        tensor_bytes: fallback.bytes.len(),
+                    },
+                    true,
+                )
+            }
+            Err(error) => return Err(format!("{weight_name}: {error}")),
+        };
+    let binding = WideProjectionBinding {
+        weight: weight_region,
+        scale: checkpoint.tensor_no_copy_region(&scale_name, page_bytes)?,
+        copy_weight,
+        rows: output_columns,
+        columns,
+    };
+    let logical_bytes = (binding.weight.tensor_bytes + binding.scale.tensor_bytes) as u64;
+    let execution = runtime.execute_fp8_linear(input, &binding, full_qkv_layout)?;
+    ledger.logical_source_bytes = ledger
+        .logical_source_bytes
+        .checked_add(logical_bytes)
+        .ok_or("wide FP8 logical byte ledger overflow")?;
+    ledger.fp8_matrices_expanded += 1;
+    ledger.dynamic_activation_groups += (rows * columns / 128) as u64;
+    ledger.dynamic_activation_values += (rows * columns) as u64;
+    let _ = (execution.wall_ms, execution.mapped_source_bytes);
+    Ok(execution.output)
 }
 
 fn full_qkv_scale_row(weight_row: usize) -> Result<usize, String> {
@@ -2592,6 +2734,42 @@ fn bf16_linear(
     };
     release_matrix_transients(checkpoint)?;
     Ok(output)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn wide_bf16_linear(
+    checkpoint: &Checkpoint,
+    weight_name: &str,
+    input: &[f32],
+    rows: usize,
+    columns: usize,
+    output_columns: usize,
+    ledger: &mut EndpointLedger,
+    runtime: &WideMetalMoeRuntime,
+) -> Result<Vec<f32>, String> {
+    if rows != 8 || input.len() != rows * columns {
+        return Err(format!(
+            "{weight_name}: wide BF16 linear input shape mismatch"
+        ));
+    }
+    let view = checkpoint.tensor(weight_name)?;
+    if view.metadata.dtype != "BF16"
+        || view.metadata.shape != [output_columns as u64, columns as u64]
+        || view.bytes.len() != output_columns * columns * 2
+    {
+        return Err(format!("{weight_name}: wide BF16 weight shape mismatch"));
+    }
+    let page_bytes = host_page_bytes()?;
+    let region = checkpoint.tensor_no_copy_region(weight_name, page_bytes)?;
+    let logical_bytes = region.tensor_bytes as u64;
+    let execution = runtime.execute_bf16_linear(input, &region, output_columns, columns)?;
+    ledger.logical_source_bytes = ledger
+        .logical_source_bytes
+        .checked_add(logical_bytes)
+        .ok_or("wide BF16 logical byte ledger overflow")?;
+    ledger.bf16_matrices_expanded += 1;
+    let _ = (execution.wall_ms, execution.mapped_source_bytes);
+    Ok(execution.output)
 }
 
 fn bf16_last_row_linear(
@@ -3271,6 +3449,7 @@ fn attention(
     rows: usize,
     cache: &mut LayerKvCache,
     ledger: &mut EndpointLedger,
+    wide_runtime: Option<&WideMetalMoeRuntime>,
     mut captures: Option<&mut Layer0Captures>,
     mut sparsity_capture: Option<&mut GlobalAttentionCaptureBuffer>,
 ) -> Result<Vec<f32>, String> {
@@ -3286,7 +3465,11 @@ fn attention(
     let qkv_rows = q_size + k_size + v_size;
     let prefix = format!("model.layers.{layer}.self_attn");
     let qkv_name = format!("{prefix}.qkv_proj.weight");
-    let qkv = if is_swa {
+    let qkv = if let Some(runtime) = wide_runtime {
+        wide_fp8_linear(
+            checkpoint, &qkv_name, normalized, rows, HIDDEN, qkv_rows, !is_swa, ledger, runtime,
+        )
+    } else if is_swa {
         fp8_linear(
             checkpoint, &qkv_name, normalized, rows, HIDDEN, qkv_rows, ledger,
         )
@@ -3404,15 +3587,28 @@ fn attention(
     if let Some(captures) = captures.as_deref_mut() {
         captures.attention = result.clone();
     }
-    let projected = bf16_linear(
-        checkpoint,
-        &format!("{prefix}.o_proj.weight"),
-        &result,
-        rows,
-        HEADS * V_HEAD_DIM,
-        HIDDEN,
-        ledger,
-    )?;
+    let projected = if let Some(runtime) = wide_runtime {
+        wide_bf16_linear(
+            checkpoint,
+            &format!("{prefix}.o_proj.weight"),
+            &result,
+            rows,
+            HEADS * V_HEAD_DIM,
+            HIDDEN,
+            ledger,
+            runtime,
+        )
+    } else {
+        bf16_linear(
+            checkpoint,
+            &format!("{prefix}.o_proj.weight"),
+            &result,
+            rows,
+            HEADS * V_HEAD_DIM,
+            HIDDEN,
+            ledger,
+        )
+    }?;
     if let Some(captures) = captures {
         captures.attention_projection = projected.clone();
     }
@@ -3424,23 +3620,49 @@ fn dense_mlp(
     input: &[f32],
     rows: usize,
     ledger: &mut EndpointLedger,
+    wide_runtime: Option<&WideMetalMoeRuntime>,
     captures: Option<&mut Layer0Captures>,
 ) -> Result<Vec<f32>, String> {
     let prefix = "model.layers.0.mlp";
-    let gate = fp8_linear(
-        checkpoint,
+    let linear = |name: &str,
+                  input: &[f32],
+                  columns: usize,
+                  output_columns: usize,
+                  ledger: &mut EndpointLedger| {
+        if let Some(runtime) = wide_runtime {
+            wide_fp8_linear(
+                checkpoint,
+                name,
+                input,
+                rows,
+                columns,
+                output_columns,
+                false,
+                ledger,
+                runtime,
+            )
+        } else {
+            fp8_linear(
+                checkpoint,
+                name,
+                input,
+                rows,
+                columns,
+                output_columns,
+                ledger,
+            )
+        }
+    };
+    let gate = linear(
         &format!("{prefix}.gate_proj.weight"),
         input,
-        rows,
         HIDDEN,
         16_384,
         ledger,
     )?;
-    let up = fp8_linear(
-        checkpoint,
+    let up = linear(
         &format!("{prefix}.up_proj.weight"),
         input,
-        rows,
         HIDDEN,
         16_384,
         ledger,
@@ -3453,11 +3675,9 @@ fn dense_mlp(
             round_bf16(silu * up)
         })
         .collect::<Vec<_>>();
-    let down = fp8_linear(
-        checkpoint,
+    let down = linear(
         &format!("{prefix}.down_proj.weight"),
         &activated,
-        rows,
         16_384,
         HIDDEN,
         ledger,
@@ -3857,6 +4077,130 @@ fn routed_mlp_metal(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn routed_mlp_metal_wide(
+    checkpoint: &Checkpoint,
+    layer: usize,
+    input: &[f32],
+    rows: usize,
+    ledger: &mut EndpointLedger,
+    metal_ledger: &mut MetalExpertLedger,
+    runtime: &WideMetalMoeRuntime,
+) -> Result<RoutedMlpOutput, String> {
+    if rows != 8 || input.len() != rows * HIDDEN {
+        return Err(format!(
+            "wide Metal routed experts require [8, {HIDDEN}], got [{rows}, {}]",
+            input.len() / rows.max(1)
+        ));
+    }
+    let routing = route_mlp(checkpoint, layer, input, rows, ledger)?;
+    let mut schedule: BTreeMap<u32, Vec<(usize, f32)>> = BTreeMap::new();
+    for position in 0..rows {
+        for slot in 0..TOP_K {
+            schedule
+                .entry(routing.selected[position][slot])
+                .or_default()
+                .push((position, routing.weights[position][slot]));
+        }
+    }
+    if schedule.values().map(Vec::len).sum::<usize>() != rows * TOP_K
+        || schedule.values().any(|placements| placements.len() > rows)
+    {
+        return Err(format!("layer {layer}: invalid wide expert schedule"));
+    }
+    let page_bytes = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    if page_bytes <= 0 {
+        return Err("sysconf(_SC_PAGESIZE) failed".to_owned());
+    }
+    let page_bytes = usize::try_from(page_bytes).map_err(|_| "page size does not fit usize")?;
+    let down_shape_authority = vec![0.0_f32; MOE_INTERMEDIATE];
+    let prefix = format!("model.layers.{layer}.mlp.experts");
+    let mut bindings = Vec::with_capacity(schedule.len());
+    let mut logical_source_bytes = 0_u64;
+    for (expert, placements) in &schedule {
+        let projection = |name: &str,
+                          rows: usize,
+                          columns: usize,
+                          input_authority: &[f32]|
+         -> Result<WideProjectionBinding<'_>, String> {
+            let weight_name = format!("{prefix}.{expert}.{name}_proj.weight");
+            let scale_name = format!("{weight_name}_scale_inv");
+            let validated = validate_prevalidated_fp8_views(
+                checkpoint.tensor(&weight_name)?,
+                checkpoint.tensor(&scale_name)?,
+                input_authority,
+            )?;
+            if (validated.rows, validated.columns) != (rows, columns) {
+                return Err(format!(
+                    "layer {layer} expert {expert} {name}: projection shape mismatch"
+                ));
+            }
+            Ok(WideProjectionBinding {
+                weight: checkpoint.tensor_no_copy_region(&weight_name, page_bytes)?,
+                scale: checkpoint.tensor_no_copy_region(&scale_name, page_bytes)?,
+                copy_weight: false,
+                rows,
+                columns,
+            })
+        };
+        let gate = projection("gate", MOE_INTERMEDIATE, HIDDEN, &input[..HIDDEN])?;
+        let up = projection("up", MOE_INTERMEDIATE, HIDDEN, &input[..HIDDEN])?;
+        let down = projection("down", HIDDEN, MOE_INTERMEDIATE, &down_shape_authority)?;
+        logical_source_bytes = [&gate, &up, &down]
+            .iter()
+            .flat_map(|projection| [&projection.weight, &projection.scale])
+            .try_fold(logical_source_bytes, |total, region| {
+                total.checked_add(region.tensor_bytes as u64)
+            })
+            .ok_or("wide logical source byte ledger overflow")?;
+        bindings.push(WideExpertBinding {
+            expert: *expert,
+            positions: placements
+                .iter()
+                .map(|(position, _)| *position as u32)
+                .collect(),
+            route_weights: placements.iter().map(|(_, weight)| *weight).collect(),
+            gate,
+            up,
+            down,
+        });
+    }
+    let execution = runtime.execute(input, &bindings)?;
+    if execution.unique_experts != schedule.len() || execution.expert_rows != rows * TOP_K {
+        return Err(format!(
+            "layer {layer}: wide Metal execution accounting mismatch"
+        ));
+    }
+    ledger.logical_source_bytes = ledger
+        .logical_source_bytes
+        .checked_add(logical_source_bytes)
+        .ok_or("logical byte ledger overflow")?;
+    ledger.routed_expert_executions += execution.expert_rows as u64;
+    ledger.dynamic_activation_groups += (execution.expert_rows * 80) as u64;
+    ledger.dynamic_activation_values += (execution.expert_rows * 10_240) as u64;
+    metal_ledger.expert_executions += execution.expert_rows as u64;
+    metal_ledger.projection_dispatches += (execution.unique_experts * 3) as u64;
+    metal_ledger.installed_source_bytes = metal_ledger
+        .installed_source_bytes
+        .checked_add(logical_source_bytes)
+        .ok_or("wide installed-byte ledger overflow")?;
+    metal_ledger.wide_transactions += 1;
+    metal_ledger.wide_expert_rows += execution.expert_rows as u64;
+    metal_ledger.wide_unique_experts += execution.unique_experts as u64;
+    metal_ledger.wide_wall_ms += execution.wall_ms;
+    metal_ledger.wide_mapped_source_bytes = metal_ledger
+        .wide_mapped_source_bytes
+        .checked_add(execution.mapped_source_bytes)
+        .ok_or("wide mapped-byte ledger overflow")?;
+    Ok(RoutedMlpOutput {
+        output: execution.output,
+        logits: routing.logits,
+        scores: routing.scores,
+        selected: routing.selected,
+        weights: routing.weights,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn routed_mlp_traced(
     checkpoint: &Checkpoint,
     layer: usize,
@@ -4020,6 +4364,7 @@ fn decode_step(
     safety: &mut SafetyMonitor,
     mut full_captures: Option<&mut FullPrefixCaptures>,
     mut metal: Option<(&BoundedMetalExpertRuntime, &mut MetalExpertLedger, bool)>,
+    mut wide_metal: Option<(&WideMetalMoeRuntime, &mut MetalExpertLedger)>,
     mut sparsity_capture: Option<&mut GlobalAttentionCaptureBuffer>,
     output: DecodeOutput,
 ) -> Result<NativeDecodeStep, String> {
@@ -4053,6 +4398,7 @@ fn decode_step(
             rows,
             cache,
             ledger,
+            wide_metal.as_ref().map(|(runtime, _)| *runtime),
             None,
             sparsity_capture.as_deref_mut(),
         )?;
@@ -4074,45 +4420,61 @@ fn decode_step(
         let mut mixture_experts = None;
         let (mlp, selected, weights) = if layer == 0 {
             (
-                dense_mlp(checkpoint, &moe_input, rows, ledger, None)?,
+                dense_mlp(
+                    checkpoint,
+                    &moe_input,
+                    rows,
+                    ledger,
+                    wide_metal.as_ref().map(|(runtime, _)| *runtime),
+                    None,
+                )?,
                 Vec::new(),
                 Vec::new(),
             )
         } else {
-            let routed =
-                if let Some((runtime, metal_ledger, sparse_repair_enabled)) = metal.as_mut() {
-                    routed_mlp_metal(
+            let routed = if let Some((runtime, metal_ledger)) = wide_metal.as_mut() {
+                routed_mlp_metal_wide(
+                    checkpoint,
+                    layer,
+                    &moe_input,
+                    rows,
+                    ledger,
+                    metal_ledger,
+                    runtime,
+                )?
+            } else if let Some((runtime, metal_ledger, sparse_repair_enabled)) = metal.as_mut() {
+                routed_mlp_metal(
+                    checkpoint,
+                    layer,
+                    &moe_input,
+                    rows,
+                    ledger,
+                    metal_ledger,
+                    runtime,
+                    *sparse_repair_enabled,
+                )?
+            } else {
+                if capture_mixture_layer {
+                    let mut captures = ExpertCaptures {
+                        down_only: true,
+                        ..ExpertCaptures::default()
+                    };
+                    let mut completed = |_| Ok(());
+                    let routed = routed_mlp_traced(
                         checkpoint,
                         layer,
                         &moe_input,
                         rows,
                         ledger,
-                        metal_ledger,
-                        runtime,
-                        *sparse_repair_enabled,
-                    )?
+                        Some(&mut captures),
+                        &mut completed,
+                    )?;
+                    mixture_experts = Some(captures);
+                    routed
                 } else {
-                    if capture_mixture_layer {
-                        let mut captures = ExpertCaptures {
-                            down_only: true,
-                            ..ExpertCaptures::default()
-                        };
-                        let mut completed = |_| Ok(());
-                        let routed = routed_mlp_traced(
-                            checkpoint,
-                            layer,
-                            &moe_input,
-                            rows,
-                            ledger,
-                            Some(&mut captures),
-                            &mut completed,
-                        )?;
-                        mixture_experts = Some(captures);
-                        routed
-                    } else {
-                        routed_mlp(checkpoint, layer, &moe_input, rows, ledger)?
-                    }
-                };
+                    routed_mlp(checkpoint, layer, &moe_input, rows, ledger)?
+                }
+            };
             (routed.output, routed.selected, routed.weights)
         };
         let final_hidden = post_attention
@@ -4191,11 +4553,14 @@ fn decode_step(
         }
         traces.push(trace);
         checkpoint.release_file_pages()?;
-        safety.checkpoint(&format!("layer_{layer}_complete"), true)?;
+        if wide_metal.is_none() {
+            safety.checkpoint(&format!("layer_{layer}_complete"), true)?;
+        }
     }
     if matches!(output, DecodeOutput::RoutesOnly) {
         return Ok(NativeDecodeStep {
             output_token: 0,
+            output_tokens: Vec::new(),
             top_logits: Vec::new(),
             full_logits: Vec::new(),
             traces,
@@ -4207,22 +4572,59 @@ fn decode_step(
     if let Some(captures) = full_captures {
         captures.final_norm = normalized.clone();
     }
-    let last_logits = bf16_last_row_linear(
-        checkpoint,
-        "lm_head.weight",
-        &normalized[(rows - 1) * HIDDEN..rows * HIDDEN],
-        HIDDEN,
-        config.vocab_size,
-        ledger,
-    )?;
+    let all_logits = if matches!(output, DecodeOutput::AllLogits) {
+        if let Some((runtime, _)) = wide_metal.as_ref() {
+            wide_bf16_linear(
+                checkpoint,
+                "lm_head.weight",
+                &normalized,
+                rows,
+                HIDDEN,
+                config.vocab_size,
+                ledger,
+                runtime,
+            )?
+        } else {
+            bf16_linear(
+                checkpoint,
+                "lm_head.weight",
+                &normalized,
+                rows,
+                HIDDEN,
+                config.vocab_size,
+                ledger,
+            )?
+        }
+    } else {
+        bf16_last_row_linear(
+            checkpoint,
+            "lm_head.weight",
+            &normalized[(rows - 1) * HIDDEN..rows * HIDDEN],
+            HIDDEN,
+            config.vocab_size,
+            ledger,
+        )?
+    };
+    let last_logits = &all_logits[all_logits.len() - config.vocab_size..];
     let top = top_logits(&last_logits, 20)?;
+    let output_tokens = if matches!(output, DecodeOutput::AllLogits) {
+        all_logits
+            .chunks_exact(config.vocab_size)
+            .map(|logits| top_logits(logits, 1).map(|top| top[0].0))
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        vec![top[0].0]
+    };
     checkpoint.release_file_pages()?;
-    safety.checkpoint("lm_head_complete", true)?;
+    if wide_metal.is_none() {
+        safety.checkpoint("lm_head_complete", true)?;
+    }
     let token = top[0].0;
     Ok(NativeDecodeStep {
         output_token: token,
+        output_tokens,
         top_logits: top,
-        full_logits: last_logits,
+        full_logits: all_logits,
         traces,
         wall_ms: started.elapsed().as_secs_f64() * 1000.0,
     })
@@ -4356,6 +4758,7 @@ pub fn run_slow_text_endpoint(
             &mut caches,
             &mut ledger,
             &mut safety,
+            None,
             None,
             None,
             None,
@@ -4668,6 +5071,302 @@ pub fn run_metal_incremental_text_endpoint(
     )
 }
 
+#[derive(Debug, Deserialize)]
+struct WideJacobiAuthorityCapture {
+    file: String,
+    shape: Vec<usize>,
+    dtype: String,
+    sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct WideJacobiAuthority {
+    schema_version: u32,
+    evidence_class: String,
+    status: String,
+    revision: String,
+    checkpoint_verification_sha256: String,
+    prompt_token_ids: Vec<u32>,
+    proposed_block_token_ids: Vec<u32>,
+    target_posterior_token_ids: Vec<u32>,
+    batch_size: usize,
+    concurrency: usize,
+    q: usize,
+    accepted_tokens: usize,
+    mean_normalized_union_u: f64,
+    captures: BTreeMap<String, WideJacobiAuthorityCapture>,
+}
+
+fn accepted_jacobi_tokens(proposal: &[u32], posterior: &[u32]) -> Result<usize, String> {
+    if proposal.len() != 8 || posterior.len() != 8 {
+        return Err("Jacobi acceptance requires eight proposal and posterior tokens".to_owned());
+    }
+    Ok((0..proposal.len() - 1)
+        .find(|index| posterior[*index] != proposal[*index + 1])
+        .map_or(proposal.len(), |index| index + 1))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_wide_metal_jacobi_text_endpoint(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    jacobi_authority_path: &Path,
+    kernel_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<WideJacobiTextReport, String> {
+    const AUTHORITY_SHA256: &str =
+        "a1066fafa979b923f9c2f5d259ff85b2f3d5aa2e77400e8b7075a48f3fa67950";
+    const PREFILL_LOGITS_SHA256: &str =
+        "c43be0909487235bddfe6e0de69aa42a98339faf43cd6b77d6ef4b5f1a853cab";
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("implementation commit must be a lowercase 40-hex Git object".to_owned());
+    }
+    let complete_started = Instant::now();
+    let git_status = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .map_err(|error| format!("git status: {error}"))?;
+    if !git_status.status.success() {
+        return Err("git status failed while recording implementation identity".to_owned());
+    }
+    let git_dirty = !git_status.stdout.is_empty();
+    let EndpointAuthority {
+        fixture_bytes,
+        fixture,
+        mut safety,
+        config,
+        prompt_token_ids,
+        checkpoint,
+        verification_sha256,
+        ..
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    validate_slow_endpoint_fixture(&fixture)?;
+    let authority_bytes = fs::read(jacobi_authority_path)
+        .map_err(|error| format!("{}: {error}", jacobi_authority_path.display()))?;
+    let authority_sha256 = sha256_hex(&authority_bytes);
+    if authority_sha256 != AUTHORITY_SHA256 {
+        return Err("PW-0187 Jacobi authority SHA-256 mismatch".to_owned());
+    }
+    let authority: WideJacobiAuthority = serde_json::from_slice(&authority_bytes)
+        .map_err(|error| format!("PW-0187 Jacobi authority: {error}"))?;
+    if authority.schema_version != 1
+        || authority.evidence_class != "pw0187_source_target_jacobi_third_iteration"
+        || authority.status != "passed"
+        || authority.revision != REVISION
+        || authority.checkpoint_verification_sha256 != verification_sha256
+        || authority.prompt_token_ids != prompt_token_ids
+        || authority.proposed_block_token_ids != [264, 13, 15, 13, 15, 15, 15, 15]
+        || authority.target_posterior_token_ids != [13, 15, 13, 15, 481, 13, 15, 15]
+        || authority.batch_size != 1
+        || authority.concurrency != 1
+        || authority.q != 8
+        || authority.accepted_tokens != 5
+        || (authority.mean_normalized_union_u - 2.050_531_914_893_617).abs() > 1e-12
+    {
+        return Err("PW-0187 Jacobi authority identity mismatch".to_owned());
+    }
+    let prefill_capture = authority
+        .captures
+        .get("prefill_last_logits")
+        .ok_or("PW-0187 authority lacks prefill logits")?;
+    if prefill_capture.sha256 != PREFILL_LOGITS_SHA256
+        || prefill_capture.shape != [config.vocab_size]
+        || prefill_capture.dtype != "F32"
+    {
+        return Err("PW-0187 prefill-logit authority mismatch".to_owned());
+    }
+    let authority_dir = jacobi_authority_path
+        .parent()
+        .ok_or("Jacobi authority has no parent directory")?;
+    validate_relative_file(&prefill_capture.file)?;
+    if hash_file(&authority_dir.join(&prefill_capture.file))? != prefill_capture.sha256 {
+        return Err("PW-0187 prefill-logit capture hash mismatch".to_owned());
+    }
+
+    let runtime = WideMetalMoeRuntime::compile(kernel_path)?;
+    safety.checkpoint("wide_metal_compile_complete", true)?;
+    let setup_started = Instant::now();
+    let mut setup_ledger = EndpointLedger::for_checkpoint(&checkpoint);
+    let mut base_caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
+    let mut hidden = embedding(&checkpoint, &prompt_token_ids, &mut setup_ledger)?;
+    for (layer, cache) in base_caches.iter_mut().enumerate() {
+        let input_norm = bf16_vector(
+            &checkpoint,
+            &format!("model.layers.{layer}.input_layernorm.weight"),
+            HIDDEN,
+            &mut setup_ledger,
+        )?;
+        let normalized = rms_norm(
+            &hidden,
+            prompt_token_ids.len(),
+            &input_norm,
+            config.layernorm_epsilon,
+        )?;
+        let _ = attention(
+            &checkpoint,
+            &config,
+            layer,
+            &normalized,
+            prompt_token_ids.len(),
+            cache,
+            &mut setup_ledger,
+            None,
+            None,
+            None,
+        )?;
+        let key = format!("prefill_layer_{layer:02}_final");
+        let capture = authority
+            .captures
+            .get(&key)
+            .ok_or_else(|| format!("PW-0187 authority lacks {key}"))?;
+        if capture.shape != [prompt_token_ids.len(), HIDDEN] || capture.dtype != "BF16_widened_F32"
+        {
+            return Err(format!("PW-0187 {key} capture metadata mismatch"));
+        }
+        validate_relative_file(&capture.file)?;
+        let path = authority_dir.join(&capture.file);
+        if hash_file(&path)? != capture.sha256 {
+            return Err(format!("PW-0187 {key} capture hash mismatch"));
+        }
+        let (_, captured_hidden) = read_f32_file(&path, Some(prompt_token_ids.len() * HIDDEN))?;
+        hidden = captured_hidden;
+        if hidden.len() != prompt_token_ids.len() * HIDDEN
+            || hidden.iter().any(|value| !value.is_finite())
+        {
+            return Err(format!("PW-0187 {key} capture values invalid"));
+        }
+        checkpoint.release_file_pages()?;
+        safety.checkpoint(&format!("wide_cache_layer_{layer}_complete"), true)?;
+    }
+    if base_caches
+        .iter()
+        .any(|cache| cache.positions != prompt_token_ids.len() || cache.validate().is_err())
+    {
+        return Err("fixture-backed prefill K/V hydration failed".to_owned());
+    }
+    setup_ledger.peak_resident_bytes = peak_resident_bytes()?;
+    let setup_wall_ms = setup_started.elapsed().as_secs_f64() * 1000.0;
+    checkpoint.release_file_pages()?;
+
+    let mut run_trial = |cache_state: &'static str| -> Result<WideJacobiTrial, String> {
+        let disk_before = process_disk_bytes_read()?;
+        let mut caches = base_caches.clone();
+        let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
+        let mut metal_ledger = MetalExpertLedger::default();
+        let step = decode_step(
+            &checkpoint,
+            &config,
+            &authority.proposed_block_token_ids,
+            &mut caches,
+            &mut ledger,
+            &mut safety,
+            None,
+            None,
+            Some((&runtime, &mut metal_ledger)),
+            None,
+            DecodeOutput::AllLogits,
+        )?;
+        if step.output_tokens.len() != authority.q
+            || step.full_logits.len() != authority.q * config.vocab_size
+            || step.traces.len() != 48
+            || caches
+                .iter()
+                .any(|cache| cache.positions != prompt_token_ids.len() + authority.q)
+            || metal_ledger.wide_transactions != 47
+            || metal_ledger.wide_expert_rows != 47 * 64
+        {
+            return Err("wide Jacobi causal/accounting gate failed".to_owned());
+        }
+        let accepted_tokens =
+            accepted_jacobi_tokens(&authority.proposed_block_token_ids, &step.output_tokens)?;
+        let mean_normalized_union = step.traces[1..]
+            .iter()
+            .map(|trace| trace.expert_union_factor)
+            .sum::<f64>()
+            / 47.0;
+        let process_disk_bytes_read = process_disk_bytes_read()?
+            .checked_sub(disk_before)
+            .ok_or("process disk byte counter moved backwards")?;
+        ledger.actual_process_disk_bytes_read = process_disk_bytes_read;
+        ledger.peak_resident_bytes = peak_resident_bytes()?;
+        Ok(WideJacobiTrial {
+            cache_state,
+            posterior_token_ids: step.output_tokens,
+            accepted_tokens,
+            accepted_per_verification: accepted_tokens,
+            mean_normalized_union,
+            accepted_tps: accepted_tokens as f64 / (step.wall_ms / 1000.0),
+            wall_ms: step.wall_ms,
+            process_disk_bytes_read,
+            ledger,
+            metal_ledger,
+            layer_traces: step.traces,
+        })
+    };
+    let cold = run_trial("cold verification transaction after explicit checkpoint page release")?;
+    let warm = run_trial("warm process and Metal pipelines; per-layer checkpoint pages released")?;
+    let promotion_gates_passed = [&cold, &warm].iter().all(|trial| {
+        trial.posterior_token_ids == authority.target_posterior_token_ids
+            && trial.accepted_tokens == authority.accepted_tokens
+    }) && warm.accepted_tps >= 1.0;
+    let trials = vec![cold, warm];
+    safety.checkpoint("wide_jacobi_complete", true)?;
+    let report = WideJacobiTextReport {
+        schema_version: 1,
+        evidence_class: "pw0203_wide_source_jacobi_endpoint",
+        semantic: "mimo_v2_5_metal_native_l3_wide_jacobi_text_endpoint",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        git_dirty,
+        fixture_sha256: sha256_hex(&fixture_bytes),
+        checkpoint_verification_sha256: verification_sha256,
+        jacobi_authority_sha256: authority_sha256,
+        kernel_sha256: hash_file(kernel_path)?,
+        kernel_compile_ms: runtime.compile_ms,
+        metal_device: runtime.device_name.clone(),
+        prompt_token_ids,
+        proposed_block_token_ids: authority.proposed_block_token_ids,
+        target_posterior_token_ids: authority.target_posterior_token_ids,
+        trials,
+        setup_ledger,
+        safety_snapshots: safety.snapshots,
+        setup_wall_ms,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 1,
+        concurrency: 1,
+        q: 8,
+        numerics: "L3 bounded arithmetic approximation: source checkpoint weights and routes, dynamic E4M3FN activations, source-authorized BF16 tensor boundaries, specialized-width Metal reductions",
+        cache_authority: "hash-locked PW-0187 source prefill layer states; checkpoint attention replay hydrates retained per-layer K/V outside the timed interval",
+        performance_claim: promotion_gates_passed
+            .then(|| "verified warm full-path accepted-token throughput exceeds 1 TPS".to_owned()),
+        promotion_gates_passed,
+        status: if promotion_gates_passed {
+            "promotion_gates_passed"
+        } else {
+            "candidate_gates_failed"
+        },
+    };
+    let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(output_path, &report_bytes)?;
+    Ok(report)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_weight_install_tomography(
     checkpoint_root: &Path,
@@ -4801,6 +5500,7 @@ fn run_metal_incremental(
         None,
         None,
         None,
+        None,
         DecodeOutput::Logits,
     )?;
     let prefill_bytes = prefill
@@ -4829,6 +5529,7 @@ fn run_metal_incremental(
         &mut safety,
         Some(&mut captures),
         Some((&runtime, &mut metal_ledger, mode.sparse_repair_enabled())),
+        None,
         None,
         DecodeOutput::Logits,
     )?;
@@ -7275,6 +7976,7 @@ fn execute_dense_layer0(
         rows,
         &mut cache,
         ledger,
+        None,
         Some(captures),
         None,
     )?;
@@ -7300,6 +8002,7 @@ fn execute_dense_layer0(
         &post_attention_norm,
         rows,
         ledger,
+        None,
         Some(captures),
     )?;
     let final_hidden = post_attention
@@ -7365,6 +8068,7 @@ pub fn run_real_layer0_trace(
         rows,
         &mut cache,
         &mut ledger,
+        None,
         Some(&mut internal),
         None,
     )?;
@@ -7392,6 +8096,7 @@ pub fn run_real_layer0_trace(
         &post_attention_norm,
         rows,
         &mut ledger,
+        None,
         Some(&mut internal),
     )?;
     let final_hidden = post_attention
@@ -7559,6 +8264,7 @@ pub fn run_real_layer1_routing_trace(
         rows,
         &mut cache,
         &mut ledger,
+        None,
         Some(&mut captures_internal),
         None,
     )?;
@@ -7764,6 +8470,7 @@ pub fn run_real_layer1_expert_trace(
         rows,
         &mut cache,
         &mut ledger,
+        None,
         None,
         None,
     )?;
@@ -8031,6 +8738,7 @@ pub fn run_real_routed_layer_trace(
             &mut ledger,
             None,
             None,
+            None,
         )?;
         let post_attention = hidden
             .iter()
@@ -8076,6 +8784,7 @@ pub fn run_real_routed_layer_trace(
         rows,
         &mut cache,
         &mut ledger,
+        None,
         Some(&mut attention_captures),
         None,
     )?;
@@ -8361,6 +9070,7 @@ pub fn run_routed_mixture_activation_corpus(
         Some(&mut internal),
         None,
         None,
+        None,
         DecodeOutput::RoutesOnly,
     )?;
     if step.output_token != 0
@@ -8598,6 +9308,7 @@ pub fn run_route_only_trace(
         None,
         None,
         None,
+        None,
         DecodeOutput::RoutesOnly,
     )?;
     if step.output_token != 0
@@ -8752,6 +9463,7 @@ pub fn run_prefill_route_coverage_trace(
         &mut caches,
         &mut ledger,
         &mut safety,
+        None,
         None,
         None,
         None,
@@ -8997,6 +9709,7 @@ fn run_global_attention_sparsity_trace_internal(
         &mut caches,
         &mut ledger,
         &mut safety,
+        None,
         None,
         None,
         Some(&mut capture),
@@ -9746,6 +10459,7 @@ pub fn run_full_prefix_trace(
         Some(&mut internal),
         None,
         None,
+        None,
         DecodeOutput::Logits,
     )?;
     if internal.embedding.len() != rows * HIDDEN
@@ -9828,6 +10542,18 @@ pub fn run_full_prefix_trace(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn jacobi_acceptance_counts_the_correction_at_first_mismatch() {
+        let proposal = [264, 13, 15, 13, 15, 15, 15, 15];
+        let posterior = [13, 15, 13, 15, 481, 13, 15, 15];
+        assert_eq!(accepted_jacobi_tokens(&proposal, &posterior), Ok(5));
+        assert_eq!(
+            accepted_jacobi_tokens(&proposal, &[13, 15, 13, 15, 15, 15, 15, 0]),
+            Ok(8)
+        );
+        assert!(accepted_jacobi_tokens(&proposal[..7], &posterior).is_err());
+    }
 
     #[test]
     fn route_authority_tolerates_one_ulp_json_round_trip_for_derived_union_only() {

@@ -1003,6 +1003,23 @@
             "maximum_absolute_error_vs_torch_source_fp8": 0.000000000014551915,
             "status": "rejected_exact_8x8_tile_performance_gates_failed; accuracy_control_retained; not_endpoint_tps",
             "provenance": "PW-0043; paired M1 SIMD-group F32 8x8 matrix candidate/PW-0039 scalar control; exact source-FP8 decode per K tile; real dynamic layer43 fixture"
+        },
+        "pw0203_wide_source_jacobi_endpoint": {
+            "batch_size": 1,
+            "concurrency": 1,
+            "q": 8,
+            "accepted_tokens_A": 5,
+            "mean_normalized_union_U": 2.0851063829787235,
+            "cold_complete_verification_ms": 22924.850875,
+            "warm_complete_verification_ms": 22742.811625000002,
+            "cold_accepted_tps": 0.21810392692467187,
+            "warm_accepted_tps": 0.21984968624124546,
+            "warm_physical_read_bytes": 27508178944,
+            "warm_logical_source_bytes": 27478125440,
+            "warm_wide_moe_ms": 10434.90696,
+            "exact_target_posterior": true,
+            "status": "rejected_for_one_tps; complete_accelerated_control_retained; target_faithful_weights_routes_named_l3_reduction",
+            "provenance": "PW-0203 corrected-semantic run-004; report 8febe98c77fe779b7ff896205bdcf9086efed5ffc6052ca6ddb173fc5d563b01; Apple M1 16 GiB internal SSD; git a50aadb343320d09a0003c1cacc482f9ee2b8a2d dirty"
         }
     }
 }
