@@ -1056,6 +1056,19 @@
             "physical_read_bytes": 137583656960,
             "status": "improved_but_below_expert_byte_leverage_one; third_iteration_authorized; no_endpoint_tps",
             "provenance": "PW-0206 partial; corrected Jacobi iteration-two manifest dd53f80c02418d4d0321b400a47c1a88bcc70cf72626570fb5302266e6cf39cf; Apple M1 16 GiB internal SSD; git a54c46b6e04937507539a167ae17f4f42f44e60a clean"
+        },
+        "pw0206_corrected_jacobi_third_iteration": {
+            "q": 8,
+            "accepted_tokens_A": 4,
+            "mean_normalized_union_U": 3.702127659574468,
+            "acceptance_over_union_A_over_U": 1.0804597701149425,
+            "improvement_vs_raw_corrected_dflash_percent": 45.114942528735625,
+            "fraction_of_pw0011_otherwise_free_requirement_percent": 14.313013618401547,
+            "post_prefill_complete_ms_diagnostic": 410953.9537910023,
+            "single_trace_post_prefill_accepted_tps_diagnostic": 0.009733450580291214,
+            "physical_read_bytes": 142661935104,
+            "status": "minimum_expert_byte_leverage_passed; lower_milestone_input_promoted; far_below_int4_requirement; no_endpoint_tps",
+            "provenance": "PW-0206 complete; corrected Jacobi iteration-three manifest cf9403b441b9453557d9c6fb2481d0dd361e319efbd6dad2c4e21d5c424ed3d1; Apple M1 16 GiB internal SSD; git ea5dc4e051fceb00f2a53f12a8517c56f122d9af clean"
         }
     }
 }

@@ -1,7 +1,7 @@
 # PW-0206 — Corrected-QKV proposal authority regeneration
 
-- Status: running
-- Disposition: conditional; native-MTP open, raw DFlash fails leverage, Jacobi authority pending
+- Status: complete
+- Disposition: corrected Jacobi leverage promoted; native-MTP open; endpoint promotion withheld
 - Date: 2026-08-10
 - Execution mode: target-faithful audit plus separately named modified controls
 - Related records: PW-0102, PW-0103, PW-0150, PW-0186, PW-0187, PW-0203, PW-0205
@@ -132,11 +132,32 @@ throttled pages remain zero. Because `A/U` materially improves, authorize the
 third posterior-fed iteration under the predeclared convergence rule; do not
 promote iteration two as a runtime path.
 
+Corrected Jacobi iteration three completes cleanly at commit
+`ea5dc4e051fceb00f2a53f12a8517c56f122d9af`. Its manifest hashes to
+`cf9403b441b9453557d9c6fb2481d0dd361e319efbd6dad2c4e21d5c424ed3d1`.
+The successor `[9707,0,2585,646,646,2585,2585,2585]` produces posterior
+`[0,2585,646,358,358,646,2585,2585]` and commits four tokens. Measured
+`U=3.702127659574468` yields `A/U=1.0804597701149425`, crossing the minimum
+expert-byte leverage gate by 8.046%. This is 14.080% better than iteration two
+and 45.115% better than the raw corrected DFlash block.
+
+The gain is real but small: it reaches only 14.313% of PW-0011's otherwise-free
+INT4 requirement `7.548793`. Post-prefill wall is 410.954 seconds, target-source
+traffic is 42,782,681,984 bytes, physical reads are 142,661,935,104 bytes, and
+the single-trace diagnostic is 0.009733 accepted token/s. Minimum free memory
+is 61%, peak RSS is 3,904,618,496 bytes, and swap growth and new throttled pages
+are zero.
+
+PW-0206's contracted corrected authorities are now complete. Promote the
+existence of modest corrected Jacobi expert-byte leverage and carry it forward
+as a lower-milestone mechanism, but do not promote an endpoint or infer that it
+can reach 50 TPS. Native MTP remains open for PW-0208's cost-aware chaining.
+
 ## Decision
 
 Continue. The cheap falsifier decisively rejects trace identity: token IDs and
 every route set changed. Promote the corrected prefix/decode authorities and
 retain native MTP for PW-0208, reject the raw DFlash block's expert-byte
-economics, and complete the corrected Jacobi `A/U` regeneration before endpoint
-performance work. No promoted endpoint throughput constant changes at this
-partial checkpoint.
+economics, and promote only corrected Jacobi iteration three's measured
+`A/U=1.080460` as a lower-milestone input. The regenerated authority closes
+PW-0206; no endpoint throughput constant or runtime default changes.

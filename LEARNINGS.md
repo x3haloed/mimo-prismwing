@@ -4010,3 +4010,14 @@ manifest hashes to
 Retain the 27.204% leverage improvement and authorize iteration three because
 the predeclared convergence falsifier improved; do not promote iteration two
 while `A/U` remains below one.
+
+Corrected Jacobi iteration three crosses the minimum expert-byte leverage gate,
+but only narrowly. It commits `A=4` across `U=3.702128`, so `A/U=1.080460`;
+the clean manifest hashes to
+`cf9403b441b9453557d9c6fb2481d0dd361e319efbd6dad2c4e21d5c424ed3d1`.
+Promote this 45.115% improvement over raw corrected DFlash as a real
+lower-milestone mechanism. Do not promote it as a 50-TPS architecture: it is
+only 14.313% of the otherwise-free INT4 requirement and its measured
+post-prefill diagnostic is 0.009733 accepted token/s. PW-0206 is complete;
+carry native MTP to PW-0208 and the small Jacobi leverage into later combined
+economics without erasing either the gain or its limit.

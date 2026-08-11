@@ -1427,7 +1427,10 @@ Run the following cheap falsifiers in order:
    expert-byte leverage. Preserve that gain and continue only the posterior-fed
    Jacobi convergence audit. Iteration two reaches `A=3`, `U=3.167553`, and
    `A/U=0.947103`, a 27.204% leverage improvement that justifies iteration
-   three but still does not promote a runtime optimization.
+   three. Iteration three reaches `A=4`, `U=3.702128`, and `A/U=1.080460`,
+   crossing the minimum leverage gate while remaining only 14.313% of the
+   otherwise-free INT4 requirement. Preserve it as a lower-milestone input;
+   PW-0206 is complete without an endpoint or runtime-default promotion.
 2. [PW-0207](../experiments/PW-0207-pressure-elastic-resident-working-set.md)
    asks whether the extra RAM can hold the stall-dominant shared spine and
    recurrent expert tiles, selected by measured bytes avoided rather than
