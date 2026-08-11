@@ -89,6 +89,89 @@ impl PositionalRead for FdReader {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct UncachedPairRead {
+    pub(crate) logical_bytes: u64,
+    pub(crate) widened_bytes: u64,
+    pub(crate) pread_calls: usize,
+    pub(crate) wall_ms: f64,
+}
+
+pub(crate) fn read_uncached_widened_pair(
+    sources: &[(libc::c_int, u64, u64)],
+    destinations: &mut [&mut [u8]],
+) -> Result<UncachedPairRead, String> {
+    if sources.is_empty() || sources.len() > 2 || sources.len() != destinations.len() {
+        return Err("uncached pair dimensions must contain one or two reads".to_owned());
+    }
+    let plans = sources
+        .iter()
+        .zip(destinations.iter())
+        .map(|((_, offset, file_bytes), destination)| {
+            aligned_read_plan(*offset, destination.len() as u64, *file_bytes, PAGE_BYTES)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut buffers = plans
+        .iter()
+        .map(|plan| AlignedBuffer::new(plan.physical_bytes))
+        .collect::<Result<Vec<_>, _>>()?;
+    for (fd, _, _) in sources {
+        // SAFETY: each descriptor is live for the complete scoped read.
+        if unsafe { libc::fcntl(*fd, libc::F_NOCACHE, 1) } == -1
+            || unsafe { libc::fcntl(*fd, libc::F_RDAHEAD, 0) } == -1
+        {
+            return Err(format!(
+                "uncached pair fcntl failed: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+    }
+    let addresses = buffers
+        .iter_mut()
+        .map(|buffer| (buffer.pointer as usize, buffer.capacity))
+        .collect::<Vec<_>>();
+    let started = Instant::now();
+    let pread_calls = std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(sources.len());
+        for index in 0..sources.len() {
+            let fd = sources[index].0;
+            let plan = plans[index];
+            let (address, capacity) = addresses[index];
+            handles.push(scope.spawn(move || {
+                // SAFETY: each worker owns a distinct aligned buffer until join.
+                let destination =
+                    unsafe { std::slice::from_raw_parts_mut(address as *mut u8, capacity) };
+                read_plan_exact(&mut FdReader(fd), plan, destination)
+            }));
+        }
+        handles.into_iter().try_fold(0_usize, |calls, handle| {
+            let read_calls = handle
+                .join()
+                .map_err(|_| "uncached pair worker panicked".to_owned())??;
+            calls
+                .checked_add(read_calls)
+                .ok_or("uncached pair pread call count overflow".to_owned())
+        })
+    })?;
+    let wall_ms = started.elapsed().as_secs_f64() * 1000.0;
+    for index in 0..destinations.len() {
+        let plan = plans[index];
+        destinations[index].copy_from_slice(
+            &buffers[index].bytes_mut()
+                [plan.logical_offset..plan.logical_offset + plan.logical_bytes],
+        );
+    }
+    Ok(UncachedPairRead {
+        logical_bytes: destinations
+            .iter()
+            .map(|destination| destination.len() as u64)
+            .sum(),
+        widened_bytes: plans.iter().map(|plan| plan.physical_bytes as u64).sum(),
+        pread_calls,
+        wall_ms,
+    })
+}
+
 fn read_plan_exact<R: PositionalRead>(
     reader: &mut R,
     plan: AlignedReadPlan,

@@ -23,6 +23,7 @@ use crate::staged_metal_expert::{
 use crate::structured_sparse::{
     VerticalSlashSelection, selected_positions_for_query, vertical_slash_selection,
 };
+use crate::uncached_stream_transport::read_uncached_widened_pair;
 use crate::wide_metal_moe::{
     WideExpertBinding, WideMetalMoeRuntime, WideProjectionBinding, WideSourceRegion,
 };
@@ -33,6 +34,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileExt, MetadataExt};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
@@ -802,10 +804,23 @@ pub struct GenerationResidencyReport {
     pub requested_limit_bytes: Option<u64>,
     pub installed_identities: Vec<String>,
     pub installed_resident_bytes: u64,
+    pub source_transport: &'static str,
+    pub install_logical_source_bytes: u64,
+    pub install_widened_read_bytes: u64,
+    pub install_pread_calls: usize,
+    pub install_transfer_wall_ms: f64,
     pub resident_source_bytes: u64,
     pub final_resident_bytes: u64,
     pub eviction_events: Vec<PressureEvent>,
     pub pressure_scope: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ResidentInstallEvidence {
+    logical_source_bytes: u64,
+    widened_read_bytes: u64,
+    pread_calls: usize,
+    transfer_wall_ms: f64,
 }
 
 fn is_zero_u64(value: &u64) -> bool {
@@ -2026,6 +2041,120 @@ impl Checkpoint {
             }
             Ok(())
         })
+    }
+
+    fn load_declared_resident_object_uncached(
+        &self,
+        declaration: &DeclaredResidentObject,
+    ) -> Result<(PageAlignedResidentObject, ResidentInstallEvidence), String> {
+        let mut evidence = ResidentInstallEvidence::default();
+        let resident = PageAlignedResidentObject::load_from_declared_batched(
+            declaration,
+            2,
+            |tensors, destinations| {
+                let mut files = Vec::with_capacity(tensors.len());
+                let mut offsets = Vec::with_capacity(tensors.len());
+                for (tensor, destination) in tensors.iter().zip(destinations.iter()) {
+                    let shard = self.shard_for_tensor(&tensor.tensor)?;
+                    if shard != tensor.backing_file
+                        || self.shard_sha256.get(shard) != Some(&tensor.backing_file_sha256)
+                    {
+                        return Err(format!(
+                            "{}: uncached resident backing authority mismatch",
+                            tensor.tensor
+                        ));
+                    }
+                    let mapped = self
+                        .shards
+                        .get(shard)
+                        .ok_or_else(|| format!("mapped shard absent: {shard}"))?;
+                    let metadata = mapped
+                        .tensors
+                        .get(&tensor.tensor)
+                        .ok_or_else(|| format!("tensor is absent: {}", tensor.tensor))?;
+                    if metadata.dtype != tensor.dtype {
+                        return Err(format!(
+                            "{}: uncached resident dtype mismatch",
+                            tensor.tensor
+                        ));
+                    }
+                    let row_offset = if let Some(row) = tensor.row {
+                        let row = usize::try_from(row).map_err(|_| {
+                            format!(
+                                "{}: uncached resident row does not fit usize",
+                                tensor.tensor
+                            )
+                        })?;
+                        if metadata.shape.len() < 2
+                            || metadata.shape[1..] != tensor.shape
+                            || row >= metadata.shape[0] as usize
+                        {
+                            return Err(format!(
+                                "{}: uncached resident row shape mismatch",
+                                tensor.tensor
+                            ));
+                        }
+                        row.checked_mul(destination.len()).ok_or_else(|| {
+                            format!("{}: uncached resident row offset overflow", tensor.tensor)
+                        })?
+                    } else {
+                        if metadata.shape != tensor.shape || metadata.data_bytes != tensor.bytes {
+                            return Err(format!(
+                                "{}: uncached resident tensor shape mismatch",
+                                tensor.tensor
+                            ));
+                        }
+                        0
+                    };
+                    let absolute_offset = u64::try_from(mapped.payload_start)
+                        .ok()
+                        .and_then(|offset| offset.checked_add(metadata.data_offsets[0]))
+                        .and_then(|offset| offset.checked_add(row_offset as u64))
+                        .ok_or_else(|| {
+                            format!("{}: uncached resident file offset overflow", tensor.tensor)
+                        })?;
+                    let file = File::open(self.root.join(shard)).map_err(|error| {
+                        format!("{}: uncached resident open: {error}", tensor.tensor)
+                    })?;
+                    let file_bytes = file
+                        .metadata()
+                        .map_err(|error| {
+                            format!("{}: uncached resident metadata: {error}", tensor.tensor)
+                        })?
+                        .len();
+                    files.push(file);
+                    offsets.push((absolute_offset, file_bytes));
+                }
+                let sources = files
+                    .iter()
+                    .zip(&offsets)
+                    .map(|(file, (offset, file_bytes))| (file.as_raw_fd(), *offset, *file_bytes))
+                    .collect::<Vec<_>>();
+                let read = read_uncached_widened_pair(&sources, destinations)?;
+                evidence.logical_source_bytes = evidence
+                    .logical_source_bytes
+                    .checked_add(read.logical_bytes)
+                    .ok_or("uncached resident logical byte overflow")?;
+                evidence.widened_read_bytes = evidence
+                    .widened_read_bytes
+                    .checked_add(read.widened_bytes)
+                    .ok_or("uncached resident widened byte overflow")?;
+                evidence.pread_calls = evidence
+                    .pread_calls
+                    .checked_add(read.pread_calls)
+                    .ok_or("uncached resident pread count overflow")?;
+                evidence.transfer_wall_ms += read.wall_ms;
+                Ok(())
+            },
+        )?;
+        if evidence.logical_source_bytes != declaration.source_bytes
+            || evidence.widened_read_bytes < evidence.logical_source_bytes
+            || evidence.widened_read_bytes as f64 / evidence.logical_source_bytes as f64 > 1.05
+            || evidence.pread_calls != declaration.tensors.len()
+        {
+            return Err("uncached resident install accounting gate failed".to_owned());
+        }
+        Ok((resident, evidence))
     }
 
     fn declared_resident_tensor_bytes<'a>(
@@ -6558,6 +6687,41 @@ pub fn run_arbitrary_text_resident_route_trace(
         Some(GenerationResidencySelection::Single {
             manifest_path: residency_manifest_path,
             identity: resident_identity,
+            uncached: false,
+        }),
+        None,
+        None,
+        8,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_arbitrary_text_uncached_resident_route_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    requested_output_tokens: usize,
+    residency_manifest_path: &Path,
+    resident_identity: &str,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        requested_output_tokens,
+        output_path,
+        commit,
+        true,
+        Some(GenerationResidencySelection::Single {
+            manifest_path: residency_manifest_path,
+            identity: resident_identity,
+            uncached: true,
         }),
         None,
         None,
@@ -6602,6 +6766,7 @@ enum GenerationResidencySelection<'a> {
     Single {
         manifest_path: &'a Path,
         identity: &'a str,
+        uncached: bool,
     },
     RankedPrefix {
         manifest_path: &'a Path,
@@ -7008,6 +7173,10 @@ fn run_arbitrary_text_generation_internal(
         &residency,
         Some(GenerationResidencySelection::RankedPrefix { .. })
     );
+    let residency_is_uncached = matches!(
+        &residency,
+        Some(GenerationResidencySelection::Single { uncached: true, .. })
+    );
     let mut resident_runtime = None;
     if let Some(selection) = residency {
         let (manifest_path, requested_limit_bytes) = match &selection {
@@ -7029,6 +7198,10 @@ fn run_arbitrary_text_generation_internal(
         };
         let manifest_sha256 = hash_file(manifest_path)?;
         let manifest = DeclaredResidencyManifest::from_offline_report(manifest_path)?;
+        let uncached_install = matches!(
+            &selection,
+            GenerationResidencySelection::Single { uncached: true, .. }
+        );
         let declarations = match selection {
             GenerationResidencySelection::Single { identity, .. } => vec![
                 manifest
@@ -7061,8 +7234,25 @@ fn run_arbitrary_text_generation_internal(
         let controller = PressureResidencyController::new(manifest)?;
         let observer = DarwinMemoryPressureObserver::start(controller.clone())?;
         let mut installed_bytes = 0_u64;
+        let mut install_evidence = ResidentInstallEvidence::default();
         for (index, declaration) in declarations.iter().enumerate() {
-            let resident = checkpoint.load_declared_resident_object(declaration)?;
+            let resident = if uncached_install {
+                let (resident, object_evidence) =
+                    checkpoint.load_declared_resident_object_uncached(declaration)?;
+                install_evidence.logical_source_bytes += object_evidence.logical_source_bytes;
+                install_evidence.widened_read_bytes += object_evidence.widened_read_bytes;
+                install_evidence.pread_calls += object_evidence.pread_calls;
+                install_evidence.transfer_wall_ms += object_evidence.transfer_wall_ms;
+                resident
+            } else {
+                let started = Instant::now();
+                let resident = checkpoint.load_declared_resident_object(declaration)?;
+                install_evidence.logical_source_bytes += declaration.source_bytes;
+                install_evidence.widened_read_bytes += declaration.source_bytes;
+                install_evidence.pread_calls += declaration.tensors.len();
+                install_evidence.transfer_wall_ms += started.elapsed().as_secs_f64() * 1000.0;
+                resident
+            };
             controller.install_page_aligned(&declaration.identity, resident)?;
             installed_bytes = installed_bytes
                 .checked_add(declaration.bytes)
@@ -7096,6 +7286,8 @@ fn run_arbitrary_text_generation_internal(
             expected_eviction,
             installed_bytes,
             requested_limit_bytes,
+            uncached_install,
+            install_evidence,
         ));
     }
     let mut next_anchor = generated_token_ids[0];
@@ -7386,6 +7578,8 @@ fn run_arbitrary_text_generation_internal(
         expected_eviction,
         installed_bytes,
         requested_limit_bytes,
+        uncached_install,
+        install_evidence,
     )) = resident_runtime
     {
         controller.handle_pressure_mask(PRESSURE_WARNING)?;
@@ -7410,6 +7604,15 @@ fn run_arbitrary_text_generation_internal(
             requested_limit_bytes,
             installed_identities,
             installed_resident_bytes: installed_bytes,
+            source_transport: if uncached_install {
+                "page_aligned_f_nocache_f_rdahead_zero_two_buffer_pread"
+            } else {
+                "cacheable_exact_pread"
+            },
+            install_logical_source_bytes: install_evidence.logical_source_bytes,
+            install_widened_read_bytes: install_evidence.widened_read_bytes,
+            install_pread_calls: install_evidence.pread_calls,
+            install_transfer_wall_ms: install_evidence.transfer_wall_ms,
             resident_source_bytes: transactions
                 .iter()
                 .map(|transaction| transaction.resident_source_bytes)
@@ -7475,7 +7678,9 @@ fn run_arbitrary_text_generation_internal(
         .checked_add(native_child_peak_resident_bytes)
         .ok_or("combined native MTP peak resident byte overflow")?;
     let report = ArbitraryTextGenerationReport {
-        schema_version: if native_mtp_external.is_some() {
+        schema_version: if residency_is_uncached {
+            8
+        } else if native_mtp_external.is_some() {
             7
         } else if native_mtp_window.is_some() {
             6
@@ -7486,7 +7691,9 @@ fn run_arbitrary_text_generation_internal(
         } else {
             2
         },
-        evidence_class: if native_mtp_external.is_some() {
+        evidence_class: if residency_is_uncached {
+            "pw0213_uncached_two_buffer_single_object_verifier_pilot"
+        } else if native_mtp_external.is_some() {
             "pw0211_live_cache_native_mtp_q4_generation"
         } else if native_mtp_window.is_some() {
             "pw0208_native_mtp_corrected_window_capture"
@@ -7499,7 +7706,9 @@ fn run_arbitrary_text_generation_internal(
         } else {
             "pw0205_arbitrary_prompt_corrected_qkv_target_proposed_generation"
         },
-        semantic: if native_mtp_external.is_some() {
+        semantic: if residency_is_uncached {
+            "mimo_v2_5_pw0213_uncached_two_buffer_single_object_exact_verification"
+        } else if native_mtp_external.is_some() {
             "mimo_v2_5_pw0211_external_cpu_native_mtp_q4_exact_verification"
         } else if native_mtp_window.is_some() {
             "mimo_v2_5_pw0208_native_mtp_corrected_verifier_window_capture"
@@ -7557,7 +7766,9 @@ fn run_arbitrary_text_generation_internal(
         } else {
             "greedy source-checkpoint proposer using the same retained K/V, deinterleaved checkpoint-TP QKV layout, and SGLang-directed block-scaled Metal arithmetic"
         },
-        cache_state: if native_mtp_external.is_some() {
+        cache_state: if residency_is_uncached {
+            "cold process start; cacheable prefill released per layer; one declared expert installed from page-widened F_NOCACHE two-buffer reads; retained K/V and resident expert through one exact q8 transaction"
+        } else if native_mtp_external.is_some() {
             "cold process start; live retained target K/V and layer-47 history; external CPU native-MTP child per q4 transaction; checkpoint pages released after every target layer"
         } else {
             "cold process start; bounded width-eight chunked prefill; process-local Metal pipelines; checkpoint pages released after every layer"

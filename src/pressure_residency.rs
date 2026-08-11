@@ -381,6 +381,72 @@ impl PageAlignedResidentObject {
         })
     }
 
+    pub fn load_from_declared_batched<F>(
+        declaration: &DeclaredResidentObject,
+        batch_size: usize,
+        mut load: F,
+    ) -> Result<Self, String>
+    where
+        F: FnMut(&[DeclaredResidentTensor], &mut [&mut [u8]]) -> Result<(), String>,
+    {
+        validate_tensor_authority(declaration)?;
+        if batch_size == 0 || batch_size > 2 {
+            return Err("resident batch size must be one or two".to_owned());
+        }
+        let mapping_len = usize::try_from(declaration.bytes)
+            .map_err(|_| format!("resident allocation is too large: {}", declaration.identity))?;
+        let mut mapping = MmapOptions::new()
+            .len(mapping_len)
+            .map_anon()
+            .map_err(|error| format!("resident mmap for {}: {error}", declaration.identity))?;
+        let mut tensor_ranges = BTreeMap::new();
+        let mut offset = 0_usize;
+        for tensors in declaration.tensors.chunks(batch_size) {
+            let batch_start = offset;
+            let mut batch_end = batch_start;
+            for tensor in tensors {
+                batch_end = batch_end
+                    .checked_add(
+                        usize::try_from(tensor.bytes)
+                            .map_err(|_| format!("resident tensor too large: {}", tensor.tensor))?,
+                    )
+                    .ok_or("resident batched source offset overflow")?;
+            }
+            if batch_end > mapping.len() {
+                return Err("resident batched source exceeds declared allocation".to_owned());
+            }
+            let mut remaining = &mut mapping[batch_start..batch_end];
+            let mut destinations = Vec::with_capacity(tensors.len());
+            for tensor in tensors {
+                let bytes = usize::try_from(tensor.bytes)
+                    .map_err(|_| format!("resident tensor too large: {}", tensor.tensor))?;
+                let (destination, rest) = remaining.split_at_mut(bytes);
+                destinations.push(destination);
+                remaining = rest;
+            }
+            load(tensors, &mut destinations)?;
+            for tensor in tensors {
+                let identity = ResidentTensorIdentity {
+                    tensor: tensor.tensor.clone(),
+                    row: tensor.row,
+                };
+                let end = offset + tensor.bytes as usize;
+                tensor_ranges.insert(identity, offset..end);
+                offset = end;
+            }
+        }
+        if offset as u64 != declaration.source_bytes
+            || mapping.as_ptr() as usize % declaration.bytes.min(16_384) as usize != 0
+        {
+            return Err("resident batched allocation closure or alignment failed".to_owned());
+        }
+        Ok(Self {
+            mapping,
+            tensor_ranges,
+            tensor_metadata_sha256: declaration.tensor_metadata_sha256.clone(),
+        })
+    }
+
     pub fn resident_bytes(&self) -> u64 {
         self.mapping.len() as u64
     }
@@ -1021,6 +1087,37 @@ mod tests {
         drop(observed);
         controller.handle_pressure_mask(PRESSURE_WARNING).unwrap();
         assert!(controller.page_aligned("first").unwrap().is_none());
+    }
+
+    #[test]
+    fn batched_backing_preserves_exact_tensor_bytes_and_batch_contract() {
+        let manifest = manifest();
+        let declaration = &manifest.objects[0];
+        let mut observed_batches = Vec::new();
+        let backing = PageAlignedResidentObject::load_from_declared_batched(
+            declaration,
+            2,
+            |tensors, destinations| {
+                observed_batches.push((tensors.len(), destinations.len()));
+                destinations[0].copy_from_slice(&[7_u8, 8, 9]);
+                Ok(())
+            },
+        )
+        .unwrap();
+        let identity = ResidentTensorIdentity {
+            tensor: "fixture.first".to_owned(),
+            row: None,
+        };
+        let region = backing.tensor_region(&identity).unwrap();
+        assert_eq!(observed_batches, vec![(1, 1)]);
+        assert_eq!(
+            &region.bytes[region.tensor_offset..region.tensor_offset + region.tensor_bytes],
+            &[7, 8, 9]
+        );
+        assert!(
+            PageAlignedResidentObject::load_from_declared_batched(declaration, 3, |_, _| Ok(()))
+                .is_err()
+        );
     }
 
     #[test]

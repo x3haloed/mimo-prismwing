@@ -7,11 +7,11 @@ use prismwing::{
     run_arbitrary_text_generation, run_arbitrary_text_native_mtp_external,
     run_arbitrary_text_q4_diagnostic, run_arbitrary_text_resident_route_trace,
     run_arbitrary_text_resident_set_route_trace, run_arbitrary_text_route_trace,
-    run_bounded_metal_routed_row, run_layer4_metal_diagnostic, run_metal_base_layer_attention,
-    run_metal_checkpoint_offset_probe, run_metal_direct_fp8_expert,
-    run_metal_direct_fp8_expert_batch8_shared_weight, run_metal_direct_mapped_fp8_gemv,
-    run_metal_direct_route_replay_fp8_moe_block, run_metal_direct_source_bf16_fp8_gemv,
-    run_metal_direct_source_bf16_fp8_gemv_audit,
+    run_arbitrary_text_uncached_resident_route_trace, run_bounded_metal_routed_row,
+    run_layer4_metal_diagnostic, run_metal_base_layer_attention, run_metal_checkpoint_offset_probe,
+    run_metal_direct_fp8_expert, run_metal_direct_fp8_expert_batch8_shared_weight,
+    run_metal_direct_mapped_fp8_gemv, run_metal_direct_route_replay_fp8_moe_block,
+    run_metal_direct_source_bf16_fp8_gemv, run_metal_direct_source_bf16_fp8_gemv_audit,
     run_metal_direct_source_bf16_reduction_width_fp8_moe_block,
     run_metal_direct_source_bf16_route_replay_fp8_moe_block,
     run_metal_direct_source_bf16_silu_lut_route_replay_fp8_moe_block,
@@ -260,6 +260,10 @@ fn usage() -> ! {
     );
     #[cfg(target_os = "macos")]
     eprintln!(
+        "  prismwing arbitrary-text-uncached-resident-route-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <output-tokens> <residency-manifest.json> <resident-identity> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
         "  prismwing arbitrary-text-resident-set-route-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <output-tokens> <residency-manifest.json> <resident-limit-bytes> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
@@ -404,6 +408,39 @@ fn main() {
                         println!();
                         Ok(Some(output))
                     })
+                })
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("arbitrary-text-uncached-resident-route-trace") if arguments.len() == 12 => {
+            let output_tokens = arguments[7]
+                .parse::<usize>()
+                .map_err(|error| format!("output token count: {error}"));
+            output_tokens.and_then(|output_tokens| {
+                let checkpoint = PathBuf::from(&arguments[2]);
+                let model_lock = PathBuf::from(&arguments[3]);
+                let verification = PathBuf::from(&arguments[4]);
+                let kernel = PathBuf::from(&arguments[5]);
+                let prompt = PathBuf::from(&arguments[6]);
+                let residency = PathBuf::from(&arguments[8]);
+                let output = PathBuf::from(&arguments[10]);
+                run_arbitrary_text_uncached_resident_route_trace(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &kernel,
+                    &prompt,
+                    output_tokens,
+                    &residency,
+                    &arguments[9],
+                    &output,
+                    &arguments[11],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output))
                 })
             })
         }
