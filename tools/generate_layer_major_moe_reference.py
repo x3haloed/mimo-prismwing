@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -67,7 +68,8 @@ def build_schedule(selected: np.ndarray, weights: np.ndarray) -> dict[int, dict[
     return schedule
 
 
-def dequantize(tensors, name: str) -> torch.Tensor:
+def dequantize(tensors_by_shard: dict, index: dict[str, str], name: str) -> torch.Tensor:
+    tensors = tensors_by_shard[index[name]]
     weight = tensors.get_tensor(name).float()
     scale = tensors.get_tensor(name + "_scale_inv").float()
     if weight.ndim != 2 or tuple(scale.shape) != (
@@ -121,51 +123,60 @@ def generate(
     verified = {row["path"]: row for row in verification["files"]}
     index = json.loads(index_path.read_text())["weight_map"]
 
-    by_shard: dict[str, list[int]] = {}
-    for expert in schedule:
-        name = f"model.layers.{LAYER}.mlp.experts.{expert}.gate_proj.weight"
-        by_shard.setdefault(index[name], []).append(expert)
+    tensor_names = [
+        f"model.layers.{LAYER}.mlp.experts.{expert}.{kind}_proj.weight{suffix}"
+        for expert in schedule
+        for kind in ("gate", "up", "down")
+        for suffix in ("", "_scale_inv")
+    ]
+    shards = sorted({index[name] for name in tensor_names})
     output = torch.zeros((ROWS, 4096), dtype=torch.float32)
     maximum_scalar_error = 0.0
     source_bytes = 0
-    for shard, experts in sorted(by_shard.items()):
+    for shard in shards:
         if shard not in locked or shard not in verified:
             raise ValueError(f"PW-0209 unverified shard {shard}")
         record = verified[shard]
         if record.get("status") != "verified" or record.get("sha256") != locked[shard]["sha256"]:
             raise ValueError(f"PW-0209 shard verification mismatch {shard}")
         validate_verified_install_file(checkpoint_dir / shard, record)
-        with safe_open(checkpoint_dir / shard, framework="pt", device="cpu") as tensors:
-            for expert in sorted(experts):
-                placement = schedule[expert]
-                positions = placement["positions"]
-                values = torch.from_numpy(inputs[positions].copy())
-                prefix = f"model.layers.{LAYER}.mlp.experts.{expert}"
-                gate = dequantize(tensors, f"{prefix}.gate_proj.weight")
-                up = dequantize(tensors, f"{prefix}.up_proj.weight")
-                down = dequantize(tensors, f"{prefix}.down_proj.weight")
-                source_bytes += 25_171_968
-                gate_values = values @ gate.T
-                up_values = values @ up.T
-                activated = torch.sigmoid(gate_values) * gate_values * up_values
-                projected = activated @ down.T
-                maximum_scalar_error = max(
-                    maximum_scalar_error,
-                    abs(
-                        float(gate_values[0, 0])
-                        - float(torch.dot(values[0].double(), gate[0].double()))
-                    ),
-                    abs(
-                        float(up_values[0, 0])
-                        - float(torch.dot(values[0].double(), up[0].double()))
-                    ),
-                    abs(
-                        float(projected[0, 0])
-                        - float(torch.dot(activated[0].double(), down[0].double()))
-                    ),
-                )
-                weights = torch.tensor(placement["weights"], dtype=torch.float32).unsqueeze(1)
-                output.index_add_(0, torch.tensor(positions), projected * weights)
+    with ExitStack() as stack:
+        tensors_by_shard = {
+            shard: stack.enter_context(
+                safe_open(checkpoint_dir / shard, framework="pt", device="cpu")
+            )
+            for shard in shards
+        }
+        for expert in sorted(schedule):
+            placement = schedule[expert]
+            positions = placement["positions"]
+            values = torch.from_numpy(inputs[positions].copy())
+            prefix = f"model.layers.{LAYER}.mlp.experts.{expert}"
+            gate = dequantize(tensors_by_shard, index, f"{prefix}.gate_proj.weight")
+            up = dequantize(tensors_by_shard, index, f"{prefix}.up_proj.weight")
+            down = dequantize(tensors_by_shard, index, f"{prefix}.down_proj.weight")
+            source_bytes += 25_171_968
+            gate_values = values @ gate.T
+            up_values = values @ up.T
+            activated = torch.sigmoid(gate_values) * gate_values * up_values
+            projected = activated @ down.T
+            maximum_scalar_error = max(
+                maximum_scalar_error,
+                abs(
+                    float(gate_values[0, 0])
+                    - float(torch.dot(values[0].double(), gate[0].double()))
+                ),
+                abs(
+                    float(up_values[0, 0])
+                    - float(torch.dot(values[0].double(), up[0].double()))
+                ),
+                abs(
+                    float(projected[0, 0])
+                    - float(torch.dot(activated[0].double(), down[0].double()))
+                ),
+            )
+            weights = torch.tensor(placement["weights"], dtype=torch.float32).unsqueeze(1)
+            output.index_add_(0, torch.tensor(positions), projected * weights)
     if maximum_scalar_error > 2.0e-4:
         raise ValueError(f"PW-0209 scalar parity failed: {maximum_scalar_error}")
     output_values = output.numpy().astype("<f4")
