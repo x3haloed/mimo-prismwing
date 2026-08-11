@@ -80,6 +80,20 @@ fails. It predicts 56,562.852 ms of attributed acquisition wall versus the
 184,510.448 ms control, a 3.262043× speedup, so the alternative 2× wall gate
 passes.
 
+That first manifest's 12,878,375,808-byte figure is superseded for allocation
+authority, while retained as the exact source-byte total. It did not charge
+the 16 KiB physical allocation granularity required by the page-aligned owned
+backing. The corrected clean manifest at commit
+`e912157e11d66a8cbf4be4b265afca923879c8e4` is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0207/offline-002.json`, SHA-256
+`1dedbef7c79aa23835d194f52760a1f2c65dcca1481bd6df2d5602615c3fdad6`.
+It retains the same 592 objects and source-byte prediction, but declares
+12,882,755,584 resident allocation bytes: 5,137,170,432 for 204 expert bundles
+and 7,745,585,152 for 388 shared objects, leaving 2,146,304 bytes unallocated.
+The 1.791485× byte and 3.262043× wall predictions are unchanged because the
+selected set did not change. Use `offline-002.json` as the implementation
+authority; preserve `offline-001.json` only as superseded source-byte evidence.
+
 Authorize the Darwin pressure observer, declared residency authority, warning
 eviction callback, and one repeated-transaction implementation. This is an
 offline static prediction on one corrected transaction, not endpoint TPS or a

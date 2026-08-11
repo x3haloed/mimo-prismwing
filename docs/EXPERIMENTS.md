@@ -1440,7 +1440,9 @@ Run the following cheap falsifiers in order:
    defaults and endpoint claims remain withheld. A clean synthetic smoke now
    proves owned ordered warning eviction and permanent critical stop through a
    live Darwin observer lifecycle; it does not yet satisfy the real pressure,
-   12 GiB, transaction, or TPS gates.
+   12 GiB, transaction, or TPS gates. Its implementation authority now charges
+   every object at 16 KiB page granularity; this changes declared allocation
+   bytes but not the selected set or predicted wall gate.
 3. [PW-0208](../experiments/PW-0208-native-mtp-cost-aware-proposer.md) retests
    MiMo's native MTP only after PW-0206, optimizing accepted tokens per unique
    expert byte rather than acceptance length in isolation.

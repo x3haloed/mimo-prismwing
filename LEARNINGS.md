@@ -4037,6 +4037,16 @@ the alternative 2× continuation gate. Authorize pressure-safe implementation;
 do not activate the 13 GiB ceiling or claim TPS until warning eviction,
 critical stop, exact transaction parity, and real interleaved speedup pass.
 
+The original 12,878,375,808-byte PW-0207 total is exact source data but is
+superseded as a physical allocation constant. Page-aligned ownership on this
+16 KiB host requires 12,882,755,584 bytes for the same 592 objects, leaving
+2,146,304 bytes in the 12 GiB declaration. The corrected clean manifest hashes
+to `1dedbef7c79aa23835d194f52760a1f2c65dcca1481bd6df2d5602615c3fdad6`.
+Because the selected objects are unchanged, the 1.791485× byte and 3.262043×
+wall predictions remain unchanged. Use the corrected allocation total for the
+resident implementation and retain the older number only for source-byte
+provenance.
+
 PW-0207 now has an executable pressure-safety substrate, but not yet a
 high-residency runtime. Clean commit
 `c10cc1e0df23efc69e3e66521e7b57a445bf13d4` validates the 592-object authority,
