@@ -59,16 +59,22 @@ EXPECTED_TENSORS = {
 
 
 def validate_semantic_fixture(fixture: dict[str, Any]) -> None:
-    """Fail closed unless this is the exact PW-0049 semantic authority."""
+    """Fail closed unless this is a pinned PW-0049/PW-0209 authority."""
+    identity = (
+        fixture.get("schema_version"),
+        fixture.get("semantic"),
+        fixture.get("query_start"),
+        fixture.get("query_count"),
+    )
+    accepted_identities = {
+        (1, "mimo_base_layer43_source_attention_to_dynamic_routes", 120, 8),
+        (2, "mimo_pw0209_layer43_context128_full_width_source_authority", 0, 128),
+    }
     if (
-        fixture.get("schema_version") != 1
-        or fixture.get("semantic")
-        != "mimo_base_layer43_source_attention_to_dynamic_routes"
+        identity not in accepted_identities
         or fixture.get("revision") != REVISION
         or fixture.get("layer") != 43
         or fixture.get("context") != 128
-        or fixture.get("query_start") != 120
-        or fixture.get("query_count") != 8
         or fixture.get("seed") != 260049
     ):
         raise ValueError("unknown base-layer semantic fixture")
@@ -316,7 +322,9 @@ def generate(
         attention_outputs.append(
             attention_query(q[position], k[start : position + 1], v[start : position + 1], sinks)
         )
-    attention_output = np.asarray(attention_outputs, dtype=np.float32).reshape(8, 8192)
+    attention_output = np.asarray(attention_outputs, dtype=np.float32).reshape(
+        fixture["query_count"], 8192
+    )
     projected = project(output_weight, attention_output)
     post_attention = hidden[fixture["query_start"] :] + projected
     moe_input = rms_norm(post_attention, post_norm)
