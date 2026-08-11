@@ -5034,6 +5034,38 @@ pub fn run_layer_major_moe_slice(
             parity(&width8_output, &reference);
         let (candidate_to_width8_relative_l2, candidate_to_width8_maximum_absolute_error) =
             parity(&candidate.output, &width8_output);
+        let candidate_bytes = finite_f32_le_bytes(&candidate.output, ROWS * HIDDEN)?;
+        let width8_bytes = finite_f32_le_bytes(&width8_output, ROWS * HIDDEN)?;
+        let width8_path = report_path.with_extension("width8-control.f32");
+        write_create_new(output_path, &candidate_bytes)?;
+        write_create_new(&width8_path, &width8_bytes)?;
+        let failure = serde_json::json!({
+            "schema_version": 1,
+            "semantic": "mimo_pw0209_layer43_context128_layer_major_metal_moe_failure",
+            "revision": REVISION,
+            "commit": commit,
+            "authority_sha256": AUTHORITY_SHA256,
+            "input_sha256": INPUT_SHA256,
+            "reference_sha256": REFERENCE_SHA256,
+            "candidate_output_sha256": sha256_hex(&candidate_bytes),
+            "width8_control_output_sha256": sha256_hex(&width8_bytes),
+            "width8_control_file": width8_path.file_name().and_then(|name| name.to_str()),
+            "route_ids_exact": route_ids_exact,
+            "maximum_route_weight_absolute_error": maximum_route_weight_absolute_error,
+            "width128_relative_l2": relative_l2,
+            "width128_maximum_absolute_error": maximum_absolute_error,
+            "width8_routes_exact": width8_routes_exact,
+            "width8_relative_l2": width8_relative_l2,
+            "width8_maximum_absolute_error": width8_maximum_absolute_error,
+            "width128_to_width8_relative_l2": candidate_to_width8_relative_l2,
+            "width128_to_width8_maximum_absolute_error": candidate_to_width8_maximum_absolute_error,
+            "accepted_tokens": 0,
+            "performance_claim": null,
+        });
+        write_create_new(
+            report_path,
+            &serde_json::to_vec_pretty(&failure).map_err(|error| error.to_string())?,
+        )?;
         return Err(format!(
             "PW-0209 source parity failed: width128 relative L2 {relative_l2}, max abs {maximum_absolute_error}; width8 routes exact {width8_routes_exact}, relative L2 {width8_relative_l2}, max abs {width8_maximum_absolute_error}; width128-to-width8 relative L2 {candidate_to_width8_relative_l2}, max abs {candidate_to_width8_maximum_absolute_error}"
         ));
