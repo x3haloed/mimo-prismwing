@@ -4126,3 +4126,14 @@ the lower milestone; do not promote endpoint residency because the 2x gate
 still fails. Peak RSS stays at 3,529,293,824 bytes with 60% free memory and no
 swap/throttling, leaving only a narrow final larger-prefix falsifier—not a path
 to weaken limits or allocate the 12 GiB offline set.
+
+PW-0207 closes with a larger repeatable lower milestone, not its 2x target.
+The final 42-object, 4,001,366,016-byte prefix substitutes exactly
+32,010,928,128 bytes per transaction. Candidate median 159,978.184 ms versus
+169,277.593 ms mapped improves wall 5.493585% and committed TPS 5.812923%, from
+0.041352 to 0.043756. Maximum install footprint 4,146,854,912 bytes stays under
+the unchanged 4 GiB release gate; maximum peak 4,330,487,808 stays under 8 GiB,
+with 57% free memory and no swap/throttling. Preserve and carry this conditional
+gain forward, but close the high-residency branch: it misses the predeclared 2x
+gate, cannot authorize endpoint promotion, and has no meaningful remaining
+prefix within the required 256 MiB reserve.

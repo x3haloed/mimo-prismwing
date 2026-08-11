@@ -1177,6 +1177,26 @@
             "maximum_peak_resident_bytes": 3529293824,
             "status": "exact_repeatable_lower_milestone_promoted; direct_loader_promoted; two_x_endpoint_gate_failed; final_larger_prefix_falsifier_authorized",
             "provenance": "PW-0207 direct-loaded A-B-A; resident reports 4c9d1f7208f68c4ac94e8f2f37982e5165199ff1798b565ea361e008d899850a and e4b4f9b855b35bad1547874d64e498d28cbb7bdaa4ec027a8a68a673c48e817a around mapped report af0bd4970845c5b063847eeb7ec8cc69deb00820e13d4a6477019af338f338a8; Apple M1 16 GiB internal SSD; git 54ab1f0c1db68b3b925b076b9e4c54bf88fd1150 clean"
+        },
+        "pw0207_final_forty_two_object_residency": {
+            "resident_objects": 42,
+            "resident_allocation_bytes": 4001366016,
+            "resident_source_bytes_per_transaction": 32010928128,
+            "mapped_control_transaction_ms": 169277.592791,
+            "resident_transaction_ms": [
+                160375.060042,
+                159581.308916
+            ],
+            "resident_median_transaction_ms": 159978.184479,
+            "transaction_wall_gain_percent": 5.4935849208829435,
+            "mapped_control_committed_transaction_tps": 0.041352194845082714,
+            "resident_median_committed_transaction_tps": 0.04375596599496899,
+            "committed_transaction_tps_gain_percent": 5.812922769617179,
+            "maximum_install_footprint_bytes": 4146854912,
+            "maximum_peak_resident_bytes": 4330487808,
+            "minimum_system_memory_free_percent": 57,
+            "status": "conditional_lower_milestone_promoted; exact_and_pressure_safe; two_x_endpoint_gate_failed; pw0207_complete",
+            "provenance": "PW-0207 final A-B-A; resident reports c3daf8a6b21b497eb618ccdfba2be66583eefcbb85343b4a7c9d7528bc0f6c83 and 7fa83f81f4658b4c11609cf0e41faf82127ce20d217ac1a674cf67fb7ef03560 around mapped report 72734073fed9d109d158e551a58cde8a1030d0077ba1ed263a87882710f7976d; Apple M1 16 GiB internal SSD; git 07f591aaed56fbe9aaacbedb85085a9c1f5b3c8e clean"
         }
     }
 }

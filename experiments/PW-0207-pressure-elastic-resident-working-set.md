@@ -1,7 +1,7 @@
 # PW-0207 — Pressure-elastic resident working set
 
-- Status: running
-- Disposition: offline wall gate passed; pressure-safe implementation authorized
+- Status: complete
+- Disposition: conditional — bounded lower milestone promoted; 2x endpoint gate rejected
 - Date: 2026-08-10
 - Execution mode: L1 target-faithful representation/lifetime change; modified arithmetic controls separate
 - Related records: PW-0105 through PW-0111, PW-0181, PW-0205, PW-0206
@@ -301,3 +301,35 @@ lower milestone. Do not run the 32–64-token endpoint: the predeclared 2x
 transaction gate still fails. The install footprint leaves a narrow, measured
 margin under 4 GiB, so one final larger prefix may be falsified under the same
 gate; no 12 GiB or 13 GiB path is authorized.
+
+The final clean implementation is
+`07f591aaed56fbe9aaacbedb85085a9c1f5b3c8e`. A request capped 256 MiB
+below the 4 GiB post-phase ceiling selects 42 complete objects totaling
+4,001,366,016 bytes. Two candidates take 160,375.060 and 159,581.309 ms around
+a 169,277.593 ms mapped control. Their 159,978.184 ms median reduces
+transaction wall 5.493585% and raises committed TPS 5.812923%, from 0.041352
+to 0.043756. Both substitute exactly 32,010,928,128 source bytes.
+
+Maximum install footprint is 4,146,854,912 bytes, below the unchanged
+4,294,967,296-byte release gate. Maximum run peak is 4,330,487,808 bytes,
+below the unchanged 8 GiB peak gate; minimum system free memory is 57%, with
+zero swap growth and zero new throttled pages. Warning pressure evicts all 42
+objects to zero in declared order. Tokens, acceptance, routes, and weights are
+exactly unchanged.
+
+Raw report/progress hashes are:
+
+- resident 42-object 001: `c3daf8a6b21b497eb618ccdfba2be66583eefcbb85343b4a7c9d7528bc0f6c83`,
+  `cdbde2eb1deda1b5980e2c6772edc9e9fc9e695aaf9fc5725635568ea11ce583`;
+- mapped 007: `72734073fed9d109d158e551a58cde8a1030d0077ba1ed263a87882710f7976d`,
+  `32987cc634504c7dad62d13cdf0b86bcd2c2cce597a8bb13253468f448ed5c9e`;
+- resident 42-object 002: `7fa83f81f4658b4c11609cf0e41faf82127ce20d217ac1a674cf67fb7ef03560`,
+  `189fcc2c5a0c8d685d74b15618b9febd8c215eebf6cfd71aca5ee206b583c4ee`.
+
+Promote this conditional lower milestone and close PW-0207. It improves over
+the 30-object result without erasing it, but the 2x transaction gate fails by a
+wide margin, so the 32–64-token endpoint and the 12 GiB offline set remain
+unauthorized. The 256 MiB reserve plus observed install overhead leaves no
+credible meaningfully larger prefix under the same 4 GiB gate. Carry the
+10.324490% Metal proposal gain and 5.812923% bounded-residency gain into later
+combined architecture measurements; do not describe either as 50 TPS.
