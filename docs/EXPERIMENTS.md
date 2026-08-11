@@ -1437,7 +1437,10 @@ Run the following cheap falsifiers in order:
    frequency alone. Its corrected first-transaction offline set fails the 4×
    physical-read gate at 1.791485× but passes the alternative attributed-wall
    gate at 3.262043×. Pressure-safe implementation is authorized; high-residency
-   defaults and endpoint claims remain withheld.
+   defaults and endpoint claims remain withheld. A clean synthetic smoke now
+   proves owned ordered warning eviction and permanent critical stop through a
+   live Darwin observer lifecycle; it does not yet satisfy the real pressure,
+   12 GiB, transaction, or TPS gates.
 3. [PW-0208](../experiments/PW-0208-native-mtp-cost-aware-proposer.md) retests
    MiMo's native MTP only after PW-0206, optimizing accepted tokens per unique
    expert byte rather than acceptance length in isolation.

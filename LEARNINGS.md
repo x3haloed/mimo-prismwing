@@ -4036,3 +4036,20 @@ attributed acquisition wall from a positive two-phase measured solve, passing
 the alternative 2× continuation gate. Authorize pressure-safe implementation;
 do not activate the 13 GiB ceiling or claim TPS until warning eviction,
 critical stop, exact transaction parity, and real interleaved speedup pass.
+
+PW-0207 now has an executable pressure-safety substrate, but not yet a
+high-residency runtime. Clean commit
+`c10cc1e0df23efc69e3e66521e7b57a445bf13d4` validates the 592-object authority,
+owns payload lifetime, drains a dedicated Darwin pressure queue, evicts warning
+payloads in the declared total order, and permanently rejects growth after
+critical pressure. The corrected synthetic report hashes to
+`199107b541670a915fba5a17b5ef9cc2c139309e1e81e476692161161867e6a2`.
+It changes the old belief that no pressure callback exists, but it does not
+change the 8 GiB default: injected events over an 8-byte fixture do not prove
+real OS pressure response, 12 GiB safety, transaction acceleration, or TPS.
+
+The preceding synthetic artifact hashes to
+`758d895c28b253fcc1b0567de53d9cdb4812eef183eac9d675c72a3bcdbf6e52`
+and is rejected because its supplied implementation commit did not match live
+HEAD. Preserve it as the reason the evidence command now authenticates exact
+HEAD and requires a clean worktree.

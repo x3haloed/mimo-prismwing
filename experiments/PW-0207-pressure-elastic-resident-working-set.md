@@ -85,3 +85,28 @@ eviction callback, and one repeated-transaction implementation. This is an
 offline static prediction on one corrected transaction, not endpoint TPS or a
 13 GiB default. The experiment remains running until the real interleaved
 transaction and pressure-eviction gates pass or reject it.
+
+The first implementation checkpoint is clean commit
+`c10cc1e0df23efc69e3e66521e7b57a445bf13d4`. It validates the canonical
+592-object offline manifest, owns installed payload lifetimes, observes Darwin
+normal/warning/critical events on a dedicated drained dispatch queue, evicts
+warning payloads in the manifest's total order, and makes critical pressure a
+permanent growth stop. The full suite passed 96 Rust and 364 Python tests. The
+normative runtime still uses the 8 GiB ceiling.
+
+The corrected synthetic safety report is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0207/pressure-smoke-002.json`,
+SHA-256
+`199107b541670a915fba5a17b5ef9cc2c139309e1e81e476692161161867e6a2`.
+It retains 8 declared bytes on an injected normal event, releases both owned
+payloads in declared order on warning, releases the installed payload and
+rejects regrowth on critical, and starts/drains a live Darwin observer. Its
+scope is synthetic event injection, not a real OS warning, 12 GiB allocation,
+transaction speedup, or TPS.
+
+Preserve the earlier `pressure-smoke-001.json` as rejected evidence: its
+SHA-256 is
+`758d895c28b253fcc1b0567de53d9cdb4812eef183eac9d675c72a3bcdbf6e52`
+and its supplied implementation commit does not match live Git HEAD. That
+failure caused commit identity and clean-worktree authentication to become a
+mandatory executable gate before the corrected report.
