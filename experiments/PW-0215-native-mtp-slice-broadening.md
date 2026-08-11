@@ -1,6 +1,6 @@
 # PW-0215 — Native MTP complete-path slice broadening
 
-- Status: in progress; code and multilingual slices complete
+- Status: in progress; frozen category broadening complete
 - Disposition: conditional positive
 - Date: 2026-08-11
 - Execution mode: L2 target-distribution-preserving native MTP draft under exact verifier-only commit
@@ -118,3 +118,46 @@ and `e7bbc9f135170ab7c37a3274cc8a3395575d050a92d46baf85d1e05ab798c436`.
 Promote multilingual as a second conditional slice lower milestone. Rare-route
 is the next complete-path falsifier. Longer-context and untouched holdouts
 remain required after category broadening.
+
+## Rare-route result
+
+All three processes emit token IDs `[785,3539,80,7493,1565,33629,308]`,
+decoded as ``The Coq expression `forall n``. Both candidates accept three
+tokens in each of two q4 transactions, with `U=5.861702` and `U=6.037234`.
+The q8 control retains six proposal rows and has `U=4.901596`.
+
+| Measure | Candidate 1 | q8 control | Candidate 2 |
+| --- | ---: | ---: | ---: |
+| Prefill wall ms | 576,813.517 | 581,048.359 | 587,206.965 |
+| Proposal wall ms | 24,608.370 | 156,103.373 | 23,518.628 |
+| Verification wall ms | 56,999.559 | 40,557.826 | 54,918.903 |
+| Complete wall ms | 659,133.890 | 778,351.093 | 666,689.490 |
+| Logical source bytes | 858,312,066,560 | 951,222,123,520 | 858,312,066,560 |
+| Process disk bytes read | 852,310,790,144 | 952,284,934,144 | 852,417,318,912 |
+| Conservative peak resident bytes | 4,607,967,232 | 366,952,448 | 4,510,302,208 |
+
+Candidate walls differ by 1.1398%. Their 662,911.690-ms median is `0.0105595`
+accepted TPS versus the control's `0.00899337`, a repeatable `1.174140x`
+complete-request gain despite the 122-token shared prefill. Post-prefill wall
+falls from 196,661.199 ms to an 80,022.730-ms candidate median, a `2.457567x`
+gain. Logical traffic falls 9.77%; process reads fall 10.49%. Every run records
+zero swap growth, zero newly throttled pages, and no protected-service loss.
+
+Rare-route report hashes are
+`264d0ccec4f9f2de286573a3c77db79587ddd797d6717ae78057d943a3ade272`,
+`26e98f57bd50f4d0ae3e862388612766bcbabead9c1affe062440ae0b86296f5`,
+and `889b7022770c5c958354fdcd137edfc647508dc198e3757b6ea820fce7f4d4d8`.
+Their progress hashes are respectively
+`b3df6d111556ca1a13c3eb03d38fdf6a7e38a9598783308d58e8d663fae31f7b`,
+`0c8576b2028591fd7129e52129235ee27fb1ef1ff1caccba26e9098d486a5be6`,
+and `56fa77b99d0def6c48e274fb8a918a562cb47edc198163794dfffbd8e23da042`.
+
+## Current disposition
+
+PW-0211/PW-0215 now preserve positive, repeatable, exact complete-path gains on
+all four frozen text categories: `1.864046x` ordinary, `1.298259x` code,
+`1.288837x` multilingual, and `1.174140x` rare-route. This is stronger than a
+single-slice milestone but is not a general default. The four prompts supplied
+mechanism-development and category selection evidence, and each requests only
+seven output tokens. Freeze untouched holdouts before executing them, include a
+longer-output path, and retain the exact q8 control and safety accounting.

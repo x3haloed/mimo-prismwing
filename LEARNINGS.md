@@ -4354,3 +4354,17 @@ and untouched holdouts remain. Report hashes are
 `c8c4b2ac938fbf8820bb13ef12c2f6e0b5ae7e141e62ebb04cbc4e8c3330a48e`,
 `6a8632c40732b8a6150967b5ecf73cc5f95587a386f4dc6166588fafe66df83f`,
 and `1bdddc7f2bc17df1731a76394b9d0c29837bf2956d1a1ddf61a4e9c73eeb8710`.
+
+PW-0215's rare-route complete path preserves the smallest but still repeatable
+category gain. Candidate walls are 659,133.890 and 666,689.490 ms around a
+778,351.093-ms q8 control. Median complete TPS improves `1.174140x`, and
+post-prefill wall improves `2.457567x`; shared prefill is 122 tokens. Logical
+traffic falls 9.77% and process reads fall 10.49%, with exact output and zero
+swap growth or throttling. Together with PW-0211 ordinary and PW-0215 code and
+multilingual, all four frozen text categories now show repeatable positive
+complete-path gains. Do not turn category breadth into general promotion: the
+prompts were visible during mechanism development, output is only seven tokens,
+and longer-context untouched holdouts remain required. Rare-route report hashes
+are `264d0ccec4f9f2de286573a3c77db79587ddd797d6717ae78057d943a3ade272`,
+`26e98f57bd50f4d0ae3e862388612766bcbabead9c1affe062440ae0b86296f5`,
+and `889b7022770c5c958354fdcd137edfc647508dc198e3757b6ea820fce7f4d4d8`.

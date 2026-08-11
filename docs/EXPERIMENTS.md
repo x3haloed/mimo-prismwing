@@ -1507,8 +1507,9 @@ Run the following cheap falsifiers in order:
    improves median complete accepted TPS `1.298259x`; post-prefill wall improves
    `2.633252x`. Multilingual also passes despite its pessimistic pilot: complete
    TPS improves `1.288837x` and post-prefill wall `2.535071x`. Preserve both
-   conditional slice wins. General promotion still requires rare-route, longer
-   context, and untouched holdouts.
+   conditional slice wins. Rare-route then passes at `1.174140x` complete and
+   `2.457567x` post-prefill. All four frozen text categories are now positive;
+   general promotion still requires longer-output untouched holdouts.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
