@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import time
 from typing import Any
@@ -45,6 +46,8 @@ except ModuleNotFoundError:
 REVISION = "63651580ca774f8504f676040460aed3e1244ac1"
 VERIFICATION_SHA256 = "9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03"
 PW0091_SHA256 = "87466b59480a5a5b4256c490f1dfe670fe09f28d21d169085ab13bb1b4b7ab59"
+PW0206_PREFIX_SHA256 = "0002c617c5459d7531de99e779ecad7335afc1e6f86cbbb6071afa23da107807"
+PW0206_DECODE_SHA256 = "f405225ea063bf3bfaf38a450fe752dc32c5afe54f69f5803c3ae61308caab2d"
 ARTIFACT_SHA256 = "e67b0106aa2c26a091f1fef0661a4ccc408389f2bc5d1bab9ed42e46a6e898c6"
 DFLASH_REVISION = "1f58446181abcaa01030fdbde835fbd38ae9a2b1"
 SGLANG_REVISION = "2fc557254b3aaf539e80266e52a6d1e1f8da9980"
@@ -57,6 +60,13 @@ CAPTURE_HASHES = {
     23: "dd41254cf1b54c594996d8a6674583a57c844890255c1395b5410d4300c56c4b",
     35: "8e1537554798b30f752879befad5ab1e0911e31f6234aad46e99d34520407bbe",
     47: "3809f2fb5cc8ff3f543cd2d0362dccd136f2822e8aa844f6080d2effb7e6e300",
+}
+PW0206_CAPTURE_HASHES = {
+    0: "1521d7e6e4817b66c884dd3814bb2ed5a1b470f0314aa9a995256b710c34c318",
+    11: "27ace1d0b0c2472e2f310cb74e1e2268f157c81889bd2e0b61421ef38f437c70",
+    23: "89f586728b86d5fafc083980385405c7e9c704d16b517977e25ab350bc65a04e",
+    35: "3fce40c13f08d758261f67c886335c99b06fee90f5e0082165fcbb1529d98f4a",
+    47: "e485df1c61820505c431b390825849ae05af0b190a568dae023ec7a215644fbe",
 }
 LAST_LOGITS_SHA256 = "c43be0909487235bddfe6e0de69aa42a98339faf43cd6b77d6ef4b5f1a853cab"
 EXPECTED_UNEXPECTED_KEYS = {
@@ -102,7 +112,8 @@ def authenticate_inputs(
     dflash_root: Path,
     sglang_lock_path: Path,
     sglang_root: Path,
-) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+    corrected_decode_path: Path | None = None,
+) -> tuple[Path, dict[str, Any], dict[str, Any], int, dict[int, str]]:
     if sha256_file(verification_path) != VERIFICATION_SHA256:
         raise ValueError("checkpoint verification hash mismatch")
     verification = json.loads(verification_path.read_text())
@@ -117,9 +128,11 @@ def authenticate_inputs(
     shard = checkpoint / BASE_SHARD
     verified_file(shard, record)
 
+    corrected = corrected_decode_path is not None
+    expected_prefix_sha256 = PW0206_PREFIX_SHA256 if corrected else PW0091_SHA256
     manifest_path = prefix / "manifest.json"
-    if sha256_file(manifest_path) != PW0091_SHA256:
-        raise ValueError("PW-0091 manifest hash mismatch")
+    if sha256_file(manifest_path) != expected_prefix_sha256:
+        raise ValueError("prefix manifest hash mismatch")
     prefix_manifest = json.loads(manifest_path.read_text())
     if (
         prefix_manifest.get("revision") != REVISION
@@ -128,20 +141,39 @@ def authenticate_inputs(
         or len(prefix_manifest["prompt_token_ids"]) != CONTEXT_LENGTH
     ):
         raise ValueError("PW-0091 semantic identity mismatch")
+    expected_last_logits_sha256 = (
+        "2302a23b67083bad89f020302c87e8c6ec2409ced3ad640be0f7733e7fb71cce"
+        if corrected
+        else LAST_LOGITS_SHA256
+    )
     last_logits_record = prefix_manifest.get("captures", {}).get("last_logits")
     if (
         not isinstance(last_logits_record, dict)
         or last_logits_record.get("shape") != [152576]
         or last_logits_record.get("dtype") != "F32"
-        or last_logits_record.get("sha256") != LAST_LOGITS_SHA256
+        or last_logits_record.get("sha256") != expected_last_logits_sha256
     ):
         raise ValueError("PW-0091 last-logits identity mismatch")
     last_logits_path = prefix / last_logits_record["file"]
-    if sha256_file(last_logits_path) != LAST_LOGITS_SHA256:
-        raise ValueError("PW-0091 last-logits payload mismatch")
+    if sha256_file(last_logits_path) != expected_last_logits_sha256:
+        raise ValueError("prefix last-logits payload mismatch")
     last_logits = np.fromfile(last_logits_path, dtype="<f4")
-    if last_logits.shape != (152576,) or int(last_logits.argmax()) != FIRST_TARGET_TOKEN:
-        raise ValueError("PW-0091 first target token mismatch")
+    if corrected:
+        if sha256_file(corrected_decode_path) != PW0206_DECODE_SHA256:
+            raise ValueError("PW-0206 corrected decode hash mismatch")
+        decode = json.loads(corrected_decode_path.read_text())
+        if (
+            decode.get("semantic") != "mimo_v2_5_target_faithful_slow_chat_endpoint"
+            or decode.get("generated_token_ids") != [9707, 0]
+        ):
+            raise ValueError("PW-0206 corrected decode semantic identity mismatch")
+        first_target_token = 9707
+        capture_hashes = PW0206_CAPTURE_HASHES
+    else:
+        first_target_token = FIRST_TARGET_TOKEN
+        capture_hashes = CAPTURE_HASHES
+    if last_logits.shape != (152576,) or int(last_logits.argmax()) != first_target_token:
+        raise ValueError("prefix first target token mismatch")
 
     if sha256_file(artifact_manifest_path) != ARTIFACT_SHA256:
         raise ValueError("DFlash artifact manifest hash mismatch")
@@ -164,22 +196,34 @@ def authenticate_inputs(
     for relative, expected in lock.get("files", {}).items():
         if sha256_file(sglang_root / relative) != expected:
             raise ValueError(f"SGLang DFlash source hash mismatch: {relative}")
-    return shard, prefix_manifest, {
+    identities = {
         "checkpoint_verification_sha256": VERIFICATION_SHA256,
-        "pw0091_manifest_sha256": PW0091_SHA256,
         "artifact_manifest_sha256": ARTIFACT_SHA256,
         "sglang_lock_sha256": hashlib.sha256(lock_bytes).hexdigest(),
     }
+    if corrected:
+        identities.update({
+            "pw0206_prefix_manifest_sha256": PW0206_PREFIX_SHA256,
+            "pw0206_target_decode_sha256": PW0206_DECODE_SHA256,
+        })
+    else:
+        identities["pw0091_manifest_sha256"] = PW0091_SHA256
+    return shard, prefix_manifest, identities, first_target_token, capture_hashes
 
 
-def load_capture(prefix: Path, manifest: dict[str, Any], layer: int) -> torch.Tensor:
+def load_capture(
+    prefix: Path,
+    manifest: dict[str, Any],
+    layer: int,
+    capture_hashes: dict[int, str] = CAPTURE_HASHES,
+) -> torch.Tensor:
     name = f"layer_{layer:02}_final"
     record = manifest.get("captures", {}).get(name)
     if (
         not isinstance(record, dict)
         or record.get("shape") != [CONTEXT_LENGTH, 4096]
         or record.get("dtype") != "BF16_widened_F32"
-        or record.get("sha256") != CAPTURE_HASHES[layer]
+        or record.get("sha256") != capture_hashes[layer]
     ):
         raise ValueError(f"PW-0091 capture manifest mismatch: {name}")
     path = prefix / record["file"]
@@ -328,8 +372,11 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     captures: dict[str, Any] = {}
     layer_states: list[dict[str, Any]] = []
 
+    if arguments.corrected_decode is not None and arguments.exported_mask_embedding is None:
+        raise ValueError("PW-0206 corrected DFlash requires the authenticated exported mask embedding")
+
     auth_started = time.monotonic()
-    shard, prefix_manifest, identities = authenticate_inputs(
+    shard, prefix_manifest, identities, first_target_token, capture_hashes = authenticate_inputs(
         arguments.checkpoint,
         arguments.verification,
         arguments.prefix,
@@ -337,14 +384,18 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
         arguments.dflash_root,
         arguments.sglang_lock,
         arguments.sglang_root,
+        arguments.corrected_decode,
     )
     timings["authenticate_inputs_ms"] = (time.monotonic() - auth_started) * 1000
     safety.checkpoint("authenticated_inputs")
 
-    hidden_parts = [load_capture(arguments.prefix, prefix_manifest, layer) for layer in TARGET_LAYER_IDS]
+    hidden_parts = [
+        load_capture(arguments.prefix, prefix_manifest, layer, capture_hashes)
+        for layer in TARGET_LAYER_IDS
+    ]
     target_hidden = torch.cat(hidden_parts, dim=-1).unsqueeze(0)
     del hidden_parts
-    block_ids = initial_block_ids(FIRST_TARGET_TOKEN)
+    block_ids = initial_block_ids(first_target_token)
     exported_mask_embedding = getattr(arguments, "exported_mask_embedding", None)
     if exported_mask_embedding is not None:
         expected_mask_path = arguments.dflash_root / "dflash/mask_embedding.pt"
@@ -468,7 +519,9 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     result = {
         "schema_version": 1,
         "evidence_class": (
-            "pw0150_exported_mask_dflash_proposal"
+            "pw0206_corrected_qkv_exported_mask_dflash_proposal"
+            if arguments.corrected_decode is not None
+            else "pw0150_exported_mask_dflash_proposal"
             if exported_mask_embedding is not None
             else "pw0102_frozen_hidden_dflash_proposal"
         ),
@@ -480,7 +533,7 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
         "identities": identities,
         "context_length": CONTEXT_LENGTH,
         "target_layer_ids": list(TARGET_LAYER_IDS),
-        "initial_target_token_id": FIRST_TARGET_TOKEN,
+        "initial_target_token_id": first_target_token,
         "mask_token_id": MASK_TOKEN_ID,
         "mask_embedding_authority": mask_embedding_record["authority"],
         "mask_embedding_widened_f32_sha256": mask_embedding_record["widened_f32_sha256"],
@@ -514,6 +567,24 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
         "wall_ms": (time.monotonic() - started) * 1000,
         "performance_claim": None,
     }
+    if arguments.corrected_decode is not None:
+        repository = Path(__file__).resolve().parents[1]
+        result["git_commit"] = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repository,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        result["git_dirty"] = bool(
+            subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        )
     atomic_write_new(arguments.output / "manifest.json", canonical_json(result))
     return result
 
@@ -527,6 +598,7 @@ def main() -> int:
     parser.add_argument("--dflash-root", required=True, type=Path)
     parser.add_argument("--sglang-lock", required=True, type=Path)
     parser.add_argument("--sglang-root", required=True, type=Path)
+    parser.add_argument("--corrected-decode", type=Path)
     parser.add_argument("--exported-mask-embedding", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     arguments = parser.parse_args()
@@ -541,7 +613,9 @@ def main() -> int:
             failure = {
                 "schema_version": 1,
                 "evidence_class": (
-                    "pw0150_exported_mask_dflash_proposal_failure"
+                    "pw0206_corrected_qkv_exported_mask_dflash_proposal_failure"
+                    if arguments.corrected_decode is not None
+                    else "pw0150_exported_mask_dflash_proposal_failure"
                     if arguments.exported_mask_embedding is not None
                     else "pw0102_frozen_hidden_dflash_proposal_failure"
                 ),

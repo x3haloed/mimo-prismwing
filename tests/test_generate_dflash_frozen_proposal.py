@@ -7,6 +7,7 @@ import torch
 from transformers import Qwen3Config
 
 from tools.generate_dflash_frozen_proposal import (
+    PW0206_CAPTURE_HASHES,
     assemble_block_noise_embeddings,
     configure_sglang_full_head_rope,
     normalize_loading_sequence,
@@ -16,6 +17,10 @@ from tools.generate_dflash_frozen_proposal import (
 
 
 class FrozenProposalTests(unittest.TestCase):
+    def test_corrected_capture_authority_is_complete(self):
+        self.assertEqual(set(PW0206_CAPTURE_HASHES), {0, 11, 23, 35, 47})
+        self.assertTrue(all(len(value) == 64 for value in PW0206_CAPTURE_HASHES.values()))
+
     def test_sglang_adapter_is_narrow_and_explicit(self):
         config = Qwen3Config(head_dim=128)
         config.partial_rotary_factor = 0.5
