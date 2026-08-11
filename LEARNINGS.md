@@ -4086,3 +4086,16 @@ median is 0.550331% faster. Preserve the gain and the first candidate's 0.123%
 slowdown together: this is a working exact substitution mechanism worth
 bounded scaling, not repeatable 2x evidence or permission to raise the 8 GiB
 default.
+
+PW-0207 bounded scaling preserves another small gain and closes the naive 3 GiB
+growth path under current loading. A 3 GiB ranked request stopped at the eighth
+object on the unchanged 4 GiB post-phase footprint gate; do not weaken it. The
+seven-object 1,652,555,776-byte prefix passes exact execution and pressure-safe
+eviction. Its A–B–A candidate median is 186,182.679 ms versus 188,266.418 ms
+mapped, improving committed transaction TPS 1.106803% from 0.037181 to
+0.037597, but the second candidate is individually 0.480% slower. Preserve the
+median gain without promotion. The resident ledger also exposes a concrete
+remaining gap: proposal-side one-row LM-head execution bypasses residency, so
+only 4,471,128,064 of 13,220,954,112 predicted bytes are substituted. Repair
+that causal path before judging the ranked set, and use a non-double-resident
+loader before attempting more than seven objects.

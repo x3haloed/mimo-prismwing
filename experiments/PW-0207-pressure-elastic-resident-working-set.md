@@ -185,3 +185,51 @@ The single-object causal path passes and earns scaling to a bounded declared
 set under the unchanged 8 GiB process ceiling. It does not authorize the full
 12 GiB offline set, a 13 GiB default, endpoint TPS promotion, or abandonment of
 the measured 0.550331% signal.
+
+Clean commit `75bce3a3e63a7307894cbcdba0ec05eda0c72659` adds a ranked
+complete-object prefix and resident BF16 Metal binding while preserving the
+8 GiB maximum footprint and 4 GiB post-phase footprint. A requested 3 GiB
+prefix stopped closed after object eight exceeded the post-phase gate, before
+decoder execution. No final report was emitted; its prefill-only progress
+artifact hashes to
+`e3f237888a85c3555ad027a883ad4900edabde666f57be48691dcb579cebbc84`.
+Do not raise the safety default to admit it.
+
+The largest preceding prefix that passed every growth checkpoint contains
+seven objects and 1,652,555,776 bytes: LM head, all three layer-zero dense MLP
+projections, and attention output projections for layers 0, 1, and 10. Its
+same-commit A–B–A transaction sequence is:
+
+| Run | Prefill ms | Transaction ms | Committed transaction TPS | Resident source bytes |
+| --- | ---: | ---: | ---: | ---: |
+| resident set 001 | 198,054.802 | 183,194.745 | 0.038211 | 4,471,128,064 |
+| mapped 003 | 197,717.146 | 188,266.418 | 0.037181 | 0 |
+| resident set 002 | 197,817.729 | 189,170.613 | 0.037002 | 4,471,128,064 |
+
+The two-candidate median is 186,182.679 ms or 0.037597 committed TPS, a
+1.106803% gain over the center control. Preserve that gain, but do not promote
+the set: candidate 002 is 0.480% slower than control, so the sign does not
+repeat per run and the result is far below 2x. Candidate 001 reduces measured
+transaction reads by 4,472,979,456 bytes, peaks at 5,152,096,256 bytes, keeps
+59% system memory free, observes zero swap/throttle growth, and warning-evicts
+all seven objects to zero. Candidate 002 passes the same gates and peaks at
+5,541,298,176 bytes.
+
+Tokens, acceptance, route identities, and route weights are byte-identical
+after excluding timing/resource fields. Raw report/progress hashes are:
+
+- resident set 001: `d86e499fbfb596dae0dba9f4cc1fe67d27fd1661660b5639cc69ddbdd7b141fd`,
+  `f9af99f11ccab4c94b657c024da3c138218434161ed43e574927fb93f4715df2`;
+- mapped 003: `92f9dbcecaa00fba281ccda9f12e3dc4c70d7e3da04e84cec281fb8a886c37ac`,
+  `23bdc8d70ab983d2b3bd18b57e49ed35337fb3ac0822b3ddc45abf7feaf8ed95`;
+- resident set 002: `94b602b2b683037713d3d9db20fa2ec74e20ad47f75d7e013c059e4c34250a57`,
+  `3440806a7fae783d04a4bc36cc0bb7e765650dc96a248f0d16b8a1f74d9f1ebc`.
+
+The resident ledger accounts only 4,471,128,064 of the 13,220,954,112 source
+bytes predicted for eight uses of all seven objects. The causal gap is the
+seven one-row proposal LM-head calls, which still use the mapped CPU path;
+only the width-eight verifier LM-head call consumes resident BF16. Continue by
+making that existing target-faithful Metal path authoritative for one-row
+proposal logits, then repeat mapped/resident controls. Separately, scaling
+beyond seven objects requires eliminating copy-time double footprint rather
+than weakening the 4 GiB gate.
