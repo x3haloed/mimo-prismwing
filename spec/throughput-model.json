@@ -1453,6 +1453,71 @@
             "concurrency": 1,
             "status": "conditional_repeatable_untouched_ordinary_32_token_lower_milestone; identical_verifier_authorized_output; remaining_frozen_holdout_categories_pending; not_general_default",
             "provenance": "PW-0216 cold candidate-control-candidate untouched ordinary 32-token reports ca16c4fb99c4fefd53cedc73be02f1370c600a508d707bde586700f2b9cf91fc, e64a8a625086be05c853d16f1fd60ea4644239f579fb4ebf0b6097928eefbec3, and 86f23cc61d790aedb9373ac41aa9852435acd55466a736bdafb0b9edd5c5e20b; frozen prompt SHA-256 1cc0561c9f1cd1782a8babcc1c667b048ebe8716c54f0211eadd4c8794ee685c; Apple M1 16 GiB internal checkpoint; clean git 42605d3e507bd3c9c2209bd3d3cf0bf209b9138e"
+        },
+        "pw0216_live_native_mtp_q4_code_32_token_holdout": {
+            "candidate_complete_wall_ms": [
+                803642.999041,
+                785845.432125
+            ],
+            "candidate_complete_wall_median_ms": 794744.215583,
+            "candidate_complete_accepted_tps_median": 0.040264527092564,
+            "control_complete_wall_ms": 1237243.109292,
+            "control_complete_accepted_tps": 0.025863954916921,
+            "complete_accepted_tps_gain": 1.556781521692984,
+            "candidate_post_prefill_wall_median_ms": 460738.961916,
+            "control_post_prefill_wall_ms": 903989.476542,
+            "post_prefill_wall_gain": 1.962042612551642,
+            "candidate_transaction_A": [
+                3,
+                3,
+                2,
+                3,
+                1,
+                3,
+                3,
+                3,
+                2,
+                3,
+                2,
+                2,
+                1
+            ],
+            "candidate_transaction_U": [
+                5.6861702127659575,
+                5.76595744680851,
+                5.335106382978723,
+                5.574468085106383,
+                5.622340425531915,
+                5.558510638297872,
+                6.01595744680851,
+                5.329787234042553,
+                5.49468085106383,
+                5.372340425531915,
+                5.558510638297872,
+                5.867021276595745,
+                5.367021276595745
+            ],
+            "control_transaction_A": [
+                6,
+                7,
+                7,
+                7,
+                4
+            ],
+            "control_transaction_U": [
+                4.470744680851064,
+                4.531914893617022,
+                4.781914893617022,
+                4.404255319148936,
+                4.48936170212766
+            ],
+            "accepted_tokens_per_complete_request": 32,
+            "logical_source_byte_reduction": 0.26393052000208,
+            "process_read_byte_reduction": 0.29903742214247,
+            "batch_size": 1,
+            "concurrency": 1,
+            "status": "conditional_repeatable_untouched_code_32_token_lower_milestone; identical_verifier_authorized_output; multilingual_and_rare_route_holdouts_pending; not_general_default",
+            "provenance": "PW-0216 cold candidate-control-candidate untouched code 32-token reports bd5a5a4002b28e875ca45eee232ee461b0943391284d823b0641e7640e40fcb5, 353a14b6f7dddc7f5009876697f639999151b47539da24126237f4be253c17dc, and 1cd4987260b97943aaceebdda30cf4429e3aa6a6235bb60e84a41968fd16d6f6; frozen prompt SHA-256 900d31fa20fa3b839a0e49e6f3b1bfe2bb43ae8b00cbd8bbd3ceea64af0d794a; Apple M1 16 GiB internal checkpoint; clean git 16974043d1c45bbb591d114543cd69be18a48d73"
         }
     }
 }

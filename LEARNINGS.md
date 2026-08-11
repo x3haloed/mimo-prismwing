@@ -4442,3 +4442,17 @@ and rare-route holdouts remain. Report hashes are
 `ca16c4fb99c4fefd53cedc73be02f1370c600a508d707bde586700f2b9cf91fc`,
 `e64a8a625086be05c853d16f1fd60ea4644239f579fb4ebf0b6097928eefbec3`,
 and `86f23cc61d790aedb9373ac41aa9852435acd55466a736bdafb0b9edd5c5e20b`.
+
+PW-0216's untouched code holdout confirms that the native-MTP gain survives a
+materially harder acceptance pattern. Both candidates reproduce the control's
+exact 32-token output and the same thirteen-transaction committed sequence
+`[3,3,2,3,1,3,3,3,2,3,2,2,1]`, including one immediate rejection. Candidate
+walls are 803,642.999 and 785,845.432 ms around a 1,237,243.109-ms q8 control.
+Median complete accepted TPS improves `1.556782x`; post-prefill wall improves
+`1.962043x`; logical traffic falls 26.39% and process reads 29.90%. All three
+runs preserve the host-safety contract. This is a second untouched sustained
+slice, not general promotion: multilingual and rare-route holdouts remain.
+Report hashes are
+`bd5a5a4002b28e875ca45eee232ee461b0943391284d823b0641e7640e40fcb5`,
+`353a14b6f7dddc7f5009876697f639999151b47539da24126237f4be253c17dc`,
+and `1cd4987260b97943aaceebdda30cf4429e3aa6a6235bb60e84a41968fd16d6f6`.

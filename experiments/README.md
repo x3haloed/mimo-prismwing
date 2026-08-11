@@ -5,9 +5,10 @@ research queue lives in `docs/EXPERIMENTS.md`; a proposed experiment becomes
 evidence only when it has a record here and a raw-evidence manifest or hash.
 
 The architecture-level candidate portfolio and its shared compression contract
-live in [`docs/EMBODIMENT_JUMPS.md`](../docs/EMBODIMENT_JUMPS.md). The ledger
-currently runs through proposed record PW-0214. The next unreserved experiment
-ID is PW-0215.
+live in [`docs/EMBODIMENT_JUMPS.md`](../docs/EMBODIMENT_JUMPS.md). Mainline
+runtime work currently runs through PW-0216; the independently reserved
+representation-audit block runs through PW-0304. Coordinate the next ID against
+the directory before creating a record rather than relying on a stale counter.
 
 Use sequential IDs such as `PW-0001-checkpoint-census.md`. Never renumber,
 delete, or overwrite a negative result. If stronger evidence reverses a

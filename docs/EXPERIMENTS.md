@@ -1516,9 +1516,11 @@ Run the following cheap falsifiers in order:
    sustained native-MTP acceptance, correction, rollback, and complete-path
    gain without reusing the mechanism-development prompts. The first ordinary
    holdout passes: exact 32-token output, `1.722233x` median complete accepted
-   TPS, `2.263926x` post-prefill wall gain, and 37.01% fewer process reads.
-   Positive and negative category results are preserved independently; the
-   frozen code, multilingual, and rare-route holdouts remain.
+   TPS, `2.263926x` post-prefill wall gain, and 37.01% fewer process reads. The
+   frozen code holdout also passes despite a harder acceptance sequence:
+   `1.556782x` complete accepted TPS, `1.962043x` post-prefill wall gain, and
+   29.90% fewer process reads with exact output. Positive and negative category
+   results remain independent; multilingual and rare-route holdouts remain.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

@@ -25,7 +25,7 @@ the same endpoint.
 
 | Frontier | Best supported result | Boundary |
 | --- | ---: | --- |
-| Untouched 32-token native-MTP holdout | **0.045978 accepted TPS**, **1.722×** the q8 control | Complete request, including prefill; ordinary-text holdout only so far |
+| Untouched 32-token native-MTP holdouts | **1.722× ordinary**, **1.557× code** versus q8 | Complete requests including prefill; multilingual and rare-route remain |
 | Native-MTP seven-token category panel | **1.864× ordinary**, **1.298× code**, **1.289× multilingual**, **1.174× rare-route** | Complete exact-output requests; conditional, not a general default |
 | Accelerated width-eight verifier | **0.219850 accepted TPS warm** | Post-prefill verifier transaction; proposal generation excluded |
 | Layer-major routed-MoE prefill slice | **1.161×–1.192×** | One real layer; misses its 3× continuation and absolute numerical gates |
@@ -43,8 +43,10 @@ q8 control and repeated the same committed-token sequence:
 Candidate median complete wall time was 695.983 s versus 1,198.644 s for the
 control. Post-prefill wall improved 2.264×, logical source traffic fell 34.05%,
 and measured process reads fell 37.01%. All runs recorded zero swap growth,
-zero newly throttled pages, and no protected-service loss. Code, multilingual,
-and rare-route 32-token holdouts remain frozen and pending.
+zero newly throttled pages, and no protected-service loss. The code holdout also
+passes at 1.557× complete-path TPS despite a harder thirteen-transaction
+acceptance sequence and 29.90% fewer process reads. Multilingual and rare-route
+32-token holdouts remain frozen and pending.
 
 [PW-0215](experiments/PW-0215-native-mtp-slice-broadening.md) supplies the
 shorter category breadth. Every ordinary, code, multilingual, and rare-route
@@ -184,8 +186,7 @@ satisfy the primary target. See [RED_LINES.md](RED_LINES.md).
 
 The active sequence is deliberately evidence-first:
 
-1. finish the frozen PW-0216 code, multilingual, and rare-route 32-token
-   holdouts;
+1. finish the frozen PW-0216 multilingual and rare-route 32-token holdouts;
 2. reduce native proposer embodiment cost without changing its authority;
 3. attack the dominant prefill/storage cut while preserving the smaller
    verified gains already found;
