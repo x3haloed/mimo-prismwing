@@ -4312,3 +4312,17 @@ route-buffer repair, and 16.1%--19.2% slice gain for composition at a changed
 critical cut. Report
 `9a0933a132a795ed6a4a6873e90652912969a50945d675f032e75afbf499f316`
 makes no endpoint TPS claim.
+
+PW-0210 executes the DS4-shaped packed gate/up-to-SwiGLU falsifier only after
+PW-0209 supplies its named width-128 premise. The fused Metal kernel is
+byte-exact against the unfused chain at widths 2, 9, 26, and 32 and on the real
+layer-43 context-128 authority. It eliminates 33,554,432 bytes of F32
+intermediate writes and reads, but cold candidate-control-candidate complete
+walls are 4,133.170, 3,962.599, and 3,962.030 ms. The repeat is effectively
+neutral and the first candidate regresses; all trials still read about 5.670
+GB physically. Reject the 1.5x envelope hypothesis and stop tile tuning under
+this storage cut. Preserve the exact precision-crossing fixture and opt-in
+kernel for a changed embodiment, without burdening default pipeline
+initialization. Report
+`68cfa9604185be26b9c1f86fcf7773c942213e9ebf0169bc2a75a8da9cb29abd`
+accepts zero tokens and makes no endpoint TPS claim.

@@ -114,7 +114,7 @@ pub(crate) struct WideMetalMoeRuntime {
     device: metal::Device,
     queue: metal::CommandQueue,
     blockscaled_projection_pipelines: Vec<metal::ComputePipelineState>,
-    fused_gate_up_swiglu_pipelines: Vec<metal::ComputePipelineState>,
+    fused_gate_up_swiglu_pipelines: Option<Vec<metal::ComputePipelineState>>,
     quantized_dynamic_pipeline: metal::ComputePipelineState,
     swiglu_pipeline: metal::ComputePipelineState,
     round_pipeline: metal::ComputePipelineState,
@@ -163,6 +163,14 @@ struct ExpertBuffers {
 
 impl WideMetalMoeRuntime {
     pub(crate) fn compile(kernel_path: &Path) -> Result<Self, String> {
+        Self::compile_configured(kernel_path, false)
+    }
+
+    pub(crate) fn compile_with_fused_gate_up(kernel_path: &Path) -> Result<Self, String> {
+        Self::compile_configured(kernel_path, true)
+    }
+
+    fn compile_configured(kernel_path: &Path, fused_gate_up: bool) -> Result<Self, String> {
         let source = fs::read_to_string(kernel_path)
             .map_err(|error| format!("{}: {error}", kernel_path.display()))?;
         let device = Device::system_default().ok_or("no Metal device is available")?;
@@ -186,9 +194,13 @@ impl WideMetalMoeRuntime {
         let blockscaled_projection_pipelines = (1..=MAX_EXPERT_ROWS)
             .map(|width| pipeline(&format!("block_fp8_gemm{width}_sglang_blockscaled")))
             .collect::<Result<Vec<_>, _>>()?;
-        let fused_gate_up_swiglu_pipelines = (1..=MAX_EXPERT_ROWS)
-            .map(|width| pipeline(&format!("fused_block_fp8_gate_up_swiglu{width}")))
-            .collect::<Result<Vec<_>, _>>()?;
+        let fused_gate_up_swiglu_pipelines = fused_gate_up
+            .then(|| {
+                (1..=MAX_EXPERT_ROWS)
+                    .map(|width| pipeline(&format!("fused_block_fp8_gate_up_swiglu{width}")))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?;
         let quantized_dynamic_pipeline = pipeline("dynamic_fp8_quantized_group128")?;
         let swiglu_pipeline = pipeline("bf16_staged_swiglu")?;
         let round_pipeline = pipeline("bf16_round_in_place")?;
@@ -658,7 +670,11 @@ impl WideMetalMoeRuntime {
                 depth: 1,
             },
         );
-        encoder.set_compute_pipeline_state(&self.fused_gate_up_swiglu_pipelines[active - 1]);
+        let pipelines = self
+            .fused_gate_up_swiglu_pipelines
+            .as_ref()
+            .ok_or("fused gate/up pipelines were not requested")?;
+        encoder.set_compute_pipeline_state(&pipelines[active - 1]);
         encoder.set_buffer(0, Some(&gate_weight_buffer), 0);
         encoder.set_buffer(1, Some(&gate_scale_buffer), 0);
         encoder.set_buffer(2, Some(&up_weight_buffer), 0);
@@ -1117,9 +1133,11 @@ impl WideMetalMoeRuntime {
                 let _ = columns;
             };
             if fused_gate_up {
-                encoder.set_compute_pipeline_state(
-                    &self.fused_gate_up_swiglu_pipelines[expert.count - 1],
-                );
+                let pipelines = self
+                    .fused_gate_up_swiglu_pipelines
+                    .as_ref()
+                    .ok_or("fused gate/up pipelines were not requested")?;
+                encoder.set_compute_pipeline_state(&pipelines[expert.count - 1]);
                 encoder.set_buffer(0, Some(&expert.gate.weight), expert.gate.weight_offset);
                 encoder.set_buffer(1, Some(&expert.gate.scale), expert.gate.scale_offset);
                 encoder.set_buffer(2, Some(&expert.up.weight), expert.up.weight_offset);
@@ -1323,8 +1341,10 @@ mod tests {
 
     #[test]
     fn fused_gate_up_swiglu_is_exact_at_narrow_and_full_expert_widths() {
-        let runtime = WideMetalMoeRuntime::compile(Path::new("kernels/block_fp8_gemv.metal"))
-            .expect("compile fused gate/up pipelines");
+        let runtime = WideMetalMoeRuntime::compile_with_fused_gate_up(Path::new(
+            "kernels/block_fp8_gemv.metal",
+        ))
+        .expect("compile fused gate/up pipelines");
         for active in [2, 9, 26, MAX_EXPERT_ROWS] {
             runtime
                 .probe_fused_gate_up_swiglu(active)

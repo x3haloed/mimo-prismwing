@@ -1,7 +1,7 @@
 # PW-0210 — SIMD-group packed-domain fusion
 
-- Status: in progress
-- Disposition: width-128 gate/up-to-SwiGLU falsifier authorized by PW-0209
+- Status: completed
+- Disposition: rejected; exact fusion is performance-neutral after cold acquisition
 - Date: 2026-08-11
 - Execution mode: L1 when bit-exact/function-preserving; approximate codecs separately named L3
 - Related records: PW-0043, PW-0111, PW-0196 through PW-0202, PW-0205
@@ -90,7 +90,25 @@ consequence of vertical producer-consumer fusion, not as an independent claim.
 
 ## Decision
 
-Unexecuted and conditional. This preserves the useful SIMD idea while the
-current cold critical-cut accounting proves it cannot pass its layer gate.
-Execute only after a named premise moves projection execution onto the active
-critical cut; do not promote a warm-only result as cold endpoint TPS.
+PW-0209 supplied the named width-128 premise. The deterministic fused kernel
+is byte-exact against the unfused packed-FP8 gate/up plus BF16-staged SwiGLU
+chain at widths 2, 9, 26, and 32. The real layer-43 context-128 candidate is
+also byte-identical to its unfused control; both outputs hash to
+`b3c6daf1b0efc5f684fdef5826eb0dcca9f46042e3e1b7a4661799d6e14f6737`.
+The unchanged absolute source gate fails equally for both at `0.0007579843`
+relative L2 and `0.015625` maximum absolute error, so zero tokens are accepted.
+
+Cold-requested candidate-control-candidate complete walls are 4,133.170,
+3,962.599, and 3,962.030 ms. The first fused run is 4.305% slower than control;
+the repeat is only 0.0144% faster. Metal walls show the same neutral result.
+Every trial reads about 5.670 GB physically and carries the same
+5,667,888,128 logical source bytes. Eliminating 33,554,432 bytes of gate/up
+intermediate traffic does not move the storage-dominated envelope and misses
+the 1.5x gate decisively. The report hashes to
+`68cfa9604185be26b9c1f86fcf7773c942213e9ebf0169bc2a75a8da9cb29abd`.
+
+Reject further tile tuning and real-layer/runtime integration under the
+current premise, as predeclared. Preserve the exact kernel, precision ledger,
+and executable falsifier for a future embodiment where acquisition no longer
+dominates. Fused pipelines are opt-in and are not initialized by default
+runtimes. This result makes no endpoint TPS claim.

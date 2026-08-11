@@ -1215,6 +1215,21 @@
             "status": "incremental_layer_gain_preserved; frozen_source_and_three_x_gates_failed; no_ttft_or_endpoint_tps",
             "provenance": "PW-0209 clean cold-requested A-control-A report 9a0933a132a795ed6a4a6873e90652912969a50945d675f032e75afbf499f316; corrected reference report 3e9c123a2309f58a2bb1f1b636db0215af6eb4a02fbc27da848bfae2da48ada5; Apple M1 16 GiB internal checkpoint; clean git 6707af7d8ac3a194cecb3fd618e7973f19e76a2a"
         },
+        "pw0210_fused_gate_up_swiglu_context128": {
+            "rows": 128,
+            "eliminated_intermediate_device_bytes": 33554432,
+            "candidate_complete_wall_ms": [4133.17025, 3962.029792],
+            "control_complete_wall_ms": 3962.598791,
+            "candidate_repeat_gain_vs_control": 1.0001436130039074,
+            "candidate_first_regression_vs_control": 0.04304535179978575,
+            "logical_source_bytes_per_trial": 5667888128,
+            "candidate_control_output_sha256": "b3c6daf1b0efc5f684fdef5826eb0dcca9f46042e3e1b7a4661799d6e14f6737",
+            "source_relative_l2": 0.0007579843391087455,
+            "source_maximum_absolute_error": 0.015625,
+            "accepted_tokens": 0,
+            "status": "byte_exact_candidate_control; one_point_five_x_envelope_gate_failed; performance_neutral; opt_in_only; no_endpoint_tps",
+            "provenance": "PW-0210 clean cold-requested candidate-control-candidate report 68cfa9604185be26b9c1f86fcf7773c942213e9ebf0169bc2a75a8da9cb29abd; Apple M1 16 GiB internal checkpoint; clean git e13633c431960cb903c5b83b321f68795e175bcf"
+        },
         "pw0208_native_mtp_cost_upper_bound": {
             "windows": 32,
             "control_accepted_tokens_A": 213,

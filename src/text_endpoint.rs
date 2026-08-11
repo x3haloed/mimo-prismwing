@@ -5043,7 +5043,11 @@ fn run_layer_major_moe_slice_mode(
     )?;
     let (_, input) = read_f32_file(input_path, Some(ROWS * HIDDEN))?;
     let (_, reference) = read_f32_file(reference_path, Some(ROWS * HIDDEN))?;
-    let runtime = WideMetalMoeRuntime::compile(kernel_path)?;
+    let runtime = if fused_gate_up {
+        WideMetalMoeRuntime::compile_with_fused_gate_up(kernel_path)?
+    } else {
+        WideMetalMoeRuntime::compile(kernel_path)?
+    };
     let mut safety = SafetyMonitor::start(safety_fixture.safety)?;
     let experiment = if fused_gate_up { "pw0210" } else { "pw0209" };
     safety.checkpoint(&format!("{experiment}_authorities_open"), true)?;

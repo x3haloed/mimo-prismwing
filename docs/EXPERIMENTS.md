@@ -1461,8 +1461,11 @@ Run the following cheap falsifiers in order:
    implementation under the current storage premise.
 5. [PW-0210](../experiments/PW-0210-simdgroup-packed-domain-fusion.md) tests
    SIMD-group execution where it can remove unpack, scale, reduction, and
-   barrier traffic. It explicitly does not replace a proven GEMM merely for
-   portability.
+   barrier traffic. Its width-2/9/26/32 fixtures and real context-128 output
+   are byte-exact, but cold candidate-control-candidate walls are
+   4,133.170/3,962.599/3,962.030 ms. Reject the performance-neutral fusion
+   under the current storage cut; opt-in reproduction remains available and
+   default runtimes do not initialize the rejected pipelines.
 6. [PW-0211](../experiments/PW-0211-native-mtp-proposal-latency-lower-milestone.md)
    preserves native MTP as a separately named lower milestone. It asks whether
    three dense draft layers can replace roughly 140 seconds of same-model
