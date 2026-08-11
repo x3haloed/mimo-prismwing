@@ -114,6 +114,7 @@ pub(crate) struct WideMetalMoeRuntime {
     device: metal::Device,
     queue: metal::CommandQueue,
     blockscaled_projection_pipelines: Vec<metal::ComputePipelineState>,
+    fused_gate_up_swiglu_pipelines: Vec<metal::ComputePipelineState>,
     quantized_dynamic_pipeline: metal::ComputePipelineState,
     swiglu_pipeline: metal::ComputePipelineState,
     round_pipeline: metal::ComputePipelineState,
@@ -185,6 +186,9 @@ impl WideMetalMoeRuntime {
         let blockscaled_projection_pipelines = (1..=MAX_EXPERT_ROWS)
             .map(|width| pipeline(&format!("block_fp8_gemm{width}_sglang_blockscaled")))
             .collect::<Result<Vec<_>, _>>()?;
+        let fused_gate_up_swiglu_pipelines = (1..=MAX_EXPERT_ROWS)
+            .map(|width| pipeline(&format!("fused_block_fp8_gate_up_swiglu{width}")))
+            .collect::<Result<Vec<_>, _>>()?;
         let quantized_dynamic_pipeline = pipeline("dynamic_fp8_quantized_group128")?;
         let swiglu_pipeline = pipeline("bf16_staged_swiglu")?;
         let round_pipeline = pipeline("bf16_round_in_place")?;
@@ -208,6 +212,7 @@ impl WideMetalMoeRuntime {
             device,
             queue,
             blockscaled_projection_pipelines,
+            fused_gate_up_swiglu_pipelines,
             quantized_dynamic_pipeline,
             swiglu_pipeline,
             round_pipeline,
@@ -514,6 +519,196 @@ impl WideMetalMoeRuntime {
         Ok(())
     }
 
+    #[cfg(test)]
+    fn probe_fused_gate_up_swiglu(&self, active: usize) -> Result<(), String> {
+        const ROWS: usize = 128;
+        const COLUMNS: usize = 256;
+        if !(1..=MAX_EXPERT_ROWS).contains(&active) {
+            return Err("fused gate/up probe width is out of range".to_owned());
+        }
+        let input = (0..active * COLUMNS)
+            .map(|index| ((index * 31 % 509) as f32 - 254.0) / 43.0)
+            .collect::<Vec<_>>();
+        let gate_weights = (0..ROWS * COLUMNS)
+            .map(|index| {
+                let bits = ((index * 37 + 11) % 0xfe) as u8;
+                if bits == 0x7f { 0x7e } else { bits }
+            })
+            .collect::<Vec<_>>();
+        let up_weights = (0..ROWS * COLUMNS)
+            .map(|index| {
+                let bits = ((index * 53 + 29) % 0xfe) as u8;
+                if bits == 0x7f { 0x7e } else { bits }
+            })
+            .collect::<Vec<_>>();
+        let gate_scales = vec![0.0031_f32, 0.0047];
+        let up_scales = vec![0.0029_f32, 0.0053];
+        let output_values = active * ROWS;
+        let shared = MTLResourceOptions::StorageModeShared;
+        let buffer = |bytes: &[u8]| {
+            self.device
+                .new_buffer_with_data(bytes.as_ptr().cast(), bytes.len() as u64, shared)
+        };
+        let f32_buffer = |values: &[f32]| {
+            self.device.new_buffer_with_data(
+                values.as_ptr().cast(),
+                std::mem::size_of_val(values) as u64,
+                shared,
+            )
+        };
+        let input_buffer = f32_buffer(&input);
+        let code_buffer = self.device.new_buffer(input.len() as u64, shared);
+        let input_scale_buffer = self
+            .device
+            .new_buffer((active * COLUMNS / 128 * 4) as u64, shared);
+        let gate_weight_buffer = buffer(&gate_weights);
+        let up_weight_buffer = buffer(&up_weights);
+        let gate_scale_buffer = f32_buffer(&gate_scales);
+        let up_scale_buffer = f32_buffer(&up_scales);
+        let gate_output = self.device.new_buffer((output_values * 4) as u64, shared);
+        let up_output = self.device.new_buffer((output_values * 4) as u64, shared);
+        let control_hidden = self.device.new_buffer((output_values * 4) as u64, shared);
+        let fused_hidden = self.device.new_buffer((output_values * 4) as u64, shared);
+        let shape = GemvShape {
+            rows: ROWS as u32,
+            columns: COLUMNS as u32,
+            block_rows: 128,
+            block_columns: 128,
+        };
+        let shape_buffer = self.device.new_buffer_with_data(
+            (&shape as *const GemvShape).cast(),
+            std::mem::size_of::<GemvShape>() as u64,
+            shared,
+        );
+        let count = output_values as u32;
+        let count_buffer = self.device.new_buffer_with_data(
+            (&count as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        );
+        let error = 0_u32;
+        let error_buffer = self.device.new_buffer_with_data(
+            (&error as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        );
+        let command = self.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&self.quantized_dynamic_pipeline);
+        encoder.set_buffer(0, Some(&input_buffer), 0);
+        encoder.set_buffer(1, Some(&code_buffer), 0);
+        encoder.set_buffer(2, Some(&input_scale_buffer), 0);
+        encoder.set_buffer(3, Some(&self.lut_buffer), 0);
+        encoder.set_buffer(4, Some(&error_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, 128 * 4);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: (input.len() / 128) as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 128,
+                height: 1,
+                depth: 1,
+            },
+        );
+        let project = |weight: &metal::BufferRef,
+                       scale: &metal::BufferRef,
+                       output: &metal::BufferRef| {
+            encoder.set_compute_pipeline_state(&self.blockscaled_projection_pipelines[active - 1]);
+            encoder.set_buffer(0, Some(weight), 0);
+            encoder.set_buffer(1, Some(scale), 0);
+            encoder.set_buffer(2, Some(&code_buffer), 0);
+            encoder.set_buffer(3, Some(&input_scale_buffer), 0);
+            encoder.set_buffer(4, Some(output), 0);
+            encoder.set_buffer(5, Some(&shape_buffer), 0);
+            encoder.set_buffer(6, Some(&self.lut_buffer), 0);
+            encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * active as u64 * 4);
+            encoder.dispatch_thread_groups(
+                MTLSize {
+                    width: ROWS as u64,
+                    height: 1,
+                    depth: 1,
+                },
+                MTLSize {
+                    width: PROJECTION_LANES,
+                    height: 1,
+                    depth: 1,
+                },
+            );
+        };
+        project(&gate_weight_buffer, &gate_scale_buffer, &gate_output);
+        project(&up_weight_buffer, &up_scale_buffer, &up_output);
+        encoder.set_compute_pipeline_state(&self.swiglu_pipeline);
+        encoder.set_buffer(0, Some(&gate_output), 0);
+        encoder.set_buffer(1, Some(&up_output), 0);
+        encoder.set_buffer(2, Some(&control_hidden), 0);
+        encoder.set_buffer(3, Some(&count_buffer), 0);
+        encoder.set_buffer(4, Some(&error_buffer), 0);
+        encoder.dispatch_threads(
+            MTLSize {
+                width: output_values as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 256,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.set_compute_pipeline_state(&self.fused_gate_up_swiglu_pipelines[active - 1]);
+        encoder.set_buffer(0, Some(&gate_weight_buffer), 0);
+        encoder.set_buffer(1, Some(&gate_scale_buffer), 0);
+        encoder.set_buffer(2, Some(&up_weight_buffer), 0);
+        encoder.set_buffer(3, Some(&up_scale_buffer), 0);
+        encoder.set_buffer(4, Some(&code_buffer), 0);
+        encoder.set_buffer(5, Some(&input_scale_buffer), 0);
+        encoder.set_buffer(6, Some(&fused_hidden), 0);
+        encoder.set_buffer(7, Some(&shape_buffer), 0);
+        encoder.set_buffer(8, Some(&self.lut_buffer), 0);
+        encoder.set_buffer(9, Some(&error_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * active as u64 * 2 * 4);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: ROWS as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: PROJECTION_LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+        if command.status() != MTLCommandBufferStatus::Completed
+            || unsafe { *error_buffer.contents().cast::<u32>() } != 0
+        {
+            return Err("fused gate/up probe command failed".to_owned());
+        }
+        let control = unsafe {
+            std::slice::from_raw_parts(control_hidden.contents().cast::<f32>(), output_values)
+        };
+        let fused = unsafe {
+            std::slice::from_raw_parts(fused_hidden.contents().cast::<f32>(), output_values)
+        };
+        if control != fused {
+            let maximum_error = control
+                .iter()
+                .zip(fused)
+                .map(|(left, right)| (left - right).abs())
+                .fold(0.0_f32, f32::max);
+            return Err(format!(
+                "fused gate/up SwiGLU differs from control: max error {maximum_error}"
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn execute_bf16_linear(
         &self,
         input: &[f32],
@@ -626,6 +821,23 @@ impl WideMetalMoeRuntime {
         &self,
         input: &[f32],
         experts: &[WideExpertBinding<'_>],
+    ) -> Result<WideMoeExecution, String> {
+        self.execute_configured(input, experts, false)
+    }
+
+    pub(crate) fn execute_fused_gate_up(
+        &self,
+        input: &[f32],
+        experts: &[WideExpertBinding<'_>],
+    ) -> Result<WideMoeExecution, String> {
+        self.execute_configured(input, experts, true)
+    }
+
+    fn execute_configured(
+        &self,
+        input: &[f32],
+        experts: &[WideExpertBinding<'_>],
+        fused_gate_up: bool,
     ) -> Result<WideMoeExecution, String> {
         let active_rows = active_rows(input, HIDDEN, LAYER_MAJOR_ROWS)?;
         if input.iter().any(|value| !value.is_finite())
@@ -904,44 +1116,76 @@ impl WideMetalMoeRuntime {
                 );
                 let _ = columns;
             };
-            project(
-                encoder,
-                &expert.gate,
-                &input_codes,
-                &input_scales,
-                &gate_output,
-                &gate_shape_buffer,
-                INTERMEDIATE,
-                HIDDEN,
-            );
-            project(
-                encoder,
-                &expert.up,
-                &input_codes,
-                &input_scales,
-                &up_output,
-                &gate_shape_buffer,
-                INTERMEDIATE,
-                HIDDEN,
-            );
-            encoder.set_compute_pipeline_state(&self.swiglu_pipeline);
-            encoder.set_buffer(0, Some(&gate_output), 0);
-            encoder.set_buffer(1, Some(&up_output), 0);
-            encoder.set_buffer(2, Some(&hidden_output), 0);
-            encoder.set_buffer(3, Some(&expert.hidden_count), 0);
-            encoder.set_buffer(4, Some(&error_buffer), 0);
-            encoder.dispatch_threads(
-                MTLSize {
-                    width: (expert.count * INTERMEDIATE) as u64,
-                    height: 1,
-                    depth: 1,
-                },
-                MTLSize {
-                    width: 256,
-                    height: 1,
-                    depth: 1,
-                },
-            );
+            if fused_gate_up {
+                encoder.set_compute_pipeline_state(
+                    &self.fused_gate_up_swiglu_pipelines[expert.count - 1],
+                );
+                encoder.set_buffer(0, Some(&expert.gate.weight), expert.gate.weight_offset);
+                encoder.set_buffer(1, Some(&expert.gate.scale), expert.gate.scale_offset);
+                encoder.set_buffer(2, Some(&expert.up.weight), expert.up.weight_offset);
+                encoder.set_buffer(3, Some(&expert.up.scale), expert.up.scale_offset);
+                encoder.set_buffer(4, Some(&input_codes), 0);
+                encoder.set_buffer(5, Some(&input_scales), 0);
+                encoder.set_buffer(6, Some(&hidden_output), 0);
+                encoder.set_buffer(7, Some(&gate_shape_buffer), 0);
+                encoder.set_buffer(8, Some(&self.lut_buffer), 0);
+                encoder.set_buffer(9, Some(&error_buffer), 0);
+                encoder.set_threadgroup_memory_length(
+                    0,
+                    PROJECTION_LANES * expert.count as u64 * 2 * 4,
+                );
+                encoder.dispatch_thread_groups(
+                    MTLSize {
+                        width: INTERMEDIATE as u64,
+                        height: 1,
+                        depth: 1,
+                    },
+                    MTLSize {
+                        width: PROJECTION_LANES,
+                        height: 1,
+                        depth: 1,
+                    },
+                );
+            } else {
+                project(
+                    encoder,
+                    &expert.gate,
+                    &input_codes,
+                    &input_scales,
+                    &gate_output,
+                    &gate_shape_buffer,
+                    INTERMEDIATE,
+                    HIDDEN,
+                );
+                project(
+                    encoder,
+                    &expert.up,
+                    &input_codes,
+                    &input_scales,
+                    &up_output,
+                    &gate_shape_buffer,
+                    INTERMEDIATE,
+                    HIDDEN,
+                );
+                encoder.set_compute_pipeline_state(&self.swiglu_pipeline);
+                encoder.set_buffer(0, Some(&gate_output), 0);
+                encoder.set_buffer(1, Some(&up_output), 0);
+                encoder.set_buffer(2, Some(&hidden_output), 0);
+                encoder.set_buffer(3, Some(&expert.hidden_count), 0);
+                encoder.set_buffer(4, Some(&error_buffer), 0);
+                encoder.dispatch_threads(
+                    MTLSize {
+                        width: (expert.count * INTERMEDIATE) as u64,
+                        height: 1,
+                        depth: 1,
+                    },
+                    MTLSize {
+                        width: 256,
+                        height: 1,
+                        depth: 1,
+                    },
+                );
+            }
             encoder.set_compute_pipeline_state(&self.quantized_dynamic_pipeline);
             encoder.set_buffer(0, Some(&hidden_output), 0);
             encoder.set_buffer(1, Some(&hidden_codes), 0);
@@ -1074,6 +1318,17 @@ mod tests {
                 .unwrap_or_else(|error| {
                     panic!("block-scaled Metal parity width {active}: {error}")
                 });
+        }
+    }
+
+    #[test]
+    fn fused_gate_up_swiglu_is_exact_at_narrow_and_full_expert_widths() {
+        let runtime = WideMetalMoeRuntime::compile(Path::new("kernels/block_fp8_gemv.metal"))
+            .expect("compile fused gate/up pipelines");
+        for active in [2, 9, 26, MAX_EXPERT_ROWS] {
+            runtime
+                .probe_fused_gate_up_swiglu(active)
+                .unwrap_or_else(|error| panic!("fused width {active}: {error}"));
         }
     }
 

@@ -22,9 +22,10 @@ use prismwing::{
     run_metal_incremental_text_endpoint, run_metal_mapped_fp8_gemv,
     run_metal_native_distribution_probe, run_metal_noaux_tc_router, run_metal_real_base_layer,
     run_metal_simdgroup_matrix_fp8_moe_block, run_metal_union_parallel_fp8_moe_block,
-    run_native_mtp_prefill_capture, run_native_mtp_window_capture, run_pressure_residency_smoke,
-    run_pressure_resident_checkpoint_pilot, run_staged_metal_fp8_expert,
-    run_weight_install_tomography, run_wide_metal_jacobi_text_endpoint,
+    run_native_mtp_prefill_capture, run_native_mtp_window_capture, run_packed_fusion_moe_slice,
+    run_pressure_residency_smoke, run_pressure_resident_checkpoint_pilot,
+    run_staged_metal_fp8_expert, run_weight_install_tomography,
+    run_wide_metal_jacobi_text_endpoint,
 };
 use prismwing::{
     build_census, inspect_mapped_tensor, repack_expert_container, run_mapped_fp8_gemv,
@@ -168,6 +169,10 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing layer-major-moe-slice <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <safety-fixture.json> <authority.json> <input.f32> <reference.f32> <kernel.metal> <output.f32> <report.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing packed-fusion-moe-slice <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <safety-fixture.json> <authority.json> <input.f32> <reference.f32> <kernel.metal> <output.f32> <report.json> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -1945,6 +1950,27 @@ fn main() {
                 .map(PathBuf::from)
                 .collect::<Vec<_>>();
             run_layer_major_moe_slice(
+                &paths[0],
+                &paths[1],
+                &paths[2],
+                &paths[3],
+                &paths[4],
+                &paths[5],
+                &paths[6],
+                &paths[7],
+                &paths[8],
+                &paths[9],
+                &arguments[12],
+            )
+            .map(|_| None)
+        }
+        #[cfg(target_os = "macos")]
+        Some("packed-fusion-moe-slice") if arguments.len() == 13 => {
+            let paths = arguments[2..12]
+                .iter()
+                .map(PathBuf::from)
+                .collect::<Vec<_>>();
+            run_packed_fusion_moe_slice(
                 &paths[0],
                 &paths[1],
                 &paths[2],

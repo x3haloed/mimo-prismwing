@@ -1,8 +1,8 @@
 # PW-0210 — SIMD-group packed-domain fusion
 
-- Status: proposed
-- Disposition: unexecuted
-- Date: 2026-08-10
+- Status: in progress
+- Disposition: width-128 gate/up-to-SwiGLU falsifier authorized by PW-0209
+- Date: 2026-08-11
 - Execution mode: L1 when bit-exact/function-preserving; approximate codecs separately named L3
 - Related records: PW-0043, PW-0111, PW-0196 through PW-0202, PW-0205
 
@@ -64,6 +64,29 @@ negative complete-envelope result; do not tune another matrix tile.
 Only after two representative shapes pass may it enter a real layer. Runtime
 promotion requires at least 20% interleaved complete-layer gain and unchanged
 endpoint tokens; a new endpoint ID is required for any combined claim.
+
+## Precision-crossing and co-consumer ledger
+
+PW-0209 supplies the named wider-amortized-compute premise and a real
+context-128 authority. For its routed gate/up envelope, both source weights and
+activations remain packed FP8 codes with independent F32 block scales. Each
+projection accumulates in F32. The current SwiGLU consumer rounds gate and up
+to BF16, evaluates SiLU, rounds that result to BF16, multiplies by rounded up,
+and rounds the hidden value to BF16. The down projection then dynamically
+encodes that BF16-widened F32 hidden row to group-128 FP8.
+
+The exact candidate therefore fuses the two projection reductions through
+the unchanged BF16-staged SwiGLU and materializes only hidden. It removes two
+F32 projection writes and two F32 consumer reads: 33,554,432 device bytes for
+PW-0209's 1,024 routed placements. It does not change weight, scale,
+activation-code, hidden, or down-projection traffic. Storing hidden as F16 is
+not L1: the existing consumer first observes BF16-widened F32, not half.
+
+The router is the only immediate horizontal co-consumer of normalized MoE
+input. It must complete before the expert schedule and source bindings exist;
+combining it with routed gate/up would change the authoritative dependency and
+is excluded from this falsifier. The candidate may remove dispatches only as a
+consequence of vertical producer-consumer fusion, not as an independent claim.
 
 ## Decision
 

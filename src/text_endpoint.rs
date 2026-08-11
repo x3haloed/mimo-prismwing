@@ -4734,6 +4734,29 @@ fn routed_mlp_metal_wide(
     metal_ledger: &mut MetalExpertLedger,
     runtime: &WideMetalMoeRuntime,
 ) -> Result<RoutedMlpOutput, String> {
+    routed_mlp_metal_wide_configured(
+        checkpoint,
+        layer,
+        input,
+        rows,
+        ledger,
+        metal_ledger,
+        runtime,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn routed_mlp_metal_wide_configured(
+    checkpoint: &Checkpoint,
+    layer: usize,
+    input: &[f32],
+    rows: usize,
+    ledger: &mut EndpointLedger,
+    metal_ledger: &mut MetalExpertLedger,
+    runtime: &WideMetalMoeRuntime,
+    fused_gate_up: bool,
+) -> Result<RoutedMlpOutput, String> {
     if !(1..=128).contains(&rows) || input.len() != rows * HIDDEN {
         return Err(format!(
             "wide Metal routed experts require [1..=128, {HIDDEN}], got [{rows}, {}]",
@@ -4816,7 +4839,11 @@ fn routed_mlp_metal_wide(
             down,
         });
     }
-    let execution = runtime.execute(input, &bindings)?;
+    let execution = if fused_gate_up {
+        runtime.execute_fused_gate_up(input, &bindings)?
+    } else {
+        runtime.execute(input, &bindings)?
+    };
     if execution.unique_experts != schedule.len() || execution.expert_rows != rows * TOP_K {
         return Err(format!(
             "layer {layer}: wide Metal execution accounting mismatch"
@@ -4874,6 +4901,67 @@ pub fn run_layer_major_moe_slice(
     report_path: &Path,
     commit: &str,
 ) -> Result<LayerMajorMoeReport, String> {
+    run_layer_major_moe_slice_mode(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        safety_fixture_path,
+        authority_path,
+        input_path,
+        reference_path,
+        kernel_path,
+        output_path,
+        report_path,
+        commit,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_packed_fusion_moe_slice(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    safety_fixture_path: &Path,
+    authority_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    kernel_path: &Path,
+    output_path: &Path,
+    report_path: &Path,
+    commit: &str,
+) -> Result<LayerMajorMoeReport, String> {
+    run_layer_major_moe_slice_mode(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        safety_fixture_path,
+        authority_path,
+        input_path,
+        reference_path,
+        kernel_path,
+        output_path,
+        report_path,
+        commit,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_layer_major_moe_slice_mode(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    safety_fixture_path: &Path,
+    authority_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    kernel_path: &Path,
+    output_path: &Path,
+    report_path: &Path,
+    commit: &str,
+    fused_gate_up: bool,
+) -> Result<LayerMajorMoeReport, String> {
     const AUTHORITY_SHA256: &str =
         "14ab8792e4ead565ec91d5768737e5c6518bc2a7d2fdd2cae2a3efa93c5126c9";
     const INPUT_SHA256: &str = "df5a48213d63651a68ed763f84e0ea0d948151a98f791946ad169acf0b86d1f1";
@@ -4881,7 +4969,7 @@ pub fn run_layer_major_moe_slice(
         "8fdafc50400bc323d5fca0c30e5026f179088463ef2a9e5f7fc6981f4f933cd3";
     const ROWS: usize = 128;
     if output_path.exists() || report_path.exists() {
-        return Err("refusing to overwrite PW-0209 evidence".to_owned());
+        return Err("refusing to overwrite PW-0209/PW-0210 evidence".to_owned());
     }
     if commit.len() != 40
         || !commit
@@ -4957,16 +5045,17 @@ pub fn run_layer_major_moe_slice(
     let (_, reference) = read_f32_file(reference_path, Some(ROWS * HIDDEN))?;
     let runtime = WideMetalMoeRuntime::compile(kernel_path)?;
     let mut safety = SafetyMonitor::start(safety_fixture.safety)?;
-    safety.checkpoint("pw0209_authorities_open", true)?;
+    let experiment = if fused_gate_up { "pw0210" } else { "pw0209" };
+    safety.checkpoint(&format!("{experiment}_authorities_open"), true)?;
     checkpoint.release_file_pages()?;
-    safety.checkpoint("pw0209_width128_a_cold_prepared", true)?;
+    safety.checkpoint(&format!("{experiment}_candidate_a_cold_prepared"), true)?;
     let before = process_activity()?;
     let complete_started = Instant::now();
     let candidate_before = process_activity()?;
     let candidate_started = Instant::now();
     let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let mut metal_ledger = MetalExpertLedger::default();
-    let candidate = routed_mlp_metal_wide(
+    let candidate = routed_mlp_metal_wide_configured(
         &checkpoint,
         43,
         &input,
@@ -4974,10 +5063,11 @@ pub fn run_layer_major_moe_slice(
         &mut ledger,
         &mut metal_ledger,
         &runtime,
+        fused_gate_up,
     )?;
     let candidate_complete_wall_ms = candidate_started.elapsed().as_secs_f64() * 1000.0;
     let candidate_activity = process_activity()?.checked_delta(candidate_before)?;
-    safety.checkpoint("pw0209_width128_a_complete", true)?;
+    safety.checkpoint(&format!("{experiment}_candidate_a_complete"), true)?;
     let route_ids_exact = candidate.selected == expected_routes;
     let maximum_route_weight_absolute_error = candidate
         .weights
@@ -5011,40 +5101,60 @@ pub fn run_layer_major_moe_slice(
         let mut width8_ledger = EndpointLedger::for_checkpoint(&checkpoint);
         let mut width8_metal_ledger = MetalExpertLedger::default();
         checkpoint.release_file_pages()?;
-        safety.checkpoint("pw0209_width8_control_cold_prepared", true)?;
+        safety.checkpoint(&format!("{experiment}_control_cold_prepared"), true)?;
         let width8_before = process_activity()?;
         let width8_started = Instant::now();
-        for chunk in 0..ROWS / 8 {
-            let start = chunk * 8;
-            let end = start + 8;
+        if fused_gate_up {
             let control = routed_mlp_metal_wide(
                 &checkpoint,
                 43,
-                &input[start * HIDDEN..end * HIDDEN],
-                8,
+                &input,
+                ROWS,
                 &mut width8_ledger,
                 &mut width8_metal_ledger,
                 &runtime,
             )?;
-            width8_routes_exact &= control.selected == expected_routes[start..end]
+            width8_routes_exact &= control.selected == expected_routes
                 && control
                     .weights
                     .iter()
                     .flatten()
-                    .zip(expected_weights[start..end].iter().flatten())
+                    .zip(expected_weights.iter().flatten())
                     .all(|(actual, expected)| (actual - expected).abs() <= 5.0e-7);
             width8_output.extend_from_slice(&control.output);
+        } else {
+            for chunk in 0..ROWS / 8 {
+                let start = chunk * 8;
+                let end = start + 8;
+                let control = routed_mlp_metal_wide(
+                    &checkpoint,
+                    43,
+                    &input[start * HIDDEN..end * HIDDEN],
+                    8,
+                    &mut width8_ledger,
+                    &mut width8_metal_ledger,
+                    &runtime,
+                )?;
+                width8_routes_exact &= control.selected == expected_routes[start..end]
+                    && control
+                        .weights
+                        .iter()
+                        .flatten()
+                        .zip(expected_weights[start..end].iter().flatten())
+                        .all(|(actual, expected)| (actual - expected).abs() <= 5.0e-7);
+                width8_output.extend_from_slice(&control.output);
+            }
         }
         let width8_complete_wall_ms = width8_started.elapsed().as_secs_f64() * 1000.0;
         let width8_activity = process_activity()?.checked_delta(width8_before)?;
-        safety.checkpoint("pw0209_width8_control_complete", true)?;
+        safety.checkpoint(&format!("{experiment}_control_complete"), true)?;
         checkpoint.release_file_pages()?;
-        safety.checkpoint("pw0209_width128_b_cold_prepared", true)?;
+        safety.checkpoint(&format!("{experiment}_candidate_b_cold_prepared"), true)?;
         let candidate_b_before = process_activity()?;
         let candidate_b_started = Instant::now();
         let mut candidate_b_ledger = EndpointLedger::for_checkpoint(&checkpoint);
         let mut candidate_b_metal_ledger = MetalExpertLedger::default();
-        let candidate_b = routed_mlp_metal_wide(
+        let candidate_b = routed_mlp_metal_wide_configured(
             &checkpoint,
             43,
             &input,
@@ -5052,10 +5162,11 @@ pub fn run_layer_major_moe_slice(
             &mut candidate_b_ledger,
             &mut candidate_b_metal_ledger,
             &runtime,
+            fused_gate_up,
         )?;
         let candidate_b_complete_wall_ms = candidate_b_started.elapsed().as_secs_f64() * 1000.0;
         let candidate_b_activity = process_activity()?.checked_delta(candidate_b_before)?;
-        safety.checkpoint("pw0209_width128_b_complete", true)?;
+        safety.checkpoint(&format!("{experiment}_candidate_b_complete"), true)?;
         let (candidate_repeat_relative_l2, candidate_repeat_maximum_absolute_error) =
             parity(&candidate_b.output, &candidate.output);
         if candidate_b.selected != candidate.selected
@@ -5076,7 +5187,7 @@ pub fn run_layer_major_moe_slice(
         write_create_new(&width8_path, &width8_bytes)?;
         let failure = serde_json::json!({
             "schema_version": 1,
-            "semantic": "mimo_pw0209_layer43_context128_layer_major_metal_moe_failure",
+            "semantic": if fused_gate_up { "mimo_pw0210_layer43_context128_fused_gate_up_swiglu_failure" } else { "mimo_pw0209_layer43_context128_layer_major_metal_moe_failure" },
             "revision": REVISION,
             "commit": commit,
             "authority_sha256": AUTHORITY_SHA256,
@@ -5085,6 +5196,8 @@ pub fn run_layer_major_moe_slice(
             "candidate_output_sha256": sha256_hex(&candidate_bytes),
             "width8_control_output_sha256": sha256_hex(&width8_bytes),
             "width8_control_file": width8_path.file_name().and_then(|name| name.to_str()),
+            "candidate_mode": if fused_gate_up { "fused_gate_up_swiglu_width128" } else { "unfused_width128" },
+            "control_mode": if fused_gate_up { "unfused_width128" } else { "sixteen_unfused_width8_transactions" },
             "route_ids_exact": route_ids_exact,
             "maximum_route_weight_absolute_error": maximum_route_weight_absolute_error,
             "width128_relative_l2": relative_l2,
@@ -5117,13 +5230,14 @@ pub fn run_layer_major_moe_slice(
             &serde_json::to_vec_pretty(&failure).map_err(|error| error.to_string())?,
         )?;
         return Err(format!(
-            "PW-0209 source parity failed: width128 relative L2 {relative_l2}, max abs {maximum_absolute_error}; width8 routes exact {width8_routes_exact}, relative L2 {width8_relative_l2}, max abs {width8_maximum_absolute_error}; width128-to-width8 relative L2 {candidate_to_width8_relative_l2}, max abs {candidate_to_width8_maximum_absolute_error}"
+            "{} source parity failed: candidate relative L2 {relative_l2}, max abs {maximum_absolute_error}; control routes exact {width8_routes_exact}, relative L2 {width8_relative_l2}, max abs {width8_maximum_absolute_error}; candidate-to-control relative L2 {candidate_to_width8_relative_l2}, max abs {candidate_to_width8_maximum_absolute_error}",
+            if fused_gate_up { "PW-0210" } else { "PW-0209" }
         ));
     }
     let output_bytes = finite_f32_le_bytes(&candidate.output, ROWS * HIDDEN)?;
     write_create_new(output_path, &output_bytes)?;
     checkpoint.release_file_pages()?;
-    safety.checkpoint("pw0209_output_complete", true)?;
+    safety.checkpoint(&format!("{experiment}_output_complete"), true)?;
     let complete_wall_ms = complete_started.elapsed().as_secs_f64() * 1000.0;
     let activity = process_activity()?.checked_delta(before)?;
     let mut counts = BTreeMap::<u32, usize>::new();
@@ -5132,7 +5246,11 @@ pub fn run_layer_major_moe_slice(
     }
     let report = LayerMajorMoeReport {
         schema_version: 1,
-        semantic: "mimo_pw0209_layer43_context128_layer_major_metal_moe",
+        semantic: if fused_gate_up {
+            "mimo_pw0210_layer43_context128_fused_gate_up_swiglu"
+        } else {
+            "mimo_pw0209_layer43_context128_layer_major_metal_moe"
+        },
         revision: REVISION,
         commit: commit.to_owned(),
         authority_sha256: AUTHORITY_SHA256.to_owned(),

@@ -61,7 +61,7 @@ pub use text_endpoint::{
     run_global_attention_capture_smoke, run_global_attention_sparsity_trace,
     run_layer_major_moe_slice, run_layer4_metal_diagnostic, run_metal_incremental_text_endpoint,
     run_metal_native_distribution_probe, run_native_mtp_prefill_capture,
-    run_native_mtp_window_capture, run_prefill_route_coverage_trace,
+    run_native_mtp_window_capture, run_packed_fusion_moe_slice, run_prefill_route_coverage_trace,
     run_pressure_resident_checkpoint_pilot, run_real_layer0_trace, run_real_layer1_expert_trace,
     run_real_layer1_routing_trace, run_real_layer2_trace, run_real_layer4_trace,
     run_real_layer7_trace, run_real_routed_layer_trace, run_route_only_trace,
