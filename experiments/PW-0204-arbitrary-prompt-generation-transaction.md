@@ -116,6 +116,14 @@ execute the same per-row arithmetic, and only real rows can route, scatter,
 round, update K/V, or become observable. A deterministic fixture covers row
 identity, zero padding, malformed shapes, empty input, and widths above eight.
 
+That run crossed partial prefill but remained silent for more than 16 minutes,
+making proposer/verifier acceptance and remaining duration unobservable. It was
+stopped without a completion claim. The endpoint now writes and synchronizes a
+create-new JSONL progress artifact after prefill and every complete transaction,
+prints the same bounded progress to stderr, and binds the final report to the
+progress-file SHA-256. Interrupted runs remain inspectable and cannot be
+silently overwritten.
+
 The first public runtime input is
 `evals/fixtures/requests/pw0204-arbitrary-text.txt`. It asks for a concise,
 programmatically inspectable two-sentence explanation and contains no route,

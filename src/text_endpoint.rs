@@ -24,7 +24,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path};
 use std::process::Command;
@@ -634,6 +635,7 @@ pub struct ArbitraryTextGenerationReport {
     pub tokenizer_sha256: &'static str,
     pub tokenizer_config_sha256: &'static str,
     pub kernel_sha256: String,
+    pub progress_sha256: String,
     pub metal_device: String,
     pub user_prompt_utf8: String,
     pub serialized_prompt_utf8: String,
@@ -5642,6 +5644,10 @@ pub fn run_arbitrary_text_generation(
     if output_path.exists() {
         return Err(format!("refusing to overwrite {}", output_path.display()));
     }
+    let progress_path = output_path.with_extension("progress.jsonl");
+    if progress_path.exists() {
+        return Err(format!("refusing to overwrite {}", progress_path.display()));
+    }
     if !(32..=64).contains(&requested_output_tokens) {
         return Err("arbitrary text generation requires 32 through 64 output tokens".to_owned());
     }
@@ -5684,6 +5690,11 @@ pub fn run_arbitrary_text_generation(
     let preprocessing_wall_ms = preprocessing_started.elapsed().as_secs_f64() * 1000.0;
     let runtime = WideMetalMoeRuntime::compile(kernel_path)?;
     safety.checkpoint("arbitrary_generation_authorities_open", true)?;
+    let mut progress = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&progress_path)
+        .map_err(|error| format!("{}: {error}", progress_path.display()))?;
 
     let prefill_started = Instant::now();
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
@@ -5723,6 +5734,27 @@ pub fn run_arbitrary_text_generation(
     }
     let prefill_wall_ms = prefill_started.elapsed().as_secs_f64() * 1000.0;
     let mut generated_token_ids = vec![first_anchor.ok_or("prefill produced no target token")?];
+    writeln!(
+        progress,
+        "{}",
+        serde_json::json!({
+            "phase": "prefill_complete",
+            "prompt_tokens": prompt_token_ids.len(),
+            "prefill_chunks": prefill_chunks,
+            "prefill_wall_ms": prefill_wall_ms,
+            "first_anchor_token_id": generated_token_ids[0],
+        })
+    )
+    .map_err(|error| format!("progress write: {error}"))?;
+    progress
+        .sync_data()
+        .map_err(|error| format!("progress sync: {error}"))?;
+    eprintln!(
+        "prefill complete: {} prompt tokens in {} chunks, {:.3} s",
+        prompt_token_ids.len(),
+        prefill_chunks,
+        prefill_wall_ms / 1000.0
+    );
     let mut next_anchor = generated_token_ids[0];
     let mut transactions = Vec::new();
     let mut proposal_wall_ms = 0.0;
@@ -5818,19 +5850,52 @@ pub fn run_arbitrary_text_generation(
         logical_source_bytes = logical_source_bytes
             .checked_add(transaction_logical_bytes)
             .ok_or("generation logical byte ledger overflow")?;
+        let retained_proposal_rows = commit_result.retained_proposal_rows;
+        let emitted_tokens = commit_result.emitted_token_ids.len();
+        let proposal_converged = commit_result.proposal_converged;
         transactions.push(GenerationTransactionReport {
             index: transaction_index,
             proposal_token_ids: proposal,
             posterior_token_ids: verified.output_tokens,
             emitted_token_ids: commit_result.emitted_token_ids,
-            retained_proposal_rows: commit_result.retained_proposal_rows,
-            proposal_converged: commit_result.proposal_converged,
+            retained_proposal_rows,
+            proposal_converged,
             proposal_wall_ms: proposal_elapsed_ms,
             verification_wall_ms: verification_elapsed_ms,
             mean_normalized_union,
             logical_source_bytes: transaction_logical_bytes,
             process_disk_bytes_read: transaction_disk_bytes,
         });
+        writeln!(
+            progress,
+            "{}",
+            serde_json::json!({
+                "phase": "transaction_complete",
+                "transaction": transaction_index,
+                "generated_tokens": generated_token_ids.len(),
+                "retained_proposal_rows": retained_proposal_rows,
+                "emitted_tokens": emitted_tokens,
+                "proposal_converged": proposal_converged,
+                "proposal_wall_ms": proposal_elapsed_ms,
+                "verification_wall_ms": verification_elapsed_ms,
+                "U": mean_normalized_union,
+                "process_disk_bytes_read": transaction_disk_bytes,
+            })
+        )
+        .map_err(|error| format!("progress write: {error}"))?;
+        progress
+            .sync_data()
+            .map_err(|error| format!("progress sync: {error}"))?;
+        eprintln!(
+            "transaction {transaction_index} complete: {}/{} tokens, retained {}, emitted {}, converged={}, proposal {:.3} s, verification {:.3} s",
+            generated_token_ids.len(),
+            requested_output_tokens,
+            retained_proposal_rows,
+            emitted_tokens,
+            proposal_converged,
+            proposal_elapsed_ms / 1000.0,
+            verification_elapsed_ms / 1000.0,
+        );
         safety.checkpoint(
             &format!("generation_transaction_{transaction_index}_complete"),
             true,
@@ -5852,6 +5917,11 @@ pub fn run_arbitrary_text_generation(
     let process_disk_bytes_read = process_disk_bytes_read()?
         .checked_sub(complete_disk_before)
         .ok_or("complete disk byte counter moved backwards")?;
+    progress
+        .sync_all()
+        .map_err(|error| format!("progress final sync: {error}"))?;
+    drop(progress);
+    let progress_sha256 = hash_file(&progress_path)?;
     let report = ArbitraryTextGenerationReport {
         schema_version: 1,
         evidence_class: "pw0204_arbitrary_prompt_target_proposed_generation",
@@ -5864,6 +5934,7 @@ pub fn run_arbitrary_text_generation(
         tokenizer_sha256: TOKENIZER_SHA256,
         tokenizer_config_sha256: TOKENIZER_CONFIG_SHA256,
         kernel_sha256: hash_file(kernel_path)?,
+        progress_sha256,
         metal_device: runtime.device_name.clone(),
         user_prompt_utf8: user_prompt,
         serialized_prompt_utf8: serialized_prompt,
