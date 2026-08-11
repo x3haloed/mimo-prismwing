@@ -2,6 +2,7 @@ use super::text_endpoint::dynamic_fp8_activations;
 use super::{MappedNoCopyRegion, decode_f8_e4m3fn};
 use crate::pressure_residency::OwnedResidentTensorRegion;
 use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize, NSRange};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
@@ -679,6 +680,7 @@ impl WideMetalMoeRuntime {
             };
         let mut mapped_source_bytes = 0_u64;
         let mut resident_source_bytes = 0_u64;
+        let mut unique_experts = BTreeSet::new();
         let mut buffers = Vec::with_capacity(experts.len());
         for expert in experts {
             let count = expert.positions.len();
@@ -702,20 +704,22 @@ impl WideMetalMoeRuntime {
                     expert.expert
                 ));
             }
-            for region in [
-                &expert.gate.weight,
-                &expert.gate.scale,
-                &expert.up.weight,
-                &expert.up.scale,
-                &expert.down.weight,
-                &expert.down.scale,
-            ] {
-                mapped_source_bytes = mapped_source_bytes
-                    .checked_add(region.mapped_bytes())
-                    .ok_or("wide MoE mapped-byte overflow")?;
-                resident_source_bytes = resident_source_bytes
-                    .checked_add(region.resident_bytes())
-                    .ok_or("wide MoE resident-byte overflow")?;
+            if unique_experts.insert(expert.expert) {
+                for region in [
+                    &expert.gate.weight,
+                    &expert.gate.scale,
+                    &expert.up.weight,
+                    &expert.up.scale,
+                    &expert.down.weight,
+                    &expert.down.scale,
+                ] {
+                    mapped_source_bytes = mapped_source_bytes
+                        .checked_add(region.mapped_bytes())
+                        .ok_or("wide MoE mapped-byte overflow")?;
+                    resident_source_bytes = resident_source_bytes
+                        .checked_add(region.resident_bytes())
+                        .ok_or("wide MoE resident-byte overflow")?;
+                }
             }
             let mut gathered = vec![0.0_f32; MAX_EXPERT_ROWS * HIDDEN];
             for (local, &position) in expert.positions.iter().enumerate() {
@@ -1036,7 +1040,7 @@ impl WideMetalMoeRuntime {
         Ok(WideMoeExecution {
             output,
             wall_ms: started.elapsed().as_secs_f64() * 1000.0,
-            unique_experts: buffers.len(),
+            unique_experts: unique_experts.len(),
             expert_rows: buffers.iter().map(|expert| expert.count).sum(),
             mapped_source_bytes,
             resident_source_bytes,

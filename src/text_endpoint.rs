@@ -4794,27 +4794,33 @@ fn routed_mlp_metal_wide(
                 columns,
             })
         };
-        let gate = projection("gate", MOE_INTERMEDIATE, HIDDEN, &input[..HIDDEN])?;
-        let up = projection("up", MOE_INTERMEDIATE, HIDDEN, &input[..HIDDEN])?;
-        let down = projection("down", HIDDEN, MOE_INTERMEDIATE, &down_shape_authority)?;
-        logical_source_bytes = [&gate, &up, &down]
-            .iter()
-            .flat_map(|projection| [&projection.weight, &projection.scale])
-            .try_fold(logical_source_bytes, |total, region| {
-                total.checked_add(region.tensor_bytes() as u64)
-            })
-            .ok_or("wide logical source byte ledger overflow")?;
-        bindings.push(WideExpertBinding {
-            expert: *expert,
-            positions: placements
-                .iter()
-                .map(|(position, _)| *position as u32)
-                .collect(),
-            route_weights: placements.iter().map(|(_, weight)| *weight).collect(),
-            gate,
-            up,
-            down,
-        });
+        // Real-checkpoint evidence in PW-0209 rejects the Metal compiler's
+        // width-9..32 specializations even though their tiny synthetic fixture
+        // passes. Preserve layer-major scheduling, mapping, and page reuse while
+        // splitting only an expert's arithmetic into the proven width-eight
+        // kernel.
+        for (chunk_index, chunk) in placements.chunks(8).enumerate() {
+            let gate = projection("gate", MOE_INTERMEDIATE, HIDDEN, &input[..HIDDEN])?;
+            let up = projection("up", MOE_INTERMEDIATE, HIDDEN, &input[..HIDDEN])?;
+            let down = projection("down", HIDDEN, MOE_INTERMEDIATE, &down_shape_authority)?;
+            if chunk_index == 0 {
+                logical_source_bytes = [&gate, &up, &down]
+                    .iter()
+                    .flat_map(|projection| [&projection.weight, &projection.scale])
+                    .try_fold(logical_source_bytes, |total, region| {
+                        total.checked_add(region.tensor_bytes() as u64)
+                    })
+                    .ok_or("wide logical source byte ledger overflow")?;
+            }
+            bindings.push(WideExpertBinding {
+                expert: *expert,
+                positions: chunk.iter().map(|(position, _)| *position as u32).collect(),
+                route_weights: chunk.iter().map(|(_, weight)| *weight).collect(),
+                gate,
+                up,
+                down,
+            });
+        }
     }
     let execution = runtime.execute(input, &bindings)?;
     if execution.unique_experts != schedule.len() || execution.expert_rows != rows * TOP_K {
