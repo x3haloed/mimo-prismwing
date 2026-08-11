@@ -4115,3 +4115,14 @@ mapped: 0.315672% slower and 0.314678% lower TPS. Reject the seven-object cache
 as a performance default, retain its correctness/pressure machinery, and keep
 only direct-to-owned loading open as the route to test a meaningfully larger
 prefix without weakening the 8 GiB/4 GiB limits.
+
+Direct-to-owned loading reopens bounded residency and preserves a repeatable
+gain. Clean commit `54ab1f0c1db68b3b925b076b9e4c54bf88fd1150` admits 30
+ranked objects and 3,196,059,648 bytes under the unchanged 4 GiB release gate,
+then substitutes exactly 25,568,477,184 transaction bytes. Candidate median
+163,955.518 ms versus 170,329.600 ms mapped improves wall 3.742205% and
+committed TPS 3.887690%, from 0.041097 to 0.042695. Promote the loader and keep
+the lower milestone; do not promote endpoint residency because the 2x gate
+still fails. Peak RSS stays at 3,529,293,824 bytes with 60% free memory and no
+swap/throttling, leaving only a narrow final larger-prefix falsifier—not a path
+to weaken limits or allocate the 12 GiB offline set.

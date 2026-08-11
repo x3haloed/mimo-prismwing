@@ -270,3 +270,34 @@ running only for the distinct loader premise: direct-to-owned loading must
 remove copy-time double footprint before a larger ranked prefix can be tested
 under the same safety limits. If that cannot admit more than seven objects, the
 remaining high-residency pathway is closed.
+
+Clean commit `54ab1f0c1db68b3b925b076b9e4c54bf88fd1150` replaces
+mapped-source copying with authenticated offset reads directly into the owned
+page-aligned mappings. This reverses the earlier 3 GiB growth rejection without
+changing the safety contract: a 30-object prefix totaling 3,196,059,648 bytes
+now installs with maximum install footprint 3,329,553,984 bytes, where the old
+loader stopped after eight objects.
+
+Two direct-loaded candidate transactions take 162,892.398 and 165,018.637 ms
+around a same-commit 170,329.600 ms mapped control. Their 163,955.518 ms median
+is 3.742205% faster, raising committed transaction TPS 3.887690% from 0.041097
+to 0.042695. Both candidates substitute exactly 25,568,477,184 source bytes;
+candidate 001 reduces measured reads by 25,561,776,128 bytes. Exact tokens,
+acceptance, routes, and weights remain unchanged. Peak RSS is at most
+3,529,293,824 bytes, minimum free system memory is 60%, swap/throttle growth is
+zero, and warning pressure evicts all 30 objects to zero in declared order.
+
+Raw report/progress hashes are:
+
+- direct resident 001: `4c9d1f7208f68c4ac94e8f2f37982e5165199ff1798b565ea361e008d899850a`,
+  `adb40d63f7acd4d73ec7b5ce0605e6b182bbb52c6b1ab4c3b71277981d7c1eb5`;
+- mapped 006: `af0bd4970845c5b063847eeb7ec8cc69deb00820e13d4a6477019af338f338a8`,
+  `0ede78937611ba7869f63f36cb627d69ed102cf092ed5aaeaf495aff85fbacdb`;
+- direct resident 002: `e4b4f9b855b35bad1547874d64e498d28cbb7bdaa4ec027a8a68a673c48e817a`,
+  `e9b542203a9ef974076229ba27fa8e8216b36188076de176ef9c82697b6af32f`.
+
+Promote direct loading and preserve the repeatable 3.887690% TPS gain as a
+lower milestone. Do not run the 32–64-token endpoint: the predeclared 2x
+transaction gate still fails. The install footprint leaves a narrow, measured
+margin under 4 GiB, so one final larger prefix may be falsified under the same
+gate; no 12 GiB or 13 GiB path is authorized.

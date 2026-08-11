@@ -1158,6 +1158,25 @@
             "resident_committed_tps_regression_percent": 0.31467825109818826,
             "status": "exact_full_causal_substitution_and_pressure_safety_passed; bounded_prefix_performance_rejected; direct_to_owned_loader_scaling_only_remaining_pw0207_path",
             "provenance": "PW-0207 repaired alternating mapped/resident sequence; mapped reports 746891226963a2d4c3bcd298bd30a05246c8e69dec436c885e7db94e0f9c936c and d7328fa5277006b913a7a9f0a8c00c6c009991e1b912df4e487804e862ff16c8; resident reports 0e84e234ada4a030c11d74468a260e23b0bb05e64c9f3b01f40841f88864592e and 8b326da87426be364f34bbf57098333a7669191411c2156ade1e57044cfba410; Apple M1 16 GiB internal SSD; git 677217ac17bc23a3de2975c9e98b6dea3c491b86 clean"
+        },
+        "pw0207_direct_loaded_thirty_object_residency": {
+            "resident_objects": 30,
+            "resident_allocation_bytes": 3196059648,
+            "resident_source_bytes_per_transaction": 25568477184,
+            "mapped_control_transaction_ms": 170329.599709,
+            "resident_transaction_ms": [
+                162892.39799899998,
+                165018.63704300002
+            ],
+            "resident_median_transaction_ms": 163955.517521,
+            "transaction_wall_gain_percent": 3.742204642581104,
+            "mapped_control_committed_transaction_tps": 0.04109679123275793,
+            "resident_median_committed_transaction_tps": 0.0426945070580099,
+            "committed_transaction_tps_gain_percent": 3.8876899566271828,
+            "maximum_install_footprint_bytes": 3329553984,
+            "maximum_peak_resident_bytes": 3529293824,
+            "status": "exact_repeatable_lower_milestone_promoted; direct_loader_promoted; two_x_endpoint_gate_failed; final_larger_prefix_falsifier_authorized",
+            "provenance": "PW-0207 direct-loaded A-B-A; resident reports 4c9d1f7208f68c4ac94e8f2f37982e5165199ff1798b565ea361e008d899850a and e4b4f9b855b35bad1547874d64e498d28cbb7bdaa4ec027a8a68a673c48e817a around mapped report af0bd4970845c5b063847eeb7ec8cc69deb00820e13d4a6477019af338f338a8; Apple M1 16 GiB internal SSD; git 54ab1f0c1db68b3b925b076b9e4c54bf88fd1150 clean"
         }
     }
 }
