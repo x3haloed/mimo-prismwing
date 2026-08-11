@@ -720,6 +720,9 @@ pub struct ArbitraryTextGenerationReport {
 #[derive(Debug, Serialize)]
 pub struct GenerationResidencyReport {
     pub manifest_sha256: String,
+    pub selection: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_limit_bytes: Option<u64>,
     pub installed_identities: Vec<String>,
     pub installed_resident_bytes: u64,
     pub resident_source_bytes: u64,
@@ -3095,15 +3098,19 @@ fn wide_bf16_linear(
     }
     let page_bytes = host_page_bytes()?;
     let region = checkpoint
-        .tensor_no_copy_region(weight_name, page_bytes)
+        .wide_tensor_region(weight_name, page_bytes)
         .map_err(|error| format!("{weight_name}: {error}"))?;
-    let logical_bytes = region.tensor_bytes as u64;
+    let logical_bytes = region.tensor_bytes() as u64;
     let execution = runtime.execute_bf16_linear(input, &region, output_columns, columns)?;
     ledger.logical_source_bytes = ledger
         .logical_source_bytes
         .checked_add(logical_bytes)
         .ok_or("wide BF16 logical byte ledger overflow")?;
     ledger.bf16_matrices_expanded += 1;
+    ledger.resident_source_bytes = ledger
+        .resident_source_bytes
+        .checked_add(execution.resident_source_bytes)
+        .ok_or("resident source byte ledger overflow")?;
     let _ = (execution.wall_ms, execution.mapped_source_bytes);
     Ok(execution.output)
 }
@@ -6104,8 +6111,52 @@ pub fn run_arbitrary_text_resident_route_trace(
         output_path,
         commit,
         true,
-        Some((residency_manifest_path, resident_identity)),
+        Some(GenerationResidencySelection::Single {
+            manifest_path: residency_manifest_path,
+            identity: resident_identity,
+        }),
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_arbitrary_text_resident_set_route_trace(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    requested_output_tokens: usize,
+    residency_manifest_path: &Path,
+    resident_limit_bytes: u64,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        requested_output_tokens,
+        output_path,
+        commit,
+        true,
+        Some(GenerationResidencySelection::RankedPrefix {
+            manifest_path: residency_manifest_path,
+            limit_bytes: resident_limit_bytes,
+        }),
+    )
+}
+
+enum GenerationResidencySelection<'a> {
+    Single {
+        manifest_path: &'a Path,
+        identity: &'a str,
+    },
+    RankedPrefix {
+        manifest_path: &'a Path,
+        limit_bytes: u64,
+    },
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -6119,7 +6170,7 @@ fn run_arbitrary_text_generation_internal(
     output_path: &Path,
     commit: &str,
     capture_route_trace: bool,
-    residency: Option<(&Path, &str)>,
+    residency: Option<GenerationResidencySelection<'_>>,
 ) -> Result<ArbitraryTextGenerationReport, String> {
     const WIDTH: usize = 8;
     if output_path.exists() {
@@ -6256,32 +6307,96 @@ fn run_arbitrary_text_generation_internal(
         prefill_chunks,
         prefill_wall_ms / 1000.0
     );
+    let residency_is_ranked_set = matches!(
+        &residency,
+        Some(GenerationResidencySelection::RankedPrefix { .. })
+    );
     let mut resident_runtime = None;
-    if let Some((manifest_path, resident_identity)) = residency {
+    if let Some(selection) = residency {
+        let (manifest_path, requested_limit_bytes) = match &selection {
+            GenerationResidencySelection::Single { manifest_path, .. } => (*manifest_path, None),
+            GenerationResidencySelection::RankedPrefix {
+                manifest_path,
+                limit_bytes,
+            } => {
+                const MAXIMUM_RANKED_PREFIX_BYTES: u64 = 3 * 1024 * 1024 * 1024;
+                if *limit_bytes == 0 || *limit_bytes > MAXIMUM_RANKED_PREFIX_BYTES {
+                    return Err(format!(
+                        "ranked resident set must be between 1 and {MAXIMUM_RANKED_PREFIX_BYTES} bytes under the unchanged post-phase safety ceiling"
+                    ));
+                }
+                (*manifest_path, Some(*limit_bytes))
+            }
+        };
         let manifest_sha256 = hash_file(manifest_path)?;
         let manifest = DeclaredResidencyManifest::from_offline_report(manifest_path)?;
-        let declaration = manifest
-            .objects
-            .iter()
-            .find(|object| object.identity == resident_identity)
-            .cloned()
-            .ok_or_else(|| format!("resident identity is not declared: {resident_identity}"))?;
+        let declarations = match selection {
+            GenerationResidencySelection::Single { identity, .. } => vec![
+                manifest
+                    .objects
+                    .iter()
+                    .find(|object| object.identity == identity)
+                    .cloned()
+                    .ok_or_else(|| format!("resident identity is not declared: {identity}"))?,
+            ],
+            GenerationResidencySelection::RankedPrefix { limit_bytes, .. } => {
+                let mut selected = Vec::new();
+                let mut bytes = 0_u64;
+                for object in &manifest.objects {
+                    let Some(next) = bytes.checked_add(object.bytes) else {
+                        return Err("ranked resident byte selection overflow".to_owned());
+                    };
+                    if next > limit_bytes {
+                        break;
+                    }
+                    selected.push(object.clone());
+                    bytes = next;
+                }
+                if selected.is_empty() {
+                    return Err("ranked resident limit selects no complete object".to_owned());
+                }
+                selected
+            }
+        };
         safety.checkpoint("generation_before_resident_install", true)?;
         let controller = PressureResidencyController::new(manifest)?;
         let observer = DarwinMemoryPressureObserver::start(controller.clone())?;
-        let resident = checkpoint.copy_declared_resident_object(&declaration)?;
-        controller.install_page_aligned(resident_identity, resident)?;
-        if controller.resident_bytes()? != declaration.bytes {
+        let mut installed_bytes = 0_u64;
+        for (index, declaration) in declarations.iter().enumerate() {
+            let resident = checkpoint.copy_declared_resident_object(declaration)?;
+            controller.install_page_aligned(&declaration.identity, resident)?;
+            installed_bytes = installed_bytes
+                .checked_add(declaration.bytes)
+                .ok_or("generation installed resident byte overflow")?;
+            checkpoint.release_file_pages()?;
+            safety.checkpoint(
+                &format!("generation_resident_install_{}_complete", index + 1),
+                true,
+            )?;
+        }
+        if controller.resident_bytes()? != installed_bytes {
             return Err("generation resident install byte gate failed".to_owned());
         }
+        let installed_identities = declarations
+            .iter()
+            .map(|object| object.identity.clone())
+            .collect::<Vec<_>>();
+        let mut expected_eviction = declarations.clone();
+        expected_eviction.sort_by_key(|object| object.warning_eviction_order);
+        let expected_eviction = expected_eviction
+            .into_iter()
+            .map(|object| object.identity)
+            .collect::<Vec<_>>();
         checkpoint.attach_resident_controller(controller.clone());
         safety.checkpoint("generation_resident_install_complete", false)?;
         resident_runtime = Some((
             controller,
             observer,
             manifest_sha256,
-            declaration.identity,
-            declaration.bytes,
+            installed_identities,
+            expected_eviction,
+            installed_bytes,
+            requested_limit_bytes,
         ));
     }
     let mut next_anchor = generated_token_ids[0];
@@ -6500,8 +6615,10 @@ fn run_arbitrary_text_generation_internal(
         controller,
         observer,
         manifest_sha256,
-        identity,
+        installed_identities,
+        expected_eviction,
         installed_bytes,
+        requested_limit_bytes,
     )) = resident_runtime
     {
         controller.handle_pressure_mask(PRESSURE_WARNING)?;
@@ -6511,14 +6628,20 @@ fn run_arbitrary_text_generation_internal(
         if final_resident_bytes != 0
             || eviction_events
                 .last()
-                .is_none_or(|event| event.evicted_identities != [identity.as_str()])
+                .is_none_or(|event| event.evicted_identities != expected_eviction)
         {
             return Err("generation resident final eviction gate failed".to_owned());
         }
         safety.checkpoint("generation_resident_eviction_complete", true)?;
         Some(GenerationResidencyReport {
             manifest_sha256,
-            installed_identities: vec![identity],
+            selection: if requested_limit_bytes.is_some() {
+                "offline_ratio_ranked_complete_object_prefix".to_owned()
+            } else {
+                "single_declared_object".to_owned()
+            },
+            requested_limit_bytes,
+            installed_identities,
             installed_resident_bytes: installed_bytes,
             resident_source_bytes: transactions
                 .iter()
@@ -6544,20 +6667,24 @@ fn run_arbitrary_text_generation_internal(
     let accepted_tokens = generated_token_ids.len();
     let report = ArbitraryTextGenerationReport {
         schema_version: if residency.is_some() {
-            4
+            if residency_is_ranked_set { 5 } else { 4 }
         } else if capture_route_trace {
             3
         } else {
             2
         },
-        evidence_class: if residency.is_some() {
+        evidence_class: if residency_is_ranked_set {
+            "pw0207_bounded_ranked_pressure_resident_route_trace"
+        } else if residency.is_some() {
             "pw0207_single_object_pressure_resident_route_trace"
         } else if requested_output_tokens <= 8 {
             "pw0205_arbitrary_prompt_bounded_generation_probe"
         } else {
             "pw0205_arbitrary_prompt_corrected_qkv_target_proposed_generation"
         },
-        semantic: if residency.is_some() {
+        semantic: if residency_is_ranked_set {
+            "mimo_v2_5_pw0207_bounded_ranked_resident_sglang_directed_generation"
+        } else if residency.is_some() {
             "mimo_v2_5_pw0207_single_object_resident_sglang_directed_generation"
         } else if requested_output_tokens <= 8 {
             "mimo_v2_5_sglang_directed_blockscaled_qkv_deinterleaved_generation_probe"

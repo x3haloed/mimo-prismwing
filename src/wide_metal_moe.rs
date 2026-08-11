@@ -508,13 +508,13 @@ impl WideMetalMoeRuntime {
     pub(crate) fn execute_bf16_linear(
         &self,
         input: &[f32],
-        weight_region: &MappedNoCopyRegion<'_>,
+        weight_region: &WideSourceRegion<'_>,
         rows: usize,
         columns: usize,
     ) -> Result<WideLinearExecution, String> {
         let active_rows = active_rows(input, columns)?;
         if input.iter().any(|value| !value.is_finite())
-            || weight_region.tensor_bytes != rows * columns * 2
+            || weight_region.tensor_bytes() != rows * columns * 2
         {
             return Err("wide BF16 linear layout mismatch".to_owned());
         }
@@ -522,8 +522,8 @@ impl WideMetalMoeRuntime {
         let started = Instant::now();
         let shared = MTLResourceOptions::StorageModeShared;
         let weight = self.device.new_buffer_with_bytes_no_copy(
-            weight_region.bytes.as_ptr().cast(),
-            weight_region.bytes.len() as u64,
+            weight_region.bytes().as_ptr().cast(),
+            weight_region.bytes().len() as u64,
             shared,
             None,
         );
@@ -560,7 +560,7 @@ impl WideMetalMoeRuntime {
         let command = self.queue.new_command_buffer();
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.bf16_pipeline);
-        encoder.set_buffer(0, Some(&weight), weight_region.tensor_offset as u64);
+        encoder.set_buffer(0, Some(&weight), weight_region.tensor_offset() as u64);
         encoder.set_buffer(1, Some(&input_buffer), 0);
         encoder.set_buffer(2, Some(&output), 0);
         encoder.set_buffer(3, Some(&shape_buffer), 0);
@@ -608,8 +608,8 @@ impl WideMetalMoeRuntime {
         Ok(WideLinearExecution {
             output: values,
             wall_ms: started.elapsed().as_secs_f64() * 1000.0,
-            mapped_source_bytes: weight_region.bytes.len() as u64,
-            resident_source_bytes: 0,
+            mapped_source_bytes: weight_region.mapped_bytes(),
+            resident_source_bytes: weight_region.resident_bytes(),
         })
     }
 
