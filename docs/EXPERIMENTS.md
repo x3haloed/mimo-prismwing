@@ -1469,10 +1469,13 @@ Run the following cheap falsifiers in order:
    promotes the Apple-M1 ordinary slice, not the general runtime default;
    category and holdout broadening remains future work.
 7. [PW-0212](../experiments/PW-0212-corrected-route-predictive-prefetch-oracle.md)
-   tests, without runtime work first, whether corrected target routes can issue
-   bounded demand-priority prefetch early enough to hide a material share of
-   acquisition wall. It separates logical recall from physical latency and
-   uses PW-0208 rather than PW-0112's superseded-layout routes.
+   rejects runtime prefetch under its frozen 25% traffic-tax and 10%
+   complete-wall gates. A perfect future oracle can hide only 1.616833% of
+   complete wall (7.988956% of verifier wall), and the actually causal
+   previous-layer control recalls only 2.944232%. Preserve category-frequency
+   (32.415642%) and last-route (38.370595%) logical signals as diagnostics, not
+   latency claims. PW-0213 remains independent because it changes transport
+   for demanded bytes rather than predicting future demand.
 8. [PW-0213](../experiments/PW-0213-uncached-page-aligned-stream-transport.md)
    tests whether cacheable routed streaming creates a harmful second
    file-backed representation. Its first exact substitution isolates aligned

@@ -4237,3 +4237,18 @@ thresholds. A local audit also closes the suspected accepted-token replay bug:
 Prismwing already retains verifier-produced K/V and final-hidden rows and only
 truncates rejected suffix state. The review changes research branches, not a
 throughput constant or runtime default.
+
+PW-0212 closes corrected-route runtime prefetch under its frozen physical gate
+without erasing the route signal. Across 16 held-out PW-0208 text windows, all
+6,016 events discriminate among controls. Last-route recall is 38.370595% and
+calibration-frozen category-frequency recall is 32.415642%, but neither is a
+causal hidden-latency result in the current batched verifier. The only
+one-layer-ahead control recalls 2.944232%. More decisively, an impossible
+future oracle constrained to a 25% traffic tax can hide only 1.616833% of
+complete transaction wall, versus the predeclared 10% gate (7.988956% of
+verifier wall). Report
+`2365033116e194b6bac34d2017f644c3499c5fb92a3727f7db9162dce318587f`
+therefore rejects runtime implementation for this endpoint. Retain the logical
+signals for residency and changed-cut research, and keep PW-0213 open because
+uncached transport changes how demanded bytes are acquired rather than
+depending on prediction.

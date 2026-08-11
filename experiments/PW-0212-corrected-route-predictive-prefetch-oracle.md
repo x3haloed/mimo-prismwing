@@ -1,7 +1,8 @@
 # PW-0212 — Corrected-route predictive-prefetch oracle
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected for runtime implementation under the frozen tax and
+  complete-wall gate; logical predictability retained as diagnostic evidence
 - Date: 2026-08-11
 - Execution mode: L1 analysis of corrected target routes; no runtime prefetch
 - Related records: PW-0104, PW-0112, PW-0205, PW-0207, PW-0208, AN-0001
@@ -56,8 +57,55 @@ priority, exact output parity, Gate 8, attributed physical I/O, and a repeated
 interleaved complete-path TPS gain. Multimodal and long-context corrected
 traces remain required before any general default.
 
+## Execution and evidence
+
+The analyzer authenticated the PW-0208 complete-history manifest
+`a9bb6bd26bf048a2144133cc0a96023a8af112eae58122b666915149f2993a7b`
+and every referenced report, progress payload, and hidden-state payload. The
+first four chronological windows in each of ordinary, code, multilingual, and
+rare-route text calibrated frequency controls; the final four per category
+formed a 16-window holdout. All 6,016 holdout events discriminate among the
+controls. Source record size is 25,171,968 bytes per layer/expert and the
+measured cold eight-expert acquisition is 58.033833 ms.
+
+Logical holdout results preserve real but differently actionable signal:
+
+- last route recalls 38.370595% of selections, but is known only after the
+  same layer's route and therefore has no acquisition lead in the current
+  batched verifier;
+- calibration-frozen category frequency recalls and precisely predicts
+  32.415642%, with 4,818 useful and 1,198 wasted unique records;
+- same-layer previous position recalls 26.504322% at 30.290653% precision, but
+  likewise has no physical lead in the current batched route;
+- previous transaction at the same position recalls and precisely predicts
+  23.859292%; and
+- the causal previous-layer/same-position control recalls only 2.944232% at
+  3.008237% precision.
+
+The offline future oracle reaches 100% logical recall and precision. Even
+granting that impossible oracle exact future knowledge and optimistic full
+overlap, the 25% demand-traffic budget permits only 6,386 of 26,710 unique
+demand records (23.908648% tax). It can hide at most 46,325.507 ms across the
+holdout: 7.988956% of verifier wall but only 1.616833% of complete transaction
+wall. No category exceeds 1.727160%, and the best individual window reaches
+1.783493%, versus the frozen 10% complete-wall requirement.
+
+Clean report:
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0212/corrected-route-prefetch-oracle-001.json`
+(SHA-256
+`2365033116e194b6bac34d2017f644c3499c5fb92a3727f7db9162dce318587f`),
+generated from clean commit `098d43224a2cbbce706bca82b34bb2bc75a3033f`.
+
 ## Decision
 
-Unexecuted. Scheduled after PW-0211's correctness/latency falsifier and before
-PW-0210 implementation. Missing 50 TPS alone does not reject a repeatable
-positive complete-path prefetch gain.
+Reject a runtime predictive-prefetch implementation under the frozen 25%
+traffic-tax and 10% complete-wall gate. This rejection is stronger than any
+measured causal predictor because the physically bounded future oracle also
+fails. Preserve the logical signals for residency ordering, future changed
+critical cuts, and PW-0214 horizon work; do not present them as hidden latency.
+
+PW-0213 remains open and independent: it changes the acquisition transport and
+page-cache topology for bytes already demanded rather than relying on route
+prediction. A future materially different endpoint may reopen prefetch only as
+a separately gated experiment. Missing 50 TPS did not kill this branch; its
+own predeclared complete-path gate did.

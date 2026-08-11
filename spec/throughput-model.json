@@ -1215,6 +1215,23 @@
             "status": "cost_efficiency_gate_impossible; pw0208_complete; native_mtp_latency_only_lower_milestone_preserved_as_pw0211; no_endpoint_tps",
             "provenance": "PW-0208 perfect-proposal upper bound 3aaca59be0e000cac77d5a36b8e3b9d2e2fc5bbb02792c8846dae3da16747f8c over complete-history corpus manifest a9bb6bd26bf048a2144133cc0a96023a8af112eae58122b666915149f2993a7b; exact pinned checkpoint expert layouts; git c7fe4a348908dcf4f654a4b4b9831aaf10af7312 clean"
         },
+        "pw0212_corrected_route_prefetch_upper_bound": {
+            "holdout_windows": 16,
+            "holdout_events": 6016,
+            "expert_source_bytes": 25171968,
+            "cold_eight_expert_acquisition_ms": 58.033833,
+            "maximum_prefetch_bandwidth_tax": 0.25,
+            "required_complete_wall_hidden_fraction": 0.1,
+            "bounded_oracle_prefetch_bandwidth_tax": 0.23908648446274802,
+            "bounded_oracle_verification_wall_hidden_fraction": 0.0798895619285504,
+            "bounded_oracle_complete_wall_hidden_fraction": 0.016168329780693005,
+            "bounded_oracle_maximum_window_complete_wall_hidden_fraction": 0.017834928454517965,
+            "last_route_logical_recall": 0.38370595079787234,
+            "category_frequency_logical_recall": 0.32415641622340424,
+            "previous_layer_same_position_logical_recall": 0.029442320478723406,
+            "status": "runtime_prefetch_rejected_under_frozen_tax_and_complete_wall_gate; logical_predictability_preserved; no_endpoint_tps",
+            "provenance": "PW-0212 clean bounded future-oracle report 2365033116e194b6bac34d2017f644c3499c5fb92a3727f7db9162dce318587f over authenticated PW-0208 corpus manifest a9bb6bd26bf048a2144133cc0a96023a8af112eae58122b666915149f2993a7b; Apple M1 16 GiB internal checkpoint; clean git 098d43224a2cbbce706bca82b34bb2bc75a3033f"
+        },
         "pw0211_live_native_mtp_q4_ordinary": {
             "candidate_complete_wall_ms": [
                 332964.720166,
