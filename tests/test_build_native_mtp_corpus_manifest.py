@@ -1,9 +1,23 @@
 import unittest
+import subprocess
+import sys
+from pathlib import Path
 
 from tools.build_native_mtp_corpus_manifest import route_counts
 
 
 class NativeMtpCorpusManifestTests(unittest.TestCase):
+    def test_cli_imports_when_executed_by_path(self):
+        repo = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [sys.executable, str(repo / "tools" / "build_native_mtp_corpus_manifest.py"), "--help"],
+            cwd=repo,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("evidence_root", result.stdout)
+
     def test_route_counts_are_layer_qualified_and_first_eight_only(self):
         transactions = []
         for transaction in range(9):
