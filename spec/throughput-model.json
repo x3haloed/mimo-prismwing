@@ -1198,6 +1198,23 @@
             "status": "conditional_lower_milestone_promoted; exact_and_pressure_safe; two_x_endpoint_gate_failed; pw0207_complete",
             "provenance": "PW-0207 final A-B-A; resident reports c3daf8a6b21b497eb618ccdfba2be66583eefcbb85343b4a7c9d7528bc0f6c83 and 7fa83f81f4658b4c11609cf0e41faf82127ce20d217ac1a674cf67fb7ef03560 around mapped report 72734073fed9d109d158e551a58cde8a1030d0077ba1ed263a87882710f7976d; Apple M1 16 GiB internal SSD; git 07f591aaed56fbe9aaacbedb85085a9c1f5b3c8e clean"
         },
+        "pw0209_layer_major_context128_slice": {
+            "rows": 128,
+            "unique_experts": 225,
+            "maximum_expert_positions": 26,
+            "width128_complete_wall_ms": [4079.44675, 3976.48375],
+            "width8_control_complete_wall_ms": 4738.246583,
+            "width128_complete_layer_speedup_range": [1.1614924457587295, 1.191566942276578],
+            "width128_logical_source_bytes": 5667888128,
+            "width8_logical_source_bytes": 21563985920,
+            "logical_source_reduction_factor": 3.8045891931902296,
+            "candidate_control_output_sha256": "b3c6daf1b0efc5f684fdef5826eb0dcca9f46042e3e1b7a4661799d6e14f6737",
+            "source_relative_l2": 0.0007579843391087455,
+            "source_maximum_absolute_error": 0.015625,
+            "accepted_tokens": 0,
+            "status": "incremental_layer_gain_preserved; frozen_source_and_three_x_gates_failed; no_ttft_or_endpoint_tps",
+            "provenance": "PW-0209 clean cold-requested A-control-A report 9a0933a132a795ed6a4a6873e90652912969a50945d675f032e75afbf499f316; corrected reference report 3e9c123a2309f58a2bb1f1b636db0215af6eb4a02fbc27da848bfae2da48ada5; Apple M1 16 GiB internal checkpoint; clean git 6707af7d8ac3a194cecb3fd618e7973f19e76a2a"
+        },
         "pw0208_native_mtp_cost_upper_bound": {
             "windows": 32,
             "control_accepted_tokens_A": 213,

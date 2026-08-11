@@ -4295,3 +4295,20 @@ can pass implementation. Preserve the gains and reopen only if measured
 q-specific walls or the proposer critical cut change. Report
 `0a7204c271c60cf7f362cdbf5512cc207b4d7ddc97716d0e4e9c0aeea852cc8e`
 makes no endpoint TPS claim and does not supersede PW-0211.
+
+PW-0209 closes the current-storage layer-major prefill branch without erasing
+its incremental gain. A real layer-43 context-128 transaction covers 225
+unique experts and maximum width 26. It exposed a host bug that copied only 24
+bytes of route-weight and position vectors; after fixing the buffer lengths,
+the width-128 output is byte-identical to sixteen width-eight controls. Both
+paths retain the known L3 source-BLAS association gap and fail the unchanged
+absolute gate at `0.0007579843` relative L2 and `0.015625` maximum error, so no
+correctness or TTFT promotion occurs. Cold-requested A-control-A runs improve
+complete layer wall from 4,738.247 ms to 4,079.447 and 3,976.484 ms
+(1.161492x--1.191567x) while reducing logical source work 3.804589x; physical
+reads remain about 5.670 GB for every trial. The 3x continuation gate and the
+15-second TTFT premise fail. Preserve the kernels, exact control equivalence,
+route-buffer repair, and 16.1%--19.2% slice gain for composition at a changed
+critical cut. Report
+`9a0933a132a795ed6a4a6873e90652912969a50945d675f032e75afbf499f316`
+makes no endpoint TPS claim.

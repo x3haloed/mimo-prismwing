@@ -1453,7 +1453,12 @@ Run the following cheap falsifiers in order:
    hypothesis, not the possibility of a smaller proposal-latency gain.
 4. [PW-0209](../experiments/PW-0209-layer-major-high-residency-prefill.md)
    separates prefill from decode and tests a layer-major, width-rich M1 Metal
-   path without importing M5 tensor-core claims.
+   path without importing M5 tensor-core claims. Its real context-128 slice is
+   byte-identical to sixteen width-eight controls and improves cold-requested
+   complete layer wall by 1.161492x--1.191567x, but fails the unchanged source
+   gate equally with its control and misses the predeclared 3x continuation
+   gate. Preserve the gain and fixed route-buffer defect; reject whole-prefill
+   implementation under the current storage premise.
 5. [PW-0210](../experiments/PW-0210-simdgroup-packed-domain-fusion.md) tests
    SIMD-group execution where it can remove unpack, scale, reduction, and
    barrier traffic. It explicitly does not replace a proven GEMM merely for
