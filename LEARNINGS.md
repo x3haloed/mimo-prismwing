@@ -4001,3 +4001,12 @@ rises to `U=2.686170`, leaving `A/U=0.744554`. The manifest hashes to
 Reject the raw block as expert-byte leverage because it remains below one;
 preserve the doubled acceptance and feed the exact posterior into the corrected
 Jacobi successor test rather than erasing the sub-threshold improvement.
+
+Corrected Jacobi iteration two improves that preserved signal without yet
+crossing the physical gate. Posterior feedback raises `A` from 2 to 3 and
+`A/U` from `0.744554` to `0.947103` even as `U` rises to `3.167553`. The clean
+manifest hashes to
+`dd53f80c02418d4d0321b400a47c1a88bcc70cf72626570fb5302266e6cf39cf`.
+Retain the 27.204% leverage improvement and authorize iteration three because
+the predeclared convergence falsifier improved; do not promote iteration two
+while `A/U` remains below one.

@@ -81,6 +81,7 @@ PW0206_PREFIX_SHA256 = "0002c617c5459d7531de99e779ecad7335afc1e6f86cbbb6071afa23
 PW0206_DECODE_SHA256 = "f405225ea063bf3bfaf38a450fe752dc32c5afe54f69f5803c3ae61308caab2d"
 PW0206_DFLASH_SHA256 = "e5084e606349fb9fe0b01f8e5505f43fa58969cae5398330b343f40dab7228c9"
 PW0206_DFLASH_TARGET_SHA256 = "edf677be8406bd663e0d99b67c8cfb12fdad3914a100dbfd31f9d92b4787693e"
+PW0206_JACOBI_SECOND_SHA256 = "dd53f80c02418d4d0321b400a47c1a88bcc70cf72626570fb5302266e6cf39cf"
 PW0206_FIRST_LOGITS_SHA256 = "2302a23b67083bad89f020302c87e8c6ec2409ced3ad640be0f7733e7fb71cce"
 PROPOSED_BLOCK = [264, 1773, 102092, 102092, 102092, 1773, 1773, 1773]
 PW0206_PROPOSED_BLOCK = [9707, 0, 0, 0, 0, 0, 0, 0]
@@ -198,7 +199,25 @@ def selected_proposed_block(arguments: argparse.Namespace) -> tuple[list[int], s
         if second and third:
             raise ValueError("select exactly one corrected Jacobi iteration")
         if third:
-            raise ValueError("corrected Jacobi third iteration lacks an authenticated predecessor")
+            if prior_path is None or sha256_file(prior_path) != PW0206_JACOBI_SECOND_SHA256:
+                raise ValueError("corrected Jacobi second-iteration hash mismatch")
+            prior = json.loads(prior_path.read_text())
+            expected_proposal = [9707, 0, 2585, 2585, 2585, 2585, 2585, 2585]
+            expected_posterior = [0, 2585, 646, 646, 2585, 2585, 2585, 2585]
+            if (
+                prior.get("status") != "passed"
+                or prior.get("evidence_class")
+                != "pw0206_corrected_qkv_jacobi_second_iteration"
+                or prior.get("proposed_block_token_ids") != expected_proposal
+                or prior.get("target_posterior_token_ids") != expected_posterior
+                or prior.get("greedy_verification", {}).get("accepted_length_a") != 3
+            ):
+                raise ValueError("corrected Jacobi second-iteration semantic identity mismatch")
+            return (
+                jacobi_successor_block(expected_proposal, expected_posterior),
+                "pw0206_corrected_qkv_jacobi_third_iteration",
+                {"pw0206_jacobi_second_manifest_sha256": PW0206_JACOBI_SECOND_SHA256},
+            )
         if second:
             if prior_path is None or sha256_file(prior_path) != PW0206_DFLASH_TARGET_SHA256:
                 raise ValueError("corrected Jacobi prior target manifest hash mismatch")

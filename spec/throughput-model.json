@@ -1045,6 +1045,17 @@
             "physical_read_bytes": 133008273408,
             "status": "raw_dflash_rejected_below_expert_byte_leverage_one; doubled_acceptance_retained; corrected_jacobi_pending; no_endpoint_tps",
             "provenance": "PW-0206 partial; exported-mask DFlash manifest e5084e606349fb9fe0b01f8e5505f43fa58969cae5398330b343f40dab7228c9; source-target manifest edf677be8406bd663e0d99b67c8cfb12fdad3914a100dbfd31f9d92b4787693e; Apple M1 16 GiB internal SSD; git ab24f8070d207cd7b0d48d9d2d4c11ce4ac26deb clean"
+        },
+        "pw0206_corrected_jacobi_second_iteration": {
+            "q": 8,
+            "accepted_tokens_A": 3,
+            "mean_normalized_union_U": 3.1675531914893615,
+            "acceptance_over_union_A_over_U": 0.947103274559194,
+            "improvement_vs_raw_corrected_dflash_percent": 27.20403022670026,
+            "post_prefill_complete_ms_diagnostic": 357799.00283401366,
+            "physical_read_bytes": 137583656960,
+            "status": "improved_but_below_expert_byte_leverage_one; third_iteration_authorized; no_endpoint_tps",
+            "provenance": "PW-0206 partial; corrected Jacobi iteration-two manifest dd53f80c02418d4d0321b400a47c1a88bcc70cf72626570fb5302266e6cf39cf; Apple M1 16 GiB internal SSD; git a54c46b6e04937507539a167ae17f4f42f44e60a clean"
         }
     }
 }

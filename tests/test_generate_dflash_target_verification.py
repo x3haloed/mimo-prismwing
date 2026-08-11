@@ -9,6 +9,7 @@ import torch
 
 from tools.generate_dflash_target_verification import (
     PW0206_DFLASH_TARGET_SHA256,
+    PW0206_JACOBI_SECOND_SHA256,
     PW0206_PROPOSED_BLOCK,
     apply_rope_positions,
     jacobi_successor_block,
@@ -33,7 +34,7 @@ class TargetVerificationTests(unittest.TestCase):
         self.assertEqual(identities, {})
 
         arguments.jacobi_third_iteration = True
-        with self.assertRaisesRegex(ValueError, "lacks an authenticated predecessor"):
+        with self.assertRaisesRegex(ValueError, "second-iteration hash mismatch"):
             selected_proposed_block(arguments)
 
     def test_corrected_jacobi_second_iteration_shifts_authenticated_posterior(self):
@@ -66,6 +67,39 @@ class TargetVerificationTests(unittest.TestCase):
         self.assertEqual(
             identities["pw0206_dflash_target_manifest_sha256"],
             PW0206_DFLASH_TARGET_SHA256,
+        )
+
+    def test_corrected_jacobi_third_iteration_shifts_second_posterior(self):
+        proposal = [9707, 0, 2585, 2585, 2585, 2585, 2585, 2585]
+        posterior = [0, 2585, 646, 646, 2585, 2585, 2585, 2585]
+        prior = {
+            "status": "passed",
+            "evidence_class": "pw0206_corrected_qkv_jacobi_second_iteration",
+            "proposed_block_token_ids": proposal,
+            "target_posterior_token_ids": posterior,
+            "greedy_verification": {"accepted_length_a": 3},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "prior.json"
+            path.write_text(json.dumps(prior))
+            arguments = argparse.Namespace(
+                corrected_decode="corrected.json",
+                jacobi_second_iteration=False,
+                jacobi_third_iteration=True,
+                prior_target_manifest=path,
+            )
+            with patch(
+                "tools.generate_dflash_target_verification.sha256_file",
+                return_value=PW0206_JACOBI_SECOND_SHA256,
+            ):
+                proposed, evidence_class, identities = selected_proposed_block(arguments)
+        self.assertEqual(proposed, [9707, 0, 2585, 646, 646, 2585, 2585, 2585])
+        self.assertEqual(
+            evidence_class, "pw0206_corrected_qkv_jacobi_third_iteration"
+        )
+        self.assertEqual(
+            identities["pw0206_jacobi_second_manifest_sha256"],
+            PW0206_JACOBI_SECOND_SHA256,
         )
 
     def test_jacobi_successor_preserves_anchor_and_shifts_posterior(self):

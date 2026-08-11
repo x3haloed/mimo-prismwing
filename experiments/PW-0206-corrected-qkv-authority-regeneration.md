@@ -116,6 +116,22 @@ preserving its doubled acceptance and using its exact posterior as the
 authorized corrected Jacobi successor falsifier. PW-0206 remains open until
 that convergence/`A/U` authority is regenerated.
 
+Corrected Jacobi iteration two runs cleanly at commit
+`a54c46b6e04937507539a167ae17f4f42f44e60a`. Its manifest hashes to
+`dd53f80c02418d4d0321b400a47c1a88bcc70cf72626570fb5302266e6cf39cf`.
+The successor block `[9707,0,2585,2585,2585,2585,2585,2585]` produces
+posterior `[0,2585,646,646,2585,2585,2585,2585]`, increasing formal accepted
+length to `A=3`. Route union also rises to `U=3.1675531914893615`, leaving
+`A/U=0.947103274559194`: 27.204% better than the raw corrected block, but still
+below the leverage gate of one.
+
+Post-prefill wall is 357.799 seconds, verification-source traffic is
+37,723,116,416 bytes, and physical reads are 137,583,656,960 bytes. Minimum
+free memory is 62%, peak RSS is 3,947,216,896 bytes, and swap growth and new
+throttled pages remain zero. Because `A/U` materially improves, authorize the
+third posterior-fed iteration under the predeclared convergence rule; do not
+promote iteration two as a runtime path.
+
 ## Decision
 
 Continue. The cheap falsifier decisively rejects trace identity: token IDs and
