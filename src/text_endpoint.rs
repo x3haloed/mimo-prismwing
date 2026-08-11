@@ -4982,19 +4982,54 @@ pub fn run_layer_major_moe_slice(
     if !route_ids_exact || maximum_route_weight_absolute_error > 5.0e-7 {
         return Err("PW-0209 route parity failed".to_owned());
     }
-    let mut reference_squared = 0.0_f64;
-    let mut error_squared = 0.0_f64;
-    let mut maximum_absolute_error = 0.0_f32;
-    for (&actual, &expected) in candidate.output.iter().zip(&reference) {
-        let difference = actual - expected;
-        reference_squared += f64::from(expected) * f64::from(expected);
-        error_squared += f64::from(difference) * f64::from(difference);
-        maximum_absolute_error = maximum_absolute_error.max(difference.abs());
-    }
-    let relative_l2 = error_squared.sqrt() / reference_squared.sqrt().max(1.0e-20);
+    let parity = |actual: &[f32], expected: &[f32]| {
+        let mut reference_squared = 0.0_f64;
+        let mut error_squared = 0.0_f64;
+        let mut maximum_absolute_error = 0.0_f32;
+        for (&actual, &expected) in actual.iter().zip(expected) {
+            let difference = actual - expected;
+            reference_squared += f64::from(expected) * f64::from(expected);
+            error_squared += f64::from(difference) * f64::from(difference);
+            maximum_absolute_error = maximum_absolute_error.max(difference.abs());
+        }
+        (
+            error_squared.sqrt() / reference_squared.sqrt().max(1.0e-20),
+            maximum_absolute_error,
+        )
+    };
+    let (relative_l2, maximum_absolute_error) = parity(&candidate.output, &reference);
     if !relative_l2.is_finite() || relative_l2 > 5.0e-4 || maximum_absolute_error > 2.0e-2 {
+        let mut width8_output = Vec::with_capacity(reference.len());
+        let mut width8_routes_exact = true;
+        let mut width8_ledger = EndpointLedger::for_checkpoint(&checkpoint);
+        let mut width8_metal_ledger = MetalExpertLedger::default();
+        for chunk in 0..ROWS / 8 {
+            let start = chunk * 8;
+            let end = start + 8;
+            let control = routed_mlp_metal_wide(
+                &checkpoint,
+                43,
+                &input[start * HIDDEN..end * HIDDEN],
+                8,
+                &mut width8_ledger,
+                &mut width8_metal_ledger,
+                &runtime,
+            )?;
+            width8_routes_exact &= control.selected == expected_routes[start..end]
+                && control
+                    .weights
+                    .iter()
+                    .flatten()
+                    .zip(expected_weights[start..end].iter().flatten())
+                    .all(|(actual, expected)| (actual - expected).abs() <= 5.0e-7);
+            width8_output.extend_from_slice(&control.output);
+        }
+        let (width8_relative_l2, width8_maximum_absolute_error) =
+            parity(&width8_output, &reference);
+        let (candidate_to_width8_relative_l2, candidate_to_width8_maximum_absolute_error) =
+            parity(&candidate.output, &width8_output);
         return Err(format!(
-            "PW-0209 source parity failed: relative L2 {relative_l2}, max abs {maximum_absolute_error}"
+            "PW-0209 source parity failed: width128 relative L2 {relative_l2}, max abs {maximum_absolute_error}; width8 routes exact {width8_routes_exact}, relative L2 {width8_relative_l2}, max abs {width8_maximum_absolute_error}; width128-to-width8 relative L2 {candidate_to_width8_relative_l2}, max abs {candidate_to_width8_maximum_absolute_error}"
         ));
     }
     let output_bytes = finite_f32_le_bytes(&candidate.output, ROWS * HIDDEN)?;
