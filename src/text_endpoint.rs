@@ -33,8 +33,8 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::MetadataExt;
-use std::path::{Component, Path};
+use std::os::unix::fs::{FileExt, MetadataExt};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
@@ -1625,6 +1625,7 @@ struct CheckpointTensorSource<'a> {
 }
 
 struct Checkpoint {
+    root: PathBuf,
     weight_map: BTreeMap<String, String>,
     shards: BTreeMap<String, MappedSafetensors>,
     shard_sha256: BTreeMap<String, String>,
@@ -1707,6 +1708,7 @@ impl Checkpoint {
             }
         }
         Ok(Self {
+            root: root.to_owned(),
             weight_map,
             shards,
             shard_sha256,
@@ -1883,6 +1885,69 @@ impl Checkpoint {
             ));
         }
         PageAlignedResidentObject::copy_from_declared(declaration, sources)
+    }
+
+    fn load_declared_resident_object(
+        &self,
+        declaration: &DeclaredResidentObject,
+    ) -> Result<PageAlignedResidentObject, String> {
+        PageAlignedResidentObject::load_from_declared(declaration, |tensor, destination| {
+            let shard = self.shard_for_tensor(&tensor.tensor)?;
+            if shard != tensor.backing_file
+                || self.shard_sha256.get(shard) != Some(&tensor.backing_file_sha256)
+            {
+                return Err(format!(
+                    "{}: resident backing authority mismatch",
+                    tensor.tensor
+                ));
+            }
+            let mapped = self
+                .shards
+                .get(shard)
+                .ok_or_else(|| format!("mapped shard absent: {shard}"))?;
+            let metadata = mapped
+                .tensors
+                .get(&tensor.tensor)
+                .ok_or_else(|| format!("tensor is absent: {}", tensor.tensor))?;
+            if metadata.dtype != tensor.dtype {
+                return Err(format!("{}: resident dtype mismatch", tensor.tensor));
+            }
+            let row_offset = if let Some(row) = tensor.row {
+                let row = usize::try_from(row)
+                    .map_err(|_| format!("{}: resident row does not fit usize", tensor.tensor))?;
+                if metadata.shape.len() < 2
+                    || metadata.shape[1..] != tensor.shape
+                    || row >= metadata.shape[0] as usize
+                {
+                    return Err(format!("{}: resident row shape mismatch", tensor.tensor));
+                }
+                row.checked_mul(destination.len())
+                    .ok_or_else(|| format!("{}: resident row offset overflow", tensor.tensor))?
+            } else {
+                if metadata.shape != tensor.shape || metadata.data_bytes != tensor.bytes {
+                    return Err(format!("{}: resident tensor shape mismatch", tensor.tensor));
+                }
+                0
+            };
+            let absolute_offset = u64::try_from(mapped.payload_start)
+                .ok()
+                .and_then(|offset| offset.checked_add(metadata.data_offsets[0]))
+                .and_then(|offset| offset.checked_add(row_offset as u64))
+                .ok_or_else(|| format!("{}: resident file offset overflow", tensor.tensor))?;
+            let file = File::open(self.root.join(shard))
+                .map_err(|error| format!("{}: direct resident open: {error}", tensor.tensor))?;
+            let mut filled = 0_usize;
+            while filled < destination.len() {
+                let read = file
+                    .read_at(&mut destination[filled..], absolute_offset + filled as u64)
+                    .map_err(|error| format!("{}: direct resident read: {error}", tensor.tensor))?;
+                if read == 0 {
+                    return Err(format!("{}: direct resident read was short", tensor.tensor));
+                }
+                filled += read;
+            }
+            Ok(())
+        })
     }
 
     fn declared_resident_tensor_bytes<'a>(
@@ -6374,7 +6439,7 @@ fn run_arbitrary_text_generation_internal(
         let observer = DarwinMemoryPressureObserver::start(controller.clone())?;
         let mut installed_bytes = 0_u64;
         for (index, declaration) in declarations.iter().enumerate() {
-            let resident = checkpoint.copy_declared_resident_object(declaration)?;
+            let resident = checkpoint.load_declared_resident_object(declaration)?;
             controller.install_page_aligned(&declaration.identity, resident)?;
             installed_bytes = installed_bytes
                 .checked_add(declaration.bytes)

@@ -311,7 +311,6 @@ impl PageAlignedResidentObject {
     where
         I: IntoIterator<Item = (ResidentTensorIdentity, &'a [u8])>,
     {
-        validate_tensor_authority(declaration)?;
         let supplied = sources.into_iter().collect::<BTreeMap<_, _>>();
         if supplied.len() != declaration.tensors.len() {
             return Err(format!(
@@ -319,6 +318,30 @@ impl PageAlignedResidentObject {
                 declaration.identity
             ));
         }
+        Self::load_from_declared(declaration, |tensor, destination| {
+            let identity = ResidentTensorIdentity {
+                tensor: tensor.tensor.clone(),
+                row: tensor.row,
+            };
+            let source = supplied
+                .get(&identity)
+                .ok_or_else(|| format!("resident source absent: {}", tensor.tensor))?;
+            if source.len() != destination.len() {
+                return Err(format!("resident source byte mismatch: {}", tensor.tensor));
+            }
+            destination.copy_from_slice(source);
+            Ok(())
+        })
+    }
+
+    pub fn load_from_declared<F>(
+        declaration: &DeclaredResidentObject,
+        mut load: F,
+    ) -> Result<Self, String>
+    where
+        F: FnMut(&DeclaredResidentTensor, &mut [u8]) -> Result<(), String>,
+    {
+        validate_tensor_authority(declaration)?;
         let mapping_len = usize::try_from(declaration.bytes)
             .map_err(|_| format!("resident allocation is too large: {}", declaration.identity))?;
         let mut mapping = MmapOptions::new()
@@ -332,19 +355,16 @@ impl PageAlignedResidentObject {
                 tensor: tensor.tensor.clone(),
                 row: tensor.row,
             };
-            let source = supplied
-                .get(&identity)
-                .ok_or_else(|| format!("resident source absent: {}", tensor.tensor))?;
-            if source.len() as u64 != tensor.bytes {
-                return Err(format!("resident source byte mismatch: {}", tensor.tensor));
-            }
             let end = offset
-                .checked_add(source.len())
+                .checked_add(
+                    usize::try_from(tensor.bytes)
+                        .map_err(|_| format!("resident tensor too large: {}", tensor.tensor))?,
+                )
                 .ok_or_else(|| "resident source offset overflow".to_owned())?;
             if end > mapping.len() {
                 return Err("resident source exceeds declared allocation".to_owned());
             }
-            mapping[offset..end].copy_from_slice(source);
+            load(tensor, &mut mapping[offset..end])?;
             tensor_ranges.insert(identity, offset..end);
             offset = end;
         }
