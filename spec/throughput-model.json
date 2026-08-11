@@ -1254,6 +1254,22 @@
             "status": "isolated_file_backed_overlap_and_install_gains_preserved; runtime_transport_rejected_on_causal_post_prefill_regression; pw0213_complete",
             "provenance": "PW-0213 isolated report 51b2898314ff42ecca0eb7e29802f23346a329244126cd566dea80da9171f17f and analysis 764fba9b12d8bacc5d4d2cd7f1fc57a42323a94bc90717bc41fa948842803fe3; verifier reports 74b8d15186aeff9af97393643fe11bf39c11e0d0d2d2da7777493723b538ec0d, f05c8b8be0794aa1aa1a2e790a96ac3c1a967439e4c0fda1ad8fb6a4eb37eee5, be004a835f59c99eb2539ae54dd434ce05748840eb48caffc1dba8e83c88baca and analysis e4a3d0696705cc598e16b1568659a28c19a8fe0f6124155e00e882420595b6b7; Apple M1 16 GiB internal SSD; clean git f096b8e1a5aefa9515b69ce209c11fe96c22ae2d"
         },
+        "pw0214_cost_adaptive_horizon_oracle": {
+            "holdout_windows": 16,
+            "q_minimum": 2,
+            "q_maximum": 8,
+            "cold_single_expert_acquisition_ms": 7.254229125,
+            "required_causal_gain": 0.05,
+            "calibration_fixed_q": 5,
+            "calibration_fixed_holdout_gain_vs_q8": -0.01717984927352212,
+            "category_policy_holdout_gain_vs_q8": 0.009338028538711907,
+            "code_slice_gain_vs_q8": 0.032680604675319413,
+            "ordinary_slice_gain_vs_q8": -0.02869413204599669,
+            "previous_window_gain_vs_q8": -0.005017623353982148,
+            "offline_aggregate_future_oracle_gain_vs_q8": 0.04681640409629062,
+            "status": "runtime_policy_rejected_below_five_percent_offline_ceiling; aggregate_and_code_slice_modeled_gains_preserved; no_endpoint_tps",
+            "provenance": "PW-0214 clean corrected-window q2-q8 oracle 0a7204c271c60cf7f362cdbf5512cc207b4d7ddc97716d0e4e9c0aeea852cc8e over PW-0208 corpus a9bb6bd26bf048a2144133cc0a96023a8af112eae58122b666915149f2993a7b; Apple M1 measured q8 walls and PW-0136 acquisition constant; clean git 4b47d6a36d9d3670317276541e185d704103f9a3"
+        },
         "pw0211_live_native_mtp_q4_ordinary": {
             "candidate_complete_wall_ms": [
                 332964.720166,

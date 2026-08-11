@@ -1,7 +1,8 @@
 # PW-0214 — Cost-adaptive verification-horizon oracle
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: runtime policy rejected; offline ceiling and code-slice gains
+  preserved as diagnostics
 - Date: 2026-08-11
 - Execution mode: L1 analysis followed by exact verifier scheduling only if authorized
 - Related records: PW-0206, PW-0208, PW-0211, PW-0212, AN-0002
@@ -45,6 +46,42 @@ confidence threshold or cross-model acceptance rate may be imported.
 
 ## Decision
 
-Unexecuted. Scheduled after PW-0212 and the first PW-0213 transport falsifier.
-It remains separate from native-MTP proposal latency and predictive prefetch so
-optimistic grants cannot be multiplied.
+The analyzer authenticates the corrected PW-0208 manifest and all four source
+reports, progress streams, and hidden-state payloads. Transactions 1--4 in
+each category calibrate; transactions 5--8 hold out. For every q=2..8, exact
+proposal/posterior prefixes reconstruct `A`, and exact route prefixes derive
+per-layer expert union. The physical model charges measured q8 same-model
+proposal wall by `(q-1)/7`, exact expert units at 7.254229125 ms each, and the
+remaining measured q8 verifier wall as shared-spine/compute cost scaled by
+`q/8`.
+
+The globally calibration-selected fixed q5 regresses holdout modeled TPS by
+1.717985% versus q8. A category-calibrated policy selects q5 for ordinary and
+code and q8 for multilingual and rare-route. It improves aggregate holdout TPS
+by 0.933803% and code by 3.268060%, but ordinary regresses 2.869413% and the
+other two categories are unchanged. The previous-window control regresses
+0.501762%. Preserve the aggregate and code-slice gains; neither is a policy
+that passes every required category.
+
+A Dinkelbach-optimal offline future oracle maximizes the ratio of total
+accepted tokens to total modeled wall over every combination of q choices. It
+chooses q2 three times, q3 once, and q8 twelve times, yet reaches only a
+4.681640% holdout gain. This omniscient ceiling is below the frozen 5% causal
+implementation gate. The locally best per-window future oracle reaches
+4.422963%. No learned causal predictor can exceed the aggregate future oracle
+under the frozen model.
+
+Clean report:
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0214/cost-adaptive-horizon-oracle-001.json`,
+SHA-256
+`0a7204c271c60cf7f362cdbf5512cc207b4d7ddc97716d0e4e9c0aeea852cc8e`,
+generated from clean commit `4b47d6a36d9d3670317276541e185d704103f9a3`.
+
+Reject runtime policy implementation under this contract. The cheap
+falsifier's weaker "any oracle gain" test passes, so preserve the 4.681640%
+ceiling, 0.933803% category-policy aggregate, and 3.268060% code slice as real
+modeled signals. The stronger predeclared implementation gate fails even for
+the future oracle. Reopening requires changed q-specific physical walls or a
+different proposer/critical cut, not fitting a more complex predictor to the
+same ceiling. This record makes no endpoint TPS claim and does not alter
+PW-0211's measured native-q4 ordinary milestone.

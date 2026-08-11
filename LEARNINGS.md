@@ -4282,3 +4282,16 @@ attribute the prefill-only gain to it. Preserve the 100% source-page residency
 reduction, 4.523759% two-buffer recovery, and install gain for a future changed
 critical cut. Validated verifier analysis hashes to
 `e4a3d0696705cc598e16b1568659a28c19a8fe0f6124155e00e882420595b6b7`.
+
+PW-0214 closes cost-adaptive q=2..8 runtime policy under its frozen modeled
+gate while preserving useful slice signals. Exact acceptance and corrected
+route unions over 16 held-out text windows show that a category-calibrated
+policy gains 0.933803% aggregate modeled TPS and 3.268060% on code, but loses
+2.869413% on ordinary and leaves multilingual and rare-route unchanged. The
+previous-window control loses 0.501762%. An omniscient aggregate-ratio oracle,
+optimized over every q combination, gains only 4.681640%—below the required
+5% even before causality. Therefore no predictor fitted to this frozen model
+can pass implementation. Preserve the gains and reopen only if measured
+q-specific walls or the proposer critical cut change. Report
+`0a7204c271c60cf7f362cdbf5512cc207b4d7ddc97716d0e4e9c0aeea852cc8e`
+makes no endpoint TPS claim and does not supersede PW-0211.

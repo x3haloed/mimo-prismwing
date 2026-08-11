@@ -1488,10 +1488,11 @@ Run the following cheap falsifiers in order:
    comes from prefill before the mechanism activates. Reject runtime promotion
    while retaining the lower-level gains.
 9. [PW-0214](../experiments/PW-0214-cost-adaptive-verification-horizon-oracle.md)
-   treats `q=2..8` as a physical policy variable, pricing marginal accepted
-   progress against corrected route union, proposal wall, verifier width, and
-   acquisition. Offline future selection is only an upper bound; implementation
-   requires a calibration-frozen causal policy that passes every text category.
+   rejects runtime horizon adaptation under its frozen 5% gate. The optimal
+   aggregate future oracle reaches only 4.681640%; a category-calibrated policy
+   gains 0.933803% overall and 3.268060% on code but regresses ordinary by
+   2.869413%. Preserve those smaller modeled gains and do not erase PW-0211's
+   separately measured native-q4 ordinary result.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
