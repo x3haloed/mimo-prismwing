@@ -4070,3 +4070,14 @@ scaling changes BF16 rounding and the dynamic-FP8 down-input representation.
 Do not search this continuous family past the failed gate. A separately frozen
 power-of-two scale family would be a distinct operationally aligned mechanism,
 not evidence that this result should be relaxed.
+
+PW-0215 rejects the concrete recursive-polar row representation at equal
+source traffic. A fixed signed-Hadamard transform plus shared per-level 6-bit
+angle codebooks occupies 75.0671% of source-FP8 bytes, but reaches 0.8312%
+held-out real-query projection error versus affine6's 0.5945%. Its direct tree
+decoder would also add 8.39 million angle lookups and 16.77 million recursive
+multiply/adds for the one hard projection. The network consumes inner
+products, but changing coordinates does not make the direct inner-product
+program cheap automatically. Do not build this polar6 decoder or expand it to
+another projection; a future directional branch must change both its learned
+representation and its execution-cost argument.
