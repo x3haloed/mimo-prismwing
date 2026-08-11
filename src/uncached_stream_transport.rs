@@ -165,6 +165,9 @@ pub struct UncachedTransportTrial {
     pub widened_bytes: u64,
     pub read_amplification: f64,
     pub pread_calls: usize,
+    pub source_pages_probed: u64,
+    pub source_pages_resident: u64,
+    pub source_resident_fraction: f64,
     pub logical_stream_sha256: String,
     pub activity: ProcessActivityDelta,
 }
@@ -259,6 +262,30 @@ fn invalidate_plan(file: &File, plan: AlignedReadPlan) -> Result<(), String> {
     Ok(())
 }
 
+fn resident_pages(file: &File, plan: AlignedReadPlan) -> Result<(u64, u64), String> {
+    // SAFETY: the file and page-aligned plan remain valid through the mapping.
+    let mapping = unsafe {
+        memmap2::MmapOptions::new()
+            .offset(plan.physical_offset)
+            .len(plan.physical_bytes)
+            .map(file)
+    }
+    .map_err(|error| format!("residency-probe mmap failed: {error}"))?;
+    let pages = mapping.len().div_ceil(PAGE_BYTES as usize);
+    let mut vector = vec![0_i8; pages];
+    // SAFETY: mapping is live and vector has one byte for every covered VM page.
+    if unsafe { libc::mincore(mapping.as_ptr().cast(), mapping.len(), vector.as_mut_ptr()) } != 0 {
+        return Err(format!(
+            "source-page mincore failed: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok((
+        pages as u64,
+        vector.iter().filter(|state| (**state & 1) != 0).count() as u64,
+    ))
+}
+
 fn expected_stream_sha256(
     artifact: &crate::routed_layer_artifact::RoutedLayerArtifact,
     records: &[RoutedLayerArtifactTensor],
@@ -337,11 +364,11 @@ fn execute_trial(
     let mut integrity_wall_ms = 0.0;
     let mut digest = Sha256::new();
     let mut pread_calls = 0;
-    for (record, plan) in plans {
+    for (record, plan) in &plans {
         let file = &files[&record.source_shard];
         let mut reader = FdReader(file.as_raw_fd());
         let transfer_started = Instant::now();
-        pread_calls += read_plan_exact(&mut reader, plan, buffer.bytes_mut())?;
+        pread_calls += read_plan_exact(&mut reader, *plan, buffer.bytes_mut())?;
         transfer_wall_ms += transfer_started.elapsed().as_secs_f64() * 1000.0;
         let integrity_started = Instant::now();
         let logical_end = plan.logical_offset + plan.logical_bytes;
@@ -355,6 +382,13 @@ fn execute_trial(
         digest.update(logical);
         integrity_wall_ms += integrity_started.elapsed().as_secs_f64() * 1000.0;
     }
+    let (source_pages_probed, source_pages_resident) = plans.iter().try_fold(
+        (0_u64, 0_u64),
+        |(total_pages, total_resident), (record, plan)| {
+            let (pages, resident) = resident_pages(&files[&record.source_shard], *plan)?;
+            Ok::<_, String>((total_pages + pages, total_resident + resident))
+        },
+    )?;
     let complete_trial_wall_ms = trial_started.elapsed().as_secs_f64() * 1000.0;
     let activity = process_activity()?.checked_delta(activity_before)?;
     let logical_stream_sha256 = format!("{:x}", digest.finalize());
@@ -380,6 +414,9 @@ fn execute_trial(
             widened_bytes,
             read_amplification: widened_bytes as f64 / logical_bytes as f64,
             pread_calls,
+            source_pages_probed,
+            source_pages_resident,
+            source_resident_fraction: source_pages_resident as f64 / source_pages_probed as f64,
             logical_stream_sha256,
             activity,
         },
