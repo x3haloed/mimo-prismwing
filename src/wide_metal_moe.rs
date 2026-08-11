@@ -31,6 +31,10 @@ fn padded_rows(values: &[f32], rows: usize, columns: usize, capacity: usize) -> 
     padded
 }
 
+fn route_buffer_bytes<T>(values: &[T]) -> u64 {
+    std::mem::size_of_val(values) as u64
+}
+
 pub(crate) enum WideSourceRegion<'a> {
     Mapped(MappedNoCopyRegion<'a>),
     Resident(OwnedResidentTensorRegion),
@@ -834,12 +838,12 @@ impl WideMetalMoeRuntime {
                 down: projection(&binding.down)?,
                 route_weights: self.device.new_buffer_with_data(
                     weights.as_ptr().cast(),
-                    std::mem::size_of_val(&weights) as u64,
+                    route_buffer_bytes(weights.as_slice()),
                     shared,
                 ),
                 positions: self.device.new_buffer_with_data(
                     positions.as_ptr().cast(),
-                    std::mem::size_of_val(&positions) as u64,
+                    route_buffer_bytes(positions.as_slice()),
                     shared,
                 ),
                 scatter_shape: self.device.new_buffer_with_data(
@@ -1075,6 +1079,14 @@ impl WideMetalMoeRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn route_buffers_preserve_all_eight_placements() {
+        let weights = vec![0.125_f32; 8];
+        let positions = (0_u32..8).collect::<Vec<_>>();
+        assert_eq!(route_buffer_bytes(&weights), 8 * 4);
+        assert_eq!(route_buffer_bytes(&positions), 8 * 4);
+    }
 
     #[test]
     fn sglang_blockscaled_fp8_codes_scales_and_projection_match_cpu_equation() {
