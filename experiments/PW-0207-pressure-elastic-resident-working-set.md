@@ -225,7 +225,7 @@ after excluding timing/resource fields. Raw report/progress hashes are:
 - resident set 002: `94b602b2b683037713d3d9db20fa2ec74e20ad47f75d7e013c059e4c34250a57`,
   `3440806a7fae783d04a4bc36cc0bb7e765650dc96a248f0d16b8a1f74d9f1ebc`.
 
-The resident ledger accounts only 4,471,128,064 of the 13,220,954,112 source
+The resident ledger accounts only 4,471,128,064 of the 13,220,446,208 source
 bytes predicted for eight uses of all seven objects. The causal gap is the
 seven one-row proposal LM-head calls, which still use the mapped CPU path;
 only the width-eight verifier LM-head call consumes resident BF16. Continue by
@@ -233,3 +233,40 @@ making that existing target-faithful Metal path authoritative for one-row
 proposal logits, then repeat mapped/resident controls. Separately, scaling
 beyond seven objects requires eliminating copy-time double footprint rather
 than weakening the 4 GiB gate.
+
+Clean commit `677217ac17bc23a3de2975c9e98b6dea3c491b86` closes the
+proposal LM-head gap by using the same target-faithful wide BF16 Metal path for
+one-row proposal logits and width-eight verification logits. Two mapped runs
+take 170,063.164 and 171,232.623 ms per transaction, median 170,647.894 ms,
+versus the immediately preceding 188,266.418 ms mapped control. This is a
+repeatable 9.358294% transaction-wall reduction and raises committed TPS
+10.324490%, from 0.037181 to 0.041020. Promote the Metal proposal path as a
+real lower milestone; it changes execution location but not weights,
+arithmetic, tokens, acceptance, or routes.
+
+With that gap closed, two seven-object resident runs account the exact
+13,220,446,208 bytes predicted by eight uses of the selected objects. Their
+transaction times are 169,396.114 and 172,977.047 ms, median 171,186.580 ms.
+Against the 170,647.894 ms mapped median, residency is 0.315672% slower and
+committed TPS is 0.314678% lower. Reject this bounded prefix as a performance
+default while preserving its exact substitution and pressure-safety mechanism.
+The earlier partial-path 1.106803% signal is superseded for promotion, not
+erased: once the missing mapped LM-head work is removed, the full causal test
+is neutral/slower.
+
+Raw report/progress hashes are:
+
+- mapped Metal 004: `746891226963a2d4c3bcd298bd30a05246c8e69dec436c885e7db94e0f9c936c`,
+  `c8bb749dd4dc2de6b7bc90a2d336863f5d4a80c097a4d8a40f712f1523d5fa86`;
+- resident Metal 001: `0e84e234ada4a030c11d74468a260e23b0bb05e64c9f3b01f40841f88864592e`,
+  `5044bd15cfbc81b9689c97fb85787b5a0e96d6816228700deb69bd5a489e5cda`;
+- mapped Metal 005: `d7328fa5277006b913a7a9f0a8c00c6c009991e1b912df4e487804e862ff16c8`,
+  `32d4c0885eab4b46da2b3a9819ba75838786ccc50faea670c79bb0f64e256f97`;
+- resident Metal 002: `8b326da87426be364f34bbf57098333a7669191411c2156ade1e57044cfba410`,
+  `30d546e4d33979e60b062feebd9524f9093f54bab794e08114122c95d4632a87`.
+
+The seven-object runtime branch is rejected for speed, but PW-0207 remains
+running only for the distinct loader premise: direct-to-owned loading must
+remove copy-time double footprint before a larger ranked prefix can be tested
+under the same safety limits. If that cannot admit more than seven objects, the
+remaining high-residency pathway is closed.

@@ -1109,7 +1109,7 @@
         },
         "pw0207_seven_object_decoder_residency": {
             "resident_allocation_bytes": 1652555776,
-            "predicted_source_bytes_per_transaction": 13220954112,
+            "predicted_source_bytes_per_transaction": 13220446208,
             "measured_resident_source_bytes_per_transaction": 4471128064,
             "mapped_control_transaction_ms": 188266.417667,
             "resident_transaction_ms": [
@@ -1124,6 +1124,40 @@
             "verifier_authorized_tokens": 7,
             "status": "exact_bounded_set_substitution_passed; median_lower_milestone_preserved; run_sign_not_repeatable; three_gib_growth_rejected_by_unchanged_post_phase_gate; proposal_lm_head_gap_open; no_endpoint_promotion",
             "provenance": "PW-0207 partial A-B-A; resident reports d86e499fbfb596dae0dba9f4cc1fe67d27fd1661660b5639cc69ddbdd7b141fd and 94b602b2b683037713d3d9db20fa2ec74e20ad47f75d7e013c059e4c34250a57 around mapped report 92f9dbcecaa00fba281ccda9f12e3dc4c70d7e3da04e84cec281fb8a886c37ac; failed 3 GiB prefill progress e3f237888a85c3555ad027a883ad4900edabde666f57be48691dcb579cebbc84; Apple M1 16 GiB internal SSD; git 75bce3a3e63a7307894cbcdba0ec05eda0c72659 clean"
+        },
+        "pw0207_wide_metal_proposal_lm_head": {
+            "pre_repair_transaction_ms": 188266.417667,
+            "post_repair_transaction_ms": [
+                170063.16425,
+                171232.622791
+            ],
+            "post_repair_median_transaction_ms": 170647.8935205,
+            "transaction_wall_gain_percent": 9.358293616476587,
+            "pre_repair_committed_transaction_tps": 0.03718135229184309,
+            "post_repair_median_committed_transaction_tps": 0.04102013717010276,
+            "committed_transaction_tps_gain_percent": 10.32448967463142,
+            "accepted_output_tokens": 8,
+            "verifier_authorized_tokens": 7,
+            "status": "exact_tokens_routes_and_acceptance; repeatable_lower_milestone_promoted; no_endpoint_promotion",
+            "provenance": "PW-0207 proposal causal repair; mapped reports 746891226963a2d4c3bcd298bd30a05246c8e69dec436c885e7db94e0f9c936c and d7328fa5277006b913a7a9f0a8c00c6c009991e1b912df4e487804e862ff16c8 versus pre-repair mapped report 92f9dbcecaa00fba281ccda9f12e3dc4c70d7e3da04e84cec281fb8a886c37ac; Apple M1 16 GiB internal SSD; git 677217ac17bc23a3de2975c9e98b6dea3c491b86 clean"
+        },
+        "pw0207_repaired_seven_object_residency": {
+            "resident_allocation_bytes": 1652555776,
+            "resident_source_bytes_per_transaction": 13220446208,
+            "mapped_transaction_ms": [
+                170063.16425,
+                171232.622791
+            ],
+            "resident_transaction_ms": [
+                169396.11387499998,
+                172977.047041
+            ],
+            "mapped_median_transaction_ms": 170647.8935205,
+            "resident_median_transaction_ms": 171186.580458,
+            "resident_wall_regression_percent": 0.3156716009713456,
+            "resident_committed_tps_regression_percent": 0.31467825109818826,
+            "status": "exact_full_causal_substitution_and_pressure_safety_passed; bounded_prefix_performance_rejected; direct_to_owned_loader_scaling_only_remaining_pw0207_path",
+            "provenance": "PW-0207 repaired alternating mapped/resident sequence; mapped reports 746891226963a2d4c3bcd298bd30a05246c8e69dec436c885e7db94e0f9c936c and d7328fa5277006b913a7a9f0a8c00c6c009991e1b912df4e487804e862ff16c8; resident reports 0e84e234ada4a030c11d74468a260e23b0bb05e64c9f3b01f40841f88864592e and 8b326da87426be364f34bbf57098333a7669191411c2156ade1e57044cfba410; Apple M1 16 GiB internal SSD; git 677217ac17bc23a3de2975c9e98b6dea3c491b86 clean"
         }
     }
 }

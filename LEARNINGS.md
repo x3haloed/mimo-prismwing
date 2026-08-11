@@ -4096,6 +4096,22 @@ mapped, improving committed transaction TPS 1.106803% from 0.037181 to
 0.037597, but the second candidate is individually 0.480% slower. Preserve the
 median gain without promotion. The resident ledger also exposes a concrete
 remaining gap: proposal-side one-row LM-head execution bypasses residency, so
-only 4,471,128,064 of 13,220,954,112 predicted bytes are substituted. Repair
+only 4,471,128,064 of 13,220,446,208 predicted bytes are substituted. Repair
 that causal path before judging the ranked set, and use a non-double-resident
 loader before attempting more than seven objects.
+
+Closing the proposal LM-head gap produces a much larger gain than residency.
+Clean commit `677217ac17bc23a3de2975c9e98b6dea3c491b86` moves the seven
+one-row proposal LM-head calls onto the existing exact wide BF16 Metal path.
+Mapped transaction median falls from 188,266.418 to 170,647.894 ms, a repeatable
+9.358294% wall reduction, and committed TPS rises 10.324490% from 0.037181 to
+0.041020. Preserve and promote this lower milestone even though it is far from
+50 TPS.
+
+The repaired seven-object residency test supersedes its partial-path speed
+signal for promotion. It substitutes the full exact 13,220,446,208 bytes, but
+two resident transactions have a 171,186.580 ms median versus 170,647.894 ms
+mapped: 0.315672% slower and 0.314678% lower TPS. Reject the seven-object cache
+as a performance default, retain its correctness/pressure machinery, and keep
+only direct-to-owned loading open as the route to test a meaningfully larger
+prefix without weakening the 8 GiB/4 GiB limits.
