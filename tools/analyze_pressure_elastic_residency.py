@@ -338,15 +338,15 @@ def analyze(
             "row": token,
             "dtype": source["dtype"],
             "shape": [4096],
-            "source_bytes": EMBEDDING_ROW_BYTES,
-            "bytes": resident_allocation_bytes(EMBEDDING_ROW_BYTES),
+            "bytes": EMBEDDING_ROW_BYTES,
             "backing_file": source["backing_file"],
             "backing_file_sha256": source["backing_file_sha256"],
         }
         object_authority[identity] = {
             "identity": identity,
             "category": "shared_spine",
-            "bytes": EMBEDDING_ROW_BYTES,
+            "source_bytes": EMBEDDING_ROW_BYTES,
+            "bytes": resident_allocation_bytes(EMBEDDING_ROW_BYTES),
             "tensor_metadata_sha256": hashlib.sha256(canonical_json(row_authority)).hexdigest(),
             "tensors": [row_authority],
         }
