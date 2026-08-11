@@ -2644,7 +2644,9 @@ fn wide_fp8_linear(
         };
     let binding = WideProjectionBinding {
         weight: weight_region,
-        scale: checkpoint.tensor_no_copy_region(&scale_name, page_bytes)?,
+        scale: checkpoint
+            .tensor_no_copy_region(&scale_name, page_bytes)
+            .map_err(|error| format!("{scale_name}: {error}"))?,
         copy_weight,
         rows: output_columns,
         columns,
@@ -2841,7 +2843,9 @@ fn wide_bf16_linear(
         return Err(format!("{weight_name}: wide BF16 weight shape mismatch"));
     }
     let page_bytes = host_page_bytes()?;
-    let region = checkpoint.tensor_no_copy_region(weight_name, page_bytes)?;
+    let region = checkpoint
+        .tensor_no_copy_region(weight_name, page_bytes)
+        .map_err(|error| format!("{weight_name}: {error}"))?;
     let logical_bytes = region.tensor_bytes as u64;
     let execution = runtime.execute_bf16_linear(input, &region, output_columns, columns)?;
     ledger.logical_source_bytes = ledger
@@ -4216,8 +4220,12 @@ fn routed_mlp_metal_wide(
                 ));
             }
             Ok(WideProjectionBinding {
-                weight: checkpoint.tensor_no_copy_region(&weight_name, page_bytes)?,
-                scale: checkpoint.tensor_no_copy_region(&scale_name, page_bytes)?,
+                weight: checkpoint
+                    .tensor_no_copy_region(&weight_name, page_bytes)
+                    .map_err(|error| format!("{weight_name}: {error}"))?,
+                scale: checkpoint
+                    .tensor_no_copy_region(&scale_name, page_bytes)
+                    .map_err(|error| format!("{scale_name}: {error}"))?,
                 copy_weight: false,
                 rows,
                 columns,

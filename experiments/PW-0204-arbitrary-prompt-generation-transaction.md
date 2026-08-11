@@ -87,6 +87,15 @@ only after it produces real proposals and preserves target verification.
 Real checkpoint execution and evidence remain unexecuted, so accepted endpoint
 tokens and endpoint TPS remain zero.
 
+The first real launch failed closed before prefill because it was initially
+pointed at a relocated external checkpoint copy whose device and inode identity
+did not match the recovered PW-0049 receipt. The authoritative internal APFS
+installation was then recovered; its file identity matches that receipt apart
+from explicitly observed device drift. The next launch crossed checkpoint open
+and failed at an unnamed page-rounded tensor interval. The runtime now attaches
+the tensor name to every no-copy projection-binding failure before any fallback
+or layout repair is considered.
+
 The first public runtime input is
 `evals/fixtures/requests/pw0204-arbitrary-text.txt`. It asks for a concise,
 programmatically inspectable two-sentence explanation and contains no route,
