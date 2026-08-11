@@ -12,6 +12,7 @@ use std::ffi::{c_char, c_ulong, c_void};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 pub const MAXIMUM_DECLARED_RESIDENCY_BYTES: u64 = 12 * 1024 * 1024 * 1024;
@@ -454,6 +455,24 @@ pub fn run_pressure_residency_smoke(
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     {
         return Err("implementation commit must be lowercase 40-hex".to_owned());
+    }
+    let head = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .map_err(|error| format!("git rev-parse HEAD: {error}"))?;
+    if !head.status.success()
+        || String::from_utf8_lossy(&head.stdout).trim() != implementation_commit
+    {
+        return Err("implementation commit does not match live Git HEAD".to_owned());
+    }
+    let status = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .map_err(|error| format!("git status: {error}"))?;
+    if !status.status.success() || !status.stdout.is_empty() {
+        return Err("pressure smoke evidence requires a clean Git worktree".to_owned());
     }
     let fixture_bytes =
         fs::read(fixture_path).map_err(|error| format!("{}: {error}", fixture_path.display()))?;
