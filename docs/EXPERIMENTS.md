@@ -1463,6 +1463,18 @@ Run the following cheap falsifiers in order:
    three dense draft layers can replace roughly 140 seconds of same-model
    proposal work and retain any repeatable positive complete TPS gain under
    exact ordinary verification; missing 2× or 50 TPS alone is not a kill gate.
+7. [PW-0212](../experiments/PW-0212-corrected-route-predictive-prefetch-oracle.md)
+   tests, without runtime work first, whether corrected target routes can issue
+   bounded demand-priority prefetch early enough to hide a material share of
+   acquisition wall. It separates logical recall from physical latency and
+   uses PW-0208 rather than PW-0112's superseded-layout routes.
+
+AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
+and activation values to the old QKV layout. Their measurements remain valid
+for that named authority, but they are not corrected-layout cache,
+representation, or `A/U` constants. PW-0208 repairs only a 32-window text
+slice; broader corrected multilingual, modality, rarity, and context authority
+is still required for general promotion.
 
 Do not combine these mechanisms before their isolated counters pass. The first
 combined endpoint receives a new experiment ID and must report cold and warm

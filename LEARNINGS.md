@@ -4154,3 +4154,23 @@ that native MTP has no value. PW-0208 bounds verifier expert bytes, not the
 roughly 140-second same-model proposal wall. Preserve native MTP as PW-0211's
 separately named proposal-latency lower milestone; any repeatable positive
 complete TPS gain remains valuable even though the 2x and 50-TPS gates fail.
+
+AN-0001 reviews three independent project analyses and adopts their strongest
+research rule: optimize only a crossing on the measured cold critical cut,
+price its impossible-best enclosing-path effect before implementation, and
+require a fixture on which the candidate causal explanations disagree. This
+makes PW-0210 conditional: applying its full 1.5x hypothesis to PW-0111's
+8.383 ms GPU interval predicts only a 1.026x cold-layer gain. PW-0211 remains
+first because it can delete seven measured same-model proposal transactions;
+PW-0212 then tests bounded corrected-route predictive prefetch before runtime
+work. Missing 50 TPS does not erase any smaller repeatable complete-path gain.
+
+The same audit propagates PW-0205/PW-0206 farther. PW-0112's route trace and
+PW-0116's activation corpus explicitly use the old QKV implementation, so
+their `U`, cache, route-persistence, activation-weighted fidelity, and
+PW-0186/PW-0187 proposal-economics values remain authentic only for that named
+old layout. Layout-independent byte, device, hardware, and kernel results
+survive. PW-0208 provides corrected text route/byte authority for 32 balanced
+windows, not the multimodal, long-context, or final representation holdout.
+Do not close corrected-layout representation or prefetch branches by silently
+importing PW-0112/PW-0116 values.

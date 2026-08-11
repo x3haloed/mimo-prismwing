@@ -34,10 +34,22 @@ error. Storage-only or unpack-only speed is diagnostic.
 
 ## Cheap falsifier and gates
 
+Before kernel work, bind the proposal to PW-0111's cold decomposition. Even
+granting a 1.5x improvement to its entire 8.383 ms GPU interval predicts only
+`107.007 ms` versus `109.801 ms`, or `1.026x`, for the cold routed layer. This
+misses the 20% complete-layer gate, so execution is conditional on a named
+premise that makes the projection envelope material: wider amortized compute,
+changed storage, corrected-layout executable-byte reduction, or substantially
+greater legal residency. Recompute the enclosing bound when that premise
+exists.
+
 First test the smallest complete block-scaled projection plus its immediately
 adjacent transform. Kill if fusion saves less than one full intermediate,
 misses 1.5x complete-envelope speedup, or changes the reference result outside
-the predeclared exactness class. Do not tune another matrix tile after failure.
+the predeclared exactness class. Freeze the byte-exact packed-FP8 control, use
+compile-time width variants, sweep tile shape on the deterministic fixture,
+and measure under the promoted command-buffer topology. Stop after the first
+negative complete-envelope result; do not tune another matrix tile.
 
 Only after two representative shapes pass may it enter a real layer. Runtime
 promotion requires at least 20% interleaved complete-layer gain and unchanged
@@ -45,6 +57,7 @@ endpoint tokens; a new endpoint ID is required for any combined claim.
 
 ## Decision
 
-Unexecuted. This preserves the useful SIMD idea from the referenced discussion
-while aiming it at the byte and synchronization boundary the repository has
-actually measured.
+Unexecuted and conditional. This preserves the useful SIMD idea while the
+current cold critical-cut accounting proves it cannot pass its layer gate.
+Execute only after a named premise moves projection execution onto the active
+critical cut; do not promote a warm-only result as cold endpoint TPS.

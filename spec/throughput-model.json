@@ -912,8 +912,8 @@
             "four_gib_belady_logical_miss_bytes_per_token": 5232426192.0,
             "four_gib_calibrated_static_holdout_hit_ratio": 0.2995068705673759,
             "adjacent_route_set_identity_ratio": 0.5783792240300375,
-            "status": "rejected_wide_source_fp8_speculation_on_trace; retain_4gib_route_frequency_cache_only_as_unpromoted_secondary_physical_experiment; not_endpoint_tps",
-            "provenance": "PW-0112; contract ffff868640457e6c927e39775c59911e796a9b41; pre-result scope amendment 625213fd69daa6dae49d7e083f5776404dbd88f0; runtime 9647b740f8f19c075ec752ed044795fa20c1102a; raw manifest 584d3a8b1b09b12d4f83908be1fa5471b9fd66373500cc56332213928cd0bc3e; clean analyzer 35690c265c4cdd93979657b26a24e6f02dd38013; analysis e93d930549ee9fe761d7fc98bf59642088b3eb9f41c712968f8df26d5b2c8b98; Gate 8 passed"
+            "status": "historical_old_qkv_layout_only_after_pw0205_pw0206; rejected_wide_source_fp8_speculation_on_named_trace; cache_values_not_corrected_layout_authority; not_endpoint_tps",
+            "provenance": "PW-0112; contract ffff868640457e6c927e39775c59911e796a9b41; pre-result scope amendment 625213fd69daa6dae49d7e083f5776404dbd88f0; runtime 9647b740f8f19c075ec752ed044795fa20c1102a; raw manifest 584d3a8b1b09b12d4f83908be1fa5471b9fd66373500cc56332213928cd0bc3e; clean analyzer 35690c265c4cdd93979657b26a24e6f02dd38013; analysis e93d930549ee9fe761d7fc98bf59642088b3eb9f41c712968f8df26d5b2c8b98; Gate 8 passed; scoped by PW-0205/PW-0206 QKV correction and AN-0001"
         },
         "pw0113_exact_fine_grained_neuron_canonicalization": {
             "batch_size": 1,

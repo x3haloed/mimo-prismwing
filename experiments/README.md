@@ -6,8 +6,8 @@ evidence only when it has a record here and a raw-evidence manifest or hash.
 
 The architecture-level candidate portfolio and its shared compression contract
 live in [`docs/EMBODIMENT_JUMPS.md`](../docs/EMBODIMENT_JUMPS.md). The ledger
-currently runs through proposed record PW-0210. The next unreserved experiment
-ID is PW-0211.
+currently runs through proposed record PW-0212. The next unreserved experiment
+ID is PW-0213.
 
 Use sequential IDs such as `PW-0001-checkpoint-census.md`. Never renumber,
 delete, or overwrite a negative result. If stronger evidence reverses a
