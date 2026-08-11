@@ -1066,5 +1066,10 @@ mod tests {
         assert!(active_rows(&[], 4, BATCH).is_err());
         assert!(active_rows(&[0.0; 5], 4, BATCH).is_err());
         assert!(active_rows(&[0.0; 9], 1, BATCH).is_err());
+        assert_eq!(
+            active_rows(&[0.0; LAYER_MAJOR_ROWS], 1, LAYER_MAJOR_ROWS),
+            Ok(128)
+        );
+        assert!(active_rows(&[0.0; LAYER_MAJOR_ROWS + 1], 1, LAYER_MAJOR_ROWS).is_err());
     }
 }

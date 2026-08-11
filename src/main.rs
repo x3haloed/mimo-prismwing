@@ -8,10 +8,11 @@ use prismwing::{
     run_arbitrary_text_q4_diagnostic, run_arbitrary_text_resident_route_trace,
     run_arbitrary_text_resident_set_route_trace, run_arbitrary_text_route_trace,
     run_arbitrary_text_uncached_resident_route_trace, run_bounded_metal_routed_row,
-    run_layer4_metal_diagnostic, run_metal_base_layer_attention, run_metal_checkpoint_offset_probe,
-    run_metal_direct_fp8_expert, run_metal_direct_fp8_expert_batch8_shared_weight,
-    run_metal_direct_mapped_fp8_gemv, run_metal_direct_route_replay_fp8_moe_block,
-    run_metal_direct_source_bf16_fp8_gemv, run_metal_direct_source_bf16_fp8_gemv_audit,
+    run_layer_major_moe_slice, run_layer4_metal_diagnostic, run_metal_base_layer_attention,
+    run_metal_checkpoint_offset_probe, run_metal_direct_fp8_expert,
+    run_metal_direct_fp8_expert_batch8_shared_weight, run_metal_direct_mapped_fp8_gemv,
+    run_metal_direct_route_replay_fp8_moe_block, run_metal_direct_source_bf16_fp8_gemv,
+    run_metal_direct_source_bf16_fp8_gemv_audit,
     run_metal_direct_source_bf16_reduction_width_fp8_moe_block,
     run_metal_direct_source_bf16_route_replay_fp8_moe_block,
     run_metal_direct_source_bf16_silu_lut_route_replay_fp8_moe_block,
@@ -163,6 +164,10 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing metal-real-base-layer <source.safetensors> <kernel.metal> <attention-manifest.json> <hidden-input.f32> <moe-manifest.json> <artifact-dir> <router.safetensors> <source-moe-input.f32> <moe-reference.f32> <final-reference.f32> <candidate-moe-input.f32> <moe-output.f32> <final-output.f32>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing layer-major-moe-slice <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <safety-fixture.json> <authority.json> <input.f32> <reference.f32> <kernel.metal> <output.f32> <report.json> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -1932,6 +1937,27 @@ fn main() {
                 println!();
                 Ok(None)
             })
+        }
+        #[cfg(target_os = "macos")]
+        Some("layer-major-moe-slice") if arguments.len() == 13 => {
+            let paths = arguments[2..12]
+                .iter()
+                .map(PathBuf::from)
+                .collect::<Vec<_>>();
+            run_layer_major_moe_slice(
+                &paths[0],
+                &paths[1],
+                &paths[2],
+                &paths[3],
+                &paths[4],
+                &paths[5],
+                &paths[6],
+                &paths[7],
+                &paths[8],
+                &paths[9],
+                &arguments[12],
+            )
+            .map(|_| None)
         }
         #[cfg(target_os = "macos")]
         Some("metal-union-parallel-fp8-moe-block") if arguments.len() == 9 => {

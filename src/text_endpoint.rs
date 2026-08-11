@@ -1520,6 +1520,39 @@ pub struct RoutedMixtureActivationCorpusReport {
     pub performance_claim: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct LayerMajorMoeReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub authority_sha256: String,
+    pub input_sha256: String,
+    pub reference_sha256: String,
+    pub output_sha256: String,
+    pub rows: usize,
+    pub top_k: usize,
+    pub unique_experts: usize,
+    pub maximum_expert_positions: usize,
+    pub route_ids_exact: bool,
+    pub maximum_route_weight_absolute_error: f32,
+    pub relative_l2: f64,
+    pub maximum_absolute_error: f32,
+    pub metal_wall_ms: f64,
+    pub complete_wall_ms: f64,
+    pub logical_source_bytes: u64,
+    pub process_activity: ProcessActivityDelta,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: usize,
+    #[serde(rename = "U")]
+    pub expert_union_factor: f64,
+    pub performance_claim: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct RouteAuthorityManifest {
     schema_version: u32,
@@ -4825,6 +4858,187 @@ fn routed_mlp_metal_wide(
         selected: routing.selected,
         weights: routing.weights,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_layer_major_moe_slice(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    safety_fixture_path: &Path,
+    authority_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    kernel_path: &Path,
+    output_path: &Path,
+    report_path: &Path,
+    commit: &str,
+) -> Result<LayerMajorMoeReport, String> {
+    const AUTHORITY_SHA256: &str =
+        "14ab8792e4ead565ec91d5768737e5c6518bc2a7d2fdd2cae2a3efa93c5126c9";
+    const INPUT_SHA256: &str = "df5a48213d63651a68ed763f84e0ea0d948151a98f791946ad169acf0b86d1f1";
+    const REFERENCE_SHA256: &str =
+        "cffc6e63dcd2d878c8ebd3212c755542d5ee10de378f92f171a9bdc8d6b2bac9";
+    const ROWS: usize = 128;
+    if output_path.exists() || report_path.exists() {
+        return Err("refusing to overwrite PW-0209 evidence".to_owned());
+    }
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("PW-0209 commit must be lowercase 40-hex".to_owned());
+    }
+    let git_head = command_output("/usr/bin/git", &["rev-parse", "HEAD"])?;
+    let git_status = command_output("/usr/bin/git", &["status", "--porcelain"])?;
+    if git_head.trim() != commit || !git_status.is_empty() {
+        return Err("PW-0209 evidence requires exact clean Git HEAD".to_owned());
+    }
+    if hash_file(model_lock_path)? != MODEL_LOCK_SHA256
+        || hash_file(authority_path)? != AUTHORITY_SHA256
+        || hash_file(input_path)? != INPUT_SHA256
+        || hash_file(reference_path)? != REFERENCE_SHA256
+    {
+        return Err("PW-0209 authority or reference hash mismatch".to_owned());
+    }
+    let authority: Value = serde_json::from_reader(
+        File::open(authority_path)
+            .map_err(|error| format!("{}: {error}", authority_path.display()))?,
+    )
+    .map_err(|error| format!("PW-0209 authority: {error}"))?;
+    let expected_routes: Vec<Vec<u32>> = serde_json::from_value(
+        authority
+            .get("selected_experts_by_position")
+            .cloned()
+            .ok_or("PW-0209 authority lacks routes")?,
+    )
+    .map_err(|error| format!("PW-0209 routes: {error}"))?;
+    let expected_weights: Vec<Vec<f32>> = serde_json::from_value(
+        authority
+            .get("route_weights_by_position")
+            .cloned()
+            .ok_or("PW-0209 authority lacks route weights")?,
+    )
+    .map_err(|error| format!("PW-0209 route weights: {error}"))?;
+    if authority.get("semantic").and_then(Value::as_str)
+        != Some("mimo_pw0209_layer43_context128_full_width_source_authority")
+        || expected_routes.len() != ROWS
+        || expected_weights.len() != ROWS
+        || expected_routes.iter().any(|row| row.len() != TOP_K)
+        || expected_weights.iter().any(|row| row.len() != TOP_K)
+    {
+        return Err("PW-0209 authority shape mismatch".to_owned());
+    }
+    let safety_fixture: EndpointFixture = serde_json::from_reader(
+        File::open(safety_fixture_path)
+            .map_err(|error| format!("{}: {error}", safety_fixture_path.display()))?,
+    )
+    .map_err(|error| format!("PW-0209 safety fixture: {error}"))?;
+    let verification: CheckpointVerification = serde_json::from_reader(
+        File::open(verification_path)
+            .map_err(|error| format!("{}: {error}", verification_path.display()))?,
+    )
+    .map_err(|error| format!("PW-0209 verification: {error}"))?;
+    if verification.schema_version != 1
+        || verification.evidence_class != "local_checkpoint_lock_verification"
+        || !verification.complete
+        || verification.lock_sha256 != MODEL_LOCK_SHA256
+        || verification.revision != REVISION
+    {
+        return Err("PW-0209 checkpoint verification mismatch".to_owned());
+    }
+    let checkpoint = Checkpoint::open(
+        checkpoint_root,
+        &checkpoint_root.join("model.safetensors.index.json"),
+        &verification,
+    )?;
+    let (_, input) = read_f32_file(input_path, Some(ROWS * HIDDEN))?;
+    let (_, reference) = read_f32_file(reference_path, Some(ROWS * HIDDEN))?;
+    let runtime = WideMetalMoeRuntime::compile(kernel_path)?;
+    let mut safety = SafetyMonitor::start(safety_fixture.safety)?;
+    safety.checkpoint("pw0209_authorities_open", true)?;
+    let before = process_activity()?;
+    let complete_started = Instant::now();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
+    let mut metal_ledger = MetalExpertLedger::default();
+    let candidate = routed_mlp_metal_wide(
+        &checkpoint,
+        43,
+        &input,
+        ROWS,
+        &mut ledger,
+        &mut metal_ledger,
+        &runtime,
+    )?;
+    let route_ids_exact = candidate.selected == expected_routes;
+    let maximum_route_weight_absolute_error = candidate
+        .weights
+        .iter()
+        .flatten()
+        .zip(expected_weights.iter().flatten())
+        .map(|(actual, expected)| (actual - expected).abs())
+        .fold(0.0_f32, f32::max);
+    if !route_ids_exact || maximum_route_weight_absolute_error > 5.0e-7 {
+        return Err("PW-0209 route parity failed".to_owned());
+    }
+    let mut reference_squared = 0.0_f64;
+    let mut error_squared = 0.0_f64;
+    let mut maximum_absolute_error = 0.0_f32;
+    for (&actual, &expected) in candidate.output.iter().zip(&reference) {
+        let difference = actual - expected;
+        reference_squared += f64::from(expected) * f64::from(expected);
+        error_squared += f64::from(difference) * f64::from(difference);
+        maximum_absolute_error = maximum_absolute_error.max(difference.abs());
+    }
+    let relative_l2 = error_squared.sqrt() / reference_squared.sqrt().max(1.0e-20);
+    if !relative_l2.is_finite() || relative_l2 > 5.0e-4 || maximum_absolute_error > 2.0e-2 {
+        return Err(format!(
+            "PW-0209 source parity failed: relative L2 {relative_l2}, max abs {maximum_absolute_error}"
+        ));
+    }
+    let output_bytes = finite_f32_le_bytes(&candidate.output, ROWS * HIDDEN)?;
+    write_create_new(output_path, &output_bytes)?;
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("pw0209_output_complete", true)?;
+    let complete_wall_ms = complete_started.elapsed().as_secs_f64() * 1000.0;
+    let activity = process_activity()?.checked_delta(before)?;
+    let mut counts = BTreeMap::<u32, usize>::new();
+    for expert in candidate.selected.iter().flatten() {
+        *counts.entry(*expert).or_default() += 1;
+    }
+    let report = LayerMajorMoeReport {
+        schema_version: 1,
+        semantic: "mimo_pw0209_layer43_context128_layer_major_metal_moe",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        authority_sha256: AUTHORITY_SHA256.to_owned(),
+        input_sha256: INPUT_SHA256.to_owned(),
+        reference_sha256: REFERENCE_SHA256.to_owned(),
+        output_sha256: sha256_hex(&output_bytes),
+        rows: ROWS,
+        top_k: TOP_K,
+        unique_experts: counts.len(),
+        maximum_expert_positions: counts.values().copied().max().unwrap_or(0),
+        route_ids_exact,
+        maximum_route_weight_absolute_error,
+        relative_l2,
+        maximum_absolute_error,
+        metal_wall_ms: metal_ledger.wide_wall_ms,
+        complete_wall_ms,
+        logical_source_bytes: ledger.logical_source_bytes,
+        process_activity: activity,
+        safety_snapshots: safety.snapshots,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        accepted_per_verification: 0,
+        expert_union_factor: counts.len() as f64 / ROWS as f64,
+        performance_claim: None,
+    };
+    let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(report_path, &report_bytes)?;
+    Ok(report)
 }
 
 #[allow(clippy::too_many_arguments)]
