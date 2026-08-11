@@ -18,7 +18,8 @@ use prismwing::{
     run_metal_incremental_text_endpoint, run_metal_mapped_fp8_gemv,
     run_metal_native_distribution_probe, run_metal_noaux_tc_router, run_metal_real_base_layer,
     run_metal_simdgroup_matrix_fp8_moe_block, run_metal_union_parallel_fp8_moe_block,
-    run_pressure_residency_smoke, run_staged_metal_fp8_expert, run_weight_install_tomography,
+    run_pressure_residency_smoke, run_pressure_resident_checkpoint_pilot,
+    run_staged_metal_fp8_expert, run_weight_install_tomography,
     run_wide_metal_jacobi_text_endpoint,
 };
 use prismwing::{
@@ -236,6 +237,10 @@ fn usage() -> ! {
     eprintln!("  prismwing pressure-residency-smoke <fixture.json> <output.json> <commit>");
     #[cfg(target_os = "macos")]
     eprintln!(
+        "  prismwing pressure-resident-checkpoint-pilot <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <residency-manifest.json> <resident-identity> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
         "  prismwing real-layer0-trace <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <output-dir> <commit>"
     );
     #[cfg(target_os = "macos")]
@@ -277,6 +282,31 @@ fn main() {
             let fixture = PathBuf::from(&arguments[2]);
             let output = PathBuf::from(&arguments[3]);
             run_pressure_residency_smoke(&fixture, &output, &arguments[4]).and_then(|report| {
+                serde_json::to_writer(std::io::stdout(), &report)
+                    .map_err(|error| error.to_string())?;
+                println!();
+                Ok(Some(output))
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("pressure-resident-checkpoint-pilot") if arguments.len() == 10 => {
+            let checkpoint = PathBuf::from(&arguments[2]);
+            let model_lock = PathBuf::from(&arguments[3]);
+            let verification = PathBuf::from(&arguments[4]);
+            let fixture = PathBuf::from(&arguments[5]);
+            let residency = PathBuf::from(&arguments[6]);
+            let output = PathBuf::from(&arguments[8]);
+            run_pressure_resident_checkpoint_pilot(
+                &checkpoint,
+                &model_lock,
+                &verification,
+                &fixture,
+                &residency,
+                &arguments[7],
+                &output,
+                &arguments[9],
+            )
+            .and_then(|report| {
                 serde_json::to_writer(std::io::stdout(), &report)
                     .map_err(|error| error.to_string())?;
                 println!();

@@ -6,6 +6,11 @@ use super::{
     sha256_hex, sha256_reader, stable_rms_inverse, validate_fp8_views,
     validate_prevalidated_fp8_views, write_create_new,
 };
+use crate::pressure_residency::{
+    DarwinMemoryPressureObserver, DeclaredResidencyManifest, DeclaredResidentObject,
+    PRESSURE_WARNING, PageAlignedResidentObject, PressureEvent, PressureResidencyController,
+    ResidentTensorIdentity,
+};
 use crate::routed_layer_artifact::{
     RoutedLayerArtifactManifest, RoutedLayerSourceTensor, build_routed_layer_artifact,
     open_routed_layer_artifact,
@@ -603,6 +608,35 @@ pub struct WideJacobiTextReport {
     pub cache_authority: &'static str,
     pub performance_claim: Option<String>,
     pub promotion_gates_passed: bool,
+    pub status: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PressureResidentCheckpointPilotReport {
+    pub schema_version: u32,
+    pub evidence_class: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub git_dirty: bool,
+    pub checkpoint_verification_sha256: String,
+    pub residency_manifest_sha256: String,
+    pub resident_identity: String,
+    pub tensor_metadata_sha256: String,
+    pub tensor_sha256: BTreeMap<String, String>,
+    pub declared_source_bytes: u64,
+    pub declared_resident_bytes: u64,
+    pub resident_bytes_after_install: u64,
+    pub resident_bytes_after_warning: u64,
+    pub warning_events: Vec<PressureEvent>,
+    pub exact_tensor_bytes_preserved: bool,
+    pub observer_started_and_drained: bool,
+    pub process_disk_bytes_read: u64,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    pub performance_claim: Option<String>,
+    pub scope: &'static str,
     pub status: &'static str,
 }
 
@@ -1763,6 +1797,63 @@ impl Checkpoint {
             }
         }
         Ok(())
+    }
+
+    fn copy_declared_resident_object(
+        &self,
+        declaration: &DeclaredResidentObject,
+    ) -> Result<PageAlignedResidentObject, String> {
+        let mut sources = Vec::with_capacity(declaration.tensors.len());
+        for tensor in &declaration.tensors {
+            sources.push((
+                ResidentTensorIdentity {
+                    tensor: tensor.tensor.clone(),
+                    row: tensor.row,
+                },
+                self.declared_resident_tensor_bytes(tensor)?,
+            ));
+        }
+        PageAlignedResidentObject::copy_from_declared(declaration, sources)
+    }
+
+    fn declared_resident_tensor_bytes<'a>(
+        &'a self,
+        tensor: &crate::pressure_residency::DeclaredResidentTensor,
+    ) -> Result<&'a [u8], String> {
+        let shard = self.shard_for_tensor(&tensor.tensor)?;
+        if shard != tensor.backing_file
+            || self.shard_sha256.get(shard) != Some(&tensor.backing_file_sha256)
+        {
+            return Err(format!(
+                "{}: resident backing authority mismatch",
+                tensor.tensor
+            ));
+        }
+        let view = self.tensor(&tensor.tensor)?;
+        if view.metadata.dtype != tensor.dtype {
+            return Err(format!("{}: resident dtype mismatch", tensor.tensor));
+        }
+        if let Some(row) = tensor.row {
+            let row = usize::try_from(row)
+                .map_err(|_| format!("{}: resident row does not fit usize", tensor.tensor))?;
+            if view.metadata.shape.len() < 2
+                || view.metadata.shape[1..] != tensor.shape
+                || row >= view.metadata.shape[0] as usize
+            {
+                return Err(format!("{}: resident row shape mismatch", tensor.tensor));
+            }
+            let row_bytes = usize::try_from(tensor.bytes)
+                .map_err(|_| format!("{}: resident row bytes too large", tensor.tensor))?;
+            let start = row
+                .checked_mul(row_bytes)
+                .ok_or_else(|| format!("{}: resident row offset overflow", tensor.tensor))?;
+            Ok(&view.bytes[start..start + row_bytes])
+        } else {
+            if view.metadata.shape != tensor.shape || view.metadata.data_bytes != tensor.bytes {
+                return Err(format!("{}: resident tensor shape mismatch", tensor.tensor));
+            }
+            Ok(view.bytes)
+        }
     }
 }
 
@@ -5397,6 +5488,149 @@ fn accepted_jacobi_tokens(proposal: &[u32], posterior: &[u32]) -> Result<usize, 
     Ok((0..proposal.len() - 1)
         .find(|index| posterior[*index] != proposal[*index + 1])
         .map_or(proposal.len(), |index| index + 1))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_pressure_resident_checkpoint_pilot(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    fixture_path: &Path,
+    residency_manifest_path: &Path,
+    resident_identity: &str,
+    output_path: &Path,
+    commit: &str,
+) -> Result<PressureResidentCheckpointPilotReport, String> {
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("implementation commit must be lowercase 40-hex".to_owned());
+    }
+    let head = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .map_err(|error| format!("git rev-parse HEAD: {error}"))?;
+    let status = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .map_err(|error| format!("git status: {error}"))?;
+    if !head.status.success()
+        || String::from_utf8_lossy(&head.stdout).trim() != commit
+        || !status.status.success()
+        || !status.stdout.is_empty()
+    {
+        return Err("checkpoint residency evidence requires exact clean Git HEAD".to_owned());
+    }
+    let disk_before = process_disk_bytes_read()?;
+    let EndpointAuthority {
+        fixture,
+        mut safety,
+        checkpoint,
+        verification_sha256,
+        ..
+    } = open_endpoint_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        fixture_path,
+    )?;
+    validate_slow_endpoint_fixture(&fixture)?;
+    let residency_manifest_sha256 = hash_file(residency_manifest_path)?;
+    let manifest = DeclaredResidencyManifest::from_offline_report(residency_manifest_path)?;
+    let declaration = manifest
+        .objects
+        .iter()
+        .find(|object| object.identity == resident_identity)
+        .cloned()
+        .ok_or_else(|| format!("resident identity is not declared: {resident_identity}"))?;
+    safety.checkpoint("pw0207_before_resident_copy", true)?;
+    let controller = PressureResidencyController::new(manifest)?;
+    let observer = DarwinMemoryPressureObserver::start(controller.clone())?;
+    let resident = checkpoint.copy_declared_resident_object(&declaration)?;
+    controller.install_page_aligned(resident_identity, resident)?;
+    let resident_bytes_after_install = controller.resident_bytes()?;
+    safety.checkpoint("pw0207_resident_object_installed", false)?;
+
+    let installed = controller
+        .page_aligned(resident_identity)?
+        .ok_or("installed resident object disappeared")?;
+    let mut tensor_sha256 = BTreeMap::new();
+    let mut exact_tensor_bytes_preserved = true;
+    for tensor in &declaration.tensors {
+        let identity = ResidentTensorIdentity {
+            tensor: tensor.tensor.clone(),
+            row: tensor.row,
+        };
+        let region = installed.tensor_region(&identity)?;
+        let resident_bytes =
+            &region.bytes[region.tensor_offset..region.tensor_offset + region.tensor_bytes];
+        let source_bytes = checkpoint.declared_resident_tensor_bytes(tensor)?;
+        exact_tensor_bytes_preserved &= resident_bytes == source_bytes;
+        let label = tensor.row.map_or_else(
+            || tensor.tensor.clone(),
+            |row| format!("{}:row:{row}", tensor.tensor),
+        );
+        tensor_sha256.insert(label, sha256_hex(resident_bytes));
+    }
+    drop(installed);
+    if !exact_tensor_bytes_preserved {
+        return Err("resident copy changed authoritative tensor bytes".to_owned());
+    }
+    controller.handle_pressure_mask(PRESSURE_WARNING)?;
+    let resident_bytes_after_warning = controller.resident_bytes()?;
+    let warning_events = controller.events()?;
+    drop(observer);
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("pw0207_warning_eviction_complete", true)?;
+    if resident_bytes_after_install != declaration.bytes
+        || resident_bytes_after_warning != 0
+        || warning_events.len() != 1
+        || warning_events[0].evicted_identities != [resident_identity]
+    {
+        return Err("checkpoint resident warning-eviction gate failed".to_owned());
+    }
+    let process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_before)
+        .ok_or("process disk byte counter moved backwards")?;
+    let report = PressureResidentCheckpointPilotReport {
+        schema_version: 1,
+        evidence_class: "pw0207_real_checkpoint_resident_object_pilot",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        git_dirty: false,
+        checkpoint_verification_sha256: verification_sha256,
+        residency_manifest_sha256,
+        resident_identity: declaration.identity,
+        tensor_metadata_sha256: declaration.tensor_metadata_sha256,
+        tensor_sha256,
+        declared_source_bytes: declaration.source_bytes,
+        declared_resident_bytes: declaration.bytes,
+        resident_bytes_after_install,
+        resident_bytes_after_warning,
+        warning_events,
+        exact_tensor_bytes_preserved,
+        observer_started_and_drained: true,
+        process_disk_bytes_read,
+        safety_snapshots: safety.snapshots,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        performance_claim: None,
+        scope: "one real checkpoint object copy and injected warning eviction; not a decoder transaction, real OS warning, or TPS result",
+        status: "passed",
+    };
+    write_create_new(
+        output_path,
+        &serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?,
+    )?;
+    Ok(report)
 }
 
 #[derive(Debug, PartialEq, Eq)]
