@@ -2,7 +2,15 @@ import unittest
 
 import numpy as np
 
-from tools.generate_layer_major_moe_reference import ROWS, TOP_K, build_schedule
+import torch
+
+from tools.generate_layer_major_moe_reference import (
+    ROWS,
+    TOP_K,
+    bf16_widen,
+    build_schedule,
+    dynamic_input,
+)
 
 
 class LayerMajorMoeReferenceTests(unittest.TestCase):
@@ -18,6 +26,22 @@ class LayerMajorMoeReferenceTests(unittest.TestCase):
         weights = np.full((ROWS, TOP_K), 1.0 / TOP_K, dtype=np.float32)
         with self.assertRaises(ValueError):
             build_schedule(selected, weights)
+
+    def test_dynamic_input_uses_independent_group_128_scales(self):
+        values = torch.zeros((1, 256), dtype=torch.float32)
+        values[0, 0] = 448.0
+        values[0, 128] = 224.0
+        values[0, 129] = 0.5
+        quantized = dynamic_input(values)
+        self.assertEqual(float(quantized[0, 0]), 448.0)
+        self.assertEqual(float(quantized[0, 128]), 224.0)
+        self.assertNotEqual(float(quantized[0, 129]), 0.0)
+
+    def test_bf16_widen_returns_f32_with_bf16_values(self):
+        values = torch.tensor([1.00390625], dtype=torch.float32)
+        widened = bf16_widen(values)
+        self.assertEqual(widened.dtype, torch.float32)
+        self.assertEqual(float(widened[0]), 1.0)
 
 
 if __name__ == "__main__":

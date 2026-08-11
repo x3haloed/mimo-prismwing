@@ -363,22 +363,24 @@ impl WideMetalMoeRuntime {
     }
 
     #[cfg(test)]
-    fn probe_sglang_blockscaled_projection(&self) -> Result<(), String> {
+    fn probe_sglang_blockscaled_projection(&self, active: usize) -> Result<(), String> {
         const ROWS: usize = 128;
         const COLUMNS: usize = 256;
-        const ACTIVE: usize = 2;
-        let input = (0..ACTIVE * COLUMNS)
+        if !(1..=MAX_EXPERT_ROWS).contains(&active) {
+            return Err("SGLang probe width is out of range".to_owned());
+        }
+        let input = (0..active * COLUMNS)
             .map(|index| ((index * 29 % 401) as f32 - 200.0) / 37.0)
             .collect::<Vec<_>>();
-        let quantized = dynamic_fp8_activations(&input, ACTIVE, COLUMNS)?;
+        let quantized = dynamic_fp8_activations(&input, active, COLUMNS)?;
         let weights = (0..ROWS * COLUMNS)
             .map(|index| ((index * 37 + 11) % 0x7f) as u8)
             .collect::<Vec<_>>();
         let weight_scales = (0..ROWS / 128 * COLUMNS / 128)
             .map(|index| 0.003_f32 + index as f32 * 0.0017)
             .collect::<Vec<_>>();
-        let mut expected = vec![0.0_f32; ACTIVE * ROWS];
-        for position in 0..ACTIVE {
+        let mut expected = vec![0.0_f32; active * ROWS];
+        for position in 0..active {
             for row in 0..ROWS {
                 let mut total = 0.0_f32;
                 for block in 0..COLUMNS / 128 {
@@ -451,7 +453,7 @@ impl WideMetalMoeRuntime {
                 depth: 1,
             },
         );
-        encoder.set_compute_pipeline_state(&self.blockscaled_projection_pipelines[ACTIVE - 1]);
+        encoder.set_compute_pipeline_state(&self.blockscaled_projection_pipelines[active - 1]);
         encoder.set_buffer(0, Some(&weight_buffer), 0);
         encoder.set_buffer(1, Some(&weight_scale_buffer), 0);
         encoder.set_buffer(2, Some(&code_buffer), 0);
@@ -459,7 +461,7 @@ impl WideMetalMoeRuntime {
         encoder.set_buffer(4, Some(&output_buffer), 0);
         encoder.set_buffer(5, Some(&shape_buffer), 0);
         encoder.set_buffer(6, Some(&self.lut_buffer), 0);
-        encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * ACTIVE as u64 * 4);
+        encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * active as u64 * 4);
         encoder.dispatch_thread_groups(
             MTLSize {
                 width: ROWS as u64,
@@ -1050,9 +1052,13 @@ mod tests {
     fn sglang_blockscaled_fp8_codes_scales_and_projection_match_cpu_equation() {
         let runtime = WideMetalMoeRuntime::compile(Path::new("kernels/block_fp8_gemv.metal"))
             .expect("compile block-scaled pipelines");
-        runtime
-            .probe_sglang_blockscaled_projection()
-            .expect("block-scaled Metal parity");
+        for active in [2, 9, 26, MAX_EXPERT_ROWS] {
+            runtime
+                .probe_sglang_blockscaled_projection(active)
+                .unwrap_or_else(|error| {
+                    panic!("block-scaled Metal parity width {active}: {error}")
+                });
+        }
     }
 
     #[test]

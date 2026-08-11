@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
 
 import numpy as np
 from safetensors import safe_open
@@ -80,6 +81,44 @@ def dequantize(tensors_by_shard: dict, index: dict[str, str], name: str) -> torc
     return weight * scale.repeat_interleave(128, 0).repeat_interleave(128, 1)
 
 
+def dynamic_input(values: torch.Tensor) -> torch.Tensor:
+    """Model the per-token, group-128 activation encoding used by Metal."""
+    if values.ndim != 2 or values.shape[1] % 128:
+        raise ValueError("PW-0209 dynamic-FP8 input layout mismatch")
+    rows, columns = values.shape
+    grouped = values.float().reshape(rows, columns // 128, 128)
+    scales = grouped.abs().amax(-1).clamp(min=1.0e-10) / 448.0
+    encoded = torch.clamp(
+        grouped / scales.unsqueeze(-1), -448.0, 448.0
+    ).to(torch.float8_e4m3fn)
+    return (encoded.float() * scales.unsqueeze(-1)).reshape(rows, columns)
+
+
+def bf16_widen(values: torch.Tensor) -> torch.Tensor:
+    """Apply an explicit BF16 boundary while retaining an F32 artifact."""
+    return values.to(torch.bfloat16).float()
+
+
+def clean_git_commit(expected: str) -> str:
+    if len(expected) != 40 or any(character not in "0123456789abcdef" for character in expected):
+        raise ValueError("PW-0209 implementation commit must be lowercase 40-hex")
+    head = subprocess.run(
+        ["/usr/bin/git", "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    status = subprocess.run(
+        ["/usr/bin/git", "status", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if head != expected or status:
+        raise ValueError("PW-0209 reference evidence requires exact clean Git HEAD")
+    return head
+
+
 def generate(
     checkpoint_dir: Path,
     lock_path: Path,
@@ -87,7 +126,9 @@ def generate(
     authority_path: Path,
     output_path: Path,
     report_path: Path,
+    implementation_commit: str,
 ) -> dict:
+    clean_git_commit(implementation_commit)
     if sha256_file(authority_path) != AUTHORITY_SHA256:
         raise ValueError("PW-0209 full-width authority hash mismatch")
     authority = json.loads(authority_path.read_text())
@@ -156,27 +197,45 @@ def generate(
             up = dequantize(tensors_by_shard, index, f"{prefix}.up_proj.weight")
             down = dequantize(tensors_by_shard, index, f"{prefix}.down_proj.weight")
             source_bytes += 25_171_968
-            gate_values = values @ gate.T
-            up_values = values @ up.T
-            activated = torch.sigmoid(gate_values) * gate_values * up_values
-            projected = activated @ down.T
+            quantized_values = dynamic_input(values)
+            gate_values = bf16_widen(quantized_values @ gate.T)
+            up_values = bf16_widen(quantized_values @ up.T)
+            silu_values = bf16_widen(
+                gate_values / (1.0 + torch.exp(-gate_values))
+            )
+            activated = bf16_widen(silu_values * up_values)
+            quantized_activated = dynamic_input(activated)
+            projected = bf16_widen(quantized_activated @ down.T)
             maximum_scalar_error = max(
                 maximum_scalar_error,
                 abs(
                     float(gate_values[0, 0])
-                    - float(torch.dot(values[0].double(), gate[0].double()))
+                    - float(
+                        torch.dot(quantized_values[0].double(), gate[0].double())
+                        .to(torch.bfloat16)
+                        .float()
+                    )
                 ),
                 abs(
                     float(up_values[0, 0])
-                    - float(torch.dot(values[0].double(), up[0].double()))
+                    - float(
+                        torch.dot(quantized_values[0].double(), up[0].double())
+                        .to(torch.bfloat16)
+                        .float()
+                    )
                 ),
                 abs(
                     float(projected[0, 0])
-                    - float(torch.dot(activated[0].double(), down[0].double()))
+                    - float(
+                        torch.dot(quantized_activated[0].double(), down[0].double())
+                        .to(torch.bfloat16)
+                        .float()
+                    )
                 ),
             )
             weights = torch.tensor(placement["weights"], dtype=torch.float32).unsqueeze(1)
             output.index_add_(0, torch.tensor(positions), projected * weights)
+    output = bf16_widen(output)
     if maximum_scalar_error > 2.0e-4:
         raise ValueError(f"PW-0209 scalar parity failed: {maximum_scalar_error}")
     output_values = output.numpy().astype("<f4")
@@ -186,7 +245,9 @@ def generate(
     write_new(output_path, payload)
     report = {
         "schema_version": 1,
-        "evidence_class": "pw0209_layer43_context128_full_width_source_moe_reference",
+        "evidence_class": "pw0209_layer43_context128_dynamic_fp8_bf16_source_moe_reference",
+        "implementation_commit": implementation_commit,
+        "numerics": "dynamic_fp8_e4m3fn_per_token_group_128_bf16_boundaries",
         "authority_sha256": AUTHORITY_SHA256,
         "output_sha256": hashlib.sha256(payload).hexdigest(),
         "rows": ROWS,
@@ -210,6 +271,7 @@ def main() -> int:
     parser.add_argument("--authority", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--report", required=True, type=Path)
+    parser.add_argument("--commit", required=True)
     args = parser.parse_args()
     try:
         report = generate(
@@ -219,6 +281,7 @@ def main() -> int:
             args.authority,
             args.output,
             args.report,
+            args.commit,
         )
         print(json.dumps(report))
         return 0
