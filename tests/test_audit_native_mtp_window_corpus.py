@@ -1,6 +1,10 @@
 import unittest
 
-from tools.audit_native_mtp_window_corpus import audit_transaction, verification_union
+from tools.audit_native_mtp_window_corpus import (
+    audit_transaction,
+    protected_baseline_survived,
+    verification_union,
+)
 
 
 def routed_layer(layer: int, expert_offset: int = 0):
@@ -17,6 +21,15 @@ def routed_layer(layer: int, expert_offset: int = 0):
 
 
 class NativeMtpWindowCorpusAuditTests(unittest.TestCase):
+    def test_protected_process_addition_is_safe_but_baseline_loss_fails(self):
+        start = {"protected_service_pids": {"WindowServer": [10], "nxnode": [20]}}
+        additive = {
+            "protected_service_pids": {"WindowServer": [10], "nxnode": [20, 21]}
+        }
+        missing = {"protected_service_pids": {"WindowServer": [10], "nxnode": [21]}}
+        self.assertTrue(protected_baseline_survived([start, additive]))
+        self.assertFalse(protected_baseline_survived([start, missing]))
+
     def test_union_is_rederived_from_exact_route_rows(self):
         trace = [
             {

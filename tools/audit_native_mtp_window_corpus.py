@@ -83,6 +83,23 @@ def audit_transaction(
     return {"transaction": index, "A": accepted, "U": derived_union, "A/U": accepted / derived_union}
 
 
+def protected_baseline_survived(snapshots: list[dict[str, Any]]) -> bool:
+    if not snapshots:
+        return False
+    baseline = {
+        service: set(pids)
+        for service, pids in snapshots[0]["protected_service_pids"].items()
+    }
+    return all(
+        all(
+            service in snapshot["protected_service_pids"]
+            and pids.issubset(set(snapshot["protected_service_pids"][service]))
+            for service, pids in baseline.items()
+        )
+        for snapshot in snapshots
+    )
+
+
 def audit(
     report_path: Path,
     progress_path: Path,
@@ -151,8 +168,7 @@ def audit(
     require(snapshots, "missing safety snapshots")
     require(all(item["swap_growth_bytes"] == 0 for item in snapshots), "swap growth")
     require(all(item["new_throttled_pages"] == 0 for item in snapshots), "new throttling")
-    protected = snapshots[0]["protected_service_pids"]
-    require(all(item["protected_service_pids"] == protected for item in snapshots), "protected service changed")
+    require(protected_baseline_survived(snapshots), "baseline protected service PID disappeared")
 
     primary = metrics[:PRIMARY_WINDOWS]
     return {
