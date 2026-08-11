@@ -1069,6 +1069,21 @@
             "physical_read_bytes": 142661935104,
             "status": "minimum_expert_byte_leverage_passed; lower_milestone_input_promoted; far_below_int4_requirement; no_endpoint_tps",
             "provenance": "PW-0206 complete; corrected Jacobi iteration-three manifest cf9403b441b9453557d9c6fb2481d0dd361e319efbd6dad2c4e21d5c424ed3d1; Apple M1 16 GiB internal SSD; git ea5dc4e051fceb00f2a53f12a8517c56f122d9af clean"
+        },
+        "pw0207_pressure_elastic_offline_residency": {
+            "capacity_bytes": 12884901888,
+            "selected_bytes": 12878375808,
+            "selected_shared_spine_bytes": 7743294336,
+            "selected_routed_expert_bytes": 5135081472,
+            "control_physical_read_bytes": 171753635840,
+            "predicted_candidate_physical_read_bytes": 95872213232.92569,
+            "predicted_physical_read_reduction_factor": 1.791485040850336,
+            "control_attributed_wall_ms": 184510.44783299998,
+            "predicted_candidate_attributed_wall_ms": 56562.85154048314,
+            "predicted_attributed_wall_speedup": 3.262042892249558,
+            "accepted_tokens": 0,
+            "status": "four_x_byte_gate_failed; two_x_attributed_wall_gate_passed; pressure_safe_transaction_implementation_authorized; no_endpoint_tps",
+            "provenance": "PW-0207 partial; route trace e5c0b93d039ec8d8c6b1f7a0087ec3991ba55df2a1cee7d388f08d6e668d830b; offline analysis ee9f71b83ca427bd1a98d166ada77c778c53d81157dfa6ccb071afada54e73eb; Apple M1 16 GiB internal SSD; git 2498dc3b7cdcb1cc7d498ff75428cf4b0cdaf0e0 clean"
         }
     }
 }

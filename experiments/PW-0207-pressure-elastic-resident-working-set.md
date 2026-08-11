@@ -1,7 +1,7 @@
 # PW-0207 — Pressure-elastic resident working set
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: running
+- Disposition: offline wall gate passed; pressure-safe implementation authorized
 - Date: 2026-08-10
 - Execution mode: L1 target-faithful representation/lifetime change; modified arithmetic controls separate
 - Related records: PW-0105 through PW-0111, PW-0181, PW-0205, PW-0206
@@ -54,6 +54,34 @@ kernel-only number.
 
 ## Decision
 
-Unexecuted. This is the highest-priority direct use of the relaxed memory
-target because it attacks the measured dominant embodiment without changing
-weights or accepted outputs.
+The first exact route authority is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0207/route-001/report.json`,
+SHA-256
+`e5c0b93d039ec8d8c6b1f7a0087ec3991ba55df2a1cee7d388f08d6e668d830b`.
+Clean commit `871db1ff3c3f654d9184de22c958c877e1402006` reproduces PW-0205
+run 009 transaction zero exactly: proposal, posterior, seven committed tokens,
+convergence, and `U=4.582446808510638` all match. It captures all 7×48
+one-token proposal traces and the 48-layer width-eight verifier trace. Complete
+wall is 383.781 seconds, peak RSS is 3,951,427,584 bytes, and no high-residency
+allocation occurs.
+
+The clean offline falsifier at commit
+`2498dc3b7cdcb1cc7d498ff75428cf4b0cdaf0e0` hashes to
+`ee9f71b83ca427bd1a98d166ada77c778c53d81157dfa6ccb071afada54e73eb`.
+Its 7,418 object accesses and 171,569,939,456 logical bytes close exactly to
+the endpoint ledger. Positive proposal/verification equations attribute
+2.180946 ns/byte to the shared spine and 0.450719 ns/byte to routed experts.
+
+The ratio-ranked static 12 GiB set contains 388 shared-spine objects
+(7,743,294,336 bytes) and 204 expert bundles (5,135,081,472 bytes), totaling
+12,878,375,808 bytes with 6,526,080 bytes unallocated. It predicts
+95,872,213,233 physical bytes, only a 1.791485× reduction, so the 4× byte gate
+fails. It predicts 56,562.852 ms of attributed acquisition wall versus the
+184,510.448 ms control, a 3.262043× speedup, so the alternative 2× wall gate
+passes.
+
+Authorize the Darwin pressure observer, declared residency authority, warning
+eviction callback, and one repeated-transaction implementation. This is an
+offline static prediction on one corrected transaction, not endpoint TPS or a
+13 GiB default. The experiment remains running until the real interleaved
+transaction and pressure-eviction gates pass or reject it.

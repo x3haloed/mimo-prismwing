@@ -4021,3 +4021,18 @@ only 14.313% of the otherwise-free INT4 requirement and its measured
 post-prefill diagnostic is 0.009733 accepted token/s. PW-0206 is complete;
 carry native MTP to PW-0208 and the small Jacobi leverage into later combined
 economics without erasing either the gain or its limit.
+
+PW-0207's corrected first-transaction route trace closes the missing identity
+gap in the high-residency hypothesis. Its report hashes to
+`e5c0b93d039ec8d8c6b1f7a0087ec3991ba55df2a1cee7d388f08d6e668d830b`
+and exactly reproduces PW-0205 run 009 transaction zero while retaining every
+proposal and verifier expert identity.
+
+The byte-accurate offline falsifier hashes to
+`ee9f71b83ca427bd1a98d166ada77c778c53d81157dfa6ccb071afada54e73eb`.
+A legal 12,878,375,808-byte static set predicts only 1.791485× fewer physical
+reads, so the 4× byte hypothesis fails. The same set predicts 3.262043× less
+attributed acquisition wall from a positive two-phase measured solve, passing
+the alternative 2× continuation gate. Authorize pressure-safe implementation;
+do not activate the 13 GiB ceiling or claim TPS until warning eviction,
+critical stop, exact transaction parity, and real interleaved speedup pass.
