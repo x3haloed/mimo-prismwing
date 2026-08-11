@@ -5098,12 +5098,55 @@ struct WideJacobiAuthority {
 }
 
 fn accepted_jacobi_tokens(proposal: &[u32], posterior: &[u32]) -> Result<usize, String> {
-    if proposal.len() != 8 || posterior.len() != 8 {
-        return Err("Jacobi acceptance requires eight proposal and posterior tokens".to_owned());
+    if proposal.len() < 2 || proposal.len() != posterior.len() {
+        return Err(
+            "Jacobi acceptance requires equal proposal/posterior widths of at least two".to_owned(),
+        );
     }
     Ok((0..proposal.len() - 1)
         .find(|index| posterior[*index] != proposal[*index + 1])
         .map_or(proposal.len(), |index| index + 1))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct JacobiCommit {
+    /// Tokens made observable by this transaction. The proposal anchor was
+    /// committed by the preceding target decision; this vector contains only
+    /// newly verified suffix tokens and, on mismatch, the correcting target
+    /// token.
+    emitted_token_ids: Vec<u32>,
+    /// Number of proposal input rows whose K/V state remains authoritative.
+    retained_proposal_rows: usize,
+    /// Target token that anchors the next proposal window.
+    next_anchor_token_id: u32,
+    proposal_converged: bool,
+}
+
+fn commit_jacobi_transaction(proposal: &[u32], posterior: &[u32]) -> Result<JacobiCommit, String> {
+    let accepted_rows = accepted_jacobi_tokens(proposal, posterior)?;
+    let mismatch = (0..proposal.len() - 1).find(|index| posterior[*index] != proposal[*index + 1]);
+    if let Some(index) = mismatch {
+        let correction = posterior[index];
+        Ok(JacobiCommit {
+            emitted_token_ids: proposal[1..=index]
+                .iter()
+                .copied()
+                .chain(std::iter::once(correction))
+                .collect(),
+            retained_proposal_rows: accepted_rows,
+            next_anchor_token_id: correction,
+            proposal_converged: false,
+        })
+    } else {
+        Ok(JacobiCommit {
+            emitted_token_ids: proposal[1..].to_vec(),
+            retained_proposal_rows: proposal.len(),
+            next_anchor_token_id: *posterior
+                .last()
+                .ok_or("Jacobi posterior unexpectedly empty")?,
+            proposal_converged: true,
+        })
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -10553,6 +10596,38 @@ mod tests {
             Ok(8)
         );
         assert!(accepted_jacobi_tokens(&proposal[..7], &posterior).is_err());
+    }
+
+    #[test]
+    fn jacobi_commit_emits_verified_suffix_and_correction_once() {
+        let proposal = [264, 13, 15, 13, 15, 15, 15, 15];
+        let posterior = [13, 15, 13, 15, 481, 13, 15, 15];
+        assert_eq!(
+            commit_jacobi_transaction(&proposal, &posterior),
+            Ok(JacobiCommit {
+                emitted_token_ids: vec![13, 15, 13, 15, 481],
+                retained_proposal_rows: 5,
+                next_anchor_token_id: 481,
+                proposal_converged: false,
+            })
+        );
+    }
+
+    #[test]
+    fn jacobi_commit_advances_a_converged_window_without_inventing_a_correction() {
+        let proposal = [41, 42, 43, 44];
+        let posterior = [42, 43, 44, 45];
+        assert_eq!(
+            commit_jacobi_transaction(&proposal, &posterior),
+            Ok(JacobiCommit {
+                emitted_token_ids: vec![42, 43, 44],
+                retained_proposal_rows: 4,
+                next_anchor_token_id: 45,
+                proposal_converged: true,
+            })
+        );
+        assert!(commit_jacobi_transaction(&[1], &[2]).is_err());
+        assert!(commit_jacobi_transaction(&[1, 2], &[2, 3, 4]).is_err());
     }
 
     #[test]
