@@ -1463,6 +1463,11 @@ Run the following cheap falsifiers in order:
    three dense draft layers can replace roughly 140 seconds of same-model
    proposal work and retain any repeatable positive complete TPS gain under
    exact ordinary verification; missing 2× or 50 TPS alone is not a kill gate.
+   Its cold candidate-control-candidate ordinary-text sequence emits identical
+   output and improves median complete accepted TPS from 0.011351 to 0.021160,
+   or 1.864046x, with zero swap growth or throttling. This conditionally
+   promotes the Apple-M1 ordinary slice, not the general runtime default;
+   category and holdout broadening remains future work.
 7. [PW-0212](../experiments/PW-0212-corrected-route-predictive-prefetch-oracle.md)
    tests, without runtime work first, whether corrected target routes can issue
    bounded demand-priority prefetch early enough to hide a material share of

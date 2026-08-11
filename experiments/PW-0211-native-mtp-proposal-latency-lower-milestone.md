@@ -1,7 +1,7 @@
 # PW-0211 — Native MTP proposal-latency lower milestone
 
-- Status: executing
-- Disposition: pending
+- Status: complete
+- Disposition: conditional
 - Date: 2026-08-11
 - Execution mode: L2 target-distribution-preserving draft under exact ordinary verification
 - Related records: PW-0103, PW-0205, PW-0206, PW-0207, PW-0208
@@ -51,8 +51,9 @@ lower-milestone branch.
 
 ## Decision
 
-Executing; the correctness/pilot gate passes and a real q=4 verifier timing is
-authorized. PW-0208's complete-history manifest SHA-256 is
+Complete. The repeatable positive ordinary-text lower milestone passes, while
+general runtime-default promotion remains withheld pending other categories and
+holdouts. PW-0208's complete-history manifest SHA-256 is
 `a9bb6bd26bf048a2144133cc0a96023a8af112eae58122b666915149f2993a7b`.
 The four prefill source reports hash to `11a02fd9d653c6351ed22d03f7d39efb80ee8d6009fc9a3d22d41fd2f42d1ddb`,
 `a75aab62fa434f73d8f0053919fc9c3eab68c71e96a690cfed6f8871306b35ae`,
@@ -135,3 +136,59 @@ external configuration hash respectively to
 `8bbaeae15a6856790c3f5404c3c58aa7a3b88e11fd751bfd1e3ae3c0b4b16f9f`,
 `37ff78744b5d0ff6e404377ecea61c36df4e5f1f46ea3b046a81abd0f1526b3e`,
 and `cfa9fd57f49ca1dedfd6e3dcd5c3120918884704d9a6ade06ff8bf2b56a19294`.
+
+## Repeated full-path result and disposition
+
+The frozen ordinary request was run candidate-control-candidate from cold
+process starts on the Apple M1 16 GiB host, batch size one and concurrency one.
+Candidate one is clean commit
+`4762c02059aeee090f8cf16be66a5513af7323f1`; the q8 control and candidate two
+are clean commit `e273867c10a3d9400ed907253f108bd2e7259116`. The intervening
+commit changes endpoint-accounting documentation and a corpus-report field; it
+does not change the live proposer path. Every run emits exactly
+`[32,3283,646,11941,7949,7324,8628]` and the same decoded text. The verifier is
+the sole commit authority.
+
+| Measure | Native candidate 1 | q8 control | Native candidate 2 |
+| --- | ---: | ---: | ---: |
+| Prefill wall ms | 257,269.091 | 249,411.671 | 251,707.471 |
+| Proposal wall ms | 21,970.488 | 293,061.016 | 23,196.693 |
+| Verification wall ms | 53,022.214 | 73,462.322 | 53,031.182 |
+| Complete wall ms | 332,964.720 | 616,663.584 | 328,675.174 |
+| Complete accepted TPS (`7 / complete wall`) | 0.021023 | 0.011351 | 0.021298 |
+| Logical source bytes | 427,197,245,056 | 687,955,132,544 | 427,197,245,056 |
+| Process disk bytes read | 420,833,001,472 | 688,709,586,944 | 420,714,541,056 |
+| Conservative peak resident bytes | 4,497,358,848 | 352,337,920 | 4,492,689,408 |
+| Minimum system memory free | 58% | 57% | 53% |
+
+Candidate complete walls differ by 1.2966%. Their median is 330,819.947 ms,
+or 0.021160 accepted TPS, giving a repeatable `1.864046x` complete-request gain
+over the interleaved q8 control. Post-prefill proposal-plus-verification wall
+falls from 366,523.338 ms to a 75,610.289 ms candidate median, a `4.847533x`
+wall gain. At transaction one, native q4 has `A=3`, `U=5.377660`, and median
+0.085603 accepted TPS; q8 has `A=7`, `U=4.255319`, and 0.038036 accepted TPS.
+The acceptance-normalized transaction gain is `2.250573x`. This distinction
+prevents the q4 wall reduction from being confused with equal acceptance
+width.
+
+Candidate two report and progress hashes are
+`3134f9657fc1d4ea4fa2b52bb38a1f7dd73bbe5e1e3d5716e02f15aefd0f9872`
+and `ccb4cd4cb60f02ced8de58ca45a1bfbf7169f80ed75186e6802320012dee0541`.
+Its external configuration hashes to
+`acb17d6f5ed54ea9112ef20ca2e2b3248e55c723b206ea6ef6b425d3ae380c44`.
+The q8 control report and progress hashes are
+`ae415a43ea9e1367248dfb3ad803107042d99ba9484d21a7ac8ff78dbfaa997e`
+and `3beaeab1b2976e38f5691f0f648c0f21e5257aed03e7ab95259eb062bacca99c`.
+An earlier control launch used an incorrect declared commit identity and was
+manually aborted before prefill completion; its empty progress artifact hashes
+to `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+It is rejected and excluded, not erased.
+
+All completed runs record zero swap growth, zero newly throttled pages, and no
+protected-service loss. Promote native q4 only as a conditional ordinary-text
+Apple-M1 lower milestone. Do not make it a general default: code,
+multilingual, rare-route, longer-context, and held-out complete paths remain
+unmeasured, and the external CPU child accounts for roughly 4.5 GB conservative
+peak residency. The next native-MTP work, if revisited, is slice broadening or
+an in-process proposer; the active research sequence advances to PW-0212's
+corrected-route prefetch falsifier before conditional PW-0210 runtime work.

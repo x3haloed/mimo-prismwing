@@ -1214,6 +1214,32 @@
             "required_gain": 2.0,
             "status": "cost_efficiency_gate_impossible; pw0208_complete; native_mtp_latency_only_lower_milestone_preserved_as_pw0211; no_endpoint_tps",
             "provenance": "PW-0208 perfect-proposal upper bound 3aaca59be0e000cac77d5a36b8e3b9d2e2fc5bbb02792c8846dae3da16747f8c over complete-history corpus manifest a9bb6bd26bf048a2144133cc0a96023a8af112eae58122b666915149f2993a7b; exact pinned checkpoint expert layouts; git c7fe4a348908dcf4f654a4b4b9831aaf10af7312 clean"
+        },
+        "pw0211_live_native_mtp_q4_ordinary": {
+            "candidate_complete_wall_ms": [
+                332964.720166,
+                328675.174166
+            ],
+            "candidate_complete_wall_median_ms": 330819.947166,
+            "candidate_complete_accepted_tps_median": 0.021159546333182608,
+            "control_complete_wall_ms": 616663.583875,
+            "control_complete_accepted_tps": 0.011351408098421011,
+            "complete_accepted_tps_gain": 1.864045953569929,
+            "candidate_post_prefill_wall_median_ms": 75610.2885,
+            "control_post_prefill_wall_ms": 366523.337666,
+            "post_prefill_wall_gain": 4.847532590303501,
+            "candidate_transaction_one_A": 3,
+            "candidate_transaction_one_U": 5.377659574468085,
+            "candidate_transaction_one_accepted_tps_median": 0.08560288253018608,
+            "control_transaction_one_A": 7,
+            "control_transaction_one_U": 4.25531914893617,
+            "control_transaction_one_accepted_tps": 0.03803603632431688,
+            "transaction_one_accepted_tps_gain": 2.250573161732395,
+            "accepted_tokens_per_complete_request": 7,
+            "batch_size": 1,
+            "concurrency": 1,
+            "status": "conditional_repeatable_ordinary_text_apple_m1_lower_milestone; identical_verifier_authorized_output; other_slices_and_holdouts_pending; not_general_default",
+            "provenance": "PW-0211 cold candidate-control-candidate; candidate reports 8bbaeae15a6856790c3f5404c3c58aa7a3b88e11fd751bfd1e3ae3c0b4b16f9f and 3134f9657fc1d4ea4fa2b52bb38a1f7dd73bbe5e1e3d5716e02f15aefd0f9872 around q8 control ae415a43ea9e1367248dfb3ad803107042d99ba9484d21a7ac8ff78dbfaa997e; Apple M1 16 GiB internal checkpoint; clean git 4762c02059aeee090f8cf16be66a5513af7323f1 and e273867c10a3d9400ed907253f108bd2e7259116"
         }
     }
 }

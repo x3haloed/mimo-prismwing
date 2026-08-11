@@ -4209,3 +4209,16 @@ same-output q4 control, a 1.343927x gain including prefill. This is one
 candidate/control observation, not a repeatable default promotion. Preserve it
 as a positive lower milestone and run an interleaved matched control plus a
 second candidate before deciding promotion.
+
+PW-0211's cold candidate-control-candidate sequence promotes that ordinary-text
+result to a conditional lower milestone. The two native q4 complete walls are
+332.965 and 328.675 seconds (1.297% apart), for median 0.021160 accepted TPS;
+the interleaved q8 same-output control is 616.664 seconds and 0.011351 TPS. The
+repeatable complete-request gain is 1.864046x. Post-prefill wall improves
+4.847533x. Transaction-one accepted TPS improves 2.250573x after correctly
+accounting for native `A=3` versus control `A=7`; do not report the 5.251x wall
+ratio as acceptance-normalized TPS. All runs emit identical seven tokens, and
+swap growth, throttling, and protected-service loss remain zero. This changes
+the ordinary Apple-M1 performance belief and throughput constants, but not the
+general default: other categories, contexts, and holdouts still require live
+full-path evidence.
