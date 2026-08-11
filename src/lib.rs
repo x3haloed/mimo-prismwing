@@ -23,6 +23,8 @@ mod structured_sparse;
 #[cfg(target_os = "macos")]
 mod text_endpoint;
 #[cfg(target_os = "macos")]
+mod wide_metal_moe;
+#[cfg(target_os = "macos")]
 pub use metal_io_acquisition::{MetalIoAcquisitionReport, benchmark_metal_io_acquisition};
 #[cfg(target_os = "macos")]
 pub use pread_expert_acquisition::{
@@ -41,15 +43,17 @@ pub use text_endpoint::{
     PrefillRouteCoverageTraceReport, RouteOnlyTraceReport, RoutedLayerArtifactBenchmarkReport,
     RoutedLayerArtifactBuildReport, RoutedMixtureActivationCorpusReport,
     StructuredSparseTraceReport, TextEndpointReport, TwoBarrierRoutedLayerBenchmarkReport,
-    benchmark_layer4_metal_native_transaction, benchmark_layer4_metal_ready_artifact,
-    benchmark_layer4_two_barrier_transaction, build_layer4_metal_ready_artifact,
-    run_full_prefix_trace, run_global_attention_capture_smoke, run_global_attention_sparsity_trace,
-    run_layer4_metal_diagnostic, run_metal_incremental_text_endpoint,
-    run_metal_native_distribution_probe, run_prefill_route_coverage_trace, run_real_layer0_trace,
-    run_real_layer1_expert_trace, run_real_layer1_routing_trace, run_real_layer2_trace,
-    run_real_layer4_trace, run_real_layer7_trace, run_real_routed_layer_trace,
-    run_route_only_trace, run_routed_mixture_activation_corpus, run_slow_text_endpoint,
+    WideJacobiTextReport, WideJacobiTrial, benchmark_layer4_metal_native_transaction,
+    benchmark_layer4_metal_ready_artifact, benchmark_layer4_two_barrier_transaction,
+    build_layer4_metal_ready_artifact, run_full_prefix_trace, run_global_attention_capture_smoke,
+    run_global_attention_sparsity_trace, run_layer4_metal_diagnostic,
+    run_metal_incremental_text_endpoint, run_metal_native_distribution_probe,
+    run_prefill_route_coverage_trace, run_real_layer0_trace, run_real_layer1_expert_trace,
+    run_real_layer1_routing_trace, run_real_layer2_trace, run_real_layer4_trace,
+    run_real_layer7_trace, run_real_routed_layer_trace, run_route_only_trace,
+    run_routed_mixture_activation_corpus, run_slow_text_endpoint,
     run_structured_sparse_layer0_trace, run_weight_install_tomography,
+    run_wide_metal_jacobi_text_endpoint,
 };
 
 const MAX_HEADER_BYTES: u64 = 256 * 1024 * 1024;
@@ -239,6 +243,12 @@ pub struct MappedTensorView<'a> {
     pub bytes: &'a [u8],
 }
 
+pub struct MappedNoCopyRegion<'a> {
+    pub bytes: &'a [u8],
+    pub tensor_offset: usize,
+    pub tensor_bytes: usize,
+}
+
 #[derive(Debug, Serialize)]
 pub struct MappedTensorInspection {
     pub schema_version: u32,
@@ -248,6 +258,46 @@ pub struct MappedTensorInspection {
     pub tensor_sha256: String,
     pub bytes_hashed: u64,
     pub mapping: &'static str,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Serialize)]
+pub struct MetalCheckpointOffsetProbeReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub source_file: String,
+    pub source_file_bytes: u64,
+    pub source_file_sha256: String,
+    pub tensor: MappedTensorMetadata,
+    pub tensor_sha256: String,
+    pub kernel_sha256: String,
+    pub device: String,
+    pub page_bytes: usize,
+    pub mapped_region_bytes: usize,
+    pub tensor_offset: usize,
+    pub tensor_bytes: usize,
+    pub mapped_base_mod_page: usize,
+    pub source_buffer_copy_bytes: u64,
+    pub sample_indices: Vec<u64>,
+    pub cpu_samples: Vec<u32>,
+    pub gpu_samples: Vec<u32>,
+    pub exact_sample_match: bool,
+    pub compile_ms: f64,
+    pub cold_wall_ms: f64,
+    pub warmups: usize,
+    pub measurements: usize,
+    pub warm_wall_ms: Vec<f64>,
+    pub warm_median_ms: f64,
+    pub batch_size: u32,
+    pub concurrency: u32,
+    pub accepted_tokens: u32,
+    #[serde(rename = "A")]
+    pub accepted_per_verification: u32,
+    #[serde(rename = "U")]
+    pub expert_union_factor: f64,
+    pub cache_state: &'static str,
+    pub performance_claim: Option<String>,
+    pub implementation: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -271,6 +321,7 @@ pub struct Fp8GemvReport {
 #[derive(Debug, Serialize)]
 pub struct MetalFp8GemvReport {
     pub schema_version: u32,
+    pub semantic: &'static str,
     pub source_file: String,
     pub weight: MappedTensorMetadata,
     pub scale: MappedTensorMetadata,
@@ -285,6 +336,11 @@ pub struct MetalFp8GemvReport {
     pub output_first8: Vec<f32>,
     pub relative_l2: f64,
     pub maximum_absolute_error: f32,
+    pub parity_gate_passed: bool,
+    pub bf16_mismatch_count: usize,
+    pub bf16_mismatch_fraction: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pre_round_output: Option<Vec<f32>>,
     pub compile_ms: f64,
     pub cold_wall_ms: f64,
     pub warmups: usize,
@@ -296,6 +352,11 @@ pub struct MetalFp8GemvReport {
     pub readable_baseline_ms: f64,
     pub diagnostic_speedup: f64,
     pub timing_asymmetry: &'static str,
+    pub source_buffer_mode: &'static str,
+    pub weight_buffer_offset: usize,
+    pub scale_buffer_offset: usize,
+    pub mapped_source_bytes: u64,
+    pub source_buffer_copy_bytes: u64,
     pub logical_bytes: u64,
     pub batch_size: u32,
     pub concurrency: u32,
@@ -345,6 +406,10 @@ pub struct MetalFp8ExpertReport {
     pub idealized_serial_routed_only_tps: f64,
     pub idealized_serial_scope: &'static str,
     pub dispatch_composition: &'static str,
+    pub source_buffer_mode: &'static str,
+    pub source_buffer_offsets: BTreeMap<String, usize>,
+    pub mapped_source_bytes: u64,
+    pub source_buffer_copy_bytes: u64,
     pub logical_bytes: u64,
     pub batch_size: u32,
     pub concurrency: u32,
@@ -375,6 +440,7 @@ struct MetalExpertConfig {
     partial_values_per_lane: usize,
     timing_limit_ms: f64,
     minimum_per_position_speedup: f64,
+    direct_checkpoint: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -437,6 +503,7 @@ pub struct MetalFp8MoeReport {
     pub expert_position_counts: BTreeMap<u32, usize>,
     pub real_expert_positions: usize,
     pub padded_expert_positions: usize,
+    pub executed_expert_rows: usize,
     pub padding_overhead_fraction: f64,
     pub relative_l2: f64,
     pub maximum_absolute_error: f32,
@@ -452,7 +519,13 @@ pub struct MetalFp8MoeReport {
     pub minimum_topk_boundary_margin: Option<f32>,
     pub scatter_fixture_maximum_absolute_error: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_semantic_fixture_maximum_absolute_error: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_silu_lut_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub union_kernel_fixture_maximum_absolute_error: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_count_kernel_fixture_maximum_absolute_error: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fused_gate_up_fixture_maximum_absolute_error: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -468,6 +541,10 @@ pub struct MetalFp8MoeReport {
     pub median_timing_gate_passed: bool,
     pub routed_only_accepted_tps_diagnostic: f64,
     pub logical_source_and_io_bytes: u64,
+    pub mapped_source_bytes: u64,
+    pub source_buffer_copy_bytes: u64,
+    pub checkpoint_recorded_device: Option<u64>,
+    pub checkpoint_current_device: Option<u64>,
     pub resident_buffer_bytes: u64,
     pub batch_concurrency: u32,
     pub accepted_tokens: u32,
@@ -662,6 +739,29 @@ fn dtype_bytes(dtype: &str) -> Option<u64> {
     }
 }
 
+fn page_aligned_covering_region(
+    start: usize,
+    end: usize,
+    mapping_len: usize,
+    page_bytes: usize,
+) -> Result<(usize, usize, usize), String> {
+    if page_bytes == 0 || !page_bytes.is_power_of_two() {
+        return Err("host page size must be a nonzero power of two".to_owned());
+    }
+    if start >= end || end > mapping_len {
+        return Err("tensor interval is empty or outside the mapping".to_owned());
+    }
+    let region_start = start & !(page_bytes - 1);
+    let region_end = end
+        .checked_add(page_bytes - 1)
+        .ok_or("page-rounded tensor end overflow")?
+        & !(page_bytes - 1);
+    if region_end > mapping_len {
+        return Err("page-rounded tensor interval exceeds the file mapping".to_owned());
+    }
+    Ok((region_start, region_end, start - region_start))
+}
+
 impl MappedSafetensors {
     pub fn open(path: &Path) -> Result<Self, String> {
         let file = File::open(path).map_err(|error| format!("{}: {error}", path.display()))?;
@@ -811,6 +911,48 @@ impl MappedSafetensors {
         })
     }
 
+    pub fn tensor_no_copy_region(
+        &self,
+        name: &str,
+        page_bytes: usize,
+    ) -> Result<MappedNoCopyRegion<'_>, String> {
+        let metadata = self
+            .tensors
+            .get(name)
+            .ok_or_else(|| format!("tensor is absent: {name}"))?;
+        let start = self
+            .payload_start
+            .checked_add(
+                usize::try_from(metadata.data_offsets[0])
+                    .map_err(|_| "tensor offset does not fit usize")?,
+            )
+            .ok_or("tensor start overflow")?;
+        let end = self
+            .payload_start
+            .checked_add(
+                usize::try_from(metadata.data_offsets[1])
+                    .map_err(|_| "tensor offset does not fit usize")?,
+            )
+            .ok_or("tensor end overflow")?;
+        let (region_start, region_end, tensor_offset) =
+            page_aligned_covering_region(start, end, self.mapping.len(), page_bytes)?;
+        let bytes = &self.mapping[region_start..region_end];
+        if !(bytes.as_ptr() as usize).is_multiple_of(page_bytes)
+            || !bytes.len().is_multiple_of(page_bytes)
+            || tensor_offset
+                .checked_add(end - start)
+                .ok_or("tensor region length overflow")?
+                > bytes.len()
+        {
+            return Err("mapped no-copy region violates page or range invariants".to_owned());
+        }
+        Ok(MappedNoCopyRegion {
+            bytes,
+            tensor_offset,
+            tensor_bytes: end - start,
+        })
+    }
+
     pub fn tensor_count(&self) -> usize {
         self.tensors.len()
     }
@@ -832,6 +974,190 @@ pub fn inspect_mapped_tensor(path: &Path, name: &str) -> Result<MappedTensorInsp
         bytes_hashed: view.bytes.len() as u64,
         mapping: "read_only_memmap",
     })
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_checkpoint_offset_probe(
+    source: &Path,
+    tensor_name: &str,
+    output_path: &Path,
+) -> Result<MetalCheckpointOffsetProbeReport, String> {
+    use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize};
+
+    const WARMUPS: usize = 3;
+    const MEASUREMENTS: usize = 10;
+    const KERNEL_SOURCE: &str = r#"
+#include <metal_stdlib>
+using namespace metal;
+kernel void pw_checkpoint_offset_probe(
+    device const uchar *source [[buffer(0)]],
+    device const ulong *indices [[buffer(1)]],
+    device uint *output [[buffer(2)]],
+    uint id [[thread_position_in_grid]]) {
+    output[id] = uint(source[indices[id]]);
+}
+"#;
+
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    let page_value = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    if page_value <= 0 {
+        return Err("sysconf(_SC_PAGESIZE) failed".to_owned());
+    }
+    let page_bytes = usize::try_from(page_value).map_err(|_| "page size does not fit usize")?;
+    let mapped = MappedSafetensors::open(source)?;
+    let tensor = mapped.tensor(tensor_name)?;
+    if tensor.bytes.len() < 3 {
+        return Err("probe tensor must contain at least three bytes".to_owned());
+    }
+    let metadata = tensor.metadata.clone();
+    let sample_indices = vec![
+        0_u64,
+        (tensor.bytes.len() / 2) as u64,
+        (tensor.bytes.len() - 1) as u64,
+    ];
+    let cpu_samples = sample_indices
+        .iter()
+        .map(|index| u32::from(tensor.bytes[*index as usize]))
+        .collect::<Vec<_>>();
+    let region = mapped.tensor_no_copy_region(tensor_name, page_bytes)?;
+    if region.tensor_offset == 0 {
+        return Err("probe requires a real tensor with nonzero intra-page offset".to_owned());
+    }
+    if region.bytes.len() > region.tensor_bytes.saturating_add(2 * page_bytes) {
+        return Err("page-rounded region exceeds the two-page overhead bound".to_owned());
+    }
+
+    let device = Device::system_default().ok_or("no Metal device is available")?;
+    let options = CompileOptions::new();
+    options.set_fast_math_enabled(false);
+    let compile_started = Instant::now();
+    let library = device
+        .new_library_with_source(KERNEL_SOURCE, &options)
+        .map_err(|error| format!("Metal compilation failed: {error}"))?;
+    let function = library
+        .get_function("pw_checkpoint_offset_probe", None)
+        .map_err(|error| format!("Metal kernel lookup failed: {error}"))?;
+    let pipeline = device
+        .new_compute_pipeline_state_with_function(&function)
+        .map_err(|error| format!("Metal pipeline creation failed: {error}"))?;
+    let compile_ms = compile_started.elapsed().as_secs_f64() * 1000.0;
+    let shared = MTLResourceOptions::StorageModeShared;
+    let source_buffer = device.new_buffer_with_bytes_no_copy(
+        region.bytes.as_ptr().cast(),
+        region.bytes.len() as u64,
+        shared,
+        None,
+    );
+    let index_buffer = device.new_buffer_with_data(
+        sample_indices.as_ptr().cast(),
+        std::mem::size_of_val(sample_indices.as_slice()) as u64,
+        shared,
+    );
+    let output_buffer = device.new_buffer(
+        (cpu_samples.len() * std::mem::size_of::<u32>()) as u64,
+        shared,
+    );
+    let queue = device.new_command_queue();
+    let dispatch = || -> Result<f64, String> {
+        let started = Instant::now();
+        let command = queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&source_buffer), region.tensor_offset as u64);
+        encoder.set_buffer(1, Some(&index_buffer), 0);
+        encoder.set_buffer(2, Some(&output_buffer), 0);
+        encoder.dispatch_threads(
+            MTLSize {
+                width: sample_indices.len() as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: sample_indices.len() as u64,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+        if command.status() != MTLCommandBufferStatus::Completed {
+            return Err(format!(
+                "Metal command failed with status {:?}",
+                command.status()
+            ));
+        }
+        Ok(started.elapsed().as_secs_f64() * 1000.0)
+    };
+    let cold_wall_ms = dispatch()?;
+    for _ in 0..WARMUPS {
+        dispatch()?;
+    }
+    let mut warm_wall_ms = Vec::with_capacity(MEASUREMENTS);
+    for _ in 0..MEASUREMENTS {
+        warm_wall_ms.push(dispatch()?);
+    }
+    let gpu_samples = unsafe {
+        std::slice::from_raw_parts(output_buffer.contents().cast::<u32>(), cpu_samples.len())
+            .to_vec()
+    };
+    let exact_sample_match = gpu_samples == cpu_samples;
+    if !exact_sample_match {
+        return Err(format!(
+            "checkpoint offset probe mismatch: CPU {cpu_samples:?}, GPU {gpu_samples:?}"
+        ));
+    }
+    let mut sorted = warm_wall_ms.clone();
+    sorted.sort_by(f64::total_cmp);
+    let warm_median_ms = sorted[sorted.len() / 2];
+    let tensor_sha256 = sha256_hex(tensor.bytes);
+    let mut source_file =
+        File::open(source).map_err(|error| format!("{}: {error}", source.display()))?;
+    let source_file_sha256 = sha256_reader(&mut source_file)?;
+    let report = MetalCheckpointOffsetProbeReport {
+        schema_version: 1,
+        semantic: "direct_checkpoint_page_offset_metal_binding",
+        source_file: source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("source file name is not UTF-8")?
+            .to_owned(),
+        source_file_bytes: mapped.mapping.len() as u64,
+        source_file_sha256,
+        tensor: metadata,
+        tensor_sha256,
+        kernel_sha256: sha256_hex(KERNEL_SOURCE.as_bytes()),
+        device: device.name().to_owned(),
+        page_bytes,
+        mapped_region_bytes: region.bytes.len(),
+        tensor_offset: region.tensor_offset,
+        tensor_bytes: region.tensor_bytes,
+        mapped_base_mod_page: region.bytes.as_ptr() as usize % page_bytes,
+        source_buffer_copy_bytes: 0,
+        sample_indices,
+        cpu_samples,
+        gpu_samples,
+        exact_sample_match,
+        compile_ms,
+        cold_wall_ms,
+        warmups: WARMUPS,
+        measurements: MEASUREMENTS,
+        warm_wall_ms,
+        warm_median_ms,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        accepted_per_verification: 0,
+        expert_union_factor: 0.0,
+        cache_state: "cold_first_then_warm_same_mapping",
+        performance_claim: None,
+        implementation: "original_safetensors_mmap_page_rounded_metal_no_copy_with_buffer_offset",
+    };
+    let output = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    write_create_new(output_path, &output)?;
+    Ok(report)
 }
 
 pub(crate) struct ValidatedMappedFp8<'a> {
@@ -1066,6 +1392,105 @@ pub fn run_metal_mapped_fp8_gemv(
     reference_path: &Path,
     output_path: &Path,
 ) -> Result<MetalFp8GemvReport, String> {
+    run_metal_mapped_fp8_gemv_impl(
+        source,
+        kernel_path,
+        weight_name,
+        scale_name,
+        input_path,
+        reference_path,
+        output_path,
+        false,
+        false,
+        true,
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_direct_mapped_fp8_gemv(
+    source: &Path,
+    kernel_path: &Path,
+    weight_name: &str,
+    scale_name: &str,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8GemvReport, String> {
+    run_metal_mapped_fp8_gemv_impl(
+        source,
+        kernel_path,
+        weight_name,
+        scale_name,
+        input_path,
+        reference_path,
+        output_path,
+        true,
+        false,
+        true,
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_direct_source_bf16_fp8_gemv(
+    source: &Path,
+    kernel_path: &Path,
+    weight_name: &str,
+    scale_name: &str,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8GemvReport, String> {
+    run_metal_mapped_fp8_gemv_impl(
+        source,
+        kernel_path,
+        weight_name,
+        scale_name,
+        input_path,
+        reference_path,
+        output_path,
+        true,
+        true,
+        true,
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_direct_source_bf16_fp8_gemv_audit(
+    source: &Path,
+    kernel_path: &Path,
+    weight_name: &str,
+    scale_name: &str,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8GemvReport, String> {
+    run_metal_mapped_fp8_gemv_impl(
+        source,
+        kernel_path,
+        weight_name,
+        scale_name,
+        input_path,
+        reference_path,
+        output_path,
+        true,
+        true,
+        false,
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn run_metal_mapped_fp8_gemv_impl(
+    source: &Path,
+    kernel_path: &Path,
+    weight_name: &str,
+    scale_name: &str,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+    direct_checkpoint: bool,
+    source_bf16_semantics: bool,
+    enforce_parity: bool,
+) -> Result<MetalFp8GemvReport, String> {
     use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize};
 
     const KERNEL_FUNCTION: &str = "block_fp8_gemv_parallel_lut_blocked";
@@ -1080,6 +1505,20 @@ pub fn run_metal_mapped_fp8_gemv(
     let mapped = MappedSafetensors::open(source)?;
     let (input_bytes, input) = read_f32_file(input_path, None)?;
     let validated = validate_mapped_fp8(&mapped, weight_name, scale_name, &input)?;
+    let semantic_input = if source_bf16_semantics {
+        Some(text_endpoint::dynamic_fp8_activations(
+            &input,
+            1,
+            input.len(),
+        )?)
+    } else {
+        None
+    };
+    let dispatch_input = semantic_input
+        .as_ref()
+        .map_or(input.as_slice(), |quantized| {
+            quantized.dequantized.as_slice()
+        });
     let (reference_bytes, reference) = read_f32_file(reference_path, Some(validated.rows))?;
     let kernel_source = fs::read_to_string(kernel_path)
         .map_err(|error| format!("{}: {error}", kernel_path.display()))?;
@@ -1129,19 +1568,66 @@ pub fn run_metal_mapped_fp8_gemv(
     }
 
     let shared = MTLResourceOptions::StorageModeShared;
-    let weight_buffer = device.new_buffer_with_data(
-        validated.weight.bytes.as_ptr().cast(),
-        validated.weight.bytes.len() as u64,
-        shared,
-    );
-    let scale_buffer = device.new_buffer_with_data(
-        validated.scale.bytes.as_ptr().cast(),
-        validated.scale.bytes.len() as u64,
-        shared,
-    );
+    let no_copy_regions = if direct_checkpoint {
+        let page_value = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        if page_value <= 0 {
+            return Err("sysconf(_SC_PAGESIZE) failed".to_owned());
+        }
+        let page_bytes = usize::try_from(page_value).map_err(|_| "page size does not fit usize")?;
+        Some((
+            mapped.tensor_no_copy_region(weight_name, page_bytes)?,
+            mapped.tensor_no_copy_region(scale_name, page_bytes)?,
+        ))
+    } else {
+        None
+    };
+    let (
+        weight_buffer,
+        scale_buffer,
+        weight_buffer_offset,
+        scale_buffer_offset,
+        mapped_source_bytes,
+        source_buffer_copy_bytes,
+    ) = if let Some((weight_region, scale_region)) = no_copy_regions.as_ref() {
+        (
+            device.new_buffer_with_bytes_no_copy(
+                weight_region.bytes.as_ptr().cast(),
+                weight_region.bytes.len() as u64,
+                shared,
+                None,
+            ),
+            device.new_buffer_with_bytes_no_copy(
+                scale_region.bytes.as_ptr().cast(),
+                scale_region.bytes.len() as u64,
+                shared,
+                None,
+            ),
+            weight_region.tensor_offset,
+            scale_region.tensor_offset,
+            (weight_region.bytes.len() + scale_region.bytes.len()) as u64,
+            0,
+        )
+    } else {
+        (
+            device.new_buffer_with_data(
+                validated.weight.bytes.as_ptr().cast(),
+                validated.weight.bytes.len() as u64,
+                shared,
+            ),
+            device.new_buffer_with_data(
+                validated.scale.bytes.as_ptr().cast(),
+                validated.scale.bytes.len() as u64,
+                shared,
+            ),
+            0,
+            0,
+            (validated.weight.bytes.len() + validated.scale.bytes.len()) as u64,
+            (validated.weight.bytes.len() + validated.scale.bytes.len()) as u64,
+        )
+    };
     let input_buffer = device.new_buffer_with_data(
-        input.as_ptr().cast(),
-        std::mem::size_of_val(input.as_slice()) as u64,
+        dispatch_input.as_ptr().cast(),
+        std::mem::size_of_val(dispatch_input) as u64,
         shared,
     );
     let output_buffer =
@@ -1163,8 +1649,8 @@ pub fn run_metal_mapped_fp8_gemv(
         let command_buffer = queue.new_command_buffer();
         let encoder = command_buffer.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&pipeline);
-        encoder.set_buffer(0, Some(&weight_buffer), 0);
-        encoder.set_buffer(1, Some(&scale_buffer), 0);
+        encoder.set_buffer(0, Some(&weight_buffer), weight_buffer_offset as u64);
+        encoder.set_buffer(1, Some(&scale_buffer), scale_buffer_offset as u64);
         encoder.set_buffer(2, Some(&input_buffer), 0);
         encoder.set_buffer(3, Some(&output_buffer), 0);
         encoder.set_buffer(4, Some(&shape_buffer), 0);
@@ -1206,9 +1692,13 @@ pub fn run_metal_mapped_fp8_gemv(
 
     // SAFETY: StorageModeShared exposes a CPU-visible pointer, every submitted command has
     // completed, and the buffer is at least rows * sizeof(f32) bytes long.
-    let output = unsafe {
+    let mut output = unsafe {
         std::slice::from_raw_parts(output_buffer.contents().cast::<f32>(), validated.rows).to_vec()
     };
+    let pre_round_output = (!enforce_parity).then(|| output.clone());
+    if source_bf16_semantics {
+        text_endpoint::round_bf16_values(&mut output);
+    }
     if output.iter().any(|value| !value.is_finite()) {
         return Err("Metal FP8 GEMV produced non-finite output".to_owned());
     }
@@ -1225,7 +1715,8 @@ pub fn run_metal_mapped_fp8_gemv(
         return Err("reference output has zero L2 norm".to_owned());
     }
     let relative_l2 = (squared_error / squared_reference).sqrt();
-    if relative_l2 > 2.0e-5 || maximum_absolute_error > 2.0e-4 {
+    let parity_gate_passed = relative_l2 <= 2.0e-5 && maximum_absolute_error <= 2.0e-4;
+    if enforce_parity && !parity_gate_passed {
         return Err(format!(
             "Metal parity failed: relative L2 {relative_l2}, max abs {maximum_absolute_error}"
         ));
@@ -1234,6 +1725,12 @@ pub fn run_metal_mapped_fp8_gemv(
         .iter()
         .flat_map(|value| value.to_le_bytes())
         .collect::<Vec<_>>();
+    let bf16_mismatch_count = output
+        .iter()
+        .zip(&reference)
+        .filter(|(candidate, expected)| candidate.to_bits() != expected.to_bits())
+        .count();
+    let bf16_mismatch_fraction = bf16_mismatch_count as f64 / output.len() as f64;
     write_create_new(output_path, &output_bytes)?;
 
     let mut ordered = wall_ms.clone();
@@ -1260,6 +1757,11 @@ pub fn run_metal_mapped_fp8_gemv(
         .ok_or("logical byte count overflow")?;
     Ok(MetalFp8GemvReport {
         schema_version: 1,
+        semantic: if source_bf16_semantics {
+            "source_dynamic_fp8_input_and_bf16_output"
+        } else {
+            "l3_repair_free_fp8_weight_projection"
+        },
         source_file: source
             .file_name()
             .and_then(|name| name.to_str())
@@ -1282,6 +1784,10 @@ pub fn run_metal_mapped_fp8_gemv(
         output_first8: output.iter().copied().take(8).collect(),
         relative_l2,
         maximum_absolute_error,
+        parity_gate_passed,
+        bf16_mismatch_count,
+        bf16_mismatch_fraction,
+        pre_round_output,
         compile_ms,
         cold_wall_ms,
         warmups: WARMUPS,
@@ -1292,15 +1798,38 @@ pub fn run_metal_mapped_fp8_gemv(
         wall_p90_ms,
         readable_baseline_ms: READABLE_BASELINE_MS,
         diagnostic_speedup,
-        timing_asymmetry: "PW-0032 baseline includes process, mapping, validation, GEMV, fsync, hashing, and JSON; Metal series times serialized command creation, dispatch, and wait against resident application buffers",
+        timing_asymmetry: if source_bf16_semantics {
+            "Metal series times command creation, direct mapped source access, dispatch, and wait; readable dynamic-FP8 input transformation, BF16 output staging, source hashing, and report serialization remain outside the timed series"
+        } else if direct_checkpoint {
+            "Metal series times command creation, direct mapped source access, dispatch, and wait; source hashing and report serialization remain outside the timed series"
+        } else {
+            "PW-0032 baseline includes process, mapping, validation, GEMV, fsync, hashing, and JSON; Metal series times serialized command creation, dispatch, and wait against resident application buffers"
+        },
+        source_buffer_mode: if direct_checkpoint {
+            "original_checkpoint_page_rounded_no_copy"
+        } else {
+            "copied_application_buffer"
+        },
+        weight_buffer_offset,
+        scale_buffer_offset,
+        mapped_source_bytes,
+        source_buffer_copy_bytes,
         logical_bytes,
         batch_size: 1,
         concurrency: 1,
         accepted_tokens: 0,
         accepted_per_verification: 0,
         proposed_per_verification: 0,
-        cache_state: "source OS-cache state uncontrolled; application Metal buffers warm after cold dispatch",
-        implementation: "rust_owned_mapped_fp8_metal_blocked_lut_64_lane",
+        cache_state: if direct_checkpoint {
+            "source OS-cache state uncontrolled; cold first dispatch then warm same original-shard mapping"
+        } else {
+            "source OS-cache state uncontrolled; application Metal buffers warm after cold dispatch"
+        },
+        implementation: if direct_checkpoint {
+            "original_safetensors_page_rounded_no_copy_fp8_metal_blocked_lut_64_lane"
+        } else {
+            "rust_owned_mapped_fp8_metal_blocked_lut_64_lane"
+        },
     })
 }
 
@@ -2092,6 +2621,7 @@ fn run_metal_fp8_expert_configured(
         partial_values_per_lane,
         timing_limit_ms,
         minimum_per_position_speedup,
+        direct_checkpoint,
     } = config;
     if threadgroup_batch_factor == 0 || partial_values_per_lane == 0 {
         return Err("Metal expert threadgroup configuration is zero".to_owned());
@@ -2399,15 +2929,109 @@ fn run_metal_fp8_expert_configured(
         .map(|bits| decode_f8_e4m3fn(bits as u8))
         .collect::<Vec<_>>();
 
-    let buffer = |bytes: &[u8]| {
+    let no_copy_regions = if direct_checkpoint {
+        let page_value = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        if page_value <= 0 {
+            return Err("sysconf(_SC_PAGESIZE) failed".to_owned());
+        }
+        let page_bytes = usize::try_from(page_value).map_err(|_| "page size does not fit usize")?;
+        Some((
+            gate_up_mapping.tensor_no_copy_region(GATE, page_bytes)?,
+            gate_up_mapping.tensor_no_copy_region(&format!("{GATE}_scale_inv"), page_bytes)?,
+            gate_up_mapping.tensor_no_copy_region(UP, page_bytes)?,
+            gate_up_mapping.tensor_no_copy_region(&format!("{UP}_scale_inv"), page_bytes)?,
+            down_mapping.tensor_no_copy_region(DOWN, page_bytes)?,
+            down_mapping.tensor_no_copy_region(&format!("{DOWN}_scale_inv"), page_bytes)?,
+        ))
+    } else {
+        None
+    };
+    let copy_buffer = |bytes: &[u8]| {
         device.new_buffer_with_data(bytes.as_ptr().cast(), bytes.len() as u64, shared)
     };
-    let gate_weight_buffer = buffer(gate.weight.bytes);
-    let gate_scale_buffer = buffer(gate.scale.bytes);
-    let up_weight_buffer = buffer(up.weight.bytes);
-    let up_scale_buffer = buffer(up.scale.bytes);
-    let down_weight_buffer = buffer(down.weight.bytes);
-    let down_scale_buffer = buffer(down.scale.bytes);
+    let no_copy_buffer = |region: &MappedNoCopyRegion<'_>| {
+        device.new_buffer_with_bytes_no_copy(
+            region.bytes.as_ptr().cast(),
+            region.bytes.len() as u64,
+            shared,
+            None,
+        )
+    };
+    let (
+        gate_weight_buffer,
+        gate_scale_buffer,
+        up_weight_buffer,
+        up_scale_buffer,
+        down_weight_buffer,
+        down_scale_buffer,
+        source_buffer_offsets,
+        mapped_source_bytes,
+        source_buffer_copy_bytes,
+    ) = if let Some((gate_weight, gate_scale, up_weight, up_scale, down_weight, down_scale)) =
+        no_copy_regions.as_ref()
+    {
+        let source_buffer_offsets = BTreeMap::from([
+            ("gate_weight".to_owned(), gate_weight.tensor_offset),
+            ("gate_scale".to_owned(), gate_scale.tensor_offset),
+            ("up_weight".to_owned(), up_weight.tensor_offset),
+            ("up_scale".to_owned(), up_scale.tensor_offset),
+            ("down_weight".to_owned(), down_weight.tensor_offset),
+            ("down_scale".to_owned(), down_scale.tensor_offset),
+        ]);
+        let mapped_source_bytes = [
+            gate_weight,
+            gate_scale,
+            up_weight,
+            up_scale,
+            down_weight,
+            down_scale,
+        ]
+        .iter()
+        .try_fold(0_u64, |total, region| {
+            total.checked_add(region.bytes.len() as u64)
+        })
+        .ok_or("mapped expert source byte ledger overflow")?;
+        (
+            no_copy_buffer(gate_weight),
+            no_copy_buffer(gate_scale),
+            no_copy_buffer(up_weight),
+            no_copy_buffer(up_scale),
+            no_copy_buffer(down_weight),
+            no_copy_buffer(down_scale),
+            source_buffer_offsets,
+            mapped_source_bytes,
+            0,
+        )
+    } else {
+        let copied = [
+            gate.weight.bytes.len(),
+            gate.scale.bytes.len(),
+            up.weight.bytes.len(),
+            up.scale.bytes.len(),
+            down.weight.bytes.len(),
+            down.scale.bytes.len(),
+        ]
+        .into_iter()
+        .sum::<usize>() as u64;
+        (
+            copy_buffer(gate.weight.bytes),
+            copy_buffer(gate.scale.bytes),
+            copy_buffer(up.weight.bytes),
+            copy_buffer(up.scale.bytes),
+            copy_buffer(down.weight.bytes),
+            copy_buffer(down.scale.bytes),
+            BTreeMap::from([
+                ("gate_weight".to_owned(), 0),
+                ("gate_scale".to_owned(), 0),
+                ("up_weight".to_owned(), 0),
+                ("up_scale".to_owned(), 0),
+                ("down_weight".to_owned(), 0),
+                ("down_scale".to_owned(), 0),
+            ]),
+            copied,
+            copied,
+        )
+    };
     let input_buffer = device.new_buffer_with_data(
         input.as_ptr().cast(),
         std::mem::size_of_val(input.as_slice()) as u64,
@@ -2444,8 +3068,16 @@ fn run_metal_fp8_expert_configured(
         let encoder = command.new_compute_command_encoder();
 
         encoder.set_compute_pipeline_state(&fp8_pipeline);
-        encoder.set_buffer(0, Some(&gate_weight_buffer), 0);
-        encoder.set_buffer(1, Some(&gate_scale_buffer), 0);
+        encoder.set_buffer(
+            0,
+            Some(&gate_weight_buffer),
+            source_buffer_offsets["gate_weight"] as u64,
+        );
+        encoder.set_buffer(
+            1,
+            Some(&gate_scale_buffer),
+            source_buffer_offsets["gate_scale"] as u64,
+        );
         encoder.set_buffer(2, Some(&input_buffer), 0);
         encoder.set_buffer(3, Some(&gate_output), 0);
         encoder.set_buffer(4, Some(&gate_shape_buffer), 0);
@@ -2464,8 +3096,16 @@ fn run_metal_fp8_expert_configured(
             },
         );
 
-        encoder.set_buffer(0, Some(&up_weight_buffer), 0);
-        encoder.set_buffer(1, Some(&up_scale_buffer), 0);
+        encoder.set_buffer(
+            0,
+            Some(&up_weight_buffer),
+            source_buffer_offsets["up_weight"] as u64,
+        );
+        encoder.set_buffer(
+            1,
+            Some(&up_scale_buffer),
+            source_buffer_offsets["up_scale"] as u64,
+        );
         encoder.set_buffer(3, Some(&up_output), 0);
         encoder.dispatch_thread_groups(
             MTLSize {
@@ -2499,8 +3139,16 @@ fn run_metal_fp8_expert_configured(
         );
 
         encoder.set_compute_pipeline_state(&fp8_pipeline);
-        encoder.set_buffer(0, Some(&down_weight_buffer), 0);
-        encoder.set_buffer(1, Some(&down_scale_buffer), 0);
+        encoder.set_buffer(
+            0,
+            Some(&down_weight_buffer),
+            source_buffer_offsets["down_weight"] as u64,
+        );
+        encoder.set_buffer(
+            1,
+            Some(&down_scale_buffer),
+            source_buffer_offsets["down_scale"] as u64,
+        );
         encoder.set_buffer(2, Some(&hidden_output), 0);
         encoder.set_buffer(3, Some(&final_output), 0);
         encoder.set_buffer(4, Some(&down_shape_buffer), 0);
@@ -2662,14 +3310,32 @@ fn run_metal_fp8_expert_configured(
         } else {
             "one serialized command buffer: gate FP8 GEMM8, up FP8 GEMM8, F32 SwiGLU, down FP8 GEMM8"
         },
+        source_buffer_mode: if direct_checkpoint {
+            "original_checkpoint_page_rounded_no_copy"
+        } else {
+            "copied_application_buffers"
+        },
+        source_buffer_offsets,
+        mapped_source_bytes,
+        source_buffer_copy_bytes,
         logical_bytes,
         batch_size: batch_size as u32,
         concurrency: 1,
         accepted_tokens: 0,
-        accepted_per_verification: if batch_size == 8 { 8 } else { 0 },
+        accepted_per_verification: if batch_size == 8 && !direct_checkpoint {
+            8
+        } else {
+            0
+        },
         unique_expert_sets: if batch_size == 8 { 1 } else { 0 },
-        cache_state: "source OS-cache state uncontrolled; source copied into persistent application Metal buffers before timed series",
-        implementation: if batch_size == 1 {
+        cache_state: if direct_checkpoint {
+            "source OS-cache state uncontrolled; cold first dispatch then warm same original-shard mappings"
+        } else {
+            "source OS-cache state uncontrolled; source copied into persistent application Metal buffers before timed series"
+        },
+        implementation: if direct_checkpoint {
+            "original_safetensors_page_rounded_no_copy_source_fp8_complete_expert"
+        } else if batch_size == 1 {
             "rust_owned_metal_source_fp8_complete_expert"
         } else if partial_values_per_lane == 8 {
             "rust_owned_metal_source_fp8_complete_expert_batch8_shared_weight"
@@ -2702,6 +3368,7 @@ pub fn run_metal_fp8_expert(
             partial_values_per_lane: 1,
             timing_limit_ms: 3.0,
             minimum_per_position_speedup: 0.0,
+            direct_checkpoint: false,
         },
     )
 }
@@ -2729,6 +3396,7 @@ pub fn run_metal_fp8_expert_batch8(
             partial_values_per_lane: 1,
             timing_limit_ms: 4.0,
             minimum_per_position_speedup: 2.0,
+            direct_checkpoint: false,
         },
     )
 }
@@ -2756,6 +3424,63 @@ pub fn run_metal_fp8_expert_batch8_shared_weight(
             partial_values_per_lane: 8,
             timing_limit_ms: 3.5,
             minimum_per_position_speedup: 2.5,
+            direct_checkpoint: false,
+        },
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_direct_fp8_expert(
+    gate_up_source: &Path,
+    down_source: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8ExpertReport, String> {
+    run_metal_fp8_expert_configured(
+        gate_up_source,
+        down_source,
+        kernel_path,
+        input_path,
+        reference_path,
+        output_path,
+        MetalExpertConfig {
+            batch_size: 1,
+            fp8_kernel: "block_fp8_gemv_parallel_lut_blocked",
+            threadgroup_batch_factor: 1,
+            partial_values_per_lane: 1,
+            timing_limit_ms: 3.0,
+            minimum_per_position_speedup: 0.0,
+            direct_checkpoint: true,
+        },
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_direct_fp8_expert_batch8_shared_weight(
+    gate_up_source: &Path,
+    down_source: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8ExpertReport, String> {
+    run_metal_fp8_expert_configured(
+        gate_up_source,
+        down_source,
+        kernel_path,
+        input_path,
+        reference_path,
+        output_path,
+        MetalExpertConfig {
+            batch_size: 8,
+            fp8_kernel: "block_fp8_gemm8_shared_weight_lut_blocked",
+            threadgroup_batch_factor: 1,
+            partial_values_per_lane: 8,
+            timing_limit_ms: 3.5,
+            minimum_per_position_speedup: 2.5,
+            direct_checkpoint: true,
         },
     )
 }
@@ -2783,6 +3508,11 @@ pub fn run_metal_fp8_moe_block(
             simdgroup_matrix: false,
             candidate_input_error: None,
             cpu_blas_projection: false,
+            direct_checkpoint: false,
+            source_bf16: false,
+            source_silu_lut: false,
+            projection_lanes: 64,
+            checkpoint_verification_path: None,
         },
     )
 }
@@ -2811,6 +3541,11 @@ pub fn run_metal_dynamic_fp8_moe_block(
             simdgroup_matrix: false,
             candidate_input_error: None,
             cpu_blas_projection: false,
+            direct_checkpoint: false,
+            source_bf16: false,
+            source_silu_lut: false,
+            projection_lanes: 64,
+            checkpoint_verification_path: None,
         },
     )
 }
@@ -2879,6 +3614,11 @@ pub fn run_metal_dynamic_real_attention_fp8_moe_block(
             simdgroup_matrix: false,
             candidate_input_error: Some(candidate_input_error),
             cpu_blas_projection: true,
+            direct_checkpoint: false,
+            source_bf16: false,
+            source_silu_lut: false,
+            projection_lanes: 64,
+            checkpoint_verification_path: None,
         },
     )
 }
@@ -3023,6 +3763,11 @@ pub fn run_metal_union_parallel_fp8_moe_block(
             simdgroup_matrix: false,
             candidate_input_error: None,
             cpu_blas_projection: false,
+            direct_checkpoint: false,
+            source_bf16: false,
+            source_silu_lut: false,
+            projection_lanes: 64,
+            checkpoint_verification_path: None,
         },
     )
 }
@@ -3051,6 +3796,11 @@ pub fn run_metal_fused_gate_up_fp8_moe_block(
             simdgroup_matrix: false,
             candidate_input_error: None,
             cpu_blas_projection: false,
+            direct_checkpoint: false,
+            source_bf16: false,
+            source_silu_lut: false,
+            projection_lanes: 64,
+            checkpoint_verification_path: None,
         },
     )
 }
@@ -3079,6 +3829,144 @@ pub fn run_metal_simdgroup_matrix_fp8_moe_block(
             simdgroup_matrix: true,
             candidate_input_error: None,
             cpu_blas_projection: false,
+            direct_checkpoint: false,
+            source_bf16: false,
+            source_silu_lut: false,
+            projection_lanes: 64,
+            checkpoint_verification_path: None,
+        },
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_direct_route_replay_fp8_moe_block(
+    manifest_path: &Path,
+    checkpoint_root: &Path,
+    checkpoint_verification_path: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8MoeReport, String> {
+    run_metal_fp8_moe_block_impl(
+        manifest_path,
+        checkpoint_root,
+        kernel_path,
+        input_path,
+        reference_path,
+        output_path,
+        MoeExecutionMode {
+            dynamic_router_path: None,
+            union_parallel: false,
+            fused_gate_up: false,
+            simdgroup_matrix: false,
+            candidate_input_error: None,
+            cpu_blas_projection: false,
+            direct_checkpoint: true,
+            source_bf16: false,
+            source_silu_lut: false,
+            projection_lanes: 64,
+            checkpoint_verification_path: Some(checkpoint_verification_path),
+        },
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_direct_source_bf16_route_replay_fp8_moe_block(
+    manifest_path: &Path,
+    checkpoint_root: &Path,
+    checkpoint_verification_path: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8MoeReport, String> {
+    run_metal_fp8_moe_block_impl(
+        manifest_path,
+        checkpoint_root,
+        kernel_path,
+        input_path,
+        reference_path,
+        output_path,
+        MoeExecutionMode {
+            dynamic_router_path: None,
+            union_parallel: false,
+            fused_gate_up: false,
+            simdgroup_matrix: false,
+            candidate_input_error: None,
+            cpu_blas_projection: false,
+            direct_checkpoint: true,
+            source_bf16: true,
+            source_silu_lut: false,
+            projection_lanes: 64,
+            checkpoint_verification_path: Some(checkpoint_verification_path),
+        },
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_direct_source_bf16_silu_lut_route_replay_fp8_moe_block(
+    manifest_path: &Path,
+    checkpoint_root: &Path,
+    checkpoint_verification_path: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+) -> Result<MetalFp8MoeReport, String> {
+    run_metal_fp8_moe_block_impl(
+        manifest_path,
+        checkpoint_root,
+        kernel_path,
+        input_path,
+        reference_path,
+        output_path,
+        MoeExecutionMode {
+            dynamic_router_path: None,
+            union_parallel: false,
+            fused_gate_up: false,
+            simdgroup_matrix: false,
+            candidate_input_error: None,
+            cpu_blas_projection: false,
+            direct_checkpoint: true,
+            source_bf16: true,
+            source_silu_lut: true,
+            projection_lanes: 64,
+            checkpoint_verification_path: Some(checkpoint_verification_path),
+        },
+    )
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_metal_direct_source_bf16_reduction_width_fp8_moe_block(
+    manifest_path: &Path,
+    checkpoint_root: &Path,
+    checkpoint_verification_path: &Path,
+    kernel_path: &Path,
+    input_path: &Path,
+    reference_path: &Path,
+    output_path: &Path,
+    projection_lanes: u64,
+) -> Result<MetalFp8MoeReport, String> {
+    run_metal_fp8_moe_block_impl(
+        manifest_path,
+        checkpoint_root,
+        kernel_path,
+        input_path,
+        reference_path,
+        output_path,
+        MoeExecutionMode {
+            dynamic_router_path: None,
+            union_parallel: false,
+            fused_gate_up: false,
+            simdgroup_matrix: false,
+            candidate_input_error: None,
+            cpu_blas_projection: false,
+            direct_checkpoint: true,
+            source_bf16: true,
+            source_silu_lut: false,
+            projection_lanes,
+            checkpoint_verification_path: Some(checkpoint_verification_path),
         },
     )
 }
@@ -3091,6 +3979,11 @@ struct MoeExecutionMode<'a> {
     simdgroup_matrix: bool,
     candidate_input_error: Option<(f64, f32)>,
     cpu_blas_projection: bool,
+    direct_checkpoint: bool,
+    source_bf16: bool,
+    source_silu_lut: bool,
+    projection_lanes: u64,
+    checkpoint_verification_path: Option<&'a Path>,
 }
 
 #[cfg(target_os = "macos")]
@@ -3117,6 +4010,10 @@ fn run_metal_fp8_moe_block_impl(
     const UNION_EXPERT_KERNEL: &str = "block_fp8_expert_union_gemm8_shared_weight_lut_blocked";
     const FUSED_GATE_UP_KERNEL: &str = "block_fp8_gemm8_fused_gate_up_lut_blocked";
     const SIMDGROUP_MATRIX_KERNEL: &str = "block_fp8_gemm8_simdgroup_matrix_lut_blocked";
+    const DYNAMIC_FP8_KERNEL: &str = "dynamic_fp8_dequantized_group128";
+    const SOURCE_SWIGLU_KERNEL: &str = "bf16_staged_swiglu";
+    const SOURCE_SWIGLU_LUT_KERNEL: &str = "bf16_staged_swiglu_lut";
+    const BF16_ROUND_KERNEL: &str = "bf16_round_in_place";
     const ROUTER_SHA256: &str = "12c1579d28b78dd69ec9342eb9d1f378efc5aa3c2f2a28b5ec73578e6a8bbcdd";
     const ROUTER_WEIGHT: &str = "model.layers.43.mlp.gate.weight";
     const ROUTER_BIAS: &str = "model.layers.43.mlp.gate.e_score_correction_bias";
@@ -3153,8 +4050,17 @@ fn run_metal_fp8_moe_block_impl(
     let real_attention_fixture = manifest.semantic
         == "mimo_layer43_real_attention_dynamic_source_fp8_moe_block"
         && manifest.scheduling == "independent_real_attention_source_routes";
+    let pw0187_route_replay = manifest.semantic
+        == "mimo_layer43_pw0187_static_routes_direct_checkpoint_l3_moe_block"
+        && manifest.scheduling == "pw0187_static_route_replay_l3";
+    let pw0187_source_route_replay = manifest.semantic
+        == "mimo_layer43_pw0187_static_routes_direct_checkpoint_source_bf16_moe_block"
+        && manifest.scheduling == "pw0187_static_route_replay_source_bf16";
     if manifest.schema_version != 1
-        || (!frozen_fixture && !real_attention_fixture)
+        || (!frozen_fixture
+            && !real_attention_fixture
+            && !pw0187_route_replay
+            && !pw0187_source_route_replay)
         || manifest.revision != REVISION
         || manifest.layer != 43
         || manifest.batch_size != BATCH
@@ -3164,6 +4070,10 @@ fn run_metal_fp8_moe_block_impl(
         || manifest.experts.len() > manifest.real_expert_positions
         || manifest.padded_expert_positions != manifest.experts.len() * BATCH
         || (real_attention_fixture && mode.dynamic_router_path.is_none())
+        || (pw0187_route_replay && !mode.direct_checkpoint)
+        || (pw0187_source_route_replay && (!mode.direct_checkpoint || !mode.source_bf16))
+        || (mode.source_bf16 && !pw0187_source_route_replay)
+        || (mode.direct_checkpoint && mode.checkpoint_verification_path.is_none())
     {
         return Err("unknown heterogeneous MoE manifest identity".to_owned());
     }
@@ -3245,15 +4155,114 @@ fn run_metal_fp8_moe_block_impl(
         Ok(artifact_root.join(relative))
     };
     let mut verified_artifacts = BTreeSet::new();
+    let (checkpoint_records, checkpoint_device_transition) = if let Some(verification_path) =
+        mode.checkpoint_verification_path
+    {
+        use std::os::unix::fs::MetadataExt;
+        const CHECKPOINT_VERIFICATION_SHA256: &str =
+            "9ddc8a99755f04ae2ea3c2484f6dd022d3f3a681b5a72c915ee4de833dbb0d03";
+        let bytes = fs::read(verification_path)
+            .map_err(|error| format!("{}: {error}", verification_path.display()))?;
+        if sha256_hex(&bytes) != CHECKPOINT_VERIFICATION_SHA256 {
+            return Err("checkpoint-verification SHA-256 mismatch".to_owned());
+        }
+        let unique: UniqueJson = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("checkpoint verification: {error}"))?;
+        let root = require_object(&unique.0, "checkpoint verification")?;
+        if root.get("complete").and_then(Value::as_bool) != Some(true)
+            || root.get("revision").and_then(Value::as_str) != Some(REVISION)
+        {
+            return Err("checkpoint-verification identity mismatch".to_owned());
+        }
+        let files = root
+            .get("files")
+            .and_then(Value::as_array)
+            .ok_or("checkpoint verification lacks files")?;
+        let mut records = BTreeMap::new();
+        for record in files {
+            let record = require_object(record, "checkpoint file record")?;
+            if record.get("status").and_then(Value::as_str) != Some("verified") {
+                continue;
+            }
+            let name = record
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or("checkpoint record lacks path")?;
+            let hash = record
+                .get("sha256")
+                .and_then(Value::as_str)
+                .ok_or("checkpoint record lacks SHA-256")?;
+            let bytes = record
+                .get("bytes")
+                .and_then(Value::as_u64)
+                .ok_or("checkpoint record lacks byte count")?;
+            let device = record
+                .get("device")
+                .and_then(Value::as_u64)
+                .ok_or("checkpoint record lacks device")?;
+            let inode = record
+                .get("inode")
+                .and_then(Value::as_u64)
+                .ok_or("checkpoint record lacks inode")?;
+            let modified_ns = record
+                .get("modified_ns")
+                .and_then(Value::as_i64)
+                .ok_or("checkpoint record lacks modification time")?;
+            if records
+                .insert(
+                    name.to_owned(),
+                    (hash.to_owned(), bytes, device, inode, modified_ns),
+                )
+                .is_some()
+            {
+                return Err(format!("duplicate checkpoint record: {name}"));
+            }
+        }
+        let mut device_transitions = BTreeSet::new();
+        for (name, expected_hash) in &manifest.artifact_sha256 {
+            let record = records
+                .get(name)
+                .ok_or_else(|| format!("checkpoint authority lacks artifact: {name}"))?;
+            if &record.0 != expected_hash {
+                return Err(format!("checkpoint authority SHA mismatch: {name}"));
+            }
+            let path = resolve_artifact(name)?;
+            let metadata =
+                fs::metadata(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+            let actual_modified_ns = metadata
+                .mtime()
+                .checked_mul(1_000_000_000)
+                .and_then(|value| value.checked_add(metadata.mtime_nsec()))
+                .ok_or("checkpoint modification time overflow")?;
+            device_transitions.insert((record.2, metadata.dev()));
+            if metadata.len() != record.1
+                || metadata.ino() != record.3
+                || actual_modified_ns != record.4
+            {
+                return Err(format!("checkpoint file identity changed: {name}"));
+            }
+        }
+        if device_transitions.len() != 1 {
+            return Err(
+                "checkpoint files do not share one recorded/current device transition".to_owned(),
+            );
+        }
+        (Some(records), device_transitions.into_iter().next())
+    } else {
+        (None, None)
+    };
     for (name, expected_hash) in &manifest.artifact_sha256 {
         if expected_hash.len() != 64 || !expected_hash.bytes().all(|byte| byte.is_ascii_hexdigit())
         {
             return Err(format!("invalid artifact SHA-256: {name}"));
         }
-        let path = resolve_artifact(name)?;
-        let mut file = File::open(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-        if sha256_reader(&mut file)? != *expected_hash {
-            return Err(format!("artifact SHA-256 mismatch: {name}"));
+        if checkpoint_records.is_none() {
+            let path = resolve_artifact(name)?;
+            let mut file =
+                File::open(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+            if sha256_reader(&mut file)? != *expected_hash {
+                return Err(format!("artifact SHA-256 mismatch: {name}"));
+            }
         }
         verified_artifacts.insert(name.clone());
     }
@@ -3321,9 +4330,19 @@ fn run_metal_fp8_moe_block_impl(
 
     let kernel_source = fs::read_to_string(kernel_path)
         .map_err(|error| format!("{}: {error}", kernel_path.display()))?;
-    let expert_kernel = EXPERT_KERNEL;
-    let expert_threadgroup_width = LANES;
-    let mut required_kernels = vec![expert_kernel, SWIGLU_KERNEL, SCATTER_KERNEL];
+    let expert_kernel = if mode.direct_checkpoint {
+        "compile_time_specialized_width_1_to_8"
+    } else {
+        EXPERT_KERNEL
+    };
+    let expert_threadgroup_width = mode.projection_lanes;
+    if !matches!(expert_threadgroup_width, 16 | 32 | 64 | 128 | 256) {
+        return Err("projection lanes must be one of 16, 32, 64, 128, 256".to_owned());
+    }
+    let mut required_kernels = vec![SWIGLU_KERNEL, SCATTER_KERNEL];
+    if !mode.direct_checkpoint {
+        required_kernels.push(expert_kernel);
+    }
     if dynamic_router_source.is_some() {
         required_kernels.push(ROUTER_KERNEL);
     }
@@ -3335,6 +4354,12 @@ fn run_metal_fp8_moe_block_impl(
     }
     if mode.simdgroup_matrix {
         required_kernels.push(SIMDGROUP_MATRIX_KERNEL);
+    }
+    if mode.source_bf16 {
+        required_kernels.extend([DYNAMIC_FP8_KERNEL, SOURCE_SWIGLU_KERNEL, BF16_ROUND_KERNEL]);
+    }
+    if mode.source_silu_lut {
+        required_kernels.push(SOURCE_SWIGLU_LUT_KERNEL);
     }
     for function in required_kernels {
         if !kernel_source.contains(&format!("kernel void {function}")) {
@@ -3356,24 +4381,70 @@ fn run_metal_fp8_moe_block_impl(
     let library = device
         .new_library_with_source(&kernel_source, &options)
         .map_err(|error| format!("Metal compilation failed: {error}"))?;
-    let expert_function = library
-        .get_function(expert_kernel, None)
-        .map_err(|error| format!("expert kernel: {error}"))?;
+    let expert_pipelines = if mode.direct_checkpoint {
+        (1..=BATCH)
+            .map(|width| {
+                let name = format!("block_fp8_gemm{width}_shared_weight_lut_blocked");
+                let function = library
+                    .get_function(&name, None)
+                    .map_err(|error| format!("specialized expert kernel {width}: {error}"))?;
+                device
+                    .new_compute_pipeline_state_with_function(&function)
+                    .map_err(|error| format!("specialized expert pipeline {width}: {error}"))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    } else {
+        let function = library
+            .get_function(expert_kernel, None)
+            .map_err(|error| format!("expert kernel: {error}"))?;
+        vec![
+            device
+                .new_compute_pipeline_state_with_function(&function)
+                .map_err(|error| format!("expert pipeline: {error}"))?,
+        ]
+    };
+    let expert_pipeline = &expert_pipelines[0];
     let swiglu_function = library
         .get_function(SWIGLU_KERNEL, None)
         .map_err(|error| format!("SwiGLU kernel: {error}"))?;
     let scatter_function = library
         .get_function(SCATTER_KERNEL, None)
         .map_err(|error| format!("scatter kernel: {error}"))?;
-    let expert_pipeline = device
-        .new_compute_pipeline_state_with_function(&expert_function)
-        .map_err(|error| format!("expert pipeline: {error}"))?;
     let swiglu_pipeline = device
         .new_compute_pipeline_state_with_function(&swiglu_function)
         .map_err(|error| format!("SwiGLU pipeline: {error}"))?;
     let scatter_pipeline = device
         .new_compute_pipeline_state_with_function(&scatter_function)
         .map_err(|error| format!("scatter pipeline: {error}"))?;
+    let source_pipelines = if mode.source_bf16 {
+        let make = |name: &str| -> Result<metal::ComputePipelineState, String> {
+            let function = library
+                .get_function(name, None)
+                .map_err(|error| format!("{name} kernel: {error}"))?;
+            device
+                .new_compute_pipeline_state_with_function(&function)
+                .map_err(|error| format!("{name} pipeline: {error}"))
+        };
+        Some((
+            make(DYNAMIC_FP8_KERNEL)?,
+            make(SOURCE_SWIGLU_KERNEL)?,
+            make(BF16_ROUND_KERNEL)?,
+        ))
+    } else {
+        None
+    };
+    let source_silu_lut_pipeline = if mode.source_silu_lut {
+        let function = library
+            .get_function(SOURCE_SWIGLU_LUT_KERNEL, None)
+            .map_err(|error| format!("{SOURCE_SWIGLU_LUT_KERNEL} kernel: {error}"))?;
+        Some(
+            device
+                .new_compute_pipeline_state_with_function(&function)
+                .map_err(|error| format!("{SOURCE_SWIGLU_LUT_KERNEL} pipeline: {error}"))?,
+        )
+    } else {
+        None
+    };
     let router_pipeline = if dynamic_router_source.is_some() {
         let function = library
             .get_function(ROUTER_KERNEL, None)
@@ -3557,6 +4628,122 @@ fn run_metal_fp8_moe_block_impl(
         } else {
             None
         };
+
+    let active_count_kernel_fixture_maximum_absolute_error = if mode.direct_checkpoint {
+        #[repr(C)]
+        struct FixtureShape {
+            rows: u32,
+            columns: u32,
+            block_rows: u32,
+            block_columns: u32,
+        }
+        const ROWS: usize = 128;
+        const COLUMNS: usize = 128;
+        let weights = (0..ROWS * COLUMNS)
+            .map(|index| if index % 3 == 0 { 0xb8_u8 } else { 0x38_u8 })
+            .collect::<Vec<_>>();
+        let scales = [0.5_f32];
+        let input = (0..BATCH * COLUMNS)
+            .map(|index| ((index % 13) as f32 - 6.0) * 0.01)
+            .collect::<Vec<_>>();
+        let shape = FixtureShape {
+            rows: ROWS as u32,
+            columns: COLUMNS as u32,
+            block_rows: 128,
+            block_columns: 128,
+        };
+        let lut = (0_u16..=255)
+            .map(|bits| decode_f8_e4m3fn(bits as u8))
+            .collect::<Vec<_>>();
+        let weight_buffer =
+            device.new_buffer_with_data(weights.as_ptr().cast(), weights.len() as u64, shared);
+        let scale_buffer = device.new_buffer_with_data(
+            scales.as_ptr().cast(),
+            std::mem::size_of_val(&scales) as u64,
+            shared,
+        );
+        let input_buffer = device.new_buffer_with_data(
+            input.as_ptr().cast(),
+            std::mem::size_of_val(input.as_slice()) as u64,
+            shared,
+        );
+        let shape_buffer = device.new_buffer_with_data(
+            (&shape as *const FixtureShape).cast(),
+            std::mem::size_of::<FixtureShape>() as u64,
+            shared,
+        );
+        let lut_buffer = device.new_buffer_with_data(
+            lut.as_ptr().cast(),
+            std::mem::size_of_val(lut.as_slice()) as u64,
+            shared,
+        );
+        let mut maximum = 0.0_f32;
+        for active in 1..=BATCH {
+            let mut expected = vec![0.0_f32; BATCH * ROWS];
+            for position in 0..active {
+                for row in 0..ROWS {
+                    for column in 0..COLUMNS {
+                        expected[position * ROWS + row] +=
+                            decode_f8_e4m3fn(weights[row * COLUMNS + column])
+                                * scales[0]
+                                * input[position * COLUMNS + column];
+                    }
+                }
+            }
+            let zero_output = vec![0.0_f32; BATCH * ROWS];
+            let output_buffer = device.new_buffer_with_data(
+                zero_output.as_ptr().cast(),
+                std::mem::size_of_val(zero_output.as_slice()) as u64,
+                shared,
+            );
+            let command = queue.new_command_buffer();
+            let encoder = command.new_compute_command_encoder();
+            encoder.set_compute_pipeline_state(&expert_pipelines[active - 1]);
+            encoder.set_buffer(0, Some(&weight_buffer), 0);
+            encoder.set_buffer(1, Some(&scale_buffer), 0);
+            encoder.set_buffer(2, Some(&input_buffer), 0);
+            encoder.set_buffer(3, Some(&output_buffer), 0);
+            encoder.set_buffer(4, Some(&shape_buffer), 0);
+            encoder.set_buffer(5, Some(&lut_buffer), 0);
+            encoder.set_threadgroup_memory_length(0, LANES * active as u64 * 4);
+            encoder.dispatch_thread_groups(
+                MTLSize {
+                    width: ROWS as u64,
+                    height: 1,
+                    depth: 1,
+                },
+                MTLSize {
+                    width: LANES,
+                    height: 1,
+                    depth: 1,
+                },
+            );
+            encoder.end_encoding();
+            command.commit();
+            command.wait_until_completed();
+            if command.status() != MTLCommandBufferStatus::Completed {
+                return Err(format!("specialized-width {active} fixture command failed"));
+            }
+            let actual = unsafe {
+                std::slice::from_raw_parts(output_buffer.contents().cast::<f32>(), expected.len())
+            };
+            maximum = maximum.max(
+                actual
+                    .iter()
+                    .zip(&expected)
+                    .map(|(&candidate, &reference)| (candidate - reference).abs())
+                    .fold(0.0_f32, f32::max),
+            );
+            if actual.iter().any(|value| !value.is_finite()) || maximum > 2.0e-5 {
+                return Err(format!(
+                    "specialized-width {active} fixture failed: {maximum}"
+                ));
+            }
+        }
+        Some(maximum)
+    } else {
+        None
+    };
 
     let fused_gate_up_fixture_maximum_absolute_error = if let Some(pipeline) =
         fused_gate_up_pipeline.as_ref()
@@ -3883,6 +5070,153 @@ fn run_metal_fp8_moe_block_impl(
             "scatter fixture failed: {scatter_fixture_maximum_absolute_error}"
         ));
     }
+    let source_semantic_fixture_maximum_absolute_error =
+        if let Some((_, _, round_pipeline)) = source_pipelines.as_ref() {
+            let mut values = vec![
+                0.0_f32, -0.0, 1.00390625, 1.01171875, -2.0078125, 123.456, -0.0001234, 65504.0,
+            ];
+            let mut expected = values.clone();
+            text_endpoint::round_bf16_values(&mut expected);
+            let count = values.len() as u32;
+            let value_buffer = device.new_buffer_with_data(
+                values.as_ptr().cast(),
+                std::mem::size_of_val(values.as_slice()) as u64,
+                shared,
+            );
+            let count_buffer = device.new_buffer_with_data(
+                (&count as *const u32).cast(),
+                std::mem::size_of::<u32>() as u64,
+                shared,
+            );
+            let zero = 0_u32;
+            let error_buffer = device.new_buffer_with_data(
+                (&zero as *const u32).cast(),
+                std::mem::size_of::<u32>() as u64,
+                shared,
+            );
+            let command = queue.new_command_buffer();
+            let encoder = command.new_compute_command_encoder();
+            encoder.set_compute_pipeline_state(round_pipeline);
+            encoder.set_buffer(0, Some(&value_buffer), 0);
+            encoder.set_buffer(1, Some(&count_buffer), 0);
+            encoder.set_buffer(2, Some(&error_buffer), 0);
+            encoder.dispatch_threads(
+                MTLSize {
+                    width: count as u64,
+                    height: 1,
+                    depth: 1,
+                },
+                MTLSize {
+                    width: count as u64,
+                    height: 1,
+                    depth: 1,
+                },
+            );
+            encoder.end_encoding();
+            command.commit();
+            command.wait_until_completed();
+            if command.status() != MTLCommandBufferStatus::Completed {
+                return Err("source BF16 fixture command failed".to_owned());
+            }
+            let error = unsafe { *error_buffer.contents().cast::<u32>() };
+            let actual = unsafe {
+                std::slice::from_raw_parts(value_buffer.contents().cast::<f32>(), values.len())
+            };
+            let maximum = actual
+                .iter()
+                .zip(&expected)
+                .map(|(&candidate, &reference)| (candidate - reference).abs())
+                .fold(0.0_f32, f32::max);
+            if error != 0 || maximum != 0.0 {
+                return Err(format!(
+                    "source BF16 fixture failed: flags {error}, max {maximum}"
+                ));
+            }
+            if let Some(lut_pipeline) = source_silu_lut_pipeline.as_ref() {
+                let mut gate = vec![-8.0_f32, -1.25, -0.0, 0.0, 0.5, 1.0, 3.5, 8.0];
+                let mut up = vec![0.25_f32, -2.0, 3.0, -4.0, 1.5, -0.75, 2.25, -0.5];
+                text_endpoint::round_bf16_values(&mut gate);
+                text_endpoint::round_bf16_values(&mut up);
+                let mut silu_lut = (0_u32..=u16::MAX as u32)
+                    .map(|bits| {
+                        let value = f32::from_bits(bits << 16);
+                        if value.is_finite() {
+                            value / (1.0 + (-value).exp())
+                        } else {
+                            0.0
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                text_endpoint::round_bf16_values(&mut silu_lut);
+                let mut expected_hidden = gate
+                    .iter()
+                    .zip(&up)
+                    .map(|(&gate, &up)| silu_lut[(gate.to_bits() >> 16) as usize] * up)
+                    .collect::<Vec<_>>();
+                text_endpoint::round_bf16_values(&mut expected_hidden);
+                let gate_buffer = device.new_buffer_with_data(
+                    gate.as_ptr().cast(),
+                    std::mem::size_of_val(gate.as_slice()) as u64,
+                    shared,
+                );
+                let up_buffer = device.new_buffer_with_data(
+                    up.as_ptr().cast(),
+                    std::mem::size_of_val(up.as_slice()) as u64,
+                    shared,
+                );
+                let hidden_buffer = device.new_buffer((gate.len() * 4) as u64, shared);
+                let lut_buffer = device.new_buffer_with_data(
+                    silu_lut.as_ptr().cast(),
+                    std::mem::size_of_val(silu_lut.as_slice()) as u64,
+                    shared,
+                );
+                let command = queue.new_command_buffer();
+                let encoder = command.new_compute_command_encoder();
+                encoder.set_compute_pipeline_state(lut_pipeline);
+                encoder.set_buffer(0, Some(&gate_buffer), 0);
+                encoder.set_buffer(1, Some(&up_buffer), 0);
+                encoder.set_buffer(2, Some(&hidden_buffer), 0);
+                encoder.set_buffer(3, Some(&count_buffer), 0);
+                encoder.set_buffer(4, Some(&error_buffer), 0);
+                encoder.set_buffer(5, Some(&lut_buffer), 0);
+                encoder.dispatch_threads(
+                    MTLSize {
+                        width: count as u64,
+                        height: 1,
+                        depth: 1,
+                    },
+                    MTLSize {
+                        width: count as u64,
+                        height: 1,
+                        depth: 1,
+                    },
+                );
+                encoder.end_encoding();
+                command.commit();
+                command.wait_until_completed();
+                let hidden = unsafe {
+                    std::slice::from_raw_parts(hidden_buffer.contents().cast::<f32>(), gate.len())
+                };
+                let lut_maximum = hidden
+                    .iter()
+                    .zip(&expected_hidden)
+                    .map(|(&candidate, &reference)| (candidate - reference).abs())
+                    .fold(0.0_f32, f32::max);
+                let error = unsafe { *error_buffer.contents().cast::<u32>() };
+                if command.status() != MTLCommandBufferStatus::Completed
+                    || error != 0
+                    || lut_maximum != 0.0
+                {
+                    return Err(format!(
+                        "source SwiGLU LUT fixture failed: flags {error}, max {lut_maximum}"
+                    ));
+                }
+            }
+            values.clear();
+            Some(maximum)
+        } else {
+            None
+        };
 
     #[repr(C)]
     struct GemvShape {
@@ -3901,9 +5235,12 @@ fn run_metal_fp8_moe_block_impl(
         up_scale: metal::Buffer,
         down_weight: metal::Buffer,
         down_scale: metal::Buffer,
+        source_offsets: [u64; 6],
         route_weights: metal::Buffer,
         positions: metal::Buffer,
         scatter_shape: metal::Buffer,
+        active_hidden_count: metal::Buffer,
+        active_output_count: metal::Buffer,
         cpu_gate_weight: Option<Vec<f32>>,
         cpu_up_weight: Option<Vec<f32>>,
         cpu_down_weight: Option<Vec<f32>>,
@@ -3944,6 +5281,36 @@ fn run_metal_fp8_moe_block_impl(
         std::mem::size_of_val(decode_lut.as_slice()) as u64,
         shared,
     );
+    let source_silu_lut = if mode.source_silu_lut {
+        let mut values = (0_u32..=u16::MAX as u32)
+            .map(|bits| {
+                let value = f32::from_bits(bits << 16);
+                if value.is_finite() {
+                    value / (1.0 + (-value).exp())
+                } else {
+                    0.0
+                }
+            })
+            .collect::<Vec<_>>();
+        text_endpoint::round_bf16_values(&mut values);
+        Some(values)
+    } else {
+        None
+    };
+    let source_silu_lut_sha256 = source_silu_lut.as_ref().map(|values| {
+        let bytes = values
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect::<Vec<_>>();
+        sha256_hex(&bytes)
+    });
+    let source_silu_lut_buffer = source_silu_lut.as_ref().map(|values| {
+        device.new_buffer_with_data(
+            values.as_ptr().cast(),
+            std::mem::size_of_val(values.as_slice()) as u64,
+            shared,
+        )
+    });
     struct DynamicRouterBuffers {
         weight: metal::Buffer,
         input: metal::Buffer,
@@ -3985,6 +5352,17 @@ fn run_metal_fp8_moe_block_impl(
     let mut packed_down_weights = Vec::new();
     let mut packed_down_scales = Vec::new();
     let mut logical_source_bytes = 0_u64;
+    let mut mapped_source_bytes = 0_u64;
+    let mut source_mappings = Vec::<MappedSafetensors>::new();
+    let direct_page_bytes = if mode.direct_checkpoint {
+        let value = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        if value <= 0 {
+            return Err("sysconf(_SC_PAGESIZE) failed".to_owned());
+        }
+        usize::try_from(value).map_err(|_| "page size does not fit usize")?
+    } else {
+        0
+    };
     let mut expert_position_counts = BTreeMap::new();
     for entry in &manifest.experts {
         let open_tensor_file = |key: &str| -> Result<MappedSafetensors, String> {
@@ -4039,14 +5417,93 @@ fn run_metal_fp8_moe_block_impl(
                 .checked_add(bytes)
                 .ok_or("MoE logical source bytes overflow")?;
         }
-        packed_gate_weights.extend_from_slice(gate.weight.bytes);
-        packed_gate_scales.extend_from_slice(gate.scale.bytes);
-        packed_up_weights.extend_from_slice(up.weight.bytes);
-        packed_up_scales.extend_from_slice(up.scale.bytes);
-        packed_down_weights.extend_from_slice(down.weight.bytes);
-        packed_down_scales.extend_from_slice(down.scale.bytes);
+        if mode.union_parallel || mode.cpu_blas_projection {
+            packed_gate_weights.extend_from_slice(gate.weight.bytes);
+            packed_gate_scales.extend_from_slice(gate.scale.bytes);
+            packed_up_weights.extend_from_slice(up.weight.bytes);
+            packed_up_scales.extend_from_slice(up.scale.bytes);
+            packed_down_weights.extend_from_slice(down.weight.bytes);
+            packed_down_scales.extend_from_slice(down.scale.bytes);
+        }
         let make_buffer = |bytes: &[u8]| {
             device.new_buffer_with_data(bytes.as_ptr().cast(), bytes.len() as u64, shared)
+        };
+        let cpu_gate_weight = mode
+            .cpu_blas_projection
+            .then(|| decode_fp8_matrix_f32(&gate));
+        let cpu_up_weight = mode.cpu_blas_projection.then(|| decode_fp8_matrix_f32(&up));
+        let cpu_down_weight = mode
+            .cpu_blas_projection
+            .then(|| decode_fp8_matrix_f32(&down));
+        let (
+            gate_weight_buffer,
+            gate_scale_buffer,
+            up_weight_buffer,
+            up_scale_buffer,
+            down_weight_buffer,
+            down_scale_buffer,
+            source_offsets,
+        ) = if mode.direct_checkpoint {
+            let gate_weight_region =
+                gate_weight_mapping.tensor_no_copy_region(&gate_name, direct_page_bytes)?;
+            let gate_scale_region = gate_scale_mapping
+                .tensor_no_copy_region(&format!("{gate_name}_scale_inv"), direct_page_bytes)?;
+            let up_weight_region =
+                up_weight_mapping.tensor_no_copy_region(&up_name, direct_page_bytes)?;
+            let up_scale_region = up_scale_mapping
+                .tensor_no_copy_region(&format!("{up_name}_scale_inv"), direct_page_bytes)?;
+            let down_weight_region =
+                down_weight_mapping.tensor_no_copy_region(&down_name, direct_page_bytes)?;
+            let down_scale_region = down_scale_mapping
+                .tensor_no_copy_region(&format!("{down_name}_scale_inv"), direct_page_bytes)?;
+            let regions = [
+                &gate_weight_region,
+                &gate_scale_region,
+                &up_weight_region,
+                &up_scale_region,
+                &down_weight_region,
+                &down_scale_region,
+            ];
+            mapped_source_bytes = regions
+                .iter()
+                .try_fold(mapped_source_bytes, |total, region| {
+                    total.checked_add(region.bytes.len() as u64)
+                })
+                .ok_or("mapped MoE source byte ledger overflow")?;
+            let no_copy = |region: &MappedNoCopyRegion<'_>| {
+                device.new_buffer_with_bytes_no_copy(
+                    region.bytes.as_ptr().cast(),
+                    region.bytes.len() as u64,
+                    shared,
+                    None,
+                )
+            };
+            (
+                no_copy(&gate_weight_region),
+                no_copy(&gate_scale_region),
+                no_copy(&up_weight_region),
+                no_copy(&up_scale_region),
+                no_copy(&down_weight_region),
+                no_copy(&down_scale_region),
+                [
+                    gate_weight_region.tensor_offset as u64,
+                    gate_scale_region.tensor_offset as u64,
+                    up_weight_region.tensor_offset as u64,
+                    up_scale_region.tensor_offset as u64,
+                    down_weight_region.tensor_offset as u64,
+                    down_scale_region.tensor_offset as u64,
+                ],
+            )
+        } else {
+            (
+                make_buffer(gate.weight.bytes),
+                make_buffer(gate.scale.bytes),
+                make_buffer(up.weight.bytes),
+                make_buffer(up.scale.bytes),
+                make_buffer(down.weight.bytes),
+                make_buffer(down.scale.bytes),
+                [0; 6],
+            )
         };
         let mut gathered = vec![0.0_f32; BATCH * HIDDEN];
         for (local, position) in entry.positions.iter().enumerate() {
@@ -4061,6 +5518,8 @@ fn run_metal_fp8_moe_block_impl(
             count: entry.positions.len() as u32,
             width: HIDDEN as u32,
         };
+        let active_hidden_count = (entry.positions.len() * INTERMEDIATE) as u32;
+        let active_output_count = (entry.positions.len() * HIDDEN) as u32;
         experts.push(ExpertBuffers {
             expert: entry.expert,
             count: entry.positions.len(),
@@ -4069,12 +5528,13 @@ fn run_metal_fp8_moe_block_impl(
                 std::mem::size_of_val(gathered.as_slice()) as u64,
                 shared,
             ),
-            gate_weight: make_buffer(gate.weight.bytes),
-            gate_scale: make_buffer(gate.scale.bytes),
-            up_weight: make_buffer(up.weight.bytes),
-            up_scale: make_buffer(up.scale.bytes),
-            down_weight: make_buffer(down.weight.bytes),
-            down_scale: make_buffer(down.scale.bytes),
+            gate_weight: gate_weight_buffer,
+            gate_scale: gate_scale_buffer,
+            up_weight: up_weight_buffer,
+            up_scale: up_scale_buffer,
+            down_weight: down_weight_buffer,
+            down_scale: down_scale_buffer,
+            source_offsets,
             route_weights: device.new_buffer_with_data(
                 route_weights.as_ptr().cast(),
                 std::mem::size_of_val(route_weights.as_slice()) as u64,
@@ -4090,14 +5550,30 @@ fn run_metal_fp8_moe_block_impl(
                 std::mem::size_of::<ScatterShape>() as u64,
                 shared,
             ),
-            cpu_gate_weight: mode
-                .cpu_blas_projection
-                .then(|| decode_fp8_matrix_f32(&gate)),
-            cpu_up_weight: mode.cpu_blas_projection.then(|| decode_fp8_matrix_f32(&up)),
-            cpu_down_weight: mode
-                .cpu_blas_projection
-                .then(|| decode_fp8_matrix_f32(&down)),
+            active_hidden_count: device.new_buffer_with_data(
+                (&active_hidden_count as *const u32).cast(),
+                std::mem::size_of::<u32>() as u64,
+                shared,
+            ),
+            active_output_count: device.new_buffer_with_data(
+                (&active_output_count as *const u32).cast(),
+                std::mem::size_of::<u32>() as u64,
+                shared,
+            ),
+            cpu_gate_weight,
+            cpu_up_weight,
+            cpu_down_weight,
         });
+        if mode.direct_checkpoint {
+            source_mappings.extend([
+                gate_weight_mapping,
+                gate_scale_mapping,
+                up_weight_mapping,
+                up_scale_mapping,
+                down_weight_mapping,
+                down_scale_mapping,
+            ]);
+        }
         expert_position_counts.insert(entry.expert, entry.positions.len());
     }
 
@@ -4149,6 +5625,28 @@ fn run_metal_fp8_moe_block_impl(
     let hidden_output = device.new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
     let expert_output = device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
     let block_output = device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
+    let source_staged_input = mode
+        .source_bf16
+        .then(|| device.new_buffer((BATCH * HIDDEN * 4) as u64, shared));
+    let source_staged_hidden = mode
+        .source_bf16
+        .then(|| device.new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared));
+    let source_error_buffer = mode.source_bf16.then(|| {
+        let zero = 0_u32;
+        device.new_buffer_with_data(
+            (&zero as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        )
+    });
+    let block_output_count = (BATCH * HIDDEN) as u32;
+    let block_output_count_buffer = mode.source_bf16.then(|| {
+        device.new_buffer_with_data(
+            (&block_output_count as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        )
+    });
     let cpu_block_output = std::cell::RefCell::new(vec![0.0_f32; BATCH * HIDDEN]);
     let dynamic_maximum_route_weight_error = std::cell::Cell::new(0.0_f32);
     let dynamic_minimum_boundary_margin = std::cell::Cell::new(f32::INFINITY);
@@ -4471,12 +5969,38 @@ fn run_metal_fp8_moe_block_impl(
                     .and_then(|counts| counts.get(&expert.expert))
                     .copied()
                     .unwrap_or(expert.count);
+                if let Some((dynamic_pipeline, _, _)) = source_pipelines.as_ref() {
+                    let staged = source_staged_input
+                        .as_ref()
+                        .ok_or("source staged input buffer absent")?;
+                    let errors = source_error_buffer
+                        .as_ref()
+                        .ok_or("source error buffer absent")?;
+                    encoder.set_compute_pipeline_state(dynamic_pipeline);
+                    encoder.set_buffer(0, Some(&expert.input), 0);
+                    encoder.set_buffer(1, Some(staged), 0);
+                    encoder.set_buffer(2, Some(&lut_buffer), 0);
+                    encoder.set_buffer(3, Some(errors), 0);
+                    encoder.set_threadgroup_memory_length(0, 128 * 4);
+                    encoder.dispatch_thread_groups(
+                        MTLSize {
+                            width: (expert_count * HIDDEN / 128) as u64,
+                            height: 1,
+                            depth: 1,
+                        },
+                        MTLSize {
+                            width: 128,
+                            height: 1,
+                            depth: 1,
+                        },
+                    );
+                }
                 if let Some(fused_pipeline) = fused_gate_up_pipeline.as_ref() {
                     encoder.set_compute_pipeline_state(fused_pipeline);
-                    encoder.set_buffer(0, Some(&expert.gate_weight), 0);
-                    encoder.set_buffer(1, Some(&expert.gate_scale), 0);
-                    encoder.set_buffer(2, Some(&expert.up_weight), 0);
-                    encoder.set_buffer(3, Some(&expert.up_scale), 0);
+                    encoder.set_buffer(0, Some(&expert.gate_weight), expert.source_offsets[0]);
+                    encoder.set_buffer(1, Some(&expert.gate_scale), expert.source_offsets[1]);
+                    encoder.set_buffer(2, Some(&expert.up_weight), expert.source_offsets[2]);
+                    encoder.set_buffer(3, Some(&expert.up_scale), expert.source_offsets[3]);
                     encoder.set_buffer(4, Some(&expert.input), 0);
                     encoder.set_buffer(5, Some(&gate_output), 0);
                     encoder.set_buffer(6, Some(&up_output), 0);
@@ -4496,9 +6020,13 @@ fn run_metal_fp8_moe_block_impl(
                         },
                     );
                 } else {
-                    let projection_pipeline = simdgroup_matrix_pipeline
-                        .as_ref()
-                        .unwrap_or(&expert_pipeline);
+                    let projection_pipeline = if mode.direct_checkpoint {
+                        &expert_pipelines[expert_count - 1]
+                    } else {
+                        simdgroup_matrix_pipeline
+                            .as_ref()
+                            .unwrap_or(expert_pipeline)
+                    };
                     let projection_threads = if mode.simdgroup_matrix {
                         32
                     } else {
@@ -4511,13 +6039,19 @@ fn run_metal_fp8_moe_block_impl(
                     };
                     let projection_threadgroup_bytes = if mode.simdgroup_matrix {
                         64 * 4
+                    } else if mode.direct_checkpoint {
+                        expert_threadgroup_width * expert_count as u64 * 4
                     } else {
                         expert_threadgroup_width * BATCH as u64 * 4
                     };
                     encoder.set_compute_pipeline_state(projection_pipeline);
-                    encoder.set_buffer(0, Some(&expert.gate_weight), 0);
-                    encoder.set_buffer(1, Some(&expert.gate_scale), 0);
-                    encoder.set_buffer(2, Some(&expert.input), 0);
+                    encoder.set_buffer(0, Some(&expert.gate_weight), expert.source_offsets[0]);
+                    encoder.set_buffer(1, Some(&expert.gate_scale), expert.source_offsets[1]);
+                    encoder.set_buffer(
+                        2,
+                        Some(source_staged_input.as_ref().unwrap_or(&expert.input)),
+                        0,
+                    );
                     encoder.set_buffer(3, Some(&gate_output), 0);
                     encoder.set_buffer(4, Some(&gate_shape_buffer), 0);
                     encoder.set_buffer(5, Some(&lut_buffer), 0);
@@ -4534,8 +6068,8 @@ fn run_metal_fp8_moe_block_impl(
                             depth: 1,
                         },
                     );
-                    encoder.set_buffer(0, Some(&expert.up_weight), 0);
-                    encoder.set_buffer(1, Some(&expert.up_scale), 0);
+                    encoder.set_buffer(0, Some(&expert.up_weight), expert.source_offsets[2]);
+                    encoder.set_buffer(1, Some(&expert.up_scale), expert.source_offsets[3]);
                     encoder.set_buffer(3, Some(&up_output), 0);
                     encoder.dispatch_thread_groups(
                         MTLSize {
@@ -4550,14 +6084,38 @@ fn run_metal_fp8_moe_block_impl(
                         },
                     );
                 }
-                encoder.set_compute_pipeline_state(&swiglu_pipeline);
+                encoder.set_compute_pipeline_state(
+                    source_silu_lut_pipeline.as_ref().unwrap_or_else(|| {
+                        source_pipelines
+                            .as_ref()
+                            .map_or(&swiglu_pipeline, |(_, pipeline, _)| pipeline)
+                    }),
+                );
                 encoder.set_buffer(0, Some(&gate_output), 0);
                 encoder.set_buffer(1, Some(&up_output), 0);
                 encoder.set_buffer(2, Some(&hidden_output), 0);
-                encoder.set_buffer(3, Some(&hidden_count_buffer), 0);
+                encoder.set_buffer(
+                    3,
+                    Some(if mode.direct_checkpoint {
+                        &expert.active_hidden_count
+                    } else {
+                        &hidden_count_buffer
+                    }),
+                    0,
+                );
+                if let Some(errors) = source_error_buffer.as_ref() {
+                    encoder.set_buffer(4, Some(errors), 0);
+                }
+                if let Some(lut) = source_silu_lut_buffer.as_ref() {
+                    encoder.set_buffer(5, Some(lut), 0);
+                }
                 encoder.dispatch_threads(
                     MTLSize {
-                        width: (BATCH * INTERMEDIATE) as u64,
+                        width: (if mode.direct_checkpoint {
+                            expert_count * INTERMEDIATE
+                        } else {
+                            BATCH * INTERMEDIATE
+                        }) as u64,
                         height: 1,
                         depth: 1,
                     },
@@ -4567,13 +6125,47 @@ fn run_metal_fp8_moe_block_impl(
                         depth: 1,
                     },
                 );
-                let down_pipeline = simdgroup_matrix_pipeline
-                    .as_ref()
-                    .unwrap_or(&expert_pipeline);
+                if let Some((dynamic_pipeline, _, _)) = source_pipelines.as_ref() {
+                    let staged = source_staged_hidden
+                        .as_ref()
+                        .ok_or("source staged hidden buffer absent")?;
+                    let errors = source_error_buffer
+                        .as_ref()
+                        .ok_or("source error buffer absent")?;
+                    encoder.set_compute_pipeline_state(dynamic_pipeline);
+                    encoder.set_buffer(0, Some(&hidden_output), 0);
+                    encoder.set_buffer(1, Some(staged), 0);
+                    encoder.set_buffer(2, Some(&lut_buffer), 0);
+                    encoder.set_buffer(3, Some(errors), 0);
+                    encoder.set_threadgroup_memory_length(0, 128 * 4);
+                    encoder.dispatch_thread_groups(
+                        MTLSize {
+                            width: (expert_count * INTERMEDIATE / 128) as u64,
+                            height: 1,
+                            depth: 1,
+                        },
+                        MTLSize {
+                            width: 128,
+                            height: 1,
+                            depth: 1,
+                        },
+                    );
+                }
+                let down_pipeline = if mode.direct_checkpoint {
+                    &expert_pipelines[expert_count - 1]
+                } else {
+                    simdgroup_matrix_pipeline
+                        .as_ref()
+                        .unwrap_or(expert_pipeline)
+                };
                 encoder.set_compute_pipeline_state(down_pipeline);
-                encoder.set_buffer(0, Some(&expert.down_weight), 0);
-                encoder.set_buffer(1, Some(&expert.down_scale), 0);
-                encoder.set_buffer(2, Some(&hidden_output), 0);
+                encoder.set_buffer(0, Some(&expert.down_weight), expert.source_offsets[4]);
+                encoder.set_buffer(1, Some(&expert.down_scale), expert.source_offsets[5]);
+                encoder.set_buffer(
+                    2,
+                    Some(source_staged_hidden.as_ref().unwrap_or(&hidden_output)),
+                    0,
+                );
                 encoder.set_buffer(3, Some(&expert_output), 0);
                 encoder.set_buffer(4, Some(&down_shape_buffer), 0);
                 encoder.set_buffer(5, Some(&lut_buffer), 0);
@@ -4581,6 +6173,8 @@ fn run_metal_fp8_moe_block_impl(
                     0,
                     if mode.simdgroup_matrix {
                         64 * 4
+                    } else if mode.direct_checkpoint {
+                        expert_threadgroup_width * expert_count as u64 * 4
                     } else {
                         expert_threadgroup_width * BATCH as u64 * 4
                     },
@@ -4596,11 +6190,36 @@ fn run_metal_fp8_moe_block_impl(
                         depth: 1,
                     },
                     MTLSize {
-                        width: if mode.simdgroup_matrix { 32 } else { LANES },
+                        width: if mode.simdgroup_matrix {
+                            32
+                        } else {
+                            expert_threadgroup_width
+                        },
                         height: 1,
                         depth: 1,
                     },
                 );
+                if let Some((_, _, round_pipeline)) = source_pipelines.as_ref() {
+                    let errors = source_error_buffer
+                        .as_ref()
+                        .ok_or("source error buffer absent")?;
+                    encoder.set_compute_pipeline_state(round_pipeline);
+                    encoder.set_buffer(0, Some(&expert_output), 0);
+                    encoder.set_buffer(1, Some(&expert.active_output_count), 0);
+                    encoder.set_buffer(2, Some(errors), 0);
+                    encoder.dispatch_threads(
+                        MTLSize {
+                            width: (expert_count * HIDDEN) as u64,
+                            height: 1,
+                            depth: 1,
+                        },
+                        MTLSize {
+                            width: 256,
+                            height: 1,
+                            depth: 1,
+                        },
+                    );
+                }
                 encoder.set_compute_pipeline_state(&scatter_pipeline);
                 encoder.set_buffer(0, Some(&expert_output), 0);
                 encoder.set_buffer(1, Some(&expert.route_weights), 0);
@@ -4620,6 +6239,40 @@ fn run_metal_fp8_moe_block_impl(
                     },
                 );
             }
+            if let Some((_, _, round_pipeline)) = source_pipelines.as_ref() {
+                encoder.set_compute_pipeline_state(round_pipeline);
+                encoder.set_buffer(0, Some(&block_output), 0);
+                encoder.set_buffer(
+                    1,
+                    Some(
+                        block_output_count_buffer
+                            .as_ref()
+                            .ok_or("block output count buffer absent")?,
+                    ),
+                    0,
+                );
+                encoder.set_buffer(
+                    2,
+                    Some(
+                        source_error_buffer
+                            .as_ref()
+                            .ok_or("source error buffer absent")?,
+                    ),
+                    0,
+                );
+                encoder.dispatch_threads(
+                    MTLSize {
+                        width: (BATCH * HIDDEN) as u64,
+                        height: 1,
+                        depth: 1,
+                    },
+                    MTLSize {
+                        width: 256,
+                        height: 1,
+                        depth: 1,
+                    },
+                );
+            }
         }
         encoder.end_encoding();
         command.commit();
@@ -4627,6 +6280,12 @@ fn run_metal_fp8_moe_block_impl(
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         if command.status() != MTLCommandBufferStatus::Completed {
             return Err(format!("Metal MoE command failed: {:?}", command.status()));
+        }
+        if let Some(errors) = source_error_buffer.as_ref() {
+            let flags = unsafe { *errors.contents().cast::<u32>() };
+            if flags != 0 {
+                return Err(format!("source semantic kernels set error flags {flags}"));
+            }
         }
         Ok(elapsed_ms)
     };
@@ -4676,6 +6335,13 @@ fn run_metal_fp8_moe_block_impl(
         maximum_absolute_error,
         mode.candidate_input_error.is_some(),
     ) {
+        if mode.source_bf16 {
+            let diagnostic_bytes = output
+                .iter()
+                .flat_map(|value| value.to_le_bytes())
+                .collect::<Vec<_>>();
+            write_create_new(output_path, &diagnostic_bytes)?;
+        }
         return Err(format!(
             "MoE parity failed: relative L2 {relative_l2}, max abs {maximum_absolute_error}"
         ));
@@ -4694,7 +6360,9 @@ fn run_metal_fp8_moe_block_impl(
     let wall_median_ms = percentile(0.50);
     let wall_p90_ms = percentile(0.90);
     let median_timing_gate_passed = wall_median_ms
-        <= if mode.union_parallel {
+        <= if mode.source_bf16 {
+            30.0
+        } else if mode.union_parallel {
             14.0
         } else if mode.fused_gate_up {
             15.5
@@ -4737,13 +6405,25 @@ fn run_metal_fp8_moe_block_impl(
         .and_then(|value| value.checked_add((manifest.experts.len() * BATCH * HIDDEN * 4) as u64))
         .and_then(|value| value.checked_add((BATCH * INTERMEDIATE * 4 * 3) as u64))
         .and_then(|value| value.checked_add((BATCH * HIDDEN * 4 * 2) as u64))
+        .and_then(|value| {
+            value.checked_add(if mode.source_bf16 {
+                (BATCH * (HIDDEN + INTERMEDIATE) * 4 + 2 * std::mem::size_of::<u32>()) as u64
+            } else {
+                0
+            })
+        })
         .ok_or("MoE resident byte count overflow")?;
     let padding_overhead_fraction = (manifest.padded_expert_positions
         - manifest.real_expert_positions) as f64
         / manifest.real_expert_positions as f64;
     Ok(MetalFp8MoeReport {
         schema_version: 1,
-        semantic: if mode.union_parallel {
+        semantic: if mode.source_silu_lut {
+            "mimo_layer43_pw0187_static_routes_direct_checkpoint_source_bf16_silu_lut_moe_block"
+                .to_owned()
+        } else if mode.source_bf16 {
+            "mimo_layer43_pw0187_static_routes_direct_checkpoint_source_bf16_moe_block".to_owned()
+        } else if mode.union_parallel {
             "mimo_layer43_native_union_parallel_source_fp8_moe_block".to_owned()
         } else if mode.fused_gate_up {
             "mimo_layer43_native_fused_gate_up_source_fp8_moe_block".to_owned()
@@ -4794,6 +6474,11 @@ fn run_metal_fp8_moe_block_impl(
         expert_position_counts,
         real_expert_positions: manifest.real_expert_positions,
         padded_expert_positions: manifest.padded_expert_positions,
+        executed_expert_rows: if mode.direct_checkpoint {
+            manifest.real_expert_positions
+        } else {
+            manifest.padded_expert_positions
+        },
         padding_overhead_fraction,
         relative_l2,
         maximum_absolute_error,
@@ -4807,7 +6492,10 @@ fn run_metal_fp8_moe_block_impl(
             .as_ref()
             .map(|_| dynamic_minimum_boundary_margin.get()),
         scatter_fixture_maximum_absolute_error,
+        source_semantic_fixture_maximum_absolute_error,
+        source_silu_lut_sha256,
         union_kernel_fixture_maximum_absolute_error,
+        active_count_kernel_fixture_maximum_absolute_error,
         fused_gate_up_fixture_maximum_absolute_error,
         simdgroup_matrix_fixture_maximum_absolute_error,
         compile_ms,
@@ -4821,12 +6509,28 @@ fn run_metal_fp8_moe_block_impl(
         median_timing_gate_passed,
         routed_only_accepted_tps_diagnostic: BATCH as f64 * 1000.0 / (wall_median_ms * 47.0),
         logical_source_and_io_bytes,
+        mapped_source_bytes: if mode.direct_checkpoint {
+            mapped_source_bytes
+        } else {
+            logical_source_bytes
+        },
+        source_buffer_copy_bytes: if mode.direct_checkpoint {
+            0
+        } else {
+            logical_source_bytes
+        },
+        checkpoint_recorded_device: checkpoint_device_transition.map(|transition| transition.0),
+        checkpoint_current_device: checkpoint_device_transition.map(|transition| transition.1),
         resident_buffer_bytes,
         batch_concurrency: 1,
         accepted_tokens: 0,
-        accepted_per_verification: 8,
+        accepted_per_verification: if mode.direct_checkpoint { 0 } else { 8 },
         expert_union_factor: manifest.experts.len() as f64 / manifest.top_k as f64,
-        cache_state: "selected source artifacts OS-cache state uncontrolled; all model and application buffers resident before timed series",
+        cache_state: if mode.direct_checkpoint {
+            "original checkpoint OS-cache state uncontrolled; cold first transaction then warm same no-copy mappings"
+        } else {
+            "selected source artifacts OS-cache state uncontrolled; all model and application buffers resident before timed series"
+        },
         scheduling_limitation: if mode.union_parallel {
             "exact fixed layer43 input; dynamic native routes; selected expert union preloaded and packed"
                 .to_owned()
@@ -4845,7 +6549,13 @@ fn run_metal_fp8_moe_block_impl(
         } else {
             manifest.scheduling
         },
-        implementation: if mode.union_parallel {
+        implementation: if mode.source_silu_lut {
+            "original_safetensors_page_rounded_no_copy_specialized_width_gpu_dynamic_fp8_bf16_silu_lut_moe_block"
+        } else if mode.source_bf16 {
+            "original_safetensors_page_rounded_no_copy_specialized_width_gpu_dynamic_fp8_bf16_moe_block"
+        } else if mode.direct_checkpoint {
+            "original_safetensors_page_rounded_no_copy_static_route_replay_l3_moe_block"
+        } else if mode.union_parallel {
             "rust_owned_metal_dynamic_router_union_parallel_source_fp8_moe_block"
         } else if mode.fused_gate_up {
             "rust_owned_metal_dynamic_router_fused_gate_up_source_fp8_moe_block"
@@ -6019,6 +7729,17 @@ mod tests {
         assert_eq!(view.bytes, &[1, 2, 3, 4, 5, 6, 7, 8]);
         assert!(mapped.tensor("missing").is_err());
         fs::remove_dir_all(directory).expect("remove fixture directory");
+    }
+
+    #[test]
+    fn page_aligned_covering_region_is_bounded_and_fail_closed() {
+        assert_eq!(
+            page_aligned_covering_region(17, 100, 256, 16).expect("valid covering region"),
+            (16, 112, 1)
+        );
+        assert!(page_aligned_covering_region(17, 100, 111, 16).is_err());
+        assert!(page_aligned_covering_region(17, 17, 256, 16).is_err());
+        assert!(page_aligned_covering_region(17, 100, 256, 12).is_err());
     }
 
     #[test]

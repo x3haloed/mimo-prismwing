@@ -74,8 +74,13 @@ PW0091_SHA256 = "87466b59480a5a5b4256c490f1dfe670fe09f28d21d169085ab13bb1b4b7ab5
 PW0095_SHA256 = "75b4a5799bcc7dc898643c266d42a00b52c75be0f1fe1682ef253ce8fe4287a8"
 DRAFT002_SHA256 = "cfae209566f433933097e1b4ca97f25e4019dab33851f5f46b294c5ab7709959"
 DRAFT003_SHA256 = "0094235cbee8a19138b812a1edc40420925a198180f5cf81e9c644d14b31d5c6"
+PW0102_TARGET_SHA256 = "cb30738d5a79d7d85587a68b53f876a59101d5ca09bbc7c895daaf501954f4d3"
+PW0186_TARGET_SHA256 = "f773fa2859f08b57f851944aa8ba0ef9b502040058580a9344be4ce3ee1e1d1c"
 FIRST_LOGITS_SHA256 = "c43be0909487235bddfe6e0de69aa42a98339faf43cd6b77d6ef4b5f1a853cab"
 PROPOSED_BLOCK = [264, 1773, 102092, 102092, 102092, 1773, 1773, 1773]
+PW0102_POSTERIOR = [13, 15, 18, 481, 15, 481, 15, 15]
+PW0186_BLOCK = [264, 13, 15, 18, 481, 15, 481, 15]
+PW0186_POSTERIOR = [13, 15, 13, 15, 15, 15, 15, 264]
 Q = 8
 
 
@@ -129,6 +134,59 @@ def authenticate_authorities(
         "pw0095_manifest_sha256": PW0095_SHA256,
         "draft_manifest_sha256": expected_hashes,
     }
+
+
+def jacobi_successor_block(proposed: list[int], posterior: list[int]) -> list[int]:
+    """Shift one authenticated greedy target posterior into the next Jacobi row."""
+    if len(proposed) != Q or len(posterior) != Q or proposed[0] != 264:
+        raise ValueError("Jacobi successor shape or anchor mismatch")
+    if any(not isinstance(token, int) or not 0 <= token < 152576 for token in posterior):
+        raise ValueError("Jacobi successor posterior token domain mismatch")
+    return [proposed[0], *posterior[:-1]]
+
+
+def selected_proposed_block(arguments: argparse.Namespace) -> tuple[list[int], str, dict[str, Any]]:
+    second = getattr(arguments, "jacobi_second_iteration", False)
+    third = getattr(arguments, "jacobi_third_iteration", False)
+    if second and third:
+        raise ValueError("select exactly one Jacobi iteration")
+    if not second and not third:
+        if getattr(arguments, "prior_target_manifest", None) is not None:
+            raise ValueError("prior target authority requires Jacobi second iteration")
+        return PROPOSED_BLOCK, "pw0102_source_target_dflash_block_verification", {}
+    prior_path = getattr(arguments, "prior_target_manifest", None)
+    expected_hash = PW0102_TARGET_SHA256 if second else PW0186_TARGET_SHA256
+    if prior_path is None or sha256_file(prior_path) != expected_hash:
+        raise ValueError("Jacobi prior target manifest hash mismatch")
+    prior = json.loads(prior_path.read_text())
+    if third:
+        if (
+            prior.get("status") != "passed"
+            or prior.get("evidence_class") != "pw0186_source_target_jacobi_second_iteration"
+            or prior.get("revision") != REVISION
+            or prior.get("proposed_block_token_ids") != PW0186_BLOCK
+            or prior.get("target_posterior_token_ids") != PW0186_POSTERIOR
+            or prior.get("greedy_verification", {}).get("accepted_length_a") != 3
+        ):
+            raise ValueError("Jacobi second-iteration semantic identity mismatch")
+        return (
+            jacobi_successor_block(PW0186_BLOCK, PW0186_POSTERIOR),
+            "pw0187_source_target_jacobi_third_iteration",
+            {"pw0186_target_manifest_sha256": PW0186_TARGET_SHA256},
+        )
+    if (
+        prior.get("status") != "passed"
+        or prior.get("revision") != REVISION
+        or prior.get("proposed_block_token_ids") != PROPOSED_BLOCK
+        or prior.get("target_posterior_token_ids") != PW0102_POSTERIOR
+        or prior.get("greedy_verification", {}).get("accepted_length_a") != 1
+    ):
+        raise ValueError("Jacobi prior target semantic identity mismatch")
+    return (
+        jacobi_successor_block(PROPOSED_BLOCK, PW0102_POSTERIOR),
+        "pw0186_source_target_jacobi_second_iteration",
+        {"pw0102_target_manifest_sha256": PW0102_TARGET_SHA256},
+    )
 
 
 def tensor_capture(output: Path, name: str, value: torch.Tensor, dtype: str) -> dict[str, Any]:
@@ -301,6 +359,8 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     prefix_authority, identities = authenticate_authorities(
         arguments.prefix_manifest, arguments.cached_manifest, arguments.draft_manifest
     )
+    proposed_block, evidence_class, proposal_identity = selected_proposed_block(arguments)
+    identities.update(proposal_identity)
     checkpoint = ShardedCheckpoint(arguments.checkpoint, arguments.verification)
     safety.checkpoint("authorities_and_checkpoint_open")
     process_start_disk = safety.evidence()[0]["process_disk_bytes_read"]
@@ -345,7 +405,7 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     safety.release_checkpoint("prefill_lm_head_released", ["prefill hidden", "prefill LM-head/logits"])
 
     post_prefill_started = time.monotonic()
-    block_hidden = embedding(checkpoint, PROPOSED_BLOCK)
+    block_hidden = embedding(checkpoint, proposed_block)
     verification_traces: list[dict[str, Any]] = []
     block_started = time.monotonic()
     for layer in range(48):
@@ -376,7 +436,7 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     if int(posterior_ids[0, 0]) != 13:
         raise ValueError("PW-0095 first incremental token mismatch")
     verification = verify_greedy_block(
-        torch.tensor([PROPOSED_BLOCK], dtype=torch.long), posterior_ids
+        torch.tensor([proposed_block], dtype=torch.long), posterior_ids
     )
     posterior_token_ids = posterior_ids[0].tolist()
     routed = verification_traces[1:]
@@ -402,7 +462,7 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     ).stdout.strip())
     result = {
         "schema_version": 1,
-        "evidence_class": "pw0102_source_target_dflash_block_verification",
+        "evidence_class": evidence_class,
         "status": "passed",
         "revision": REVISION,
         "checkpoint_verification_sha256": VERIFICATION_SHA256,
@@ -413,7 +473,7 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
         "concurrency": 1,
         "q": Q,
         "prompt_token_ids": PROMPT_IDS,
-        "proposed_block_token_ids": PROPOSED_BLOCK,
+        "proposed_block_token_ids": proposed_block,
         "target_posterior_token_ids": posterior_token_ids,
         "greedy_verification": verification.to_dict(),
         "mean_normalized_union_u": mean_u,
@@ -468,6 +528,9 @@ def main() -> int:
     parser.add_argument("--prefix-manifest", required=True, type=Path)
     parser.add_argument("--cached-manifest", required=True, type=Path)
     parser.add_argument("--draft-manifest", action="append", required=True, type=Path)
+    parser.add_argument("--jacobi-second-iteration", action="store_true")
+    parser.add_argument("--jacobi-third-iteration", action="store_true")
+    parser.add_argument("--prior-target-manifest", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     arguments = parser.parse_args()
     try:
