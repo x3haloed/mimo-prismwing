@@ -4950,6 +4950,17 @@ fn decode_step(
                 ledger,
             )?
         }
+    } else if let Some((runtime, _)) = wide_metal.as_ref() {
+        wide_bf16_linear(
+            checkpoint,
+            "lm_head.weight",
+            &normalized[(rows - 1) * HIDDEN..rows * HIDDEN],
+            1,
+            HIDDEN,
+            config.vocab_size,
+            ledger,
+            runtime,
+        )?
     } else {
         bf16_last_row_linear(
             checkpoint,
