@@ -1482,7 +1482,11 @@ Run the following cheap falsifiers in order:
    at about 1.004x read amplification. Two buffers recover 4.523759% against
    sequential uncached full-layer reads but remain 2.808891% slower than the
    cacheable control. One bounded verifier pilot is authorized; trailing drop
-   is redundant because uncached source residency is already zero.
+   is redundant because uncached source residency is already zero. The pilot
+   preserves exact output and a 7.823701% install gain, but post-prefill
+   accepted TPS regresses 0.570865%. Its apparent 0.621249% complete TPS gain
+   comes from prefill before the mechanism activates. Reject runtime promotion
+   while retaining the lower-level gains.
 9. [PW-0214](../experiments/PW-0214-cost-adaptive-verification-horizon-oracle.md)
    treats `q=2..8` as a physical policy variable, pricing marginal accepted
    progress against corrected route union, proposal wall, verifier width, and

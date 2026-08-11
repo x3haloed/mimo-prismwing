@@ -1,8 +1,8 @@
 # PW-0213 — Uncached page-aligned stream transport
 
-- Status: in progress; isolated acquisition stage complete
-- Disposition: one bounded verifier pilot authorized by the file-backed gate;
-  trailing-drop tuning rejected as redundant
+- Status: complete
+- Disposition: runtime transport rejected; isolated file-backed, overlap, and
+  install gains preserved; trailing-drop tuning rejected as redundant
 - Date: 2026-08-11
 - Execution mode: L1 exact acquisition substitution
 - Related records: PW-0108, PW-0110, PW-0207, PW-0212, AN-0002
@@ -86,10 +86,42 @@ Validated analysis:
 SHA-256
 `764fba9b12d8bacc5d4d2cd7f1fc57a42323a94bc90717bc41fa948842803fe3`.
 
-Authorize one bounded verifier pilot because the predeclared file-backed gate,
-not the transfer-wall gate, passed. Do not promote the transport yet: isolated
-transfer wall still regresses against cacheable reads. Do not test trailing
-drop under this candidate; direct `mincore` already observes zero resident
-source pages after every uncached read, leaving no source cache for advice to
-discard. Runtime promotion still requires exact output and a repeatable
-positive complete-path TPS result of any size.
+The authorized verifier pilot holds the frozen prompt, one declared
+`expert:14:162` resident object, q8 proposer/verifier, arithmetic, routes,
+warning eviction, and output fixed in a cacheable-control / uncached-candidate /
+cacheable-control sequence. All three emit token IDs
+`[30092,4145,5610,678,7987,315,279,19745]`, retain seven proposal rows, and
+execute exactly 201,375,744 resident source bytes.
+
+The candidate install moves 25,171,968 logical bytes as 25,264,128 widened
+bytes (1.003661x) in 9.281750 ms versus a 10.069563 ms cacheable-control
+median, a real 7.823701% install-wall reduction. Its complete wall is
+403,927.191 ms versus a 406,436.586 ms control median, superficially a
+0.621249% accepted-TPS gain. That gain is not causal: the candidate's prefill,
+which completes before the transport is installed, is 1.716725% faster. From
+the install boundary onward, candidate wall is 196,155.228 ms versus
+195,035.447 ms control, regressing accepted TPS by 0.570865%. Proposal wall
+regresses 1.007388%; verification wall improves 1.145070%. Preserve every
+phase rather than attributing prefill noise to transport.
+
+All verifier runs retain exact output, zero final resident bytes, zero swap or
+throttling growth, stable protected services, at least 64% free memory, and
+sub-367 MB peak RSS. Raw report hashes are control 1
+`74b8d15186aeff9af97393643fe11bf39c11e0d0d2d2da7777493723b538ec0d`,
+candidate
+`f05c8b8be0794aa1aa1a2e790a96ac3c1a967439e4c0fda1ad8fb6a4eb37eee5`,
+and control 2
+`be004a835f59c99eb2539ae54dd434ce05748840eb48caffc1dba8e83c88baca`
+at clean commit `f096b8e1a5aefa9515b69ce209c11fe96c22ae2d`. Validated
+analysis
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0213/analysis-003/manifest.json`
+hashes to
+`e4a3d0696705cc598e16b1568659a28c19a8fe0f6124155e00e882420595b6b7`.
+
+Reject runtime promotion: the only mechanism-causal endpoint interval
+regresses, and one candidate cannot satisfy repeatability. Preserve the
+isolated 100% file-backed reduction, 4.523759% two-buffer recovery, and
+7.823701% install gain as measured lower-level advances. Do not test trailing
+drop because direct `mincore` already observes zero source pages after every
+uncached read. Reopening requires a different critical cut or a separately
+frozen pressure workload, not reinterpretation of the prefill-only gain.

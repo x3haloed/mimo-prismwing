@@ -4268,3 +4268,17 @@ topology, not a speed claim; trailing drop is causally redundant because
 and analysis
 `764fba9b12d8bacc5d4d2cd7f1fc57a42323a94bc90717bc41fa948842803fe3`
 carry no endpoint TPS.
+
+PW-0213's bounded verifier pilot closes runtime promotion without discarding
+its smaller advances. Cacheable-control / uncached-candidate / cacheable-
+control runs emit identical eight-token output and retain seven proposal rows.
+The page-widened two-buffer install improves 7.823701%, from a 10.069563 ms
+control median to 9.281750 ms. Complete accepted TPS appears 0.621249% higher,
+but the entire advantage arises in prefill before the candidate is installed.
+From the causal install boundary onward, accepted TPS regresses 0.570865%
+(196,155.228 versus 195,035.447 ms); proposal wall regresses 1.007388% while
+verification wall improves 1.145070%. Reject the runtime transport and never
+attribute the prefill-only gain to it. Preserve the 100% source-page residency
+reduction, 4.523759% two-buffer recovery, and install gain for a future changed
+critical cut. Validated verifier analysis hashes to
+`e4a3d0696705cc598e16b1568659a28c19a8fe0f6124155e00e882420595b6b7`.

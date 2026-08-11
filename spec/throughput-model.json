@@ -1244,8 +1244,15 @@
             "cacheable_source_resident_fraction": 1.0,
             "uncached_source_resident_fraction": 0.0,
             "source_file_backed_residency_reduction": 1.0,
-            "status": "isolated_file_backed_gate_passed; acquisition_speed_gate_failed; one_bounded_verifier_pilot_authorized; no_endpoint_tps",
-            "provenance": "PW-0213 clean interleaved raw-checkpoint report 51b2898314ff42ecca0eb7e29802f23346a329244126cd566dea80da9171f17f and validated analysis 764fba9b12d8bacc5d4d2cd7f1fc57a42323a94bc90717bc41fa948842803fe3; Apple M1 16 GiB internal SSD; clean git 3c63ded58483abf76c74d3bd2b0347658d53307b"
+            "verifier_control_median_complete_wall_ms": 406436.586292,
+            "verifier_candidate_complete_wall_ms": 403927.191292,
+            "verifier_apparent_complete_accepted_tps_gain": 0.006212493375287398,
+            "verifier_control_median_post_prefill_wall_ms": 195035.4470625,
+            "verifier_candidate_post_prefill_wall_ms": 196155.22825100002,
+            "verifier_causal_post_prefill_accepted_tps_regression": 0.005708648188908594,
+            "resident_install_wall_reduction": 0.07823701377294212,
+            "status": "isolated_file_backed_overlap_and_install_gains_preserved; runtime_transport_rejected_on_causal_post_prefill_regression; pw0213_complete",
+            "provenance": "PW-0213 isolated report 51b2898314ff42ecca0eb7e29802f23346a329244126cd566dea80da9171f17f and analysis 764fba9b12d8bacc5d4d2cd7f1fc57a42323a94bc90717bc41fa948842803fe3; verifier reports 74b8d15186aeff9af97393643fe11bf39c11e0d0d2d2da7777493723b538ec0d, f05c8b8be0794aa1aa1a2e790a96ac3c1a967439e4c0fda1ad8fb6a4eb37eee5, be004a835f59c99eb2539ae54dd434ce05748840eb48caffc1dba8e83c88baca and analysis e4a3d0696705cc598e16b1568659a28c19a8fe0f6124155e00e882420595b6b7; Apple M1 16 GiB internal SSD; clean git f096b8e1a5aefa9515b69ce209c11fe96c22ae2d"
         },
         "pw0211_live_native_mtp_q4_ordinary": {
             "candidate_complete_wall_ms": [
