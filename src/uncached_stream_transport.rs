@@ -157,7 +157,9 @@ pub struct UncachedTransportTrial {
     pub scope: &'static str,
     pub transport: &'static str,
     pub cache_state: &'static str,
-    pub wall_ms: f64,
+    pub transfer_wall_ms: f64,
+    pub integrity_wall_ms: f64,
+    pub complete_trial_wall_ms: f64,
     pub records: usize,
     pub logical_bytes: u64,
     pub widened_bytes: u64,
@@ -330,13 +332,18 @@ fn execute_trial(
         flags = set_transport_flags(file, nocache)?;
     }
     let activity_before = process_activity()?;
-    let started = Instant::now();
+    let trial_started = Instant::now();
+    let mut transfer_wall_ms = 0.0;
+    let mut integrity_wall_ms = 0.0;
     let mut digest = Sha256::new();
     let mut pread_calls = 0;
     for (record, plan) in plans {
         let file = &files[&record.source_shard];
         let mut reader = FdReader(file.as_raw_fd());
+        let transfer_started = Instant::now();
         pread_calls += read_plan_exact(&mut reader, plan, buffer.bytes_mut())?;
+        transfer_wall_ms += transfer_started.elapsed().as_secs_f64() * 1000.0;
+        let integrity_started = Instant::now();
         let logical_end = plan.logical_offset + plan.logical_bytes;
         let logical = &buffer.bytes_mut()[plan.logical_offset..logical_end];
         if format!("{:x}", Sha256::digest(logical)) != record.source_tensor_sha256 {
@@ -346,8 +353,9 @@ fn execute_trial(
             ));
         }
         digest.update(logical);
+        integrity_wall_ms += integrity_started.elapsed().as_secs_f64() * 1000.0;
     }
-    let wall_ms = started.elapsed().as_secs_f64() * 1000.0;
+    let complete_trial_wall_ms = trial_started.elapsed().as_secs_f64() * 1000.0;
     let activity = process_activity()?.checked_delta(activity_before)?;
     let logical_stream_sha256 = format!("{:x}", digest.finalize());
     if logical_stream_sha256 != expected_sha256 {
@@ -364,7 +372,9 @@ fn execute_trial(
                 "cacheable_pread_control"
             },
             cache_state: "cold after range MS_INVALIDATE plus MADV_DONTNEED",
-            wall_ms,
+            transfer_wall_ms,
+            integrity_wall_ms,
+            complete_trial_wall_ms,
             records: records.len(),
             logical_bytes,
             widened_bytes,
