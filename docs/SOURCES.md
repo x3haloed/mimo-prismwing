@@ -834,3 +834,37 @@ source-configuration authority for PW-0175. MInference supplies a structural
 prefill research prior, not a MiMo configuration or measured Prismwing rate.
 Quest's released source binds its sparse mechanism to decode and leaves
 prefill dense; this does not reject Quest for decode.
+
+## Post-PW-0205 high-residency and SIMD research priors
+
+- Xiaomi MiMo Team, *MiMo-V2-Flash Technical Report*, arXiv:2601.02780,
+  revision v2, accessed 2026-08-10:
+  <https://arxiv.org/abs/2601.02780v2>.
+- Cai et al., *FastMTP: Accelerating LLM Inference with Enhanced Multi-Token
+  Prediction*, arXiv:2509.18362v1, accessed 2026-08-10:
+  <https://arxiv.org/abs/2509.18362v1>.
+- Xie et al., *Less Experts, Faster Decoding: Cost-Aware Speculative
+  Decoding for Mixture-of-Experts*, arXiv:2607.12696v1, accessed 2026-08-10:
+  <https://arxiv.org/abs/2607.12696v1>.
+- Waschkowski et al., *BaseRT: Advancing Best-in-Class LLM Inference with
+  Apple M5 Neural Accelerators*, arXiv:2607.19438v1, accessed 2026-08-10:
+  <https://arxiv.org/abs/2607.19438v1>.
+- Apple, *Porting your Metal code to Apple silicon*, accessed 2026-08-10:
+  <https://developer.apple.com/documentation/apple-silicon/porting-your-metal-code-to-apple-silicon>.
+- Apple, *Choosing a resource storage mode for Intel and AMD GPUs*, unified-
+  memory discussion, accessed 2026-08-10:
+  <https://developer.apple.com/documentation/metal/choosing-a-resource-storage-mode-for-intel-and-amd-gpus>.
+- VectorWare, *Portable SIMD on the GPU*, accessed 2026-08-10:
+  <https://www.vectorware.com/blog/simd-on-gpu/>.
+
+Decision: research-prior authority for PW-0207 through PW-0210 only. MiMo's
+report binds a different model and serving environment; FastMTP and EcoSpec do
+not establish MiMo-V2.5 acceptance; BaseRT's tensor-core measurements are on
+M5 rather than M1; Apple's documentation establishes the programming and
+memory model but no LLM speedup; VectorWare describes an NVIDIA-oriented
+abstraction and is inspiration for typed SIMD mapping, not evidence that its
+implementation runs on Metal. No cited throughput is a Prismwing result.
+The Apple and VectorWare links are dated navigation references rather than
+immutable identity evidence; any experiment that depends on an exact API or
+implementation must capture and hash the relevant specification or source
+revision in its own record before execution.

@@ -25,10 +25,10 @@ class HostSafetyViolation(RuntimeError):
 
 @dataclass(frozen=True)
 class HostSafetyPolicy:
-    minimum_system_memory_free_percent: int = 20
-    maximum_process_physical_footprint_bytes: int = 8 * GIB
-    maximum_post_release_physical_footprint_bytes: int = 4 * GIB
-    maximum_swap_growth_bytes: int = 512 * MIB
+    minimum_system_memory_free_percent: int = 10
+    maximum_process_physical_footprint_bytes: int = 13 * GIB
+    maximum_post_release_physical_footprint_bytes: int = 12 * GIB
+    maximum_swap_growth_bytes: int = 0
     maximum_new_throttled_pages: int = 0
     protected_services: tuple[str, ...] = DEFAULT_PROTECTED_SERVICES
 

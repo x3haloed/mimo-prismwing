@@ -116,6 +116,44 @@ before each mechanism independently passes its attribution gate.
 7. A combined branch receives a new experiment ID. Do not overwrite the
    component records or promote a microbenchmark as endpoint TPS.
 
-PW-0049 is the completed prerequisite real base-model decoder-layer causal
-transition. PW-0050 is reserved for the slow complete text endpoint. The next
-unreserved experiment ID is `PW-0051`.
+PW-0049 and PW-0050 completed the prerequisite real layer and slow text causal
+transitions. The intervening ledger now runs through PW-0205; the old
+`PW-0051` allocation note is historical, not current ID authority.
+
+## 2026-08-10 axiom attack: corrected semantics plus RAM as scheduling capital
+
+This section is a post-PW-0205 abductive search record, not measured evidence.
+It incorporates the corrected QKV mapping, the coherent arbitrary-text path,
+the newly authorized 13 GiB process ceiling, and current primary research. Its
+purpose is to expose premises that earlier negative results quietly depended
+on and assign cheap tests before implementation.
+
+| Inherited axiom | Attack | Abductive jump | Record |
+| --- | --- | --- | --- |
+| Low residency is inherently safer | Safety depends on bounded lifetime, reserve, pressure response, and zero swap—not on an arbitrary 8 GiB ceiling | Treat 8–12 GiB as an explicitly declared, evictable working-set cache | [PW-0207](../experiments/PW-0207-pressure-elastic-resident-working-set.md) |
+| Old proposer traces remain authoritative after a verifier repair | QKV row semantics affect hidden states, routes, posterior tokens, and therefore both `A` and `U` | Regenerate all proposal authorities before carrying forward rejection or promotion | [PW-0206](../experiments/PW-0206-corrected-qkv-authority-regeneration.md) |
+| Acceptance length is the speculative objective | On a streamed MoE, a longer branch can be slower when it scatters into more experts | Optimize accepted tokens per unique expert byte and marginal miss latency | [PW-0208](../experiments/PW-0208-native-mtp-cost-aware-proposer.md) |
+| Prefill and decode want the same physical kernel | Prefill has token width and reuse; decode is chiefly a weight-movement problem | Give prefill a separate layer-major, high-residency Metal embodiment | [PW-0209](../experiments/PW-0209-layer-major-high-residency-prefill.md) |
+| GPU SIMD is an alternative GEMM API | Mature GEMM paths are not the obvious loss; packed-code transforms, reductions, routing, RoPE, and barriers are | Keep values packed until a SIMD group consumes them and fuse the irregular envelope around projection | [PW-0210](../experiments/PW-0210-simdgroup-packed-domain-fusion.md) |
+| Cache the most frequent tensor | Frequency ignores load size, miss concurrency, reuse distance, and critical-path stall | Rank residency by measured marginal wall time avoided per byte under the actual route trace | [PW-0207](../experiments/PW-0207-pressure-elastic-resident-working-set.md) |
+
+The central abductive claim is that Prismwing's next large gain is more likely
+to come from composing *width plus residency plus route cost* than from another
+isolated arithmetic kernel. PW-0205 reads about 1.636 TB to emit 47 tokens
+while peaking below 4 GiB. The newly available 8 GiB of persistent headroom is
+therefore not merely capacity; it is an opportunity to remove repeated
+critical-path acquisition. This remains a hypothesis until PW-0207 attributes
+real physical reads and complete wall time.
+
+Research triangulation strengthens, but does not prove, this direction:
+MiMo-V2-Flash reports useful native-MTP acceptance; FastMTP argues that draft
+training must match recursive inference; EcoSpec identifies expert scattering
+as a speculative-decoding cost; Apple documents SIMD-group execution and
+shared CPU/GPU storage; BaseRT separates compute-rich prompt processing from
+memory-bound decode. None of those results uses the pinned MiMo-V2.5 checkpoint
+on the 16 GiB M1, so every imported mechanism remains only a prior.
+
+Selection order is PW-0206 first, then PW-0207 and PW-0208. PW-0209 and
+PW-0210 may proceed after their fixtures exist, but cannot displace endpoint
+work on kernel-only numbers. A combined high-residency/MTP/SIMD path is allowed
+only after each component clears its own kill gate.

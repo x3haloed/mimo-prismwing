@@ -1406,6 +1406,39 @@ SGLang-directed modified arithmetic. Its 0.026253 complete-path tokens/s does
 not reopen the rejected storage-performance branch or pass target-faithful,
 hosted-parity, multimodal, or 50 TPS gates.
 
+## E13 — Post-QKV-repair, high-residency reopening
+
+PW-0205 changes two premises at once: it repairs the semantic QKV row mapping,
+and it supplies a coherent arbitrary-text transaction from which proposal,
+route, cache, and physical-read traces can finally be regenerated. The relaxed
+Gate 8 memory contract also makes up to 12 GiB of declared, pressure-evictable
+residency available. Neither change is itself a performance result.
+
+Run the following cheap falsifiers in order:
+
+1. [PW-0206](../experiments/PW-0206-corrected-qkv-authority-regeneration.md)
+   regenerates the proposal and `A/U` authorities whose inputs depended on the
+   old QKV interpretation. It is a prerequisite audit, not an optimization.
+2. [PW-0207](../experiments/PW-0207-pressure-elastic-resident-working-set.md)
+   asks whether the extra RAM can hold the stall-dominant shared spine and
+   recurrent expert tiles, selected by measured bytes avoided rather than
+   frequency alone.
+3. [PW-0208](../experiments/PW-0208-native-mtp-cost-aware-proposer.md) retests
+   MiMo's native MTP only after PW-0206, optimizing accepted tokens per unique
+   expert byte rather than acceptance length in isolation.
+4. [PW-0209](../experiments/PW-0209-layer-major-high-residency-prefill.md)
+   separates prefill from decode and tests a layer-major, width-rich M1 Metal
+   path without importing M5 tensor-core claims.
+5. [PW-0210](../experiments/PW-0210-simdgroup-packed-domain-fusion.md) tests
+   SIMD-group execution where it can remove unpack, scale, reduction, and
+   barrier traffic. It explicitly does not replace a proven GEMM merely for
+   portability.
+
+Do not combine these mechanisms before their isolated counters pass. The first
+combined endpoint receives a new experiment ID and must report cold and warm
+state, accepted tokens, `A`, `U`, physical bytes, residency, evictions,
+pressure state, and complete-path TPS.
+
 ## Black-swan budget
 
 No more than 10% of research time before Prismwing 10 goes to black swans:

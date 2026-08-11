@@ -4,6 +4,7 @@ from tools.host_safety import (
     GIB,
     MIB,
     HostReading,
+    HostSafetyPolicy,
     HostSafetyMonitor,
     HostSafetyViolation,
 )
@@ -46,8 +47,19 @@ class FakeProbe:
 
 
 class HostSafetyTests(unittest.TestCase):
+    def test_normative_defaults_match_relaxed_gate_eight(self):
+        policy = HostSafetyPolicy()
+        self.assertEqual(policy.minimum_system_memory_free_percent, 10)
+        self.assertEqual(policy.maximum_process_physical_footprint_bytes, 13 * GIB)
+        self.assertEqual(
+            policy.maximum_post_release_physical_footprint_bytes, 12 * GIB
+        )
+        self.assertEqual(policy.maximum_swap_growth_bytes, 0)
+
     def test_in_phase_and_post_release_limits_are_distinct(self):
-        probe = FakeProbe(reading(), reading(footprint=5 * GIB), reading(footprint=5 * GIB))
+        probe = FakeProbe(
+            reading(), reading(footprint=12 * GIB), reading(footprint=12 * GIB + 1)
+        )
         monitor = HostSafetyMonitor(probe=probe)
         monitor.checkpoint("in_flight")
         with self.assertRaisesRegex(HostSafetyViolation, "post-release footprint"):
@@ -57,13 +69,13 @@ class HostSafetyTests(unittest.TestCase):
         self.assertEqual(monitor.snapshots[-1].allocator_pressure_relief_bytes, 1234)
 
     def test_peak_overshoot_fails_after_expensive_operation(self):
-        monitor = HostSafetyMonitor(probe=FakeProbe(reading(), reading(peak=8 * GIB + 1)))
+        monitor = HostSafetyMonitor(probe=FakeProbe(reading(), reading(peak=13 * GIB + 1)))
         with self.assertRaisesRegex(HostSafetyViolation, "process memory ceiling"):
             monitor.checkpoint("layer_0_complete")
 
     def test_swap_throttle_and_service_stops(self):
         cases = (
-            (reading(swap=100 * MIB + 512 * MIB + 1), "swap growth"),
+            (reading(swap=100 * MIB + 1), "swap growth"),
             (reading(throttled=1), "VM throttling"),
             (
                 reading(services={"ChatGPT": [], "WindowServer": [2]}),

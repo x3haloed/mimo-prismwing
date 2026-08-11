@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 project: mimo-prismwing
 normative_document: TARGET.md
 
@@ -120,14 +120,20 @@ reproducibility:
   shared_host_safety:
     applies_to_full_model_walks_and_acceptance_runs: true
     fail_closed_at_phase_boundaries: true
-    minimum_system_memory_free_percent: 20
-    maximum_process_physical_footprint_gib: 8
-    maximum_process_peak_resident_gib: 8
-    maximum_post_release_physical_footprint_gib: 4
-    maximum_swap_growth_mib: 512
+    minimum_system_memory_free_percent: 10
+    minimum_host_reserve_gib: 3
+    maximum_process_physical_footprint_gib: 13
+    maximum_process_peak_resident_gib: 13
+    maximum_post_release_physical_footprint_gib: 12
+    maximum_declared_persistent_residency_gib: 12
+    maximum_swap_growth_mib: 0
     maximum_new_throttled_pages: 0
     preserve_failed_run_evidence: true
     require_phase_buffer_release: true
+    require_declared_persistent_residency: true
+    require_pressure_events_above_process_footprint_gib: 8
+    evict_declared_residency_on_memory_pressure_warning: true
+    abort_on_memory_pressure_critical: true
     require_resident_inference_service_health: true
     protect_start_resident_services:
       - user_facing_application
@@ -141,4 +147,6 @@ reproducibility:
       - swap_growth
       - throttled_pages
       - buffer_release_and_allocator_relief
+      - declared_persistent_residency_and_evictions
+      - memory_pressure_events
       - protected_service_identities

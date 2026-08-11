@@ -63,6 +63,14 @@ passing Prismwing runtime.
   activations and measure downstream route and logit divergence.
 - Do not let a cache or prefetcher issue unbounded speculative I/O that starves
   demand reads or damages the SSD without accounting for it.
+- Do not treat the relaxed 13 GiB process ceiling as permission to consume the
+  host blindly. Residency above 8 GiB must be predeclared, byte-bounded, and
+  evictable on a Darwin memory-pressure warning; a critical event, any swap
+  growth, any new throttled page, or breach of the 3 GiB host reserve stops the
+  run.
+- Do not count file-backed, purgeable, compressed, or reclaimable pages as
+  released merely because the runtime expects the OS to recover them. Measure
+  physical footprint after allocator relief and record actual evictions.
 - Do not bypass checkpoint integrity, tensor-shape checks, bounds checks, or
   fail-closed validation for speed.
 
@@ -102,4 +110,3 @@ Use these labels consistently:
 
 Passing the near-equivalence gates does not promote L3–L5 systems to L0–L2; it
 demonstrates controlled quality, not identity.
-

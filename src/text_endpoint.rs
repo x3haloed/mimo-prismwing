@@ -1424,10 +1424,10 @@ pub(crate) struct ComponentSafetyMonitor(SafetyMonitor);
 impl ComponentSafetyMonitor {
     pub(crate) fn start_normative() -> Result<Self, String> {
         SafetyMonitor::start(SafetyFixture {
-            minimum_system_memory_free_percent: 20,
-            maximum_process_physical_footprint_bytes: 8 * 1024 * 1024 * 1024,
-            maximum_post_phase_physical_footprint_bytes: 4 * 1024 * 1024 * 1024,
-            maximum_swap_growth_bytes: 512 * 1024 * 1024,
+            minimum_system_memory_free_percent: 10,
+            maximum_process_physical_footprint_bytes: 13 * 1024 * 1024 * 1024,
+            maximum_post_phase_physical_footprint_bytes: 12 * 1024 * 1024 * 1024,
+            maximum_swap_growth_bytes: 0,
             maximum_new_throttled_pages: 0,
             require_malloc_pressure_relief: true,
             protect_resident_services: vec![
@@ -4969,10 +4969,10 @@ fn open_arbitrary_text_authority(
         &verification,
     )?;
     let safety = SafetyMonitor::start(SafetyFixture {
-        minimum_system_memory_free_percent: 20,
-        maximum_process_physical_footprint_bytes: 8 * 1024 * 1024 * 1024,
-        maximum_post_phase_physical_footprint_bytes: 4 * 1024 * 1024 * 1024,
-        maximum_swap_growth_bytes: 512 * 1024 * 1024,
+        minimum_system_memory_free_percent: 10,
+        maximum_process_physical_footprint_bytes: 13 * 1024 * 1024 * 1024,
+        maximum_post_phase_physical_footprint_bytes: 12 * 1024 * 1024 * 1024,
+        maximum_swap_growth_bytes: 0,
         maximum_new_throttled_pages: 0,
         require_malloc_pressure_relief: true,
         protect_resident_services: vec![

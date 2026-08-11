@@ -231,21 +231,35 @@ Every full model walk and acceptance run on the shared 16 GiB host must also
 enforce, at phase boundaries, a fail-closed host-safety policy. The run stops
 and remains preserved as failed evidence if any of these conditions occurs:
 
-- System free memory falls below 20%.
-- Current process physical footprint or peak resident memory exceeds 8 GiB.
-- Process physical footprint remains above 4 GiB after a phase that declares
-  its model buffers released.
-- Swap use grows by more than 512 MiB from the run's baseline, or any new
-  throttled page is observed.
+- System free memory falls below 10%. This is an independent emergency floor;
+  it does not enlarge the process allowance below.
+- Current process physical footprint or peak resident memory exceeds 13 GiB,
+  reserving at least 3 GiB of the 16 GiB host outside the measured process for
+  the OS and protected services.
+- Process physical footprint remains above 12 GiB after a phase that declares
+  its phase-scoped model buffers released. Up to 12 GiB may remain only when
+  the run predeclares the resident objects, their byte bounds, lifetime, and
+  eviction order; undeclared residency is a leak, not a cache.
+- Swap use grows at all from the run's baseline, or any new throttled page is
+  observed.
 - A protected service that was resident at run start disappears. At minimum,
   protect the user-facing application, WindowServer, the active inference
   service, and the checkpoint synchronization service when present.
 
+Any mode that intentionally exceeds 8 GiB must additionally observe Darwin
+memory-pressure events: a warning triggers immediate eviction in the declared
+order and a critical event stops the run. It may not disable OS pressure
+notifications, infer safety from file-backed or purgeable bytes alone, or
+allocate the last free pages speculatively.
+
 Each phase records current footprint, peak RSS, system-free percentage, swap
-growth, throttled pages, buffer-release/allocator-relief state, and protected
+growth, throttled pages, buffer-release/allocator-relief state, declared
+persistent residency and evictions, memory-pressure events, and protected
 service identities. A successful run must demonstrate that phase-scoped model
 buffers are released and that the resident inference service remains healthy;
-recording unsafe pressure without stopping does not satisfy this gate.
+recording unsafe pressure without stopping does not satisfy this gate. Records
+created under an older target retain their original safety contract and must
+not be reinterpreted under these relaxed limits.
 
 ## 9. Milestones that are valuable but not done
 
