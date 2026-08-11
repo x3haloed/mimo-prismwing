@@ -5925,7 +5925,7 @@ pub fn run_arbitrary_text_generation(
     let report = ArbitraryTextGenerationReport {
         schema_version: 1,
         evidence_class: "pw0204_arbitrary_prompt_target_proposed_generation",
-        semantic: "mimo_v2_5_target_faithful_text_generation_metal_native_l3",
+        semantic: "mimo_v2_5_source_authority_modified_l3_text_generation",
         revision: REVISION,
         commit: commit.to_owned(),
         git_dirty,
@@ -5957,10 +5957,10 @@ pub fn run_arbitrary_text_generation(
         batch_size: 1,
         concurrency: 1,
         verifier_width: WIDTH,
-        exactness: "source checkpoint target and proposer with Metal-native L3 reductions; no draft token commits before target verification",
+        exactness: "source checkpoint weights and routes with explicitly modified Metal-native L3 reductions; no draft token commits before verifier acceptance",
         proposer: "greedy source-checkpoint target proposer using the same retained K/V and Metal-native L3 arithmetic",
         cache_state: "cold process start; bounded width-eight chunked prefill; process-local Metal pipelines; checkpoint pages released after every layer",
-        status: "completed",
+        status: "execution_complete_quality_unassessed",
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;

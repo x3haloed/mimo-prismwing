@@ -1,9 +1,9 @@
 # PW-0204 — Arbitrary-prompt generation transaction
 
-- Status: in progress
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-10
-- Execution mode: target-faithful proposal verification with explicitly named
+- Execution mode: source-weight-and-route authority with explicitly modified
   Metal-native L3 reduction arithmetic
 - Hardware/runtime: existing 16 GiB Apple M1 and internal SSD only
 - Related records: PW-0050, PW-0092, PW-0187, PW-0203
@@ -84,9 +84,6 @@ and repeated-state risk frontier without accepting an unverified draft or
 creating another model-semantic authority. A faster proposer may replace it
 only after it produces real proposals and preserves target verification.
 
-Real checkpoint execution and evidence remain unexecuted, so accepted endpoint
-tokens and endpoint TPS remain zero.
-
 The first real launch failed closed before prefill because it was initially
 pointed at a relocated external checkpoint copy whose device and inode identity
 did not match the recovered PW-0049 receipt. The authoritative internal APFS
@@ -128,3 +125,44 @@ The first public runtime input is
 `evals/fixtures/requests/pw0204-arbitrary-text.txt`. It asks for a concise,
 programmatically inspectable two-sentence explanation and contains no route,
 answer, proposal, or runtime-specific hint.
+
+## Executed result
+
+Run 001 completed the entire causal path from the arbitrary UTF-8 fixture
+through chat serialization, tokenization, six real prefill chunks, six proposal
+transactions, target verification, cache rollback, commitment, and decoding.
+It emitted exactly 32 verifier-accepted tokens. The report hashes to
+`7a6674f5946a195cc58732c4b9acae322a3b6e4dacc802833dab58c86d85b266`;
+its synchronized progress log hashes to
+`78732c76be24c76e4dcf8d3cc0c7789a7ebf10b599f8bf7aae2f061e40691119`.
+The immutable evidence is outside Git under `PW-0204/run-001`, in accordance
+with the evidence-size policy.
+
+The run took 1,152,431.038 ms end to end: 431.488 ms preprocessing,
+148,569.266 ms prefill, 873,636.069 ms proposal, and 129,401.598 ms
+verification. It recorded 1,062,128,594,176 logical source bytes,
+1,063,299,391,488 process disk bytes read, and 3,985,113,088 bytes peak RSS on
+the 16 GiB Apple M1. Batch size and concurrency were one. The transaction
+retention/emission counts were `8/7`, `8/7`, `4/4`, `1/1`, `8/7`, and `8/7`;
+the first, second, fifth, and sixth proposal blocks converged.
+
+The observable output was not coherent. Token IDs
+`[264,264,264,15,15,15,15,15,12,264,13,13,11,481,481,481,11,481,481,15,11,11,11,481,481,481,481,481,481,481,481,481]`
+decode as ` a a a00000- a.., - - -, - -0,,, - - - - - - - - -`. This fails
+the milestone's explicit coherent-output requirement even though the causal,
+commitment, and resource-accounting path executed successfully.
+
+## Decision
+
+Reject this source-authority modified-L3 generation branch as evidence of a
+usable text endpoint. It proves the repeated transaction mechanism and exposes
+its physical cost, but it does not prove the claimed user-facing capability.
+Do not report its token rate as accepted TPS and do not promote it for Hacker
+News. PW-0092 already shows that the much slower source-checkpoint CPU path
+also begins with locally authoritative but hosted-divergent output (` a.` for
+the fixed Hello prompt), so replacing Metal with that path is not a justified
+coherence repair. The next experiment must localize a source/runtime semantic
+discrepancy or establish that the pinned checkpoint itself has a different
+behavioral contract; it may not tune against a desired sentence or weaken any
+gate. No throughput-model constant changes: this rejected run establishes no
+accepted performance claim.

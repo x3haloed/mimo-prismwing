@@ -3890,3 +3890,20 @@ the current `q=8` source-FP8/internal-SSD branch for one TPS. A future reopening
 requires a genuinely changed premise—held-out-passing executable-byte
 reduction or a MiMo-specific long-horizon proposer—not another lane count,
 content scan, safety-placement tweak, or hardware sidecar probe.
+
+PW-0204 supersedes the assumption that PW-0203's frozen-block token identity is
+enough to promote its modified-L3 arithmetic into arbitrary-prompt generation.
+The first real run completed all six prefill chunks and six repeated
+proposal/verification/rollback transactions, but its 32 committed tokens
+decoded as repetitive punctuation and fragments rather than a coherent answer.
+The report and progress-log SHA-256 values are respectively
+`7a6674f5946a195cc58732c4b9acae322a3b6e4dacc802833dab58c86d85b266`
+and `78732c76be24c76e4dcf8d3cc0c7789a7ebf10b599f8bf7aae2f061e40691119`.
+Reject the arbitrary-text modified-L3 branch as a usable endpoint while
+retaining its successful causal-path and accounting evidence. This also
+corrects its semantic name: source weights and routes do not make reordered
+Metal reductions target-faithful. PW-0092's slow source path is not an assumed
+repair because its fixed Hello continuation already diverges sharply from the
+hosted behavior. Localize the unresolved behavioral semantic before another
+full generation run. No throughput-model constants change because the run
+failed output quality and establishes no accepted TPS.
