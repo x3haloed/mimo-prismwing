@@ -1,0 +1,1 @@
+Implement a Rust function that parses a stream of length-prefixed records without panicking, rejects truncated or oversized inputs, and returns borrowed payload slices. Explain the invariants, then provide the complete function and focused tests.
