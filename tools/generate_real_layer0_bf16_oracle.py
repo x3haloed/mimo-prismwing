@@ -157,18 +157,49 @@ def dequant_weight(path: Path, name: str, full_qkv: bool = False) -> torch.Tenso
     if full_qkv:
         if tuple(weight.shape) != (13568, 4096) or tuple(scale.shape) != (108, 32):
             raise ValueError("full-QKV layout mismatch")
+        # The raw checkpoint concatenates four tensor-parallel shards, each
+        # [Q3072,K192,V128]. Reorder rows to global [Q,K,V] before applying
+        # the corresponding raw per-shard scale rows.
+        source_rows = torch.empty(13568, dtype=torch.int64)
+        source_rows[:12288] = (
+            torch.arange(12288) // 3072 * 3392 + torch.arange(12288) % 3072
+        )
+        for head in range(4):
+            source_rows[12288 + head * 192:12288 + (head + 1) * 192] = (
+                head * 3392 + 3072 + torch.arange(192)
+            )
+            source_rows[13056 + head * 128:13056 + (head + 1) * 128] = (
+                head * 3392 + 3264 + torch.arange(128)
+            )
         rows = torch.empty(13568, dtype=torch.int64)
-        rows[:12288] = torch.arange(12288) // 128
+        rows[:12288] = (
+            torch.arange(12288) // 3072 * 27
+            + torch.arange(12288) % 3072 // 128
+        )
         for head in range(4):
             start = 12288 + head * 192
-            rows[start:start + 192] = 96 + head * 2 + torch.arange(192) // 128
-        rows[13056:] = 104 + torch.arange(512) // 128
+            rows[start:start + 192] = head * 27 + 24 + torch.arange(192) // 128
+            rows[13056 + head * 128:13056 + (head + 1) * 128] = head * 27 + 26
+        weight = weight[source_rows]
         expanded = scale[rows].repeat_interleave(128, 1)
     else:
         expected = ((weight.shape[0] + 127) // 128, (weight.shape[1] + 127) // 128)
         if tuple(scale.shape) != expected or weight.shape[0] % 128 or weight.shape[1] % 128:
             raise ValueError(f"{name}: FP8 layout mismatch")
         expanded = scale.repeat_interleave(128, 0).repeat_interleave(128, 1)
+        if name.endswith("self_attn.qkv_proj.weight") and tuple(weight.shape) == (14848, 4096):
+            source_rows = torch.empty(14848, dtype=torch.int64)
+            source_rows[:12288] = (
+                torch.arange(12288) // 3072 * 3712 + torch.arange(12288) % 3072
+            )
+            source_rows[12288:13824] = (
+                torch.arange(1536) // 384 * 3712 + 3072 + torch.arange(1536) % 384
+            )
+            source_rows[13824:] = (
+                torch.arange(1024) // 256 * 3712 + 3456 + torch.arange(1024) % 256
+            )
+            weight = weight[source_rows]
+            expanded = expanded[source_rows]
     return weight * expanded
 
 

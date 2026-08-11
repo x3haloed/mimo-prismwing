@@ -2600,6 +2600,20 @@ fn fp8_linear(
         ledger.dynamic_activation_groups += quantized.scales.len() as u64;
         ledger.dynamic_activation_values += quantized.encoded.len() as u64;
         let decoded = decode_fp8_matrix_f32(&validated);
+        let decoded = if weight_name.ends_with("self_attn.qkv_proj.weight")
+            && output_columns == 14_848
+            && columns == HIDDEN
+        {
+            let mut deinterleaved = Vec::with_capacity(decoded.len());
+            for logical_row in 0..output_columns {
+                let source_row = swa_qkv_source_row(logical_row)?;
+                deinterleaved
+                    .extend_from_slice(&decoded[source_row * columns..(source_row + 1) * columns]);
+            }
+            deinterleaved
+        } else {
+            decoded
+        };
         let mut output = accelerate_sgemm_right_transposed(
             &quantized.dequantized,
             &decoded,
@@ -2673,23 +2687,74 @@ fn wide_fp8_linear(
     Ok(execution.output)
 }
 
-fn full_qkv_scale_row(weight_row: usize) -> Result<usize, String> {
+fn full_qkv_source_row(logical_row: usize) -> Result<usize, String> {
     const Q_ROWS: usize = HEADS * QK_HEAD_DIM;
     const K_ROWS: usize = 4 * QK_HEAD_DIM;
     const V_ROWS: usize = 4 * V_HEAD_DIM;
-    if weight_row < Q_ROWS {
-        return Ok(weight_row / 128);
+    const SHARDS: usize = 4;
+    const Q_ROWS_PER_SHARD: usize = Q_ROWS / SHARDS;
+    const SHARD_ROWS: usize = Q_ROWS_PER_SHARD + QK_HEAD_DIM + V_HEAD_DIM;
+    if logical_row < Q_ROWS {
+        let shard = logical_row / Q_ROWS_PER_SHARD;
+        return Ok(shard * SHARD_ROWS + logical_row % Q_ROWS_PER_SHARD);
     }
-    if weight_row < Q_ROWS + K_ROWS {
-        let local = weight_row - Q_ROWS;
+    if logical_row < Q_ROWS + K_ROWS {
+        let local = logical_row - Q_ROWS;
         let head = local / QK_HEAD_DIM;
         let dimension = local % QK_HEAD_DIM;
-        return Ok(96 + head * 2 + dimension / 128);
+        return Ok(head * SHARD_ROWS + Q_ROWS_PER_SHARD + dimension);
     }
-    if weight_row < Q_ROWS + K_ROWS + V_ROWS {
-        return Ok(104 + (weight_row - Q_ROWS - K_ROWS) / V_HEAD_DIM);
+    if logical_row < Q_ROWS + K_ROWS + V_ROWS {
+        let local = logical_row - Q_ROWS - K_ROWS;
+        let head = local / V_HEAD_DIM;
+        let dimension = local % V_HEAD_DIM;
+        return Ok(head * SHARD_ROWS + Q_ROWS_PER_SHARD + QK_HEAD_DIM + dimension);
     }
-    Err("full-QKV weight row is out of range".to_owned())
+    Err("full-QKV logical row is out of range".to_owned())
+}
+
+fn swa_qkv_source_row(logical_row: usize) -> Result<usize, String> {
+    const Q_ROWS: usize = HEADS * QK_HEAD_DIM;
+    const K_ROWS: usize = 8 * QK_HEAD_DIM;
+    const V_ROWS: usize = 8 * V_HEAD_DIM;
+    const Q_ROWS_PER_SHARD: usize = Q_ROWS / 4;
+    const K_ROWS_PER_SHARD: usize = K_ROWS / 4;
+    const V_ROWS_PER_SHARD: usize = V_ROWS / 4;
+    const SHARD_ROWS: usize = Q_ROWS_PER_SHARD + K_ROWS_PER_SHARD + V_ROWS_PER_SHARD;
+    if logical_row < Q_ROWS {
+        return Ok(logical_row / Q_ROWS_PER_SHARD * SHARD_ROWS + logical_row % Q_ROWS_PER_SHARD);
+    }
+    if logical_row < Q_ROWS + K_ROWS {
+        let local = logical_row - Q_ROWS;
+        return Ok(local / K_ROWS_PER_SHARD * SHARD_ROWS
+            + Q_ROWS_PER_SHARD
+            + local % K_ROWS_PER_SHARD);
+    }
+    if logical_row < Q_ROWS + K_ROWS + V_ROWS {
+        let local = logical_row - Q_ROWS - K_ROWS;
+        return Ok(local / V_ROWS_PER_SHARD * SHARD_ROWS
+            + Q_ROWS_PER_SHARD
+            + K_ROWS_PER_SHARD
+            + local % V_ROWS_PER_SHARD);
+    }
+    Err("SWA-QKV logical row is out of range".to_owned())
+}
+
+fn full_qkv_scale_row(logical_row: usize) -> Result<usize, String> {
+    const SHARD_ROWS: usize = 3392;
+    const SCALE_ROWS_PER_SHARD: usize = 27;
+    const Q_ROWS_PER_SHARD: usize = 3072;
+    let source_row = full_qkv_source_row(logical_row)?;
+    let shard = source_row / SHARD_ROWS;
+    let local = source_row % SHARD_ROWS;
+    let local_scale = if local < Q_ROWS_PER_SHARD {
+        local / 128
+    } else if local < Q_ROWS_PER_SHARD + QK_HEAD_DIM {
+        24 + (local - Q_ROWS_PER_SHARD) / 128
+    } else {
+        26
+    };
+    Ok(shard * SCALE_ROWS_PER_SHARD + local_scale)
 }
 
 fn full_qkv_linear(
@@ -2744,11 +2809,12 @@ fn decode_full_qkv_weight(
             return Err(format!("{weight_name}: full-QKV scale is non-finite"));
         }
         let mut decoded = Vec::with_capacity(weight.bytes.len());
-        for weight_row in 0..OUTPUT_ROWS {
-            let scale_row = full_qkv_scale_row(weight_row)?;
+        for logical_row in 0..OUTPUT_ROWS {
+            let source_row = full_qkv_source_row(logical_row)?;
+            let scale_row = full_qkv_scale_row(logical_row)?;
             for column in 0..HIDDEN {
                 decoded.push(
-                    super::decode_f8_e4m3fn(weight.bytes[weight_row * HIDDEN + column])
+                    super::decode_f8_e4m3fn(weight.bytes[source_row * HIDDEN + column])
                         * scales[scale_row * 32 + column / 128],
                 );
             }
@@ -11343,21 +11409,50 @@ mod tests {
 
     #[test]
     fn full_qkv_scale_layout_preserves_head_boundaries() {
+        assert_eq!(full_qkv_source_row(0), Ok(0));
+        assert_eq!(full_qkv_source_row(3_071), Ok(3_071));
+        assert_eq!(full_qkv_source_row(3_072), Ok(3_392));
+        assert_eq!(full_qkv_source_row(12_287), Ok(13_247));
+        assert_eq!(full_qkv_source_row(12_288), Ok(3_072));
+        assert_eq!(full_qkv_source_row(12_480), Ok(6_464));
+        assert_eq!(full_qkv_source_row(13_055), Ok(13_439));
+        assert_eq!(full_qkv_source_row(13_056), Ok(3_264));
+        assert_eq!(full_qkv_source_row(13_567), Ok(13_567));
+        assert!(full_qkv_source_row(13_568).is_err());
         assert_eq!(full_qkv_scale_row(0), Ok(0));
-        assert_eq!(full_qkv_scale_row(12_287), Ok(95));
-        assert_eq!(full_qkv_scale_row(12_288), Ok(96));
-        assert_eq!(full_qkv_scale_row(12_415), Ok(96));
-        assert_eq!(full_qkv_scale_row(12_416), Ok(97));
-        assert_eq!(full_qkv_scale_row(12_479), Ok(97));
-        assert_eq!(full_qkv_scale_row(12_480), Ok(98));
-        assert_eq!(full_qkv_scale_row(13_055), Ok(103));
-        assert_eq!(full_qkv_scale_row(13_056), Ok(104));
+        assert_eq!(full_qkv_scale_row(3_071), Ok(23));
+        assert_eq!(full_qkv_scale_row(3_072), Ok(27));
+        assert_eq!(full_qkv_scale_row(12_287), Ok(104));
+        assert_eq!(full_qkv_scale_row(12_288), Ok(24));
+        assert_eq!(full_qkv_scale_row(12_415), Ok(24));
+        assert_eq!(full_qkv_scale_row(12_416), Ok(25));
+        assert_eq!(full_qkv_scale_row(12_479), Ok(25));
+        assert_eq!(full_qkv_scale_row(12_480), Ok(51));
+        assert_eq!(full_qkv_scale_row(13_055), Ok(106));
+        assert_eq!(full_qkv_scale_row(13_056), Ok(26));
         assert_eq!(full_qkv_scale_row(13_567), Ok(107));
         assert!(full_qkv_scale_row(13_568).is_err());
         let used = (0..13_568)
             .map(|row| full_qkv_scale_row(row).expect("valid full-QKV row"))
             .collect::<BTreeSet<_>>();
         assert_eq!(used, (0..108).collect());
+    }
+
+    #[test]
+    fn swa_qkv_rows_deinterleave_four_checkpoint_tp_shards() {
+        assert_eq!(swa_qkv_source_row(0), Ok(0));
+        assert_eq!(swa_qkv_source_row(3_071), Ok(3_071));
+        assert_eq!(swa_qkv_source_row(3_072), Ok(3_712));
+        assert_eq!(swa_qkv_source_row(12_287), Ok(14_207));
+        assert_eq!(swa_qkv_source_row(12_288), Ok(3_072));
+        assert_eq!(swa_qkv_source_row(12_671), Ok(3_455));
+        assert_eq!(swa_qkv_source_row(12_672), Ok(6_784));
+        assert_eq!(swa_qkv_source_row(13_823), Ok(14_591));
+        assert_eq!(swa_qkv_source_row(13_824), Ok(3_456));
+        assert_eq!(swa_qkv_source_row(14_079), Ok(3_711));
+        assert_eq!(swa_qkv_source_row(14_080), Ok(7_168));
+        assert_eq!(swa_qkv_source_row(14_847), Ok(14_847));
+        assert!(swa_qkv_source_row(14_848).is_err());
     }
 
     #[test]

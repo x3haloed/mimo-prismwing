@@ -256,6 +256,46 @@ struct ScatterShape {
     uint width;
 };
 
+// The checkpoint stores four tensor-parallel QKV shards concatenated as
+// [Q3072,K192,V128] each. Runtime outputs are globally deinterleaved Q, K, V.
+inline uint full_qkv_source_row(uint logical_row) {
+    if (logical_row < 12288) {
+        const uint shard = logical_row / 3072;
+        return shard * 3392 + logical_row % 3072;
+    }
+    if (logical_row < 13056) {
+        const uint local = logical_row - 12288;
+        return (local / 192) * 3392 + 3072 + local % 192;
+    }
+    const uint local = logical_row - 13056;
+    return (local / 128) * 3392 + 3264 + local % 128;
+}
+
+inline uint full_qkv_source_scale_row(uint source_row) {
+    const uint shard = source_row / 3392;
+    const uint local = source_row % 3392;
+    if (local < 3072) {
+        return shard * 27 + local / 128;
+    }
+    if (local < 3264) {
+        return shard * 27 + 24 + (local - 3072) / 128;
+    }
+    return shard * 27 + 26;
+}
+
+inline uint swa_qkv_source_row(uint logical_row) {
+    if (logical_row < 12288) {
+        const uint shard = logical_row / 3072;
+        return shard * 3712 + logical_row % 3072;
+    }
+    if (logical_row < 13824) {
+        const uint local = logical_row - 12288;
+        return (local / 384) * 3712 + 3072 + local % 384;
+    }
+    const uint local = logical_row - 13824;
+    return (local / 256) * 3712 + 3456 + local % 256;
+}
+
 kernel void route_weighted_scatter_add_f32(
     device const float *expert_output [[buffer(0)]],
     device const float *route_weights [[buffer(1)]],
@@ -372,16 +412,9 @@ kernel void full_qkv_fp8_gemm8_shared_weight_lut_blocked(
         shape.block_rows != 128 || shape.block_columns != 128) {
         return;
     }
-    uint scale_row;
-    if (row < 12288) {
-        scale_row = row / 128;
-    } else if (row < 13056) {
-        const uint local = row - 12288;
-        scale_row = 96 + (local / 192) * 2 + (local % 192) / 128;
-    } else {
-        scale_row = 104 + (row - 13056) / 128;
-    }
-    const uint row_offset = row * shape.columns;
+    const uint source_row = full_qkv_source_row(row);
+    const uint scale_row = full_qkv_source_scale_row(source_row);
+    const uint row_offset = source_row * shape.columns;
     const uint scale_columns = 32;
     float sums[batch] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     for (uint block = 0; block < scale_columns; ++block) {
@@ -432,16 +465,69 @@ kernel void full_qkv_fp8_gemm8_sglang_blockscaled(
         shape.block_columns != 128) {
         return;
     }
-    uint scale_row;
-    if (row < 12288) {
-        scale_row = row / 128;
-    } else if (row < 13056) {
-        const uint local = row - 12288;
-        scale_row = 96 + (local / 192) * 2 + (local % 192) / 128;
-    } else {
-        scale_row = 104 + (row - 13056) / 128;
+    const uint source_row = full_qkv_source_row(row);
+    const uint scale_row = full_qkv_source_scale_row(source_row);
+    const uint row_offset = source_row * shape.columns;
+    constexpr uint blocks = 32;
+    float totals[batch] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    for (uint block = 0; block < blocks; ++block) {
+        const uint column_base = block * 128;
+        for (uint position = 0; position < batch; ++position) {
+            float dot = 0.0f;
+            for (uint within = lane; within < 128; within += lanes) {
+                const uint column = column_base + within;
+                dot += decode_lut[weights[row_offset + column]] *
+                    decode_lut[input_codes[position * shape.columns + column]];
+            }
+            partial[lane * batch + position] = dot;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+            if (lane < offset) {
+                for (uint position = 0; position < batch; ++position) {
+                    partial[lane * batch + position] +=
+                        partial[(lane + offset) * batch + position];
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        if (lane == 0) {
+            const float weight_scale = weight_scales[scale_row * blocks + block];
+            for (uint position = 0; position < batch; ++position) {
+                totals[position] += partial[position] * weight_scale *
+                    input_scales[position * blocks + block];
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
     }
-    const uint row_offset = row * shape.columns;
+    if (lane == 0) {
+        for (uint position = 0; position < batch; ++position) {
+            output[position * shape.rows + row] = totals[position];
+        }
+    }
+}
+
+kernel void swa_qkv_fp8_gemm8_sglang_blockscaled(
+    device const uchar *weights [[buffer(0)]],
+    device const float *weight_scales [[buffer(1)]],
+    device const uchar *input_codes [[buffer(2)]],
+    device const float *input_scales [[buffer(3)]],
+    device float *output [[buffer(4)]],
+    constant GemvShape &shape [[buffer(5)]],
+    constant float *decode_lut [[buffer(6)]],
+    threadgroup float *partial [[threadgroup(0)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    constexpr uint batch = 8;
+    if (row >= shape.rows || lanes != 64 || shape.rows != 14848 ||
+        shape.columns != 4096 || shape.block_rows != 128 ||
+        shape.block_columns != 128) {
+        return;
+    }
+    const uint source_row = swa_qkv_source_row(row);
+    const uint scale_row = source_row / 128;
+    const uint row_offset = source_row * shape.columns;
     constexpr uint blocks = 32;
     float totals[batch] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     for (uint block = 0; block < blocks; ++block) {

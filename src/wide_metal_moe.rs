@@ -67,6 +67,7 @@ pub(crate) struct WideMetalMoeRuntime {
     round_pipeline: metal::ComputePipelineState,
     scatter_pipeline: metal::ComputePipelineState,
     blockscaled_full_qkv_pipeline: metal::ComputePipelineState,
+    blockscaled_swa_qkv_pipeline: metal::ComputePipelineState,
     bf16_pipeline: metal::ComputePipelineState,
     lut_buffer: metal::Buffer,
     pub(crate) compile_ms: f64,
@@ -137,6 +138,7 @@ impl WideMetalMoeRuntime {
         let round_pipeline = pipeline("bf16_round_in_place")?;
         let scatter_pipeline = pipeline("route_weighted_scatter_add_f32")?;
         let blockscaled_full_qkv_pipeline = pipeline("full_qkv_fp8_gemm8_sglang_blockscaled")?;
+        let blockscaled_swa_qkv_pipeline = pipeline("swa_qkv_fp8_gemm8_sglang_blockscaled")?;
         let bf16_pipeline = pipeline("bf16_gemm8_shared_weight")?;
         let decode_lut = (0_u16..=255)
             .map(|bits| decode_f8_e4m3fn(bits as u8))
@@ -159,6 +161,7 @@ impl WideMetalMoeRuntime {
             round_pipeline,
             scatter_pipeline,
             blockscaled_full_qkv_pipeline,
+            blockscaled_swa_qkv_pipeline,
             bf16_pipeline,
             lut_buffer,
             compile_ms,
@@ -243,6 +246,8 @@ impl WideMetalMoeRuntime {
         let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(if full_qkv_layout {
             &self.blockscaled_full_qkv_pipeline
+        } else if binding.rows == 14_848 && binding.columns == HIDDEN {
+            &self.blockscaled_swa_qkv_pipeline
         } else {
             &self.blockscaled_projection_pipelines[BATCH - 1]
         });
