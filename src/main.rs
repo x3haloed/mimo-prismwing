@@ -19,7 +19,7 @@ use prismwing::{
     run_metal_incremental_text_endpoint, run_metal_mapped_fp8_gemv,
     run_metal_native_distribution_probe, run_metal_noaux_tc_router, run_metal_real_base_layer,
     run_metal_simdgroup_matrix_fp8_moe_block, run_metal_union_parallel_fp8_moe_block,
-    run_native_mtp_window_capture, run_pressure_residency_smoke,
+    run_native_mtp_prefill_capture, run_native_mtp_window_capture, run_pressure_residency_smoke,
     run_pressure_resident_checkpoint_pilot, run_staged_metal_fp8_expert,
     run_weight_install_tomography, run_wide_metal_jacobi_text_endpoint,
 };
@@ -197,6 +197,10 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing native-mtp-window-capture <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <ordinary|code|multilingual|rare_route> <hidden.f32> <output.json> <commit>  # exact 64-token run"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing native-mtp-prefill-capture <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <ordinary|code|multilingual|rare_route> <hidden.f32> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -587,6 +591,36 @@ fn main() {
                         .native_mtp_window
                         .as_ref()
                         .map_or("unknown", |capture| capture.category.as_str()),
+                    report.complete_wall_ms / 1000.0,
+                );
+                Some(output)
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("native-mtp-prefill-capture") if arguments.len() == 11 => {
+            let checkpoint = PathBuf::from(&arguments[2]);
+            let model_lock = PathBuf::from(&arguments[3]);
+            let verification = PathBuf::from(&arguments[4]);
+            let kernel = PathBuf::from(&arguments[5]);
+            let prompt = PathBuf::from(&arguments[6]);
+            let hidden = PathBuf::from(&arguments[8]);
+            let output = PathBuf::from(&arguments[9]);
+            run_native_mtp_prefill_capture(
+                &checkpoint,
+                &model_lock,
+                &verification,
+                &kernel,
+                &prompt,
+                &arguments[7],
+                &hidden,
+                &output,
+                &arguments[10],
+            )
+            .map(|report| {
+                println!(
+                    "captured native-MTP {} prefill hidden for {} tokens in {:.3} s",
+                    report.target_hidden.category,
+                    report.prompt_token_ids.len(),
                     report.complete_wall_ms / 1000.0,
                 );
                 Some(output)

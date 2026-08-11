@@ -732,6 +732,52 @@ pub struct NativeMtpWindowCaptureRecord {
 }
 
 #[derive(Debug, Serialize)]
+pub struct NativeMtpPrefillCaptureRecord {
+    pub category: String,
+    pub artifact_file: String,
+    pub artifact_sha256: String,
+    pub shape: [usize; 2],
+    pub dtype: &'static str,
+    pub byte_order: &'static str,
+    pub semantic: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NativeMtpPrefillCaptureReport {
+    pub schema_version: u32,
+    pub evidence_class: &'static str,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub git_dirty: bool,
+    pub model_lock_sha256: &'static str,
+    pub checkpoint_verification_sha256: String,
+    pub tokenizer_sha256: &'static str,
+    pub tokenizer_config_sha256: &'static str,
+    pub kernel_sha256: String,
+    pub metal_device: String,
+    pub user_prompt_utf8: String,
+    pub serialized_prompt_utf8: String,
+    pub prompt_token_ids: Vec<u32>,
+    pub first_anchor_token_id: u32,
+    pub prefill_chunks: usize,
+    pub chunk_layer_traces: Vec<Vec<LayerRouteTrace>>,
+    pub target_hidden: NativeMtpPrefillCaptureRecord,
+    pub ledger: EndpointLedger,
+    pub process_disk_bytes_read: u64,
+    pub peak_resident_bytes: u64,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub complete_wall_ms: f64,
+    pub prefill_wall_ms: f64,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub cache_state: &'static str,
+    pub exactness: &'static str,
+    pub performance_claim: Option<String>,
+    pub status: &'static str,
+}
+
+#[derive(Debug, Serialize)]
 pub struct GenerationResidencyReport {
     pub manifest_sha256: String,
     pub selection: String,
@@ -6139,6 +6185,188 @@ pub fn run_wide_metal_jacobi_text_endpoint(
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;
+    Ok(report)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_native_mtp_prefill_capture(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    category: &str,
+    hidden_output_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<NativeMtpPrefillCaptureReport, String> {
+    if output_path.exists() || hidden_output_path.exists() {
+        return Err("refusing to overwrite native MTP prefill evidence".to_owned());
+    }
+    if !matches!(
+        category,
+        "ordinary" | "code" | "multilingual" | "rare_route"
+    ) {
+        return Err(
+            "native MTP prefill category must be ordinary, code, multilingual, or rare_route"
+                .to_owned(),
+        );
+    }
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("implementation commit must be a lowercase 40-hex Git object".to_owned());
+    }
+    let git_head = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .map_err(|error| format!("git rev-parse HEAD: {error}"))?;
+    let git_status = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .map_err(|error| format!("git status: {error}"))?;
+    let git_dirty = !git_status.stdout.is_empty();
+    if !git_head.status.success()
+        || !git_status.status.success()
+        || String::from_utf8_lossy(&git_head.stdout).trim() != commit
+        || git_dirty
+    {
+        return Err(
+            "native MTP prefill evidence requires the supplied commit to be exact clean Git HEAD"
+                .to_owned(),
+        );
+    }
+
+    const WIDTH: usize = 8;
+    let complete_started = Instant::now();
+    let disk_before = process_disk_bytes_read()?;
+    let user_prompt = fs::read_to_string(prompt_path)
+        .map_err(|error| format!("{}: {error}", prompt_path.display()))?;
+    let (
+        checkpoint,
+        _verification,
+        config,
+        _tokenizer,
+        serialized_prompt,
+        prompt_token_ids,
+        mut safety,
+        verification_sha256,
+    ) = open_arbitrary_text_authority(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        &user_prompt,
+    )?;
+    let runtime = WideMetalMoeRuntime::compile(kernel_path)?;
+    safety.checkpoint("native_mtp_prefill_authorities_open", true)?;
+    let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
+    let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
+    let prefill_chunks = prompt_token_ids.len().div_ceil(WIDTH);
+    let prefill_started = Instant::now();
+    let mut target_hidden = Vec::with_capacity(prompt_token_ids.len() * HIDDEN);
+    let mut chunk_layer_traces = Vec::with_capacity(prefill_chunks);
+    let mut first_anchor = None;
+    for (chunk_index, chunk) in prompt_token_ids.chunks(WIDTH).enumerate() {
+        let final_chunk = chunk_index + 1 == prefill_chunks;
+        let mut metal_ledger = MetalExpertLedger::default();
+        let step = decode_step(
+            &checkpoint,
+            &config,
+            chunk,
+            &mut caches,
+            &mut ledger,
+            &mut safety,
+            None,
+            None,
+            Some((&runtime, &mut metal_ledger)),
+            None,
+            if final_chunk {
+                DecodeOutput::Logits
+            } else {
+                DecodeOutput::RoutesOnly
+            },
+        )?;
+        if step.final_hidden.len() != chunk.len() * HIDDEN {
+            return Err("native MTP prefill hidden chunk shape mismatch".to_owned());
+        }
+        target_hidden.extend_from_slice(&step.final_hidden);
+        chunk_layer_traces.push(step.traces);
+        if final_chunk {
+            first_anchor = Some(step.output_token);
+        }
+        safety.checkpoint(
+            &format!("native_mtp_prefill_chunk_{chunk_index}_complete"),
+            true,
+        )?;
+    }
+    if target_hidden.len() != prompt_token_ids.len() * HIDDEN
+        || caches
+            .iter()
+            .any(|cache| cache.positions != prompt_token_ids.len() || cache.validate().is_err())
+    {
+        return Err("native MTP prefill target-hidden/cache gate failed".to_owned());
+    }
+    let prefill_wall_ms = prefill_started.elapsed().as_secs_f64() * 1000.0;
+    let artifact_bytes = finite_f32_le_bytes(&target_hidden, prompt_token_ids.len() * HIDDEN)?;
+    write_create_new(hidden_output_path, &artifact_bytes)?;
+    safety.checkpoint("native_mtp_prefill_artifact_complete", true)?;
+    let artifact_file = hidden_output_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("native MTP prefill artifact filename is not UTF-8")?
+        .to_owned();
+    let process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_before)
+        .ok_or("native MTP prefill disk byte counter moved backwards")?;
+    let report = NativeMtpPrefillCaptureReport {
+        schema_version: 1,
+        evidence_class: "pw0208_native_mtp_corrected_prefill_hidden_capture",
+        semantic: "mimo_v2_5_pw0208_corrected_target_layer47_prefill_hidden_capture",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        git_dirty,
+        model_lock_sha256: MODEL_LOCK_SHA256,
+        checkpoint_verification_sha256: verification_sha256,
+        tokenizer_sha256: TOKENIZER_SHA256,
+        tokenizer_config_sha256: TOKENIZER_CONFIG_SHA256,
+        kernel_sha256: hash_file(kernel_path)?,
+        metal_device: runtime.device_name.clone(),
+        user_prompt_utf8: user_prompt,
+        serialized_prompt_utf8: serialized_prompt,
+        prompt_token_ids,
+        first_anchor_token_id: first_anchor.ok_or("native MTP prefill produced no anchor")?,
+        prefill_chunks,
+        chunk_layer_traces,
+        target_hidden: NativeMtpPrefillCaptureRecord {
+            category: category.to_owned(),
+            artifact_file,
+            artifact_sha256: sha256_hex(&artifact_bytes),
+            shape: [target_hidden.len() / HIDDEN, HIDDEN],
+            dtype: "float32",
+            byte_order: "little_endian",
+            semantic: "target_layer_47_final_hidden_before_model_final_norm_for_each_serialized_prompt_token",
+        },
+        ledger,
+        process_disk_bytes_read,
+        peak_resident_bytes: peak_resident_bytes()?,
+        safety_snapshots: safety.snapshots,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        prefill_wall_ms,
+        batch_size: 1,
+        concurrency: 1,
+        cache_state: "cold process start; bounded width-eight chunked corrected target prefill; checkpoint pages released after every layer",
+        exactness: "source checkpoint weights and routes; corrected SGLang-directed QKV layout; target layer-47 hidden before final model norm",
+        performance_claim: None,
+        status: "capture_complete",
+    };
+    write_create_new(
+        output_path,
+        &serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?,
+    )?;
     Ok(report)
 }
 
