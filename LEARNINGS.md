@@ -3907,3 +3907,23 @@ repair because its fixed Hello continuation already diverges sharply from the
 hosted behavior. Localize the unresolved behavioral semantic before another
 full generation run. No throughput-model constants change because the run
 failed output quality and establishes no accepted TPS.
+
+PW-0205 finds that the old whole-model “source parity” claim shared a QKV layout
+mistake with its Python oracle. MiMo's raw QKV tensors concatenate four
+tensor-parallel `[Q,K,V]` shards; they are not global `[all Q,all K,all V]`.
+The old 108-scale-row audit consumed every scale but assigned raw shard rows to
+the wrong semantic heads, and sliding-window tensors hid the same error behind
+an ordinary-looking aligned grid. This supersedes PW-0089 through PW-0095 as
+behavioral authorities until their captures are regenerated with deinterleaved
+QKV; their evidence remains valid only for the explicitly named old layout.
+
+Block-scaled FP8 association by itself did not repair behavior: partial and
+complete block-scaled controls still chose `.`. After deinterleaving both
+global and sliding-window QKV according to the pinned SGLang loader, the same
+arbitrary-prompt first-token probe chooses token 30092 (`Sun`). The corrected
+report and progress SHA-256 values are
+`01bedf3b1028b7b66ad92ab9c0662f62507c4734c8d8f8a06b147ea30785b63b`
+and `336301452aea0e2e301b2a31f208384e5c8ae4bbd9e0015f0103c0a370d27879`.
+This is the first plausible local language-bearing token, but not yet a
+coherence result. Require a bounded phrase and then 32--64 committed tokens.
+No throughput constant changes because these are correctness probes.

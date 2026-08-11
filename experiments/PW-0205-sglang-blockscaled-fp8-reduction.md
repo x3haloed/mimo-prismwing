@@ -69,3 +69,40 @@ justify generation. It does prove the arithmetic distinction is materially
 causal at whole-model output. Continue the same source-directed equation
 through routed experts, then repeat the one-token gate. Do not call run 001 a
 coherence result or accepted TPS.
+
+Run 003 extended block scaling through routed gate/up/down projections but
+retained the old QKV row interpretation. It again emitted token 13 (`.`), in
+206,429.940 ms complete wall. Its report and progress hashes are
+`4858e5c622871b52147f01a655dde2cac0b173e50881de275e4cddd6f846b399`
+and `9182c86cd62814930cba12014ef95ea831d836cc5007a1c37355a2fff4a79937`.
+Run 004 applied block scaling to QKV as well and still emitted `.`; its report
+and progress hashes are
+`92e724a9213a462974057b519db958047adf22717ec6b6b8ce8af793a625c36e`
+and `38ac28dbdaae90644e65222b00a09d0cb38ddcc50835c31eaf2af2a3e2acb806`.
+Thus block-scaled association alone is rejected as the primary behavioral
+repair.
+
+The pinned SGLang loader then exposed a prior shared-oracle error. The
+checkpoint declares `attention_projection_layout: fused_qkv` and four KV
+heads. Its raw attention tensor concatenates four TP shards, each containing
+its local `[Q,K,V]` rows. Both Prismwing and the independent Python fixture had
+instead read raw rows as global `[all Q,all K,all V]`; the special 108-row
+scale audit proved only that every raw scale was consumed, not that it was
+attached to the correct semantic output row. The same error affected
+sliding-window QKV, where shard boundaries happen to be 128-row aligned and
+therefore looked like an ordinary scale grid.
+
+Run 005 deinterleaves both global and sliding-window raw TP rows into logical
+global Q/K/V outputs before attention. The first arbitrary-prompt token changes
+from punctuation to token 30092, decoded as `Sun`, a plausible beginning for
+the sky-color prompt. Its report hashes to
+`01bedf3b1028b7b66ad92ab9c0662f62507c4734c8d8f8a06b147ea30785b63b`
+and progress log to
+`336301452aea0e2e301b2a31f208384e5c8ae4bbd9e0015f0103c0a370d27879`.
+Complete wall is 209,150.826 ms, including 208,407.080 ms prefill; logical
+source bytes are 272,925,048,064, process disk reads 273,246,760,960, and peak
+RSS 3,840,360,448 bytes.
+
+One plausible token is a promotion signal, not coherence evidence. Authorize
+one bounded eight-token proposal/verification run next. A grammatical phrase
+is required before the 32-token milestone run.

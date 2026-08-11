@@ -5714,9 +5714,10 @@ pub fn run_arbitrary_text_generation(
     if progress_path.exists() {
         return Err(format!("refusing to overwrite {}", progress_path.display()));
     }
-    if requested_output_tokens != 1 && !(32..=64).contains(&requested_output_tokens) {
+    if !(1..=8).contains(&requested_output_tokens) && !(32..=64).contains(&requested_output_tokens)
+    {
         return Err(
-            "arbitrary text generation requires one diagnostic token or 32 through 64 endpoint tokens"
+            "arbitrary text generation requires one through eight diagnostic tokens or 32 through 64 endpoint tokens"
                 .to_owned(),
         );
     }
@@ -5993,13 +5994,13 @@ pub fn run_arbitrary_text_generation(
     let progress_sha256 = hash_file(&progress_path)?;
     let report = ArbitraryTextGenerationReport {
         schema_version: 1,
-        evidence_class: if requested_output_tokens == 1 {
-            "pw0205_arbitrary_prompt_first_token_probe"
+        evidence_class: if requested_output_tokens <= 8 {
+            "pw0205_arbitrary_prompt_bounded_generation_probe"
         } else {
             "pw0204_arbitrary_prompt_target_proposed_generation"
         },
-        semantic: if requested_output_tokens == 1 {
-            "mimo_v2_5_sglang_directed_blockscaled_spine_first_token_probe"
+        semantic: if requested_output_tokens <= 8 {
+            "mimo_v2_5_sglang_directed_blockscaled_qkv_deinterleaved_generation_probe"
         } else {
             "mimo_v2_5_source_authority_modified_l3_text_generation"
         },
@@ -6034,15 +6035,15 @@ pub fn run_arbitrary_text_generation(
         batch_size: 1,
         concurrency: 1,
         verifier_width: WIDTH,
-        exactness: if requested_output_tokens == 1 {
+        exactness: if requested_output_tokens <= 8 {
             "PW-0205 diagnostic: SGLang-directed 128-column block-scaled FP8 QKV, ordinary spine, and routed MoE projections"
         } else {
             "source checkpoint weights and routes with explicitly modified Metal-native L3 reductions; no draft token commits before verifier acceptance"
         },
         proposer: "greedy source-checkpoint target proposer using the same retained K/V and Metal-native L3 arithmetic",
         cache_state: "cold process start; bounded width-eight chunked prefill; process-local Metal pipelines; checkpoint pages released after every layer",
-        status: if requested_output_tokens == 1 {
-            "diagnostic_first_token_complete"
+        status: if requested_output_tokens <= 8 {
+            "diagnostic_generation_complete"
         } else {
             "execution_complete_quality_unassessed"
         },

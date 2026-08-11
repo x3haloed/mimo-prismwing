@@ -185,7 +185,7 @@ fn usage() -> ! {
     );
     #[cfg(target_os = "macos")]
     eprintln!(
-        "  prismwing arbitrary-text-generate <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <32-64-output-tokens> <output.json> <commit>"
+        "  prismwing arbitrary-text-generate <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <1-8-diagnostic-or-32-64-endpoint-tokens> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
