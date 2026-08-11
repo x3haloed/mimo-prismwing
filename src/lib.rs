@@ -15,6 +15,8 @@ mod metal_io_acquisition;
 #[cfg(target_os = "macos")]
 mod pread_expert_acquisition;
 #[cfg(target_os = "macos")]
+pub mod pressure_residency;
+#[cfg(target_os = "macos")]
 mod routed_layer_artifact;
 #[cfg(target_os = "macos")]
 mod staged_metal_expert;

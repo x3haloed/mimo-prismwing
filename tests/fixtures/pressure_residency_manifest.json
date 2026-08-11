@@ -1,0 +1,26 @@
+{
+  "residency_manifest": {
+    "capacity_bytes": 12884901888,
+    "selected_bytes": 8,
+    "unallocated_bytes": 12884901880,
+    "persistent_lifetime": "one repeated decoder transaction",
+    "warning_eviction_order": "ascending warning_eviction_order; lowest priority first",
+    "critical_pressure_action": "stop; reject all subsequent resident growth",
+    "objects": [
+      {
+        "identity": "first",
+        "bytes": 3,
+        "tensor_metadata_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "lifetime": "one_repeated_decoder_transaction",
+        "warning_eviction_order": 1
+      },
+      {
+        "identity": "second",
+        "bytes": 5,
+        "tensor_metadata_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lifetime": "one_repeated_decoder_transaction",
+        "warning_eviction_order": 2
+      }
+    ]
+  }
+}
