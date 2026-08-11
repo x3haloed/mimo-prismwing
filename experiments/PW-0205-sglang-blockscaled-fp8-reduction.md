@@ -122,3 +122,25 @@ and `17e139b9243f90a20eaf715975773618dca0eebfd41df15e80b0489dc10b0b58`.
 Promote the corrected QKV mapping and block-scaled arithmetic to the 32-token
 milestone run. This is a correctness promotion only; the measured rate is not
 accepted endpoint TPS until the complete required output and audit pass.
+
+Run 007 produced 32 fluent, relevant tokens, beginning `Sunlight contains all
+colors of the spectrum` and continuing with a correct explanation of shorter
+blue wavelengths scattering from gas molecules. Its report and progress hashes
+are `638f5b4c315680a26480458110c354da976fc9d8fe62c9aacc3d7c731478992c`
+and `52ca1dd369c6bd9c6ac8a8fb8371da311d6a6de2aa5e3e246e7597884cb2117e`.
+Complete wall was 1,200,915.190 ms: 207,226.403 ms prefill, 806,352.619 ms
+proposal, and 186,531.425 ms verification. It recorded 1,130,120,274,176
+logical source bytes, 1,131,371,110,400 process disk bytes read, and
+3,951,165,440 bytes peak RSS without swap growth, new throttling, or protected
+service loss.
+
+The post-run cache audit rejects run 007 as final transaction evidence despite
+its coherent text. A converged width-eight block emits seven suffix tokens; its
+last proposal token is the next unevaluated anchor. The implementation retained
+all eight proposal rows, then evaluated that anchor again in the next block,
+duplicating one hidden-history token. Proposer and verifier shared the error,
+so convergence could not detect it. Correct converged retention to seven rows,
+bind `next_anchor_token_id` to the last emitted proposal token, distinguish
+verifier-authorized from actually observable final-window tokens in schema 2,
+and repeat the milestone. Preserve run 007 as evidence that QKV repair restores
+language, not as target-faithful repeated-cache evidence.

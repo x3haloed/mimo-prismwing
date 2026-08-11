@@ -3927,3 +3927,14 @@ and `336301452aea0e2e301b2a31f208384e5c8ae4bbd9e0015f0103c0a370d27879`.
 This is the first plausible local language-bearing token, but not yet a
 coherence result. Require a bounded phrase and then 32--64 committed tokens.
 No throughput constant changes because these are correctness probes.
+
+PW-0205 run 007 proves that corrected QKV produces fluent 32-token text, but a
+post-run invariant audit rejects its repeated cache transition. On convergence,
+seven new suffix tokens are observable and the last suffix remains the next
+unevaluated anchor; retaining all eight proposal input rows duplicates that
+anchor in hidden history. Proposer/verifier agreement cannot expose a shared
+cache error. This supersedes PW-0204's converged-retention rule and the cache
+portion of run 007 while preserving its behavioral evidence. Schema 2 must
+separate verifier-authorized tokens/rows from the final output-limit slice and
+retain only seven rows for a fully converged width-eight proposal. Repeat the
+full milestone after this correction; do not report run 007 as accepted TPS.

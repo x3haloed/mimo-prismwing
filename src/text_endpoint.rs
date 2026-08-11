@@ -611,7 +611,9 @@ pub struct GenerationTransactionReport {
     pub index: usize,
     pub proposal_token_ids: Vec<u32>,
     pub posterior_token_ids: Vec<u32>,
+    pub verifier_authorized_token_ids: Vec<u32>,
     pub emitted_token_ids: Vec<u32>,
+    pub verifier_retained_proposal_rows: usize,
     pub retained_proposal_rows: usize,
     pub proposal_converged: bool,
     pub proposal_wall_ms: f64,
@@ -5409,10 +5411,10 @@ fn commit_jacobi_transaction(proposal: &[u32], posterior: &[u32]) -> Result<Jaco
     } else {
         Ok(JacobiCommit {
             emitted_token_ids: proposal[1..].to_vec(),
-            retained_proposal_rows: proposal.len(),
-            next_anchor_token_id: *posterior
+            retained_proposal_rows: proposal.len() - 1,
+            next_anchor_token_id: *proposal
                 .last()
-                .ok_or("Jacobi posterior unexpectedly empty")?,
+                .ok_or("Jacobi proposal unexpectedly empty")?,
             proposal_converged: true,
         })
     }
@@ -5894,15 +5896,20 @@ pub fn run_arbitrary_text_generation(
             .sum::<f64>()
             / 47.0;
         let remaining = requested_output_tokens - generated_token_ids.len();
-        generated_token_ids.extend(
-            commit_result
-                .emitted_token_ids
-                .iter()
-                .copied()
-                .take(remaining),
-        );
+        let observable_emitted_token_ids = commit_result
+            .emitted_token_ids
+            .iter()
+            .copied()
+            .take(remaining)
+            .collect::<Vec<_>>();
+        generated_token_ids.extend_from_slice(&observable_emitted_token_ids);
+        let verifier_retained_proposal_rows = commit_result.retained_proposal_rows;
+        let mut retained_proposal_rows = verifier_retained_proposal_rows;
         if generated_token_ids.len() == requested_output_tokens {
             let exact_retained = prompt_token_ids.len() + generated_token_ids.len() - 1;
+            retained_proposal_rows = exact_retained
+                .checked_sub(base_positions)
+                .ok_or("generation final retained position moved backwards")?;
             for cache in &mut caches {
                 cache.truncate(exact_retained)?;
             }
@@ -5910,6 +5917,13 @@ pub fn run_arbitrary_text_generation(
         next_anchor = *generated_token_ids
             .last()
             .ok_or("generation lost its committed anchor")?;
+        if next_anchor
+            != *observable_emitted_token_ids
+                .last()
+                .ok_or("generation transaction emitted no observable token")?
+        {
+            return Err("generation next-anchor authority mismatch".to_owned());
+        }
         let transaction_disk_bytes = process_disk_bytes_read()?
             .checked_sub(transaction_disk_before)
             .ok_or("transaction disk byte counter moved backwards")?;
@@ -5920,14 +5934,15 @@ pub fn run_arbitrary_text_generation(
         logical_source_bytes = logical_source_bytes
             .checked_add(transaction_logical_bytes)
             .ok_or("generation logical byte ledger overflow")?;
-        let retained_proposal_rows = commit_result.retained_proposal_rows;
-        let emitted_tokens = commit_result.emitted_token_ids.len();
+        let emitted_tokens = observable_emitted_token_ids.len();
         let proposal_converged = commit_result.proposal_converged;
         transactions.push(GenerationTransactionReport {
             index: transaction_index,
             proposal_token_ids: proposal,
             posterior_token_ids: verified.output_tokens,
-            emitted_token_ids: commit_result.emitted_token_ids,
+            verifier_authorized_token_ids: commit_result.emitted_token_ids,
+            emitted_token_ids: observable_emitted_token_ids,
+            verifier_retained_proposal_rows,
             retained_proposal_rows,
             proposal_converged,
             proposal_wall_ms: proposal_elapsed_ms,
@@ -5993,7 +6008,7 @@ pub fn run_arbitrary_text_generation(
     drop(progress);
     let progress_sha256 = hash_file(&progress_path)?;
     let report = ArbitraryTextGenerationReport {
-        schema_version: 1,
+        schema_version: 2,
         evidence_class: if requested_output_tokens <= 8 {
             "pw0205_arbitrary_prompt_bounded_generation_probe"
         } else {
@@ -6040,7 +6055,7 @@ pub fn run_arbitrary_text_generation(
         } else {
             "source checkpoint weights and routes; four checkpoint-TP QKV shards deinterleaved per pinned SGLang loader; 128-column block-scaled FP8 Metal reductions; no draft token commits before verifier acceptance"
         },
-        proposer: "greedy source-checkpoint target proposer using the same retained K/V and Metal-native L3 arithmetic",
+        proposer: "greedy source-checkpoint proposer using the same retained K/V, deinterleaved checkpoint-TP QKV layout, and SGLang-directed block-scaled Metal arithmetic",
         cache_state: "cold process start; bounded width-eight chunked prefill; process-local Metal pipelines; checkpoint pages released after every layer",
         status: if requested_output_tokens <= 8 {
             "diagnostic_generation_complete"
@@ -11278,8 +11293,8 @@ mod tests {
             commit_jacobi_transaction(&proposal, &posterior),
             Ok(JacobiCommit {
                 emitted_token_ids: vec![42, 43, 44],
-                retained_proposal_rows: 4,
-                next_anchor_token_id: 45,
+                retained_proposal_rows: 3,
+                next_anchor_token_id: 44,
                 proposal_converged: true,
             })
         );
