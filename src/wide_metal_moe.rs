@@ -837,16 +837,29 @@ impl WideMetalMoeRuntime {
             shared,
         );
 
-        let command = self.queue.new_command_buffer();
-        let blit = command.new_blit_command_encoder();
+        let zero_command = self.queue.new_command_buffer();
+        let blit = zero_command.new_blit_command_encoder();
         blit.fill_buffer(
             &block_output,
             NSRange::new(0, (active_rows * HIDDEN * 4) as u64),
             0,
         );
         blit.end_encoding();
-        let encoder = command.new_compute_command_encoder();
+        zero_command.commit();
+        zero_command.wait_until_completed();
+        if zero_command.status() != MTLCommandBufferStatus::Completed {
+            return Err(format!(
+                "wide MoE zero command failed: {:?}",
+                zero_command.status()
+            ));
+        }
         for expert in &buffers {
+            // A single encoder with hundreds of real-checkpoint projection
+            // chains produced silent cross-expert corruption at context 128.
+            // Separate command buffers establish an explicit completion edge
+            // while retaining the layer-major mapped source regions.
+            let command = self.queue.new_command_buffer();
+            let encoder = command.new_compute_command_encoder();
             let pipeline = &self.blockscaled_projection_pipelines[expert.count - 1];
             encoder.set_compute_pipeline_state(&self.quantized_dynamic_pipeline);
             encoder.set_buffer(0, Some(&expert.input), 0);
@@ -1001,7 +1014,18 @@ impl WideMetalMoeRuntime {
                     depth: 1,
                 },
             );
+            encoder.end_encoding();
+            command.commit();
+            command.wait_until_completed();
+            if command.status() != MTLCommandBufferStatus::Completed {
+                return Err(format!(
+                    "wide MoE expert command failed: {:?}",
+                    command.status()
+                ));
+            }
         }
+        let command = self.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
         encoder.set_compute_pipeline_state(&self.round_pipeline);
         encoder.set_buffer(0, Some(&block_output), 0);
         encoder.set_buffer(1, Some(&block_count_buffer), 0);
