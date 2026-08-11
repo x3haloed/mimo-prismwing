@@ -1510,6 +1510,12 @@ Run the following cheap falsifiers in order:
    conditional slice wins. Rare-route then passes at `1.174140x` complete and
    `2.457567x` post-prefill. All four frozen text categories are now positive;
    general promotion still requires longer-output untouched holdouts.
+11. [PW-0216](../experiments/PW-0216-native-mtp-longer-output-holdout.md)
+   freezes a new four-category prompt panel before first execution and begins
+   with a 32-token ordinary candidate-control-candidate sequence. It tests
+   sustained native-MTP acceptance, correction, rollback, and complete-path
+   gain without reusing the mechanism-development prompts. Positive and
+   negative category results are preserved independently.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
