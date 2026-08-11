@@ -106,3 +106,19 @@ RSS 3,840,360,448 bytes.
 One plausible token is a promotion signal, not coherence evidence. Authorize
 one bounded eight-token proposal/verification run next. A grammatical phrase
 is required before the 32-token milestone run.
+
+Run 006 passes that bounded phrase gate. Its eight verifier-committed tokens
+decode as `Sunlight contains all colors of the spectrum`, a grammatical and
+directly relevant continuation. The sole width-eight proposal converged:
+posterior tokens exactly match all seven proposed suffix tokens and supply the
+next punctuation posterior. Proposal wall is 159,482.884 ms, verification wall
+36,814.417 ms, prefill wall 209,692.948 ms, and complete wall 406,624.414 ms.
+The run records 444,494,987,520 logical source bytes, 444,997,193,728 process
+disk bytes read, and 3,935,567,872 bytes peak RSS. Its report and progress-log
+hashes are
+`564cd967959ab3c715fb773d01439da1aecd7c2ac3de09550720f118b95f83e3`
+and `17e139b9243f90a20eaf715975773618dca0eebfd41df15e80b0489dc10b0b58`.
+
+Promote the corrected QKV mapping and block-scaled arithmetic to the 32-token
+milestone run. This is a correctness promotion only; the measured rate is not
+accepted endpoint TPS until the complete required output and audit pass.

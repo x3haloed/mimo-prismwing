@@ -5997,12 +5997,12 @@ pub fn run_arbitrary_text_generation(
         evidence_class: if requested_output_tokens <= 8 {
             "pw0205_arbitrary_prompt_bounded_generation_probe"
         } else {
-            "pw0204_arbitrary_prompt_target_proposed_generation"
+            "pw0205_arbitrary_prompt_corrected_qkv_target_proposed_generation"
         },
         semantic: if requested_output_tokens <= 8 {
             "mimo_v2_5_sglang_directed_blockscaled_qkv_deinterleaved_generation_probe"
         } else {
-            "mimo_v2_5_source_authority_modified_l3_text_generation"
+            "mimo_v2_5_sglang_directed_blockscaled_qkv_deinterleaved_text_generation"
         },
         revision: REVISION,
         commit: commit.to_owned(),
@@ -6038,7 +6038,7 @@ pub fn run_arbitrary_text_generation(
         exactness: if requested_output_tokens <= 8 {
             "PW-0205 diagnostic: SGLang-directed 128-column block-scaled FP8 QKV, ordinary spine, and routed MoE projections"
         } else {
-            "source checkpoint weights and routes with explicitly modified Metal-native L3 reductions; no draft token commits before verifier acceptance"
+            "source checkpoint weights and routes; four checkpoint-TP QKV shards deinterleaved per pinned SGLang loader; 128-column block-scaled FP8 Metal reductions; no draft token commits before verifier acceptance"
         },
         proposer: "greedy source-checkpoint target proposer using the same retained K/V and Metal-native L3 arithmetic",
         cache_state: "cold process start; bounded width-eight chunked prefill; process-local Metal pipelines; checkpoint pages released after every layer",
