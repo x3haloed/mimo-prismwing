@@ -1396,6 +1396,16 @@ ordinary kernel or monitoring tweak. Reopen only after a held-out-passing
 executable-byte reduction or a MiMo-specific proposer changes `A/U` enough to
 rederive the full physical bound. Hardware sidecars are outside this branch.
 
+[PW-0205](../experiments/PW-0205-sglang-blockscaled-fp8-reduction.md) repairs
+the shared QKV-layout error exposed by PW-0204 and completes the first coherent
+arbitrary-text causal path. Run 009 performs real preprocessing and prefill,
+real repeated proposal, accelerated verification, verifier-only commit, and
+cache rollback, producing 47 coherent tokens in 1,790.268 seconds complete
+wall. Promote this only as a correctness milestone in its explicitly named
+SGLang-directed modified arithmetic. Its 0.026253 complete-path tokens/s does
+not reopen the rejected storage-performance branch or pass target-faithful,
+hosted-parity, multimodal, or 50 TPS gates.
+
 ## Black-swan budget
 
 No more than 10% of research time before Prismwing 10 goes to black swans:

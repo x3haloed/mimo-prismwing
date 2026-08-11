@@ -9,6 +9,22 @@ MiMo-V2.5.**
 reason for targeting MiMo: one language backbone integrates text, images,
 audio, and video.
 
+## Milestone: coherent arbitrary-prompt generation
+
+Prismwing now takes an arbitrary text prompt through real chat preprocessing,
+tokenization, causal prefill, a real source-checkpoint proposer, accelerated
+width-eight verification, verifier-only commit, and cache rollback on a
+**16 GB Apple M1**. PW-0205 run 009 produced 47 coherent committed tokens and
+stopped after its second completed sentence. Its complete cold process took
+1,790.268 seconds, or **0.026253 complete-path tokens/s** including prefill.
+
+This is explicitly **SGLang-directed modified arithmetic**, not
+target-faithful arithmetic. It does not meet the 50 TPS target, prove hosted
+parity, or complete the multimodal scope. What it establishes is narrower and
+real: the accelerated verifier is connected to a reproducible arbitrary-text
+causal path rather than only a frozen verifier transaction. See
+[the PW-0205 reproduction and audit procedure](docs/PW0205_REPRODUCTION.md).
+
 ## Milestone: the first complete accelerated wide verifier
 
 Prismwing now runs a complete, eight-position MiMo-V2.5 Jacobi verification

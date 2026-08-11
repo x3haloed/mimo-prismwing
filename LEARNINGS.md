@@ -3952,3 +3952,16 @@ caller maximum through 64, and stop after a second completed sentence. This
 changes no target-faithful throughput constant: PW-0205 remains explicitly
 SGLang-directed modified arithmetic, and the next full run must establish its
 actual output count and complete-path rate.
+
+PW-0205 run 009 passes that full modified-mode endpoint gate. A clean commit
+produces 47 coherent verifier-committed tokens and stops at its predeclared
+second completed sentence. The report and progress SHA-256 values are
+`c87f2a12809c1accc52fc5d5092765ad4cb90cb9d1fa0a2f916a2ccb6d23e1b9` and
+`9a51a914eff401050f24310c743af6443d32bea4916a3a958b4b016cb1f8dadb`.
+Complete wall is 1,790,267.803 ms and the measured complete-path rate is only
+0.026253 tokens/s; this is provenance for the accepted endpoint run, not a new
+target throughput constant. Per-pass `A` is `[7,3,7,7,7,7,7,1]`; the final
+short retention proves that the sentence boundary does not leave hidden cache
+rows. Promote the arbitrary-text causal path and corrected QKV/cache semantics
+within the explicitly named SGLang-directed mode. Preserve target-faithful
+arithmetic, hosted parity, multimodal coverage, and 50 TPS as unpassed gates.

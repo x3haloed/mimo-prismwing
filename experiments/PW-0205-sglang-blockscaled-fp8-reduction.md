@@ -1,6 +1,6 @@
 # PW-0205 — SGLang block-scaled FP8 reduction
 
-- Status: in progress
+- Status: complete
 - Disposition: correctness-repair
 - Date: 2026-08-10
 - Execution mode: SGLang-directed modified arithmetic candidate
@@ -167,3 +167,36 @@ publication-quality response. Treat 32 as the minimum endpoint output and 64
 as its caller-selected maximum, stopping after the second completed sentence
 once the minimum has been reached. Repeat with a 64-token maximum; require the
 actual committed count to remain within 32--64 and record the boundary reason.
+
+## Accepted result
+
+Run 009 executes clean commit
+`9fc6e3cd8040c7fdcf8a391b39b89d54ded97103` with a 64-token maximum and stops
+at the predeclared second-sentence boundary after 47 verifier-committed tokens:
+
+> Sunlight contains all colors of the spectrum, and as it enters Earth's
+> atmosphere, shorter blue wavelengths are scattered more than other colors by
+> gas molecules. This scattered blue light reaches our eyes from all
+> directions, making the sky appear blue.
+
+The report and progress SHA-256 values are
+`c87f2a12809c1accc52fc5d5092765ad4cb90cb9d1fa0a2f916a2ccb6d23e1b9` and
+`9a51a914eff401050f24310c743af6443d32bea4916a3a958b4b016cb1f8dadb`.
+Complete wall is 1,790,267.803 ms: 422.235 ms preprocessing, 206,814.484 ms
+prefill, 1,287,279.699 ms proposal, and 295,265.684 ms verification. The
+modified-mode complete-path rate is 0.026253 committed tokens/s. Logical source
+bytes are 1,633,855,114,496, process disk reads are 1,635,650,719,744, and peak
+RSS is 3,959,439,360 bytes. Batch and concurrency are one, verifier width is
+eight, swap growth and new throttled pages are zero, and all protected services
+survive.
+
+Per-transaction `A` is `[7, 3, 7, 7, 7, 7, 7, 1]`; corresponding `U` is
+`[4.582447, 4.539894, 4.117021, 4.127660, 4.688830, 4.255319, 4.704787,
+4.414894]`. The last verifier authorized five tokens, but the response boundary
+made only one observable and retained; schema 2 records both facts and the
+audit reconstructs the final token stream exactly.
+
+Accept PW-0205 as a correctness-repair milestone and a reproducible
+arbitrary-text endpoint in its named modified mode. Do not promote its rate to
+target-faithful TPS or infer hosted parity, multimodal completion, or the 50 TPS
+target from this result.
