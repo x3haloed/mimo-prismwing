@@ -4958,8 +4958,12 @@ pub fn run_layer_major_moe_slice(
     let runtime = WideMetalMoeRuntime::compile(kernel_path)?;
     let mut safety = SafetyMonitor::start(safety_fixture.safety)?;
     safety.checkpoint("pw0209_authorities_open", true)?;
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("pw0209_width128_a_cold_prepared", true)?;
     let before = process_activity()?;
     let complete_started = Instant::now();
+    let candidate_before = process_activity()?;
+    let candidate_started = Instant::now();
     let mut ledger = EndpointLedger::for_checkpoint(&checkpoint);
     let mut metal_ledger = MetalExpertLedger::default();
     let candidate = routed_mlp_metal_wide(
@@ -4971,6 +4975,9 @@ pub fn run_layer_major_moe_slice(
         &mut metal_ledger,
         &runtime,
     )?;
+    let candidate_complete_wall_ms = candidate_started.elapsed().as_secs_f64() * 1000.0;
+    let candidate_activity = process_activity()?.checked_delta(candidate_before)?;
+    safety.checkpoint("pw0209_width128_a_complete", true)?;
     let route_ids_exact = candidate.selected == expected_routes;
     let maximum_route_weight_absolute_error = candidate
         .weights
@@ -5003,6 +5010,10 @@ pub fn run_layer_major_moe_slice(
         let mut width8_routes_exact = true;
         let mut width8_ledger = EndpointLedger::for_checkpoint(&checkpoint);
         let mut width8_metal_ledger = MetalExpertLedger::default();
+        checkpoint.release_file_pages()?;
+        safety.checkpoint("pw0209_width8_control_cold_prepared", true)?;
+        let width8_before = process_activity()?;
+        let width8_started = Instant::now();
         for chunk in 0..ROWS / 8 {
             let start = chunk * 8;
             let end = start + 8;
@@ -5023,6 +5034,36 @@ pub fn run_layer_major_moe_slice(
                     .zip(expected_weights[start..end].iter().flatten())
                     .all(|(actual, expected)| (actual - expected).abs() <= 5.0e-7);
             width8_output.extend_from_slice(&control.output);
+        }
+        let width8_complete_wall_ms = width8_started.elapsed().as_secs_f64() * 1000.0;
+        let width8_activity = process_activity()?.checked_delta(width8_before)?;
+        safety.checkpoint("pw0209_width8_control_complete", true)?;
+        checkpoint.release_file_pages()?;
+        safety.checkpoint("pw0209_width128_b_cold_prepared", true)?;
+        let candidate_b_before = process_activity()?;
+        let candidate_b_started = Instant::now();
+        let mut candidate_b_ledger = EndpointLedger::for_checkpoint(&checkpoint);
+        let mut candidate_b_metal_ledger = MetalExpertLedger::default();
+        let candidate_b = routed_mlp_metal_wide(
+            &checkpoint,
+            43,
+            &input,
+            ROWS,
+            &mut candidate_b_ledger,
+            &mut candidate_b_metal_ledger,
+            &runtime,
+        )?;
+        let candidate_b_complete_wall_ms = candidate_b_started.elapsed().as_secs_f64() * 1000.0;
+        let candidate_b_activity = process_activity()?.checked_delta(candidate_b_before)?;
+        safety.checkpoint("pw0209_width128_b_complete", true)?;
+        let (candidate_repeat_relative_l2, candidate_repeat_maximum_absolute_error) =
+            parity(&candidate_b.output, &candidate.output);
+        if candidate_b.selected != candidate.selected
+            || candidate_b.weights != candidate.weights
+            || candidate_repeat_relative_l2 != 0.0
+            || candidate_repeat_maximum_absolute_error != 0.0
+        {
+            return Err("PW-0209 repeated width-128 candidate is not exact".to_owned());
         }
         let (width8_relative_l2, width8_maximum_absolute_error) =
             parity(&width8_output, &reference);
@@ -5054,9 +5095,20 @@ pub fn run_layer_major_moe_slice(
             "width128_to_width8_relative_l2": candidate_to_width8_relative_l2,
             "width128_to_width8_maximum_absolute_error": candidate_to_width8_maximum_absolute_error,
             "width128_metal_wall_ms": metal_ledger.wide_wall_ms,
+            "width128_complete_wall_ms": candidate_complete_wall_ms,
+            "width128_process_activity": candidate_activity,
             "width128_logical_source_bytes": ledger.logical_source_bytes,
             "width8_metal_wall_ms": width8_metal_ledger.wide_wall_ms,
+            "width8_complete_wall_ms": width8_complete_wall_ms,
+            "width8_process_activity": width8_activity,
             "width8_logical_source_bytes": width8_ledger.logical_source_bytes,
+            "width128_repeat_metal_wall_ms": candidate_b_metal_ledger.wide_wall_ms,
+            "width128_repeat_complete_wall_ms": candidate_b_complete_wall_ms,
+            "width128_repeat_process_activity": candidate_b_activity,
+            "width128_repeat_logical_source_bytes": candidate_b_ledger.logical_source_bytes,
+            "width128_repeat_relative_l2": candidate_repeat_relative_l2,
+            "width128_repeat_maximum_absolute_error": candidate_repeat_maximum_absolute_error,
+            "cache_state": "cold_requested_release_file_pages_before_each_a_control_a_trial",
             "accepted_tokens": 0,
             "performance_claim": null,
         });
