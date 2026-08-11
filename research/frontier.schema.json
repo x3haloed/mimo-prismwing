@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/x3haloed/mimo-prismwing/research/frontier.schema.json",
+  "title": "Prismwing research frontier registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "asOfCommit", "leasePolicy", "frontiers"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "status": { "enum": ["prototype", "active", "retired"] },
+    "asOfCommit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+    "leasePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defaultHours", "activationBoundary", "unmergedReservationIsExclusive"],
+      "properties": {
+        "defaultHours": { "type": "integer", "minimum": 1 },
+        "activationBoundary": { "const": "merged-to-main" },
+        "unmergedReservationIsExclusive": { "const": false }
+      }
+    },
+    "frontiers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/frontier" }
+    }
+  },
+  "$defs": {
+    "experimentId": {
+      "type": "string",
+      "pattern": "^PW-[0-9]{4}$"
+    },
+    "lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["experimentId", "owner", "baseCommit", "leasedAt", "expiresAt", "recordPath"],
+      "properties": {
+        "experimentId": { "$ref": "#/$defs/experimentId" },
+        "owner": { "type": "string", "minLength": 1 },
+        "baseCommit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+        "leasedAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "recordPath": { "type": "string", "pattern": "^experiments/PW-[0-9]{4}-.+\\.md$" }
+      }
+    },
+    "frontier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "title", "state", "question", "whyItMatters", "dependsOn",
+        "establishedBy", "killedBy", "cheapFalsifier", "requiredAuthority",
+        "redLines", "lease"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^FR-[0-9]{4}$" },
+        "title": { "type": "string", "minLength": 1 },
+        "state": { "enum": ["open", "reserved", "running", "closed", "paused"] },
+        "question": { "type": "string", "minLength": 1 },
+        "whyItMatters": { "type": "string", "minLength": 1 },
+        "dependsOn": { "type": "array", "items": { "$ref": "#/$defs/experimentId" }, "uniqueItems": true },
+        "establishedBy": { "type": "array", "items": { "$ref": "#/$defs/experimentId" }, "uniqueItems": true },
+        "killedBy": { "type": "array", "items": { "$ref": "#/$defs/experimentId" }, "uniqueItems": true },
+        "cheapFalsifier": { "type": "string", "minLength": 1 },
+        "requiredAuthority": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "redLines": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "lease": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/lease" }] }
+      }
+    }
+  }
+}

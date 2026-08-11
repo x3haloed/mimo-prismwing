@@ -196,6 +196,14 @@ The active sequence is deliberately evidence-first:
 
 ## Repository map
 
+- [CONTRIB.md](CONTRIB.md) — agent-facing research membrane, live-frontier
+  arrival protocol, reservation semantics, and evidence contract.
+- [research/frontier.json](research/frontier.json) — machine-readable open
+  questions, dependencies, killed paths, cheap falsifiers, and leases.
+- [research/frontier.schema.json](research/frontier.schema.json) — validation
+  contract for frontier records and merged lease claims.
+- [docs/RESEARCH_CHARTER.md](docs/RESEARCH_CHARTER.md) — draft consent,
+  provenance, and governance rules for research with agent participants.
 - [TARGET.md](TARGET.md) — normative completion and stopping conditions.
 - [RED_LINES.md](RED_LINES.md) — shortcuts that do not count.
 - [LEARNINGS.md](LEARNINGS.md) — durable evidence, reversals, and deductions.
