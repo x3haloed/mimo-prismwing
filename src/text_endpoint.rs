@@ -715,6 +715,19 @@ pub struct ArbitraryTextGenerationReport {
     pub route_trace_captured: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub residency: Option<GenerationResidencyReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_mtp_window: Option<NativeMtpWindowCaptureRecord>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NativeMtpWindowCaptureRecord {
+    pub category: String,
+    pub artifact_file: String,
+    pub artifact_sha256: String,
+    pub shape: [usize; 2],
+    pub dtype: &'static str,
+    pub byte_order: &'static str,
+    pub semantic: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -1572,6 +1585,7 @@ struct NativeDecodeStep {
     output_tokens: Vec<u32>,
     top_logits: Vec<(u32, f32)>,
     full_logits: Vec<f32>,
+    final_hidden: Vec<f32>,
     traces: Vec<LayerRouteTrace>,
     wall_ms: f64,
 }
@@ -4774,6 +4788,17 @@ fn top_logits(logits: &[f32], count: usize) -> Result<Vec<(u32, f32)>, String> {
         .collect())
 }
 
+fn finite_f32_le_bytes(values: &[f32], expected_values: usize) -> Result<Vec<u8>, String> {
+    if values.len() != expected_values || values.iter().any(|value| !value.is_finite()) {
+        return Err("float32 capture shape or finiteness gate failed".to_owned());
+    }
+    let mut bytes = Vec::with_capacity(std::mem::size_of_val(values));
+    for value in values {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    Ok(bytes)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn decode_step(
     checkpoint: &Checkpoint,
@@ -4983,6 +5008,7 @@ fn decode_step(
             output_tokens: Vec::new(),
             top_logits: Vec::new(),
             full_logits: Vec::new(),
+            final_hidden: hidden,
             traces,
             wall_ms: started.elapsed().as_secs_f64() * 1000.0,
         });
@@ -5056,6 +5082,7 @@ fn decode_step(
         output_tokens,
         top_logits: top,
         full_logits: all_logits,
+        final_hidden: hidden,
         traces,
         wall_ms: started.elapsed().as_secs_f64() * 1000.0,
     })
@@ -6136,6 +6163,7 @@ pub fn run_arbitrary_text_generation(
         commit,
         false,
         None,
+        None,
     )
 }
 
@@ -6161,6 +6189,37 @@ pub fn run_arbitrary_text_route_trace(
         commit,
         true,
         None,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_native_mtp_window_capture(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    category: &str,
+    hidden_output_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        8,
+        output_path,
+        commit,
+        true,
+        None,
+        Some(NativeMtpWindowCapture {
+            category,
+            output_path: hidden_output_path,
+        }),
     )
 }
 
@@ -6191,6 +6250,7 @@ pub fn run_arbitrary_text_resident_route_trace(
             manifest_path: residency_manifest_path,
             identity: resident_identity,
         }),
+        None,
     )
 }
 
@@ -6221,6 +6281,7 @@ pub fn run_arbitrary_text_resident_set_route_trace(
             manifest_path: residency_manifest_path,
             limit_bytes: resident_limit_bytes,
         }),
+        None,
     )
 }
 
@@ -6235,6 +6296,11 @@ enum GenerationResidencySelection<'a> {
     },
 }
 
+struct NativeMtpWindowCapture<'a> {
+    category: &'a str,
+    output_path: &'a Path,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_arbitrary_text_generation_internal(
     checkpoint_root: &Path,
@@ -6247,6 +6313,7 @@ fn run_arbitrary_text_generation_internal(
     commit: &str,
     capture_route_trace: bool,
     residency: Option<GenerationResidencySelection<'_>>,
+    native_mtp_capture: Option<NativeMtpWindowCapture<'_>>,
 ) -> Result<ArbitraryTextGenerationReport, String> {
     const WIDTH: usize = 8;
     if output_path.exists() {
@@ -6255,6 +6322,29 @@ fn run_arbitrary_text_generation_internal(
     let progress_path = output_path.with_extension("progress.jsonl");
     if progress_path.exists() {
         return Err(format!("refusing to overwrite {}", progress_path.display()));
+    }
+    if let Some(capture) = &native_mtp_capture {
+        if capture.output_path.exists() {
+            return Err(format!(
+                "refusing to overwrite {}",
+                capture.output_path.display()
+            ));
+        }
+        if !matches!(
+            capture.category,
+            "ordinary" | "code" | "multilingual" | "rare_route"
+        ) {
+            return Err(
+                "native MTP window category must be ordinary, code, multilingual, or rare_route"
+                    .to_owned(),
+            );
+        }
+        if requested_output_tokens != WIDTH || !capture_route_trace || residency.is_some() {
+            return Err(
+                "native MTP window capture requires one non-resident width-eight route-traced transaction"
+                    .to_owned(),
+            );
+        }
     }
     if !(1..=8).contains(&requested_output_tokens) && !(32..=64).contains(&requested_output_tokens)
     {
@@ -6489,6 +6579,7 @@ fn run_arbitrary_text_generation_internal(
     };
     let mut stop_reason = "requested_maximum";
     let mut completed_response = false;
+    let mut native_mtp_hidden = None;
 
     while generated_token_ids.len() < requested_output_tokens && !completed_response {
         let transaction_index = transactions.len();
@@ -6542,6 +6633,12 @@ fn run_arbitrary_text_generation_internal(
             None,
             DecodeOutput::AllLogits,
         )?;
+        if native_mtp_capture.is_some() {
+            if native_mtp_hidden.is_some() || verified.final_hidden.len() != WIDTH * HIDDEN {
+                return Err("native MTP verifier hidden capture cardinality gate failed".to_owned());
+            }
+            native_mtp_hidden = Some(verified.final_hidden.clone());
+        }
         let verified_output_tokens = verified.output_tokens;
         let verification_layer_traces = verified.traces;
         let commit_result = commit_jacobi_transaction(&proposal, &verified_output_tokens)?;
@@ -6743,15 +6840,43 @@ fn run_arbitrary_text_generation_internal(
     drop(progress);
     let progress_sha256 = hash_file(&progress_path)?;
     let accepted_tokens = generated_token_ids.len();
+    let native_mtp_window = if let Some(capture) = native_mtp_capture {
+        let hidden = native_mtp_hidden
+            .as_deref()
+            .ok_or("native MTP verifier hidden capture is missing")?;
+        let artifact_bytes = finite_f32_le_bytes(hidden, WIDTH * HIDDEN)?;
+        write_create_new(capture.output_path, &artifact_bytes)?;
+        let artifact_file = capture
+            .output_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("native MTP hidden artifact filename is not UTF-8")?
+            .to_owned();
+        Some(NativeMtpWindowCaptureRecord {
+            category: capture.category.to_owned(),
+            artifact_file,
+            artifact_sha256: sha256_hex(&artifact_bytes),
+            shape: [WIDTH, HIDDEN],
+            dtype: "float32",
+            byte_order: "little_endian",
+            semantic: "target_layer_47_final_hidden_before_model_final_norm_for_each_width_eight_verifier_row",
+        })
+    } else {
+        None
+    };
     let report = ArbitraryTextGenerationReport {
-        schema_version: if residency.is_some() {
+        schema_version: if native_mtp_window.is_some() {
+            6
+        } else if residency.is_some() {
             if residency_is_ranked_set { 5 } else { 4 }
         } else if capture_route_trace {
             3
         } else {
             2
         },
-        evidence_class: if residency_is_ranked_set {
+        evidence_class: if native_mtp_window.is_some() {
+            "pw0208_native_mtp_corrected_window_capture"
+        } else if residency_is_ranked_set {
             "pw0207_bounded_ranked_pressure_resident_route_trace"
         } else if residency.is_some() {
             "pw0207_single_object_pressure_resident_route_trace"
@@ -6760,7 +6885,9 @@ fn run_arbitrary_text_generation_internal(
         } else {
             "pw0205_arbitrary_prompt_corrected_qkv_target_proposed_generation"
         },
-        semantic: if residency_is_ranked_set {
+        semantic: if native_mtp_window.is_some() {
+            "mimo_v2_5_pw0208_native_mtp_corrected_verifier_window_capture"
+        } else if residency_is_ranked_set {
             "mimo_v2_5_pw0207_bounded_ranked_resident_sglang_directed_generation"
         } else if residency.is_some() {
             "mimo_v2_5_pw0207_single_object_resident_sglang_directed_generation"
@@ -6818,6 +6945,7 @@ fn run_arbitrary_text_generation_internal(
         },
         route_trace_captured: capture_route_trace.then_some(true),
         residency,
+        native_mtp_window,
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;
@@ -11999,6 +12127,18 @@ pub fn run_full_prefix_trace(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_mtp_hidden_artifact_is_exact_finite_little_endian_f32() {
+        let values = [1.0_f32, -2.5, 0.0, f32::MIN_POSITIVE];
+        let bytes = finite_f32_le_bytes(&values, values.len()).expect("valid capture");
+        assert_eq!(bytes.len(), values.len() * 4);
+        assert_eq!(&bytes[0..4], &1.0_f32.to_le_bytes());
+        assert_eq!(&bytes[4..8], &(-2.5_f32).to_le_bytes());
+        assert!(finite_f32_le_bytes(&values, values.len() + 1).is_err());
+        assert!(finite_f32_le_bytes(&[f32::NAN], 1).is_err());
+        assert!(finite_f32_le_bytes(&[f32::INFINITY], 1).is_err());
+    }
 
     #[test]
     fn arbitrary_user_text_uses_the_pinned_single_turn_chat_serialization() {
