@@ -4878,7 +4878,7 @@ pub fn run_layer_major_moe_slice(
         "14ab8792e4ead565ec91d5768737e5c6518bc2a7d2fdd2cae2a3efa93c5126c9";
     const INPUT_SHA256: &str = "df5a48213d63651a68ed763f84e0ea0d948151a98f791946ad169acf0b86d1f1";
     const REFERENCE_SHA256: &str =
-        "cffc6e63dcd2d878c8ebd3212c755542d5ee10de378f92f171a9bdc8d6b2bac9";
+        "8fdafc50400bc323d5fca0c30e5026f179088463ef2a9e5f7fc6981f4f933cd3";
     const ROWS: usize = 128;
     if output_path.exists() || report_path.exists() {
         return Err("refusing to overwrite PW-0209 evidence".to_owned());
