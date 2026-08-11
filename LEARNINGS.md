@@ -4074,3 +4074,15 @@ bytes maximum physical footprint, 70% minimum free memory, and no swap or
 throttling growth. Promote the backing/loader mechanism to decoder integration;
 do not infer full-set safety, real pressure response, transaction speedup, or
 TPS from a one-object copy pilot.
+
+PW-0207's first decoder-integrated resident object preserves exact execution
+and a small positive signal without satisfying promotion. Clean commit
+`53483cd1171cb4f4076d83d6310764bfdf4b813b` substitutes all six tensors of
+`expert:14:162` for eight transaction accesses, accounting 201,375,744
+resident source bytes, and evicts the 25,182,208-byte mapping to zero on
+warning. In the A–B–A sequence, resident transaction times are 189,434.333 and
+186,885.288 ms around a 189,201.042 ms mapped control; their 188,159.811 ms
+median is 0.550331% faster. Preserve the gain and the first candidate's 0.123%
+slowdown together: this is a working exact substitution mechanism worth
+bounded scaling, not repeatable 2x evidence or permission to raise the 8 GiB
+default.

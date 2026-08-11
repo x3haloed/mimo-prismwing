@@ -1072,9 +1072,12 @@
         },
         "pw0207_pressure_elastic_offline_residency": {
             "capacity_bytes": 12884901888,
-            "selected_bytes": 12878375808,
-            "selected_shared_spine_bytes": 7743294336,
-            "selected_routed_expert_bytes": 5135081472,
+            "selected_resident_allocation_bytes": 12882755584,
+            "selected_source_bytes": 12878375808,
+            "selected_shared_spine_resident_allocation_bytes": 7745585152,
+            "selected_shared_spine_source_bytes": 7743294336,
+            "selected_routed_expert_resident_allocation_bytes": 5137170432,
+            "selected_routed_expert_source_bytes": 5135081472,
             "control_physical_read_bytes": 171753635840,
             "predicted_candidate_physical_read_bytes": 95872213232.92569,
             "predicted_physical_read_reduction_factor": 1.791485040850336,
@@ -1083,7 +1086,26 @@
             "predicted_attributed_wall_speedup": 3.262042892249558,
             "accepted_tokens": 0,
             "status": "four_x_byte_gate_failed; two_x_attributed_wall_gate_passed; pressure_safe_transaction_implementation_authorized; no_endpoint_tps",
-            "provenance": "PW-0207 partial; route trace e5c0b93d039ec8d8c6b1f7a0087ec3991ba55df2a1cee7d388f08d6e668d830b; offline analysis ee9f71b83ca427bd1a98d166ada77c778c53d81157dfa6ccb071afada54e73eb; Apple M1 16 GiB internal SSD; git 2498dc3b7cdcb1cc7d498ff75428cf4b0cdaf0e0 clean"
+            "provenance": "PW-0207 partial; route trace e5c0b93d039ec8d6b1f7a0087ec3991ba55df2a1cee7d388f08d6e668d830b; superseded source-byte analysis ee9f71b83ca427bd1a98d166ada77c778c53d81157dfa6ccb071afada54e73eb; page-granular allocation authority 1dedbef7c79aa23835d194f52760a1f2c65dcca1481bd6df2d5602615c3fdad6; Apple M1 16 GiB internal SSD; git e912157e11d66a8cbf4be4b265afca923879c8e4 clean"
+        },
+        "pw0207_single_object_decoder_residency": {
+            "resident_allocation_bytes": 25182208,
+            "resident_source_bytes_per_access": 25171968,
+            "resident_accesses": 8,
+            "resident_source_bytes_per_transaction": 201375744,
+            "mapped_control_transaction_ms": 189201.042209,
+            "resident_transaction_ms": [
+                189434.33324999997,
+                186885.28812500002
+            ],
+            "resident_median_transaction_ms": 188159.8106875,
+            "resident_median_transaction_gain_percent": 0.5503307536487201,
+            "mapped_control_committed_transaction_tps": 0.03699768203320722,
+            "resident_median_committed_transaction_tps": 0.0372024183826681,
+            "accepted_output_tokens": 8,
+            "verifier_authorized_tokens": 7,
+            "status": "exact_single_object_substitution_passed; lower_milestone_signal_preserved; insufficient_repeats_and_far_below_two_x_gate; bounded_scaling_authorized; no_endpoint_promotion",
+            "provenance": "PW-0207 partial A-B-A; resident reports c4542b39c21335b1a27a37a6f8edab280a34d16cce7292d5a36a3cb2fca28d5e and 72b66220dc38ca2a4e07a58624a64c45f70fabcd4aa7e481aeeb6b5d6ed86683 around mapped report 26da53b12edb5dee26e84207e17e33171095b21691635915b393cf71d255b5f3; Apple M1 16 GiB internal SSD; git 53483cd1171cb4f4076d83d6310764bfdf4b813b clean"
         }
     }
 }

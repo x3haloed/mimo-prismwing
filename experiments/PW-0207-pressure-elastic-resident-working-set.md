@@ -140,3 +140,48 @@ memory is 70%, and swap growth and new throttled pages are zero.
 This promotes the page-aligned backing and single-object loader to the decoder
 integration step. It is not a real OS warning, full 12 GiB residency,
 interleaved transaction, or TPS result, so none of those gates move.
+
+The first real decoder integration is clean commit
+`53483cd1171cb4f4076d83d6310764bfdf4b813b`. It substitutes the owned
+page-aligned bytes for all six projections of `expert:14:162` after prefill,
+keeps the mapped checkpoint as authoritative fallback for every other tensor,
+and separately accounts mapped and resident source bytes. The command refuses
+resident evidence unless its supplied commit is exact clean Git `HEAD`.
+
+An A–B–A candidate/control/candidate sequence used the same release binary,
+prompt, width-eight transaction, checkpoint, and page-release policy:
+
+| Run | Complete ms | Prefill ms | Transaction ms | Complete TPS | Committed transaction TPS | Resident source bytes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| resident 001 | 392,037.563 | 201,836.115 | 189,434.333 | 0.020406 | 0.036952 | 201,375,744 |
+| mapped 002 | 388,941.511 | 199,165.996 | 189,201.042 | 0.020569 | 0.036998 | 0 |
+| resident 002 | 387,227.407 | 199,542.027 | 186,885.288 | 0.020660 | 0.037456 | 201,375,744 |
+
+The resident median transaction is 188,159.811 ms, 0.550331% faster than the
+intervening mapped control. Preserve this as a lower-milestone signal, not a
+promotion: there is only one mapped center run and the result is far below the
+2x gate. Resident 001 was 0.123% slower than mapped 002, so the evidence also
+retains the order-sensitive neutral result rather than selecting only the
+favorable run.
+
+All three reports generate the exact token sequence
+`[30092,4145,5610,678,7987,315,279,19745]`, commit seven verifier-authorized
+tokens, and have byte-identical proposal/verifier routes and weights after
+removing timing/resource metadata. Each candidate replaces eight accesses to
+the 25,171,968 source bytes, then injected warning pressure evicts the
+25,182,208-byte allocation to zero. Peak RSS stays below 4 GiB, minimum system
+free memory is 68%, and swap growth and new throttled pages remain zero.
+
+Raw report and progress hashes, in run order, are:
+
+- resident 001: `c4542b39c21335b1a27a37a6f8edab280a34d16cce7292d5a36a3cb2fca28d5e`,
+  `1eb7a5e060a0500cd89d371d5ba5b08b97624c1fcea80f9ab2fad127654c6d9d`;
+- mapped 002: `26da53b12edb5dee26e84207e17e33171095b21691635915b393cf71d255b5f3`,
+  `52f0afe062325ea726f883ef7f62e66bfa919e1ceff97c230158f5245f071152`;
+- resident 002: `72b66220dc38ca2a4e07a58624a64c45f70fabcd4aa7e481aeeb6b5d6ed86683`,
+  `23f1418fdd6e1bf27dca14614745c5c9817bc53854161917951b9361938917ec`.
+
+The single-object causal path passes and earns scaling to a bounded declared
+set under the unchanged 8 GiB process ceiling. It does not authorize the full
+12 GiB offline set, a 13 GiB default, endpoint TPS promotion, or abandonment of
+the measured 0.550331% signal.
