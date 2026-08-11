@@ -1501,6 +1501,14 @@ Run the following cheap falsifiers in order:
    gains 0.933803% overall and 3.268060% on code but regresses ordinary by
    2.869413%. Preserve those smaller modeled gains and do not erase PW-0211's
    separately measured native-q4 ordinary result.
+10. [PW-0215](../experiments/PW-0215-native-mtp-slice-broadening.md)
+   broadens PW-0211 through complete interleaved category paths. The code
+   candidate-control-candidate sequence emits identical seven-token output and
+   improves median complete accepted TPS `1.298259x`; post-prefill wall improves
+   `2.633252x`. Preserve this conditional code-slice win. Multilingual is the
+   next falsifier because its pilot acceptance was only one token; general
+   promotion still requires the remaining categories, longer context, and
+   untouched holdouts.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

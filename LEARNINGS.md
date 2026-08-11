@@ -4326,3 +4326,18 @@ kernel for a changed embodiment, without burdening default pipeline
 initialization. Report
 `68cfa9604185be26b9c1f86fcf7773c942213e9ebf0169bc2a75a8da9cb29abd`
 accepts zero tokens and makes no endpoint TPS claim.
+
+PW-0215 expands PW-0211's conditional native-MTP lower milestone to a complete
+code path. Cold candidate-control-candidate processes emit identical seven-token
+output, and both candidates accept three draft tokens in each of two q4
+transactions. Candidate complete walls are 403,286.409 and 413,746.414 ms
+around a 530,360.080-ms q8 control. The 408,516.411-ms median therefore improves
+complete accepted TPS `1.298259x`; post-prefill wall improves `2.633252x`.
+Logical source traffic falls 15.06% and process reads fall 16.18%, with zero
+swap growth or throttling. Preserve this incremental win even though it is far
+below the final target. General promotion remains withheld: multilingual,
+rare-route, longer-context, and untouched holdouts are not yet complete. The
+three report hashes are
+`4237717083f8ddb5b1e9d0e2ecac3de8440f56c363f4abd44a3da1f9ea71e2cf`,
+`49e5140a2aa2250b45385bea78d19285637293ee222007514fbc55e90e03020e`,
+and `84610209c4022626c0c9dba607974c7ddffbce54bb7a03ba3cbc3f16e5b6aa5a`.

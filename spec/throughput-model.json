@@ -1327,6 +1327,35 @@
             "concurrency": 1,
             "status": "conditional_repeatable_ordinary_text_apple_m1_lower_milestone; identical_verifier_authorized_output; other_slices_and_holdouts_pending; not_general_default",
             "provenance": "PW-0211 cold candidate-control-candidate; candidate reports 8bbaeae15a6856790c3f5404c3c58aa7a3b88e11fd751bfd1e3ae3c0b4b16f9f and 3134f9657fc1d4ea4fa2b52bb38a1f7dd73bbe5e1e3d5716e02f15aefd0f9872 around q8 control ae415a43ea9e1367248dfb3ad803107042d99ba9484d21a7ac8ff78dbfaa997e; Apple M1 16 GiB internal checkpoint; clean git 4762c02059aeee090f8cf16be66a5513af7323f1 and e273867c10a3d9400ed907253f108bd2e7259116"
+        },
+        "pw0215_live_native_mtp_q4_code": {
+            "candidate_complete_wall_ms": [
+                403286.4085,
+                413746.414416
+            ],
+            "candidate_complete_wall_median_ms": 408516.411458,
+            "candidate_complete_accepted_tps_median": 0.017135174508698232,
+            "control_complete_wall_ms": 530360.08025,
+            "control_complete_accepted_tps": 0.013198580098072907,
+            "complete_accepted_tps_gain": 1.2982589325044211,
+            "candidate_post_prefill_wall_median_ms": 74508.80979150001,
+            "control_post_prefill_wall_ms": 196200.499084,
+            "post_prefill_wall_gain": 2.633252358117558,
+            "candidate_transaction_A": [
+                3,
+                3
+            ],
+            "candidate_transaction_U": [
+                5.50531914893617,
+                5.579787234042553
+            ],
+            "control_transaction_A": 6,
+            "control_transaction_U": 4.672872340425532,
+            "accepted_tokens_per_complete_request": 7,
+            "batch_size": 1,
+            "concurrency": 1,
+            "status": "conditional_repeatable_code_apple_m1_lower_milestone; identical_verifier_authorized_output; multilingual_rare_route_long_context_and_holdouts_pending; not_general_default",
+            "provenance": "PW-0215 cold candidate-control-candidate code reports 4237717083f8ddb5b1e9d0e2ecac3de8440f56c363f4abd44a3da1f9ea71e2cf, 49e5140a2aa2250b45385bea78d19285637293ee222007514fbc55e90e03020e, and 84610209c4022626c0c9dba607974c7ddffbce54bb7a03ba3cbc3f16e5b6aa5a; Apple M1 16 GiB internal checkpoint; clean git 180491db5039d0e72213f3c4bb040ba7165688c3"
         }
     }
 }
