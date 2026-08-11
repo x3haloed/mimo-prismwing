@@ -4,9 +4,12 @@
 //! the independently testable safety substrate that must be connected to a
 //! real declared cache before the conditional high-residency mode can exist.
 
+use crate::MappedNoCopyRegion;
+use memmap2::{MmapMut, MmapOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::any::Any;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{c_char, c_ulong, c_void};
 use std::fs::{self, OpenOptions};
@@ -268,11 +271,105 @@ fn canonical_lifetime(value: &str) -> String {
         .join(" ")
 }
 
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ResidentTensorIdentity {
+    pub tensor: String,
+    pub row: Option<u64>,
+}
+
+pub struct PageAlignedResidentObject {
+    mapping: MmapMut,
+    tensor_ranges: BTreeMap<ResidentTensorIdentity, std::ops::Range<usize>>,
+    tensor_metadata_sha256: String,
+}
+
+impl PageAlignedResidentObject {
+    pub fn copy_from_declared<'a, I>(
+        declaration: &DeclaredResidentObject,
+        sources: I,
+    ) -> Result<Self, String>
+    where
+        I: IntoIterator<Item = (ResidentTensorIdentity, &'a [u8])>,
+    {
+        validate_tensor_authority(declaration)?;
+        let supplied = sources.into_iter().collect::<BTreeMap<_, _>>();
+        if supplied.len() != declaration.tensors.len() {
+            return Err(format!(
+                "resident source count mismatch for {}",
+                declaration.identity
+            ));
+        }
+        let mapping_len = usize::try_from(declaration.bytes)
+            .map_err(|_| format!("resident allocation is too large: {}", declaration.identity))?;
+        let mut mapping = MmapOptions::new()
+            .len(mapping_len)
+            .map_anon()
+            .map_err(|error| format!("resident mmap for {}: {error}", declaration.identity))?;
+        let mut tensor_ranges = BTreeMap::new();
+        let mut offset = 0_usize;
+        for tensor in &declaration.tensors {
+            let identity = ResidentTensorIdentity {
+                tensor: tensor.tensor.clone(),
+                row: tensor.row,
+            };
+            let source = supplied
+                .get(&identity)
+                .ok_or_else(|| format!("resident source absent: {}", tensor.tensor))?;
+            if source.len() as u64 != tensor.bytes {
+                return Err(format!("resident source byte mismatch: {}", tensor.tensor));
+            }
+            let end = offset
+                .checked_add(source.len())
+                .ok_or_else(|| "resident source offset overflow".to_owned())?;
+            if end > mapping.len() {
+                return Err("resident source exceeds declared allocation".to_owned());
+            }
+            mapping[offset..end].copy_from_slice(source);
+            tensor_ranges.insert(identity, offset..end);
+            offset = end;
+        }
+        if offset as u64 != declaration.source_bytes {
+            return Err("resident copied bytes do not close to source_bytes".to_owned());
+        }
+        if mapping.as_ptr() as usize % declaration.bytes.min(16_384) as usize != 0 {
+            return Err("resident mmap is not host-page aligned".to_owned());
+        }
+        Ok(Self {
+            mapping,
+            tensor_ranges,
+            tensor_metadata_sha256: declaration.tensor_metadata_sha256.clone(),
+        })
+    }
+
+    pub fn resident_bytes(&self) -> u64 {
+        self.mapping.len() as u64
+    }
+
+    pub fn tensor_metadata_sha256(&self) -> &str {
+        &self.tensor_metadata_sha256
+    }
+
+    pub fn tensor_region(
+        &self,
+        identity: &ResidentTensorIdentity,
+    ) -> Result<MappedNoCopyRegion<'_>, String> {
+        let range = self
+            .tensor_ranges
+            .get(identity)
+            .ok_or_else(|| format!("resident tensor absent: {}", identity.tensor))?;
+        Ok(MappedNoCopyRegion {
+            bytes: &self.mapping,
+            tensor_offset: range.start,
+            tensor_bytes: range.len(),
+        })
+    }
+}
+
 struct InstalledResident {
     identity: String,
     bytes: u64,
     warning_eviction_order: u64,
-    payload: Box<dyn Send>,
+    payload: Box<dyn Any + Send>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -322,7 +419,7 @@ impl PressureResidencyController {
         &self.manifest
     }
 
-    pub fn install<T: Send + 'static>(
+    fn install_payload<T: Send + 'static>(
         &self,
         identity: &str,
         actual_bytes: u64,
@@ -370,6 +467,37 @@ impl PressureResidencyController {
         );
         state.resident_bytes = next_bytes;
         Ok(())
+    }
+
+    pub fn install_page_aligned(
+        &self,
+        identity: &str,
+        payload: PageAlignedResidentObject,
+    ) -> Result<(), String> {
+        let bytes = payload.resident_bytes();
+        let hash = payload.tensor_metadata_sha256().to_owned();
+        self.install_payload(identity, bytes, &hash, Arc::new(payload))
+    }
+
+    pub fn page_aligned(
+        &self,
+        identity: &str,
+    ) -> Result<Option<Arc<PageAlignedResidentObject>>, String> {
+        let object = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| "residency lock poisoned".to_owned())?;
+            let Some(installed) = state.installed.get(identity) else {
+                return Ok(None);
+            };
+            installed
+                .payload
+                .downcast_ref::<Arc<PageAlignedResidentObject>>()
+                .cloned()
+                .ok_or_else(|| format!("resident payload type mismatch for {identity}"))?
+        };
+        Ok(Some(object))
     }
 
     pub fn resident_bytes(&self) -> Result<u64, String> {
@@ -622,7 +750,7 @@ pub fn run_pressure_residency_smoke(
                        drops: &Arc<std::sync::atomic::AtomicUsize>|
      -> Result<(), String> {
         for object in &manifest.objects {
-            controller.install(
+            controller.install_payload(
                 &object.identity,
                 object.bytes,
                 &object.tensor_metadata_sha256,
@@ -651,7 +779,7 @@ pub fn run_pressure_residency_smoke(
     let critical = PressureResidencyController::new(manifest.clone())?;
     let critical_drops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let first = &manifest.objects[0];
-    critical.install(
+    critical.install_payload(
         &first.identity,
         first.bytes,
         &first.tensor_metadata_sha256,
@@ -663,7 +791,7 @@ pub fn run_pressure_residency_smoke(
     critical.handle_pressure_mask(PRESSURE_CRITICAL)?;
     let second = &manifest.objects[1];
     let critical_regrowth_rejected = critical
-        .install(
+        .install_payload(
             &second.identity,
             second.bytes,
             &second.tensor_metadata_sha256,
@@ -777,11 +905,46 @@ mod tests {
     }
 
     #[test]
+    fn page_aligned_backing_preserves_exact_tensor_bytes_and_is_controller_owned() {
+        let manifest = manifest();
+        let declaration = &manifest.objects[0];
+        let identity = ResidentTensorIdentity {
+            tensor: "fixture.first".to_owned(),
+            row: None,
+        };
+        let source = [7_u8, 8, 9];
+        let backing = PageAlignedResidentObject::copy_from_declared(
+            declaration,
+            [(identity.clone(), source.as_slice())],
+        )
+        .unwrap();
+        let region = backing.tensor_region(&identity).unwrap();
+        assert_eq!(region.bytes.as_ptr() as usize % 16_384, 0);
+        assert_eq!(region.tensor_bytes, 3);
+        assert_eq!(
+            &region.bytes[region.tensor_offset..region.tensor_offset + 3],
+            &source
+        );
+        let controller = PressureResidencyController::new(manifest).unwrap();
+        controller.install_page_aligned("first", backing).unwrap();
+        let observed = controller.page_aligned("first").unwrap();
+        let observed = observed.unwrap();
+        let region = observed.tensor_region(&identity).unwrap();
+        assert_eq!(
+            region.bytes[region.tensor_offset..region.tensor_offset + 3].to_vec(),
+            source
+        );
+        drop(observed);
+        controller.handle_pressure_mask(PRESSURE_WARNING).unwrap();
+        assert!(controller.page_aligned("first").unwrap().is_none());
+    }
+
+    #[test]
     fn warning_immediately_evicts_owned_payloads_in_declared_order() {
         let controller = PressureResidencyController::new(manifest()).unwrap();
         let drops = Arc::new(AtomicUsize::new(0));
         controller
-            .install(
+            .install_payload(
                 "second",
                 16_384,
                 "3db5e4014b59a285333386e92dd6e0c2c901a55453a7510689c21f16ee309858",
@@ -789,7 +952,7 @@ mod tests {
             )
             .unwrap();
         controller
-            .install(
+            .install_payload(
                 "first",
                 16_384,
                 "e1b70269f8bb30e2c331c68fd636262322619dae7fc67a346bb2196373a30cfd",
@@ -808,7 +971,7 @@ mod tests {
     fn critical_pressure_evicts_and_permanently_stops_growth() {
         let controller = PressureResidencyController::new(manifest()).unwrap();
         controller
-            .install(
+            .install_payload(
                 "first",
                 16_384,
                 "e1b70269f8bb30e2c331c68fd636262322619dae7fc67a346bb2196373a30cfd",
@@ -819,7 +982,7 @@ mod tests {
         assert!(controller.growth_stopped().unwrap());
         assert!(
             controller
-                .install(
+                .install_payload(
                     "second",
                     16_384,
                     "3db5e4014b59a285333386e92dd6e0c2c901a55453a7510689c21f16ee309858",
@@ -834,7 +997,7 @@ mod tests {
     fn normal_pressure_retains_payloads_and_unknown_pressure_fails_closed() {
         let controller = PressureResidencyController::new(manifest()).unwrap();
         controller
-            .install(
+            .install_payload(
                 "first",
                 16_384,
                 "e1b70269f8bb30e2c331c68fd636262322619dae7fc67a346bb2196373a30cfd",
