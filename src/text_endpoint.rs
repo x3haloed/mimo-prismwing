@@ -1423,10 +1423,14 @@ pub(crate) struct ComponentSafetyMonitor(SafetyMonitor);
 
 impl ComponentSafetyMonitor {
     pub(crate) fn start_normative() -> Result<Self, String> {
+        // TARGET.md's 13 GiB allowance is conditional on a declared-residency
+        // authority, Darwin pressure-event observation, and warning-triggered
+        // eviction. Keep executable defaults below the 8 GiB trigger until
+        // PW-0207 implements and verifies that complete path.
         SafetyMonitor::start(SafetyFixture {
             minimum_system_memory_free_percent: 10,
-            maximum_process_physical_footprint_bytes: 13 * 1024 * 1024 * 1024,
-            maximum_post_phase_physical_footprint_bytes: 12 * 1024 * 1024 * 1024,
+            maximum_process_physical_footprint_bytes: 8 * 1024 * 1024 * 1024,
+            maximum_post_phase_physical_footprint_bytes: 4 * 1024 * 1024 * 1024,
             maximum_swap_growth_bytes: 0,
             maximum_new_throttled_pages: 0,
             require_malloc_pressure_relief: true,
@@ -4970,8 +4974,10 @@ fn open_arbitrary_text_authority(
     )?;
     let safety = SafetyMonitor::start(SafetyFixture {
         minimum_system_memory_free_percent: 10,
-        maximum_process_physical_footprint_bytes: 13 * 1024 * 1024 * 1024,
-        maximum_post_phase_physical_footprint_bytes: 12 * 1024 * 1024 * 1024,
+        // The relaxed target is not executable until the pressure-elastic
+        // residency path is implemented; fail closed at the old ceiling.
+        maximum_process_physical_footprint_bytes: 8 * 1024 * 1024 * 1024,
+        maximum_post_phase_physical_footprint_bytes: 4 * 1024 * 1024 * 1024,
         maximum_swap_growth_bytes: 0,
         maximum_new_throttled_pages: 0,
         require_malloc_pressure_relief: true,

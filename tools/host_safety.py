@@ -26,8 +26,13 @@ class HostSafetyViolation(RuntimeError):
 @dataclass(frozen=True)
 class HostSafetyPolicy:
     minimum_system_memory_free_percent: int = 10
-    maximum_process_physical_footprint_bytes: int = 13 * GIB
-    maximum_post_release_physical_footprint_bytes: int = 12 * GIB
+    # TARGET.md permits a conditional 13 GiB high-residency mode, but this
+    # monitor does not yet provide its required Darwin pressure-event observer,
+    # declared-residency authority, or warning-triggered eviction callback.
+    # Keep the normative executable policy below that mode's 8 GiB trigger
+    # until PW-0207 realizes and verifies the complete causal path.
+    maximum_process_physical_footprint_bytes: int = 8 * GIB
+    maximum_post_release_physical_footprint_bytes: int = 4 * GIB
     maximum_swap_growth_bytes: int = 0
     maximum_new_throttled_pages: int = 0
     protected_services: tuple[str, ...] = DEFAULT_PROTECTED_SERVICES

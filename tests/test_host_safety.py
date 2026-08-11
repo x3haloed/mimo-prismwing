@@ -47,18 +47,18 @@ class FakeProbe:
 
 
 class HostSafetyTests(unittest.TestCase):
-    def test_normative_defaults_match_relaxed_gate_eight(self):
+    def test_normative_defaults_fail_closed_until_high_residency_is_realized(self):
         policy = HostSafetyPolicy()
         self.assertEqual(policy.minimum_system_memory_free_percent, 10)
-        self.assertEqual(policy.maximum_process_physical_footprint_bytes, 13 * GIB)
+        self.assertEqual(policy.maximum_process_physical_footprint_bytes, 8 * GIB)
         self.assertEqual(
-            policy.maximum_post_release_physical_footprint_bytes, 12 * GIB
+            policy.maximum_post_release_physical_footprint_bytes, 4 * GIB
         )
         self.assertEqual(policy.maximum_swap_growth_bytes, 0)
 
     def test_in_phase_and_post_release_limits_are_distinct(self):
         probe = FakeProbe(
-            reading(), reading(footprint=12 * GIB), reading(footprint=12 * GIB + 1)
+            reading(), reading(footprint=4 * GIB), reading(footprint=4 * GIB + 1)
         )
         monitor = HostSafetyMonitor(probe=probe)
         monitor.checkpoint("in_flight")
@@ -69,7 +69,7 @@ class HostSafetyTests(unittest.TestCase):
         self.assertEqual(monitor.snapshots[-1].allocator_pressure_relief_bytes, 1234)
 
     def test_peak_overshoot_fails_after_expensive_operation(self):
-        monitor = HostSafetyMonitor(probe=FakeProbe(reading(), reading(peak=13 * GIB + 1)))
+        monitor = HostSafetyMonitor(probe=FakeProbe(reading(), reading(peak=8 * GIB + 1)))
         with self.assertRaisesRegex(HostSafetyViolation, "process memory ceiling"):
             monitor.checkpoint("layer_0_complete")
 
