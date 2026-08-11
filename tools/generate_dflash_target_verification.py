@@ -77,7 +77,12 @@ DRAFT003_SHA256 = "0094235cbee8a19138b812a1edc40420925a198180f5cf81e9c644d14b31d
 PW0102_TARGET_SHA256 = "cb30738d5a79d7d85587a68b53f876a59101d5ca09bbc7c895daaf501954f4d3"
 PW0186_TARGET_SHA256 = "f773fa2859f08b57f851944aa8ba0ef9b502040058580a9344be4ce3ee1e1d1c"
 FIRST_LOGITS_SHA256 = "c43be0909487235bddfe6e0de69aa42a98339faf43cd6b77d6ef4b5f1a853cab"
+PW0206_PREFIX_SHA256 = "0002c617c5459d7531de99e779ecad7335afc1e6f86cbbb6071afa23da107807"
+PW0206_DECODE_SHA256 = "f405225ea063bf3bfaf38a450fe752dc32c5afe54f69f5803c3ae61308caab2d"
+PW0206_DFLASH_SHA256 = "e5084e606349fb9fe0b01f8e5505f43fa58969cae5398330b343f40dab7228c9"
+PW0206_FIRST_LOGITS_SHA256 = "2302a23b67083bad89f020302c87e8c6ec2409ced3ad640be0f7733e7fb71cce"
 PROPOSED_BLOCK = [264, 1773, 102092, 102092, 102092, 1773, 1773, 1773]
+PW0206_PROPOSED_BLOCK = [9707, 0, 0, 0, 0, 0, 0, 0]
 PW0102_POSTERIOR = [13, 15, 18, 481, 15, 481, 15, 15]
 PW0186_BLOCK = [264, 13, 15, 18, 481, 15, 481, 15]
 PW0186_POSTERIOR = [13, 15, 13, 15, 15, 15, 15, 264]
@@ -94,20 +99,59 @@ def sha256_file(path: Path) -> str:
 
 def authenticate_authorities(
     prefix_manifest_path: Path,
-    cached_manifest_path: Path,
+    cached_manifest_path: Path | None,
     draft_paths: list[Path],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    if sha256_file(prefix_manifest_path) != PW0091_SHA256:
-        raise ValueError("PW-0091 manifest hash mismatch")
+    corrected_decode_path: Path | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], int, int, str]:
+    corrected = corrected_decode_path is not None
+    expected_prefix_hash = PW0206_PREFIX_SHA256 if corrected else PW0091_SHA256
+    expected_first_logits_hash = (
+        PW0206_FIRST_LOGITS_SHA256 if corrected else FIRST_LOGITS_SHA256
+    )
+    expected_first_token = 9707 if corrected else 264
+    if sha256_file(prefix_manifest_path) != expected_prefix_hash:
+        raise ValueError("prefix manifest hash mismatch")
     prefix = json.loads(prefix_manifest_path.read_text())
     if (
         prefix.get("semantic") != "mimo_full_prefix_layer_final_rust_trace"
         or prefix.get("revision") != REVISION
         or prefix.get("prompt_token_ids") != PROMPT_IDS
         or prefix.get("captures", {}).get("last_logits", {}).get("sha256")
-        != FIRST_LOGITS_SHA256
+        != expected_first_logits_hash
     ):
-        raise ValueError("PW-0091 semantic identity mismatch")
+        raise ValueError("prefix semantic identity mismatch")
+    if corrected:
+        if cached_manifest_path is not None:
+            raise ValueError("legacy cached authority is incompatible with corrected mode")
+        if sha256_file(corrected_decode_path) != PW0206_DECODE_SHA256:
+            raise ValueError("PW-0206 corrected decode hash mismatch")
+        decode = json.loads(corrected_decode_path.read_text())
+        if (
+            decode.get("semantic") != "mimo_v2_5_target_faithful_slow_chat_endpoint"
+            or decode.get("revision") != REVISION
+            or decode.get("prompt_token_ids") != PROMPT_IDS
+            or decode.get("generated_token_ids") != [9707, 0]
+        ):
+            raise ValueError("PW-0206 corrected decode semantic identity mismatch")
+        if len(draft_paths) != 1 or sha256_file(draft_paths[0]) != PW0206_DFLASH_SHA256:
+            raise ValueError("PW-0206 corrected DFlash manifest hash mismatch")
+        draft = json.loads(draft_paths[0].read_text())
+        if (
+            draft.get("status") != "passed"
+            or draft.get("evidence_class")
+            != "pw0206_corrected_qkv_exported_mask_dflash_proposal"
+            or draft.get("proposed_block_token_ids") != PW0206_PROPOSED_BLOCK
+            or draft.get("git_dirty") is not False
+        ):
+            raise ValueError("PW-0206 corrected DFlash semantic identity mismatch")
+        return prefix, {
+            "pw0206_prefix_manifest_sha256": PW0206_PREFIX_SHA256,
+            "pw0206_target_decode_sha256": PW0206_DECODE_SHA256,
+            "pw0206_dflash_manifest_sha256": PW0206_DFLASH_SHA256,
+        }, expected_first_token, 0, "pw0206_corrected_qkv_dflash_block_verification"
+
+    if cached_manifest_path is None:
+        raise ValueError("legacy target verification requires cached authority")
     if sha256_file(cached_manifest_path) != PW0095_SHA256:
         raise ValueError("PW-0095 manifest hash mismatch")
     cached = json.loads(cached_manifest_path.read_text())
@@ -133,7 +177,7 @@ def authenticate_authorities(
         "pw0091_manifest_sha256": PW0091_SHA256,
         "pw0095_manifest_sha256": PW0095_SHA256,
         "draft_manifest_sha256": expected_hashes,
-    }
+    }, expected_first_token, 13, "pw0102_source_target_dflash_block_verification"
 
 
 def jacobi_successor_block(proposed: list[int], posterior: list[int]) -> list[int]:
@@ -146,6 +190,18 @@ def jacobi_successor_block(proposed: list[int], posterior: list[int]) -> list[in
 
 
 def selected_proposed_block(arguments: argparse.Namespace) -> tuple[list[int], str, dict[str, Any]]:
+    if getattr(arguments, "corrected_decode", None) is not None:
+        if (
+            getattr(arguments, "jacobi_second_iteration", False)
+            or getattr(arguments, "jacobi_third_iteration", False)
+            or getattr(arguments, "prior_target_manifest", None) is not None
+        ):
+            raise ValueError("corrected DFlash verification cannot use legacy Jacobi authorities")
+        return (
+            PW0206_PROPOSED_BLOCK,
+            "pw0206_corrected_qkv_dflash_block_verification",
+            {},
+        )
     second = getattr(arguments, "jacobi_second_iteration", False)
     third = getattr(arguments, "jacobi_third_iteration", False)
     if second and third:
@@ -356,10 +412,21 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     arguments.output.mkdir(parents=True, exist_ok=False)
     safety = HostSafetyMonitor()
     arguments._safety = safety
-    prefix_authority, identities = authenticate_authorities(
-        arguments.prefix_manifest, arguments.cached_manifest, arguments.draft_manifest
+    (
+        prefix_authority,
+        identities,
+        first_target_token,
+        expected_first_posterior_token,
+        authenticated_evidence_class,
+    ) = authenticate_authorities(
+        arguments.prefix_manifest,
+        arguments.cached_manifest,
+        arguments.draft_manifest,
+        arguments.corrected_decode,
     )
     proposed_block, evidence_class, proposal_identity = selected_proposed_block(arguments)
+    if evidence_class != authenticated_evidence_class:
+        raise ValueError("proposal and authenticated authority modes disagree")
     identities.update(proposal_identity)
     checkpoint = ShardedCheckpoint(arguments.checkpoint, arguments.verification)
     safety.checkpoint("authorities_and_checkpoint_open")
@@ -383,11 +450,11 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
         )
         authoritative = prefix_authority["layer_traces"][layer]
         if selected != authoritative["selected_experts_by_position"]:
-            raise ValueError(f"PW-0091 prefill route mismatch at layer {layer}")
+            raise ValueError(f"authenticated prefill route mismatch at layer {layer}")
         name = f"prefill_layer_{layer:02}_final"
         capture = tensor_capture(arguments.output, name, hidden, "BF16_widened_F32")
         if capture["sha256"] != prefix_authority["captures"][f"layer_{layer:02}_final"]["sha256"]:
-            raise ValueError(f"PW-0091 prefill hidden mismatch at layer {layer}")
+            raise ValueError(f"authenticated prefill hidden mismatch at layer {layer}")
         captures[name] = capture
         prefill_traces.append(trace)
         safety.checkpoint(f"prefill_layer_{layer}_complete")
@@ -398,8 +465,16 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     captures["prefill_last_logits"] = tensor_capture(
         arguments.output, "prefill_last_logits", first_logits, "F32"
     )
-    if captures["prefill_last_logits"]["sha256"] != FIRST_LOGITS_SHA256 or int(first_logits.argmax()) != 264:
-        raise ValueError("PW-0091 first-token distribution mismatch")
+    expected_first_logits_hash = (
+        PW0206_FIRST_LOGITS_SHA256
+        if arguments.corrected_decode is not None
+        else FIRST_LOGITS_SHA256
+    )
+    if (
+        captures["prefill_last_logits"]["sha256"] != expected_first_logits_hash
+        or int(first_logits.argmax()) != first_target_token
+    ):
+        raise ValueError("authenticated first-token distribution mismatch")
     safety.checkpoint("prefill_first_token_verified")
     del first_logits, final_norm, hidden
     safety.release_checkpoint("prefill_lm_head_released", ["prefill hidden", "prefill LM-head/logits"])
@@ -433,8 +508,8 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("target posterior logits mismatch")
     captures["target_logits"] = tensor_capture(arguments.output, "target_logits", target_logits, "F32")
     posterior_ids = torch.argmax(target_logits, dim=-1).unsqueeze(0)
-    if int(posterior_ids[0, 0]) != 13:
-        raise ValueError("PW-0095 first incremental token mismatch")
+    if int(posterior_ids[0, 0]) != expected_first_posterior_token:
+        raise ValueError("authenticated first incremental token mismatch")
     verification = verify_greedy_block(
         torch.tensor([proposed_block], dtype=torch.long), posterior_ids
     )
@@ -526,8 +601,9 @@ def main() -> int:
     parser.add_argument("--checkpoint", required=True, type=Path)
     parser.add_argument("--verification", required=True, type=Path)
     parser.add_argument("--prefix-manifest", required=True, type=Path)
-    parser.add_argument("--cached-manifest", required=True, type=Path)
+    parser.add_argument("--cached-manifest", type=Path)
     parser.add_argument("--draft-manifest", action="append", required=True, type=Path)
+    parser.add_argument("--corrected-decode", type=Path)
     parser.add_argument("--jacobi-second-iteration", action="store_true")
     parser.add_argument("--jacobi-third-iteration", action="store_true")
     parser.add_argument("--prior-target-manifest", type=Path)
@@ -548,7 +624,11 @@ def main() -> int:
         failure_path = arguments.output / "failure.json"
         if safety is not None and arguments.output.is_dir() and not failure_path.exists():
             failure = {"schema_version": 1,
-                "evidence_class": "pw0102_source_target_dflash_block_verification_failure",
+                "evidence_class": (
+                    "pw0206_corrected_qkv_dflash_block_verification_failure"
+                    if arguments.corrected_decode is not None
+                    else "pw0102_source_target_dflash_block_verification_failure"
+                ),
                 "status": "failed", "error_type": type(error).__name__, "error": str(error),
                 "safety": safety.evidence()}
             try:

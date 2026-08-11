@@ -1,7 +1,7 @@
 # PW-0206 — Corrected-QKV proposal authority regeneration
 
 - Status: running
-- Disposition: conditional; native-MTP branch reopened, remaining authorities pending
+- Disposition: conditional; native-MTP and DFlash branches reopened, width-eight authority pending
 - Date: 2026-08-10
 - Execution mode: target-faithful audit plus separately named modified controls
 - Related records: PW-0102, PW-0103, PW-0150, PW-0186, PW-0187, PW-0203, PW-0205
@@ -45,7 +45,7 @@ non-portable and regenerate its cheapest downstream bound. Do not rerun a full
 endpoint until that bound can alter a branch decision. Record old/new token
 IDs, `A`, `U`, routes, logical and physical bytes, cold/warm state, and safety.
 
-## Partial result — corrected prefix, decode, and native MTP
+## Partial result — corrected prefix, decode, native MTP, and DFlash
 
 Clean commit `23d37093c613c979f567755bc3a1e33d09b0eb69` regenerates the
 27-token Hello prefix with deinterleaved QKV. Its manifest hashes to
@@ -70,16 +70,27 @@ and `72adac56eb786f95a84bd18f655bdfe5a65202798cc96644aa9b52af6466c3dd`.
 It completes in 6.198 seconds, peaks at 3,867,754,496-byte RSS, and passes the
 same zero-swap, zero-throttling safety gate.
 
-This is a causal prerequisite, not accepted TPS. It reopens PW-0208 and makes
-PW-0103's rejection explicitly non-portable to corrected QKV semantics. The
-DFlash control and corrected width-eight Jacobi/`A/U` authorities remain
-pending, so PW-0206 is not complete and PW-0203's economics are not yet carried
-forward.
+Commit `b749a745f20882dd97326f3486ebcf86ead4028b` then reruns the
+authenticated exported-mask DFlash control. Its manifest hashes to
+`e5084e606349fb9fe0b01f8e5505f43fa58969cae5398330b343f40dab7228c9`
+and proposes `[9707,0,0,0,0,0,0,0]`. The first speculative suffix token is
+therefore exactly the corrected target's second token, reversing PW-0150's
+first-suffix mismatch. Complete draft wall is 77.118 seconds, peak RSS is
+3,356,966,912 bytes, and the run records no swap growth or throttling. This is
+still draft-side diagnostic evidence; it records `accepted_tokens=0` and no
+performance claim until source-target verification measures the complete
+width-eight posterior and route union.
+
+These are causal prerequisites, not accepted TPS. They reopen PW-0208 and the
+DFlash branch, and make PW-0103/PW-0150's rejections explicitly non-portable to
+corrected QKV semantics. The corrected width-eight target/Jacobi and `A/U`
+authorities remain pending, so PW-0206 is not complete and PW-0203's economics
+are not yet carried forward.
 
 ## Decision
 
 Continue. The cheap falsifier decisively rejects trace identity: token IDs and
 every route set changed. Promote the corrected prefix/decode authorities and
-reopen native MTP for cost-aware chaining, while completing the remaining
-proposal and `A/U` regeneration before endpoint performance work. No measured
+reopen native MTP and DFlash for exact target verification, while completing
+the remaining `A/U` regeneration before endpoint performance work. No measured
 throughput constant changes at this partial checkpoint.

@@ -1,15 +1,36 @@
+import argparse
 import unittest
 
 import torch
 
 from tools.generate_dflash_target_verification import (
+    PW0206_PROPOSED_BLOCK,
     apply_rope_positions,
     jacobi_successor_block,
     kv_ledger,
+    selected_proposed_block,
 )
 
 
 class TargetVerificationTests(unittest.TestCase):
+    def test_corrected_dflash_proposal_is_selected_without_legacy_jacobi(self):
+        arguments = argparse.Namespace(
+            corrected_decode="corrected.json",
+            jacobi_second_iteration=False,
+            jacobi_third_iteration=False,
+            prior_target_manifest=None,
+        )
+        proposed, evidence_class, identities = selected_proposed_block(arguments)
+        self.assertEqual(proposed, PW0206_PROPOSED_BLOCK)
+        self.assertEqual(
+            evidence_class, "pw0206_corrected_qkv_dflash_block_verification"
+        )
+        self.assertEqual(identities, {})
+
+        arguments.jacobi_second_iteration = True
+        with self.assertRaisesRegex(ValueError, "legacy Jacobi"):
+            selected_proposed_block(arguments)
+
     def test_jacobi_successor_preserves_anchor_and_shifts_posterior(self):
         proposed = [264, 10, 11, 12, 13, 14, 15, 16]
         posterior = [20, 21, 22, 23, 24, 25, 26, 27]

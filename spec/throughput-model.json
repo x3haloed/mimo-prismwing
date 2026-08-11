@@ -1030,6 +1030,15 @@
             "accepted_tokens": 0,
             "status": "native_mtp_branch_reopened; single_proposal_prerequisite_only; no_endpoint_tps",
             "provenance": "PW-0206 partial; corrected prefix 0002c617c5459d7531de99e779ecad7335afc1e6f86cbbb6071afa23da107807; corrected decode f405225ea063bf3bfaf38a450fe752dc32c5afe54f69f5803c3ae61308caab2d; MTP manifest 07233ee71f194c887d96aac2cb341239df1728a7e05fc36f692a1188c65b3379; Apple M1 16 GiB internal SSD; git 134020acbecb4882912b96d6397b1d0b173a07c2 clean"
+        },
+        "pw0206_corrected_dflash_prerequisite": {
+            "target_anchor_token_id": 9707,
+            "target_next_token_id": 0,
+            "proposed_block_token_ids": [9707, 0, 0, 0, 0, 0, 0, 0],
+            "complete_wall_ms_diagnostic": 77118.42445796356,
+            "accepted_tokens": 0,
+            "status": "dflash_branch_reopened; draft_proposal_prerequisite_only; target_verification_pending; no_endpoint_tps",
+            "provenance": "PW-0206 partial; corrected prefix 0002c617c5459d7531de99e779ecad7335afc1e6f86cbbb6071afa23da107807; corrected decode f405225ea063bf3bfaf38a450fe752dc32c5afe54f69f5803c3ae61308caab2d; exported-mask DFlash manifest e5084e606349fb9fe0b01f8e5505f43fa58969cae5398330b343f40dab7228c9; Apple M1 16 GiB internal SSD; git b749a745f20882dd97326f3486ebcf86ead4028b clean"
         }
     }
 }

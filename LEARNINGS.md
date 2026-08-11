@@ -3981,6 +3981,14 @@ layer zero propose token 0 at rank one instead of placing the stale target at
 rank 175. The corrected MTP manifest hashes to
 `07233ee71f194c887d96aac2cb341239df1728a7e05fc36f692a1188c65b3379`.
 Reopen native MTP through PW-0208's cost-aware chained test; do not infer
-multi-token acceptance or TPS from one correct proposal. PW-0206 still owes the
-corrected DFlash and width-eight `A/U` authorities, so PW-0203's physical bound
-is not yet transferable. No throughput-model constant changes at this stage.
+multi-token acceptance or TPS from one correct proposal.
+
+The corrected exported-mask DFlash control independently reverses PW-0150's
+first-suffix rejection. Its exact block is `[9707,0,0,0,0,0,0,0]`, so the first
+speculative suffix token matches the corrected target transition `9707 -> 0`.
+The clean manifest hashes to
+`e5084e606349fb9fe0b01f8e5505f43fa58969cae5398330b343f40dab7228c9`.
+Reopen DFlash only through exact width-eight target verification: draft logits
+alone establish neither accepted length nor route-union leverage. PW-0206 still
+owes the corrected width-eight `A/U` authority, so PW-0203's physical bound is
+not yet transferable. No throughput-model constant changes at this stage.
