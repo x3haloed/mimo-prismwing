@@ -96,6 +96,16 @@ and failed at an unnamed page-rounded tensor interval. The runtime now attaches
 the tensor name to every no-copy projection-binding failure before any fallback
 or layout repair is considered.
 
+The localized tensor is
+`model.layers.9.mlp.experts.159.up_proj.weight`: the arbitrary prompt selects a
+real expert absent from PW-0203's frozen route, and its source tensor ends at
+shard EOF, so no page-rounded mapping can exist without extending beyond the
+file. The already-proven QKV fallback copies exactly the tensor's immutable
+source bytes into a bounded Metal buffer. That fallback is now the single
+projection-region authority and applies equally to routed expert weights;
+page-coverable tensors remain no-copy, scales remain no-copy, and no tensor
+content or arithmetic changes.
+
 The first public runtime input is
 `evals/fixtures/requests/pw0204-arbitrary-text.txt`. It asks for a concise,
 programmatically inspectable two-sentence explanation and contains no route,

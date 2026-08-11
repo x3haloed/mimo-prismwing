@@ -1666,6 +1666,28 @@ impl Checkpoint {
             .tensor_no_copy_region(name, page_bytes)
     }
 
+    fn projection_region(
+        &self,
+        name: &str,
+        page_bytes: usize,
+    ) -> Result<(MappedNoCopyRegion<'_>, bool), String> {
+        match self.tensor_no_copy_region(name, page_bytes) {
+            Ok(region) => Ok((region, false)),
+            Err(error) if error == "page-rounded tensor interval exceeds the file mapping" => {
+                let fallback = self.tensor(name)?;
+                Ok((
+                    MappedNoCopyRegion {
+                        bytes: fallback.bytes,
+                        tensor_offset: 0,
+                        tensor_bytes: fallback.bytes.len(),
+                    },
+                    true,
+                ))
+            }
+            Err(error) => Err(format!("{name}: {error}")),
+        }
+    }
+
     fn source_tensor(&self, name: &str) -> Result<CheckpointTensorSource<'_>, String> {
         let shard = self.shard_for_tensor(name)?;
         let mapped = self
@@ -2626,22 +2648,7 @@ fn wide_fp8_linear(
         }
     }
     let page_bytes = host_page_bytes()?;
-    let (weight_region, copy_weight) =
-        match checkpoint.tensor_no_copy_region(weight_name, page_bytes) {
-            Ok(region) => (region, false),
-            Err(error) if error == "page-rounded tensor interval exceeds the file mapping" => {
-                let fallback = checkpoint.tensor(weight_name)?;
-                (
-                    MappedNoCopyRegion {
-                        bytes: fallback.bytes,
-                        tensor_offset: 0,
-                        tensor_bytes: fallback.bytes.len(),
-                    },
-                    true,
-                )
-            }
-            Err(error) => return Err(format!("{weight_name}: {error}")),
-        };
+    let (weight_region, copy_weight) = checkpoint.projection_region(weight_name, page_bytes)?;
     let binding = WideProjectionBinding {
         weight: weight_region,
         scale: checkpoint
@@ -4219,14 +4226,13 @@ fn routed_mlp_metal_wide(
                     "layer {layer} expert {expert} {name}: projection shape mismatch"
                 ));
             }
+            let (weight, copy_weight) = checkpoint.projection_region(&weight_name, page_bytes)?;
             Ok(WideProjectionBinding {
-                weight: checkpoint
-                    .tensor_no_copy_region(&weight_name, page_bytes)
-                    .map_err(|error| format!("{weight_name}: {error}"))?,
+                weight,
                 scale: checkpoint
                     .tensor_no_copy_region(&scale_name, page_bytes)
                     .map_err(|error| format!("{scale_name}: {error}"))?,
-                copy_weight: false,
+                copy_weight,
                 rows,
                 columns,
             })
