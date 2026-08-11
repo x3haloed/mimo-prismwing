@@ -4021,6 +4021,66 @@ only 14.313% of the otherwise-free INT4 requirement and its measured
 post-prefill diagnostic is 0.009733 accepted token/s. PW-0206 is complete;
 carry native MTP to PW-0208 and the small Jacobi leverage into later combined
 economics without erasing either the gain or its limit.
+PW-0300 cheaply narrows executable weight compression using 20.83 MB of
+sequential pinned range reads rather than full shards. Across 560 real
+128-by-128 FP8 blocks per pass, every block uses 182–239 byte values; no block
+fits even an exact 7-bit local palette. Median symbol entropy is 6.4844
+bits/weight, and an idealized exact top-seven-exponent escape form still
+occupies 88.959% of source bytes before indexing and alignment. This rejects
+local exact palettes and the tested escape family as the required 25% byte
+reduction; do not build their decoders.
+
+A separate L3 6-bit FP8-subset candidate remains conditional. One 64-byte
+codebook per 128-row tile occupies 75.012–75.024% of source weight bytes and
+has sampled weight relative L2 of 1.479% median, 2.476% p95, and 3.952% maximum.
+Those are weight-only results, not routed-output or endpoint fidelity. Require
+a named full-expert routed-output falsification that beats PW-0148's affine
+six-bit control before implementing a packed bank or Metal decoder.
+
+PW-0301 rejects that tile-local 64-value FP8-subset branch before routed-output
+acquisition. Across three complete early/middle/deep experts it beats the
+same-group affine six-bit RTN control in only six of nine projections. The
+middle expert improves substantially, but the early expert's gate/up errors
+rise to 4.0199%/3.8445% versus affine's 2.5978%/2.4521%. Six projections exceed
+the frozen 2% ceiling and six contain a block above 5%, despite the candidate
+meeting its 75.1% byte gate. Do not build this decoder or mistake favorable
+aggregate samples for uniform expert behavior. Preserve covariance-trained
+row transforms, inner-product sketches, activation-conditioned forms, and
+whole-expert reparameterization as distinct untested branches.
+
+PW-0302 rejects three row-query representations at the frozen early-expert
+gate projection before unnecessary nine-projection expansion. On 56 real
+PW-0116 validation queries, affine6 RTN reaches 0.6362% dot-product relative
+L2. Five-seed TurboQuant-MSE6 is 0.7300–0.8370% and structured PROD6 is
+0.9134–1.0429%; PROD6 nearly removes signed bias but raises variance and total
+error. A train-query block-covariance basis with shared six-bit scalar grids is
+far worse at 3.6325%. Do not infer that an unbiased estimator is a better
+neural projection, and do not expand these row abstractions. Preserve
+whole-expert SwiGLU reparameterization as a structurally separate untested
+branch.
+
+PW-0303 rejects continuous RMS-based joint up/down neuron balancing at its
+pre-quantization source-semantics gate. Exact PyTorch dynamic-FP8/BF16
+execution matches the captured early expert at 0.0291% train and 0.0096%
+validation relative L2, and alpha zero is an exact identity. Alpha 0.1 already
+changes source execution by 0.4901% train and 1.3701% validation, exceeding the
+frozen 0.2% threshold before affine6 is applied. The real-arithmetic SwiGLU
+symmetry does not imply invariance of the operational graph: non-power-of-two
+scaling changes BF16 rounding and the dynamic-FP8 down-input representation.
+Do not search this continuous family past the failed gate. A separately frozen
+power-of-two scale family would be a distinct operationally aligned mechanism,
+not evidence that this result should be relaxed.
+
+PW-0304 rejects the concrete recursive-polar row representation at equal
+source traffic. A fixed signed-Hadamard transform plus shared per-level 6-bit
+angle codebooks occupies 75.0671% of source-FP8 bytes, but reaches 0.8312%
+held-out real-query projection error versus affine6's 0.5945%. Its direct tree
+decoder would also add 8.39 million angle lookups and 16.77 million recursive
+multiply/adds for the one hard projection. The network consumes inner
+products, but changing coordinates does not make the direct inner-product
+program cheap automatically. Do not build this polar6 decoder or expand it to
+another projection; a future directional branch must change both its learned
+representation and its execution-cost argument.
 
 PW-0207's corrected first-transaction route trace closes the missing identity
 gap in the high-residency hypothesis. Its report hashes to
