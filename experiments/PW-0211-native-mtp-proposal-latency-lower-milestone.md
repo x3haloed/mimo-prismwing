@@ -93,3 +93,23 @@ residency accounting. Only that real verifier wall can estimate a complete
 candidate transaction. If the enclosing model remains positive, integrate the
 native proposer and broaden acceptance measurement; otherwise preserve the
 three positive category results and close only the tested runtime schedule.
+
+Clean q4 diagnostic commit `f0541d167e5784388209f7f46970e6d2461ff2ce`
+replays ordinary transaction zero and reaches the exact transaction-one cache
+state. Its transaction-one proposal `[11941,7949,7324,8628]` and posterior
+`[7949,7324,8628,2041]` are identical to the native pilot. The verifier
+converges at `A=4`, `U=5.377659574468085`, 26,286.0165 ms wall,
+84,815,844,864 logical source bytes, and 84,910,256,128 process-read bytes.
+The report and progress log hash to
+`0537ac6941d7289e857ebe4e6ebdbb223970db2de5c031d518d72a5b360f0c21`
+and `2d65aba15bbecee3d54e55632e0af3b50d5bcf4a0fa0a0120398d0704862f961`.
+
+Composing that real verifier wall with the 10,444.325 ms CPU reference gives a
+diagnostic 36,730.341 ms candidate transaction model, or 0.108902 accepted
+TPS. The matched q8 control is 7 accepted tokens in 178,169.855 ms, or
+0.039288 TPS. The modeled gain is `2.771859x`. This passes the integration
+gate but is not a performance claim because proposal and verification were
+measured in separate processes. The next implementation must run the native
+proposal while the real target K/V cache is live, include artifact transfer,
+authentication, correction, and rollback, and report complete transaction
+wall before promotion.

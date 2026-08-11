@@ -4186,3 +4186,11 @@ proposal steps, but they include authority work and are not endpoint TPS.
 Promote the branch to one real q4 verifier timing before spending all 32 CPU
 references. Preserve the three positive slices even if the combined schedule
 later loses.
+
+PW-0211's real q4 replay tightens the ordinary model without extrapolating
+verifier width. At the exact transaction-one cache state, the same native block
+and target posterior converge at `A=4`, `U=5.377660`, and 26.286 seconds of
+real verifier wall. Composed with the 10.444-second CPU native reference, the
+diagnostic candidate is 0.108902 accepted TPS versus 0.039288 for the matched
+q8 control, or 2.771859x. This authorizes live-cache integration; it is not yet
+accepted TPS because the two walls came from separate processes.
