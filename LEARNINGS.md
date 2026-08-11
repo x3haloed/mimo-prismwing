@@ -4341,3 +4341,16 @@ three report hashes are
 `4237717083f8ddb5b1e9d0e2ecac3de8440f56c363f4abd44a3da1f9ea71e2cf`,
 `49e5140a2aa2250b45385bea78d19285637293ee222007514fbc55e90e03020e`,
 and `84610209c4022626c0c9dba607974c7ddffbce54bb7a03ba3cbc3f16e5b6aa5a`.
+
+PW-0215's multilingual complete path also passes and corrects the isolated
+pilot's pessimistic acceptance prior. Both candidates accept three tokens in
+each of two q4 transactions and reproduce the control's exact seven-token
+Chinese prefix. Candidate walls are 366,098.966 and 365,856.195 ms around a
+471,685.581-ms q8 control: median complete TPS improves `1.288837x`, and
+post-prefill wall improves `2.535071x`. Logical traffic falls 16.70% and
+process reads fall 18.00%, again with zero swap growth or throttling. This is a
+second conditional slice win, not general promotion; rare-route, longer context,
+and untouched holdouts remain. Report hashes are
+`c8c4b2ac938fbf8820bb13ef12c2f6e0b5ae7e141e62ebb04cbc4e8c3330a48e`,
+`6a8632c40732b8a6150967b5ecf73cc5f95587a386f4dc6166588fafe66df83f`,
+and `1bdddc7f2bc17df1731a76394b9d0c29837bf2956d1a1ddf61a4e9c73eeb8710`.

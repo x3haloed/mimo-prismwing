@@ -1505,10 +1505,10 @@ Run the following cheap falsifiers in order:
    broadens PW-0211 through complete interleaved category paths. The code
    candidate-control-candidate sequence emits identical seven-token output and
    improves median complete accepted TPS `1.298259x`; post-prefill wall improves
-   `2.633252x`. Preserve this conditional code-slice win. Multilingual is the
-   next falsifier because its pilot acceptance was only one token; general
-   promotion still requires the remaining categories, longer context, and
-   untouched holdouts.
+   `2.633252x`. Multilingual also passes despite its pessimistic pilot: complete
+   TPS improves `1.288837x` and post-prefill wall `2.535071x`. Preserve both
+   conditional slice wins. General promotion still requires rare-route, longer
+   context, and untouched holdouts.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
