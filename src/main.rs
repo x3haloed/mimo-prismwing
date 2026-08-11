@@ -196,7 +196,7 @@ fn usage() -> ! {
     );
     #[cfg(target_os = "macos")]
     eprintln!(
-        "  prismwing native-mtp-window-capture <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <ordinary|code|multilingual|rare_route> <hidden.f32> <output.json> <commit>"
+        "  prismwing native-mtp-window-capture <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <ordinary|code|multilingual|rare_route> <hidden.f32> <output.json> <commit>  # exact 64-token run"
     );
     #[cfg(target_os = "macos")]
     eprintln!(

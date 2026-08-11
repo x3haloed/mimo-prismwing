@@ -724,7 +724,8 @@ pub struct NativeMtpWindowCaptureRecord {
     pub category: String,
     pub artifact_file: String,
     pub artifact_sha256: String,
-    pub shape: [usize; 2],
+    pub windows: usize,
+    pub shape: [usize; 3],
     pub dtype: &'static str,
     pub byte_order: &'static str,
     pub semantic: &'static str,
@@ -6211,7 +6212,7 @@ pub fn run_native_mtp_window_capture(
         verification_path,
         kernel_path,
         prompt_path,
-        8,
+        64,
         output_path,
         commit,
         true,
@@ -6339,9 +6340,9 @@ fn run_arbitrary_text_generation_internal(
                     .to_owned(),
             );
         }
-        if requested_output_tokens != WIDTH || !capture_route_trace || residency.is_some() {
+        if requested_output_tokens != 64 || !capture_route_trace || residency.is_some() {
             return Err(
-                "native MTP window capture requires one non-resident width-eight route-traced transaction"
+                "native MTP window capture requires one non-resident 64-token route-traced run"
                     .to_owned(),
             );
         }
@@ -6579,7 +6580,7 @@ fn run_arbitrary_text_generation_internal(
     };
     let mut stop_reason = "requested_maximum";
     let mut completed_response = false;
-    let mut native_mtp_hidden = None;
+    let mut native_mtp_hidden = Vec::new();
 
     while generated_token_ids.len() < requested_output_tokens && !completed_response {
         let transaction_index = transactions.len();
@@ -6634,10 +6635,10 @@ fn run_arbitrary_text_generation_internal(
             DecodeOutput::AllLogits,
         )?;
         if native_mtp_capture.is_some() {
-            if native_mtp_hidden.is_some() || verified.final_hidden.len() != WIDTH * HIDDEN {
+            if verified.final_hidden.len() != WIDTH * HIDDEN {
                 return Err("native MTP verifier hidden capture cardinality gate failed".to_owned());
             }
-            native_mtp_hidden = Some(verified.final_hidden.clone());
+            native_mtp_hidden.push(verified.final_hidden.clone());
         }
         let verified_output_tokens = verified.output_tokens;
         let verification_layer_traces = verified.traces;
@@ -6665,7 +6666,8 @@ fn run_arbitrary_text_generation_internal(
         {
             generated_token_ids.push(token);
             observable_emitted_token_ids.push(token);
-            if requested_output_tokens > 8
+            if native_mtp_capture.is_none()
+                && requested_output_tokens > 8
                 && generated_token_ids.len() >= minimum_output_tokens
                 && completed_sentence_count(
                     &tokenizer
@@ -6841,10 +6843,12 @@ fn run_arbitrary_text_generation_internal(
     let progress_sha256 = hash_file(&progress_path)?;
     let accepted_tokens = generated_token_ids.len();
     let native_mtp_window = if let Some(capture) = native_mtp_capture {
-        let hidden = native_mtp_hidden
-            .as_deref()
-            .ok_or("native MTP verifier hidden capture is missing")?;
-        let artifact_bytes = finite_f32_le_bytes(hidden, WIDTH * HIDDEN)?;
+        if native_mtp_hidden.len() < 8 {
+            return Err("native MTP run captured fewer than eight verifier windows".to_owned());
+        }
+        let window_count = native_mtp_hidden.len();
+        let hidden = native_mtp_hidden.into_iter().flatten().collect::<Vec<_>>();
+        let artifact_bytes = finite_f32_le_bytes(&hidden, window_count * WIDTH * HIDDEN)?;
         write_create_new(capture.output_path, &artifact_bytes)?;
         let artifact_file = capture
             .output_path
@@ -6856,10 +6860,11 @@ fn run_arbitrary_text_generation_internal(
             category: capture.category.to_owned(),
             artifact_file,
             artifact_sha256: sha256_hex(&artifact_bytes),
-            shape: [WIDTH, HIDDEN],
+            windows: window_count,
+            shape: [window_count, WIDTH, HIDDEN],
             dtype: "float32",
             byte_order: "little_endian",
-            semantic: "target_layer_47_final_hidden_before_model_final_norm_for_each_width_eight_verifier_row",
+            semantic: "consecutive_target_layer_47_final_hidden_before_model_final_norm_for_each_width_eight_verifier_window_and_row",
         })
     } else {
         None
