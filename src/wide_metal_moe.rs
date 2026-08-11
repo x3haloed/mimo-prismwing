@@ -61,7 +61,6 @@ pub(crate) struct WideLinearExecution {
 pub(crate) struct WideMetalMoeRuntime {
     device: metal::Device,
     queue: metal::CommandQueue,
-    projection_pipelines: Vec<metal::ComputePipelineState>,
     blockscaled_projection_pipelines: Vec<metal::ComputePipelineState>,
     dynamic_pipeline: metal::ComputePipelineState,
     quantized_dynamic_pipeline: metal::ComputePipelineState,
@@ -131,9 +130,6 @@ impl WideMetalMoeRuntime {
                 .new_compute_pipeline_state_with_function(&function)
                 .map_err(|error| format!("wide MoE pipeline {name}: {error}"))
         };
-        let projection_pipelines = (1..=BATCH)
-            .map(|width| pipeline(&format!("block_fp8_gemm{width}_shared_weight_lut_blocked")))
-            .collect::<Result<Vec<_>, _>>()?;
         let blockscaled_projection_pipelines = (1..=BATCH)
             .map(|width| pipeline(&format!("block_fp8_gemm{width}_sglang_blockscaled")))
             .collect::<Result<Vec<_>, _>>()?;
@@ -159,7 +155,6 @@ impl WideMetalMoeRuntime {
         Ok(Self {
             device,
             queue,
-            projection_pipelines,
             blockscaled_projection_pipelines,
             dynamic_pipeline,
             quantized_dynamic_pipeline,
@@ -775,7 +770,10 @@ impl WideMetalMoeRuntime {
             std::mem::size_of::<GemvShape>() as u64,
             shared,
         );
-        let staged_input = self.device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
+        let input_codes = self.device.new_buffer((BATCH * HIDDEN) as u64, shared);
+        let input_scales = self
+            .device
+            .new_buffer((BATCH * HIDDEN / 128 * 4) as u64, shared);
         let gate_output = self
             .device
             .new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
@@ -785,9 +783,12 @@ impl WideMetalMoeRuntime {
         let hidden_output = self
             .device
             .new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
-        let staged_hidden = self
+        let hidden_codes = self
             .device
-            .new_buffer((BATCH * INTERMEDIATE * 4) as u64, shared);
+            .new_buffer((BATCH * INTERMEDIATE) as u64, shared);
+        let hidden_scales = self
+            .device
+            .new_buffer((BATCH * INTERMEDIATE / 128 * 4) as u64, shared);
         let expert_output = self.device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
         let block_output = self.device.new_buffer((BATCH * HIDDEN * 4) as u64, shared);
         let zero = 0_u32;
@@ -813,12 +814,13 @@ impl WideMetalMoeRuntime {
         blit.end_encoding();
         let encoder = command.new_compute_command_encoder();
         for expert in &buffers {
-            let pipeline = &self.projection_pipelines[expert.count - 1];
-            encoder.set_compute_pipeline_state(&self.dynamic_pipeline);
+            let pipeline = &self.blockscaled_projection_pipelines[expert.count - 1];
+            encoder.set_compute_pipeline_state(&self.quantized_dynamic_pipeline);
             encoder.set_buffer(0, Some(&expert.input), 0);
-            encoder.set_buffer(1, Some(&staged_input), 0);
-            encoder.set_buffer(2, Some(&self.lut_buffer), 0);
-            encoder.set_buffer(3, Some(&error_buffer), 0);
+            encoder.set_buffer(1, Some(&input_codes), 0);
+            encoder.set_buffer(2, Some(&input_scales), 0);
+            encoder.set_buffer(3, Some(&self.lut_buffer), 0);
+            encoder.set_buffer(4, Some(&error_buffer), 0);
             encoder.set_threadgroup_memory_length(0, 128 * 4);
             encoder.dispatch_thread_groups(
                 MTLSize {
@@ -835,7 +837,8 @@ impl WideMetalMoeRuntime {
 
             let project = |encoder: &metal::ComputeCommandEncoderRef,
                            source: &ProjectionBuffers,
-                           input: &metal::BufferRef,
+                           codes: &metal::BufferRef,
+                           activation_scales: &metal::BufferRef,
                            output: &metal::BufferRef,
                            shape: &metal::BufferRef,
                            rows: usize,
@@ -843,10 +846,11 @@ impl WideMetalMoeRuntime {
                 encoder.set_compute_pipeline_state(pipeline);
                 encoder.set_buffer(0, Some(&source.weight), source.weight_offset);
                 encoder.set_buffer(1, Some(&source.scale), source.scale_offset);
-                encoder.set_buffer(2, Some(input), 0);
-                encoder.set_buffer(3, Some(output), 0);
-                encoder.set_buffer(4, Some(shape), 0);
-                encoder.set_buffer(5, Some(&self.lut_buffer), 0);
+                encoder.set_buffer(2, Some(codes), 0);
+                encoder.set_buffer(3, Some(activation_scales), 0);
+                encoder.set_buffer(4, Some(output), 0);
+                encoder.set_buffer(5, Some(shape), 0);
+                encoder.set_buffer(6, Some(&self.lut_buffer), 0);
                 encoder
                     .set_threadgroup_memory_length(0, PROJECTION_LANES * expert.count as u64 * 4);
                 encoder.dispatch_thread_groups(
@@ -866,7 +870,8 @@ impl WideMetalMoeRuntime {
             project(
                 encoder,
                 &expert.gate,
-                &staged_input,
+                &input_codes,
+                &input_scales,
                 &gate_output,
                 &gate_shape_buffer,
                 INTERMEDIATE,
@@ -875,7 +880,8 @@ impl WideMetalMoeRuntime {
             project(
                 encoder,
                 &expert.up,
-                &staged_input,
+                &input_codes,
+                &input_scales,
                 &up_output,
                 &gate_shape_buffer,
                 INTERMEDIATE,
@@ -899,11 +905,12 @@ impl WideMetalMoeRuntime {
                     depth: 1,
                 },
             );
-            encoder.set_compute_pipeline_state(&self.dynamic_pipeline);
+            encoder.set_compute_pipeline_state(&self.quantized_dynamic_pipeline);
             encoder.set_buffer(0, Some(&hidden_output), 0);
-            encoder.set_buffer(1, Some(&staged_hidden), 0);
-            encoder.set_buffer(2, Some(&self.lut_buffer), 0);
-            encoder.set_buffer(3, Some(&error_buffer), 0);
+            encoder.set_buffer(1, Some(&hidden_codes), 0);
+            encoder.set_buffer(2, Some(&hidden_scales), 0);
+            encoder.set_buffer(3, Some(&self.lut_buffer), 0);
+            encoder.set_buffer(4, Some(&error_buffer), 0);
             encoder.set_threadgroup_memory_length(0, 128 * 4);
             encoder.dispatch_thread_groups(
                 MTLSize {
@@ -920,7 +927,8 @@ impl WideMetalMoeRuntime {
             project(
                 encoder,
                 &expert.down,
-                &staged_hidden,
+                &hidden_codes,
+                &hidden_scales,
                 &expert_output,
                 &down_shape_buffer,
                 HIDDEN,

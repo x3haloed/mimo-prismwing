@@ -44,3 +44,28 @@ may not be labeled target-faithful, tuned to a desired token, or used to weaken
 the frozen source and hosted comparisons. A failed first-token probe kills the
 candidate without another terabyte-scale generation walk. No isolated kernel
 timing is accepted TPS.
+
+## Partial result
+
+The first implementation preserves exact activation codes and scales and adds
+the declared 128-column block-scaled projection. Its deterministic Metal probe
+matches the existing CPU/PyTorch quantization authority byte for byte and
+matches an independent two-block scalar projection within `0.01` maximum
+absolute error. The complete Rust library suite passes 87 tests.
+
+Run 001 then changed only ordinary FP8 spine projections while retaining the
+historical QKV and routed-MoE reductions as explicit controls. It completed the
+41-token arbitrary prompt in six chunks and chose token 13 (`.`), rather than
+PW-0204's token 264 (` a`). The report hashes to
+`db08d69f8e471128f8fdf5981fb8558235f40c6dc7a28b2d2fae291ab53cda66`
+and its progress log to
+`0b9c090e8342b5d3ab73d6d13389b1a90fef56f16bfc92de4cc574ddb224560c`.
+Complete wall was 155,572.482 ms, including 154,832.475 ms prefill; logical
+source bytes were 190,814,088,448, process disk reads 191,044,632,576, and peak
+RSS 3,922,575,360 bytes.
+
+That lone punctuation token does not clear a behavioral gate and cannot
+justify generation. It does prove the arithmetic distinction is materially
+causal at whole-model output. Continue the same source-directed equation
+through routed experts, then repeat the one-token gate. Do not call run 001 a
+coherence result or accepted TPS.
