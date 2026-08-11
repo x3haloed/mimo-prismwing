@@ -47,6 +47,8 @@ except ModuleNotFoundError:
 
 PW0091_SHA256 = "87466b59480a5a5b4256c490f1dfe670fe09f28d21d169085ab13bb1b4b7ab59"
 PW0095_SHA256 = "75b4a5799bcc7dc898643c266d42a00b52c75be0f1fe1682ef253ce8fe4287a8"
+PW0206_PREFIX_SHA256 = "0002c617c5459d7531de99e779ecad7335afc1e6f86cbbb6071afa23da107807"
+PW0206_DECODE_SHA256 = "f405225ea063bf3bfaf38a450fe752dc32c5afe54f69f5803c3ae61308caab2d"
 MTP_SHA256 = "a0e41a193b2762b0c83e577f83206d0777028de6916408c8c368730c0c9e2143"
 SGLANG_REVISION = "2fc557254b3aaf539e80266e52a6d1e1f8da9980"
 LAYER47_SHA256 = "3809f2fb5cc8ff3f543cd2d0362dccd136f2822e8aa844f6080d2effb7e6e300"
@@ -110,10 +112,11 @@ def authenticate(
     checkpoint_root: Path,
     verification_path: Path,
     prefix_manifest_path: Path,
-    cached_manifest_path: Path,
+    cached_manifest_path: Path | None,
+    corrected_decode_path: Path | None,
     source_lock_path: Path,
     source_root: Path,
-) -> tuple[ShardedCheckpoint, Path, dict[str, Any], dict[str, str]]:
+) -> tuple[ShardedCheckpoint, Path, dict[str, Any], dict[str, str], int, int, str]:
     checkpoint = ShardedCheckpoint(checkpoint_root, verification_path)
     verification = json.loads(verification_path.read_text())
     mtp_record = next(
@@ -127,27 +130,54 @@ def authenticate(
         raise ValueError("MTP complete-file SHA-256 mismatch")
     validate_mtp_inventory(mtp_path)
 
-    if sha256_file(prefix_manifest_path) != PW0091_SHA256:
-        raise ValueError("PW-0091 manifest hash mismatch")
+    corrected = corrected_decode_path is not None
+    expected_prefix_sha256 = PW0206_PREFIX_SHA256 if corrected else PW0091_SHA256
+    if sha256_file(prefix_manifest_path) != expected_prefix_sha256:
+        raise ValueError("prefix manifest hash mismatch")
     prefix_manifest = json.loads(prefix_manifest_path.read_text())
     layer_record = prefix_manifest.get("captures", {}).get("layer_47_final")
+    expected_layer47_sha256 = (
+        "e485df1c61820505c431b390825849ae05af0b190a568dae023ec7a215644fbe"
+        if corrected
+        else LAYER47_SHA256
+    )
     if (
         prefix_manifest.get("revision") != REVISION
         or prefix_manifest.get("prompt_token_ids") != PROMPT_IDS
         or not isinstance(layer_record, dict)
         or layer_record.get("shape") != [27, 4096]
         or layer_record.get("dtype") != "BF16_widened_F32"
-        or layer_record.get("sha256") != LAYER47_SHA256
+        or layer_record.get("sha256") != expected_layer47_sha256
     ):
-        raise ValueError("PW-0091 layer-47 authority mismatch")
-    if sha256_file(prefix_manifest_path.parent / layer_record["file"]) != LAYER47_SHA256:
-        raise ValueError("PW-0091 layer-47 payload mismatch")
+        raise ValueError("prefix layer-47 authority mismatch")
+    if sha256_file(prefix_manifest_path.parent / layer_record["file"]) != expected_layer47_sha256:
+        raise ValueError("prefix layer-47 payload mismatch")
 
-    if sha256_file(cached_manifest_path) != PW0095_SHA256:
-        raise ValueError("PW-0095 manifest hash mismatch")
-    cached = json.loads(cached_manifest_path.read_text())
-    if cached.get("revision") != REVISION or cached.get("output_token_id") != EXPECTED_PROPOSAL:
-        raise ValueError("PW-0095 target token mismatch")
+    if corrected:
+        if (
+            cached_manifest_path is not None
+            or sha256_file(corrected_decode_path) != PW0206_DECODE_SHA256
+        ):
+            raise ValueError("PW-0206 corrected decode authority mismatch")
+        decode = json.loads(corrected_decode_path.read_text())
+        if (
+            decode.get("semantic") != "mimo_v2_5_target_faithful_slow_chat_endpoint"
+            or decode.get("revision") != REVISION
+            or decode.get("prompt_token_ids") != PROMPT_IDS
+            or decode.get("generated_token_ids") != [9707, 0]
+            or decode.get("generated_text") != "Hello!"
+        ):
+            raise ValueError("PW-0206 corrected decode semantic identity mismatch")
+        target_anchor, expected_proposal = decode["generated_token_ids"]
+        evidence_class = "pw0206_corrected_qkv_native_mtp_first_proposal"
+    else:
+        if cached_manifest_path is None or sha256_file(cached_manifest_path) != PW0095_SHA256:
+            raise ValueError("PW-0095 manifest hash mismatch")
+        cached = json.loads(cached_manifest_path.read_text())
+        if cached.get("revision") != REVISION or cached.get("output_token_id") != EXPECTED_PROPOSAL:
+            raise ValueError("PW-0095 target token mismatch")
+        target_anchor, expected_proposal = FIRST_TARGET_TOKEN, EXPECTED_PROPOSAL
+        evidence_class = "pw0103_native_mtp_first_causal_proposal"
 
     lock_bytes = source_lock_path.read_bytes()
     lock = json.loads(lock_bytes)
@@ -156,13 +186,30 @@ def authenticate(
     for relative, expected in lock.get("files", {}).items():
         if sha256_file(source_root / relative) != expected:
             raise ValueError(f"SGLang MTP source mismatch: {relative}")
-    return checkpoint, mtp_path, prefix_manifest, {
+    identities = {
         "checkpoint_verification_sha256": VERIFICATION_SHA256,
         "mtp_sha256": MTP_SHA256,
-        "pw0091_manifest_sha256": PW0091_SHA256,
-        "pw0095_manifest_sha256": PW0095_SHA256,
         "sglang_mtp_lock_sha256": hashlib.sha256(lock_bytes).hexdigest(),
     }
+    if corrected:
+        identities.update({
+            "pw0206_prefix_manifest_sha256": PW0206_PREFIX_SHA256,
+            "pw0206_target_decode_sha256": PW0206_DECODE_SHA256,
+        })
+    else:
+        identities.update({
+            "pw0091_manifest_sha256": PW0091_SHA256,
+            "pw0095_manifest_sha256": PW0095_SHA256,
+        })
+    return (
+        checkpoint,
+        mtp_path,
+        prefix_manifest,
+        identities,
+        target_anchor,
+        expected_proposal,
+        evidence_class,
+    )
 
 
 def load_target_hidden(prefix_manifest_path: Path, manifest: dict[str, Any]) -> torch.Tensor:
@@ -224,16 +271,29 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     arguments.output.mkdir(parents=True, exist_ok=False)
     safety = HostSafetyMonitor()
     arguments._safety = safety
-    checkpoint, mtp_path, prefix_manifest, identities = authenticate(
-        arguments.checkpoint, arguments.verification, arguments.prefix_manifest,
-        arguments.cached_manifest, arguments.source_lock, arguments.source_root,
+    (
+        checkpoint,
+        mtp_path,
+        prefix_manifest,
+        identities,
+        target_anchor,
+        expected_proposal,
+        evidence_class,
+    ) = authenticate(
+        arguments.checkpoint,
+        arguments.verification,
+        arguments.prefix_manifest,
+        arguments.cached_manifest,
+        arguments.corrected_decode,
+        arguments.source_lock,
+        arguments.source_root,
     )
     safety.checkpoint("authorities_and_mtp_inventory_authenticated")
     first_disk_read = safety.evidence()[0]["process_disk_bytes_read"]
     captures: dict[str, Any] = {}
 
     target_hidden = load_target_hidden(arguments.prefix_manifest, prefix_manifest)
-    shifted_ids = [*PROMPT_IDS[1:], FIRST_TARGET_TOKEN]
+    shifted_ids = [*PROMPT_IDS[1:], target_anchor]
     embed_path = checkpoint.shard("model.embed_tokens.weight")
     with safe_open(embed_path, framework="pt", device="cpu") as source:
         view = source.get_slice("model.embed_tokens.weight")
@@ -296,7 +356,7 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("MTP logits layout mismatch")
     captures["logits"] = tensor_capture(arguments.output, "logits", logits, "F32")
     proposal = int(logits.argmax())
-    target_logit = float(logits[EXPECTED_PROPOSAL])
+    target_logit = float(logits[expected_proposal])
     rank = int((logits > target_logit).sum().item()) + 1
     top_values, top_ids = torch.topk(logits, 20)
     top20 = [
@@ -322,8 +382,8 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     ).stdout.strip())
     result = {
         "schema_version": 1,
-        "evidence_class": "pw0103_native_mtp_first_causal_proposal",
-        "status": "passed" if proposal == EXPECTED_PROPOSAL else "rejected",
+        "evidence_class": evidence_class,
+        "status": "passed" if proposal == expected_proposal else "rejected",
         "revision": REVISION,
         "identities": identities,
         "git_commit": git_commit,
@@ -332,8 +392,8 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
         "target_hidden_layer": 47,
         "input_pairing": "rotate_prompt_left_and_append_target_anchor",
         "shifted_input_token_ids": shifted_ids,
-        "target_anchor_token_id": FIRST_TARGET_TOKEN,
-        "target_next_token_id": EXPECTED_PROPOSAL,
+        "target_anchor_token_id": target_anchor,
+        "target_next_token_id": expected_proposal,
         "mtp_proposal_token_id": proposal,
         "target_token_rank_in_mtp_logits": rank,
         "target_token_logit": target_logit,
@@ -369,7 +429,9 @@ def main() -> int:
     parser.add_argument("--checkpoint", required=True, type=Path)
     parser.add_argument("--verification", required=True, type=Path)
     parser.add_argument("--prefix-manifest", required=True, type=Path)
-    parser.add_argument("--cached-manifest", required=True, type=Path)
+    authority = parser.add_mutually_exclusive_group(required=True)
+    authority.add_argument("--cached-manifest", type=Path)
+    authority.add_argument("--corrected-decode", type=Path)
     parser.add_argument("--source-lock", required=True, type=Path)
     parser.add_argument("--source-root", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
@@ -385,7 +447,11 @@ def main() -> int:
         failure_path = arguments.output / "failure.json"
         if safety is not None and arguments.output.is_dir() and not failure_path.exists():
             failure = {"schema_version": 1,
-                "evidence_class": "pw0103_native_mtp_first_causal_proposal_failure",
+                "evidence_class": (
+                    "pw0206_corrected_qkv_native_mtp_first_proposal_failure"
+                    if arguments.corrected_decode is not None
+                    else "pw0103_native_mtp_first_causal_proposal_failure"
+                ),
                 "status": "failed", "error_type": type(error).__name__, "error": str(error),
                 "safety": safety.evidence()}
             try:
