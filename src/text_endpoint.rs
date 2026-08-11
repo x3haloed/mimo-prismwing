@@ -2499,8 +2499,8 @@ pub(crate) fn round_bf16_values(values: &mut [f32]) {
 
 pub(crate) struct DynamicFp8Activations {
     pub(crate) dequantized: Vec<f32>,
-    scales: Vec<f32>,
-    encoded: Vec<u8>,
+    pub(crate) scales: Vec<f32>,
+    pub(crate) encoded: Vec<u8>,
 }
 
 fn encode_f8_e4m3fn(value: f32) -> Result<u8, String> {
@@ -5648,8 +5648,11 @@ pub fn run_arbitrary_text_generation(
     if progress_path.exists() {
         return Err(format!("refusing to overwrite {}", progress_path.display()));
     }
-    if !(32..=64).contains(&requested_output_tokens) {
-        return Err("arbitrary text generation requires 32 through 64 output tokens".to_owned());
+    if requested_output_tokens != 1 && !(32..=64).contains(&requested_output_tokens) {
+        return Err(
+            "arbitrary text generation requires one diagnostic token or 32 through 64 endpoint tokens"
+                .to_owned(),
+        );
     }
     if commit.len() != 40
         || !commit
@@ -5924,8 +5927,16 @@ pub fn run_arbitrary_text_generation(
     let progress_sha256 = hash_file(&progress_path)?;
     let report = ArbitraryTextGenerationReport {
         schema_version: 1,
-        evidence_class: "pw0204_arbitrary_prompt_target_proposed_generation",
-        semantic: "mimo_v2_5_source_authority_modified_l3_text_generation",
+        evidence_class: if requested_output_tokens == 1 {
+            "pw0205_arbitrary_prompt_first_token_probe"
+        } else {
+            "pw0204_arbitrary_prompt_target_proposed_generation"
+        },
+        semantic: if requested_output_tokens == 1 {
+            "mimo_v2_5_sglang_directed_blockscaled_spine_first_token_probe"
+        } else {
+            "mimo_v2_5_source_authority_modified_l3_text_generation"
+        },
         revision: REVISION,
         commit: commit.to_owned(),
         git_dirty,
@@ -5957,10 +5968,18 @@ pub fn run_arbitrary_text_generation(
         batch_size: 1,
         concurrency: 1,
         verifier_width: WIDTH,
-        exactness: "source checkpoint weights and routes with explicitly modified Metal-native L3 reductions; no draft token commits before verifier acceptance",
+        exactness: if requested_output_tokens == 1 {
+            "PW-0205 diagnostic: SGLang-directed 128-column block-scaled ordinary FP8 spine; historical modified-L3 QKV and MoE controls"
+        } else {
+            "source checkpoint weights and routes with explicitly modified Metal-native L3 reductions; no draft token commits before verifier acceptance"
+        },
         proposer: "greedy source-checkpoint target proposer using the same retained K/V and Metal-native L3 arithmetic",
         cache_state: "cold process start; bounded width-eight chunked prefill; process-local Metal pipelines; checkpoint pages released after every layer",
-        status: "execution_complete_quality_unassessed",
+        status: if requested_output_tokens == 1 {
+            "diagnostic_first_token_complete"
+        } else {
+            "execution_complete_quality_unassessed"
+        },
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;

@@ -189,6 +189,10 @@ fn usage() -> ! {
     );
     #[cfg(target_os = "macos")]
     eprintln!(
+        "  prismwing arbitrary-text-first-token <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
         "  prismwing weight-install-tomography <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <fixture.json> <oracle-manifest.json> <kernel.metal> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
@@ -390,6 +394,34 @@ fn main() {
                     );
                     Some(output)
                 })
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("arbitrary-text-first-token") if arguments.len() == 9 => {
+            let checkpoint = PathBuf::from(&arguments[2]);
+            let model_lock = PathBuf::from(&arguments[3]);
+            let verification = PathBuf::from(&arguments[4]);
+            let kernel = PathBuf::from(&arguments[5]);
+            let prompt = PathBuf::from(&arguments[6]);
+            let output = PathBuf::from(&arguments[7]);
+            run_arbitrary_text_generation(
+                &checkpoint,
+                &model_lock,
+                &verification,
+                &kernel,
+                &prompt,
+                1,
+                &output,
+                &arguments[8],
+            )
+            .map(|report| {
+                println!(
+                    "first token {} in {:.3} s: {}",
+                    report.generated_token_ids[0],
+                    report.complete_wall_ms / 1000.0,
+                    report.generated_text
+                );
+                Some(output)
             })
         }
         #[cfg(target_os = "macos")]

@@ -1,3 +1,4 @@
+use super::text_endpoint::dynamic_fp8_activations;
 use super::{MappedNoCopyRegion, decode_f8_e4m3fn};
 use metal::{CompileOptions, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize, NSRange};
 use std::fs;
@@ -61,7 +62,9 @@ pub(crate) struct WideMetalMoeRuntime {
     device: metal::Device,
     queue: metal::CommandQueue,
     projection_pipelines: Vec<metal::ComputePipelineState>,
+    blockscaled_projection_pipelines: Vec<metal::ComputePipelineState>,
     dynamic_pipeline: metal::ComputePipelineState,
+    quantized_dynamic_pipeline: metal::ComputePipelineState,
     swiglu_pipeline: metal::ComputePipelineState,
     round_pipeline: metal::ComputePipelineState,
     scatter_pipeline: metal::ComputePipelineState,
@@ -131,7 +134,11 @@ impl WideMetalMoeRuntime {
         let projection_pipelines = (1..=BATCH)
             .map(|width| pipeline(&format!("block_fp8_gemm{width}_shared_weight_lut_blocked")))
             .collect::<Result<Vec<_>, _>>()?;
+        let blockscaled_projection_pipelines = (1..=BATCH)
+            .map(|width| pipeline(&format!("block_fp8_gemm{width}_sglang_blockscaled")))
+            .collect::<Result<Vec<_>, _>>()?;
         let dynamic_pipeline = pipeline("dynamic_fp8_dequantized_group128")?;
+        let quantized_dynamic_pipeline = pipeline("dynamic_fp8_quantized_group128")?;
         let swiglu_pipeline = pipeline("bf16_staged_swiglu")?;
         let round_pipeline = pipeline("bf16_round_in_place")?;
         let scatter_pipeline = pipeline("route_weighted_scatter_add_f32")?;
@@ -153,7 +160,9 @@ impl WideMetalMoeRuntime {
             device,
             queue,
             projection_pipelines,
+            blockscaled_projection_pipelines,
             dynamic_pipeline,
+            quantized_dynamic_pipeline,
             swiglu_pipeline,
             round_pipeline,
             scatter_pipeline,
@@ -210,6 +219,17 @@ impl WideMetalMoeRuntime {
         let staged = self
             .device
             .new_buffer((padded_input.len() * 4) as u64, shared);
+        let quantized = dynamic_fp8_activations(&padded_input, BATCH, binding.columns)?;
+        let encoded_buffer = self.device.new_buffer_with_data(
+            quantized.encoded.as_ptr().cast(),
+            quantized.encoded.len() as u64,
+            shared,
+        );
+        let activation_scale_buffer = self.device.new_buffer_with_data(
+            quantized.scales.as_ptr().cast(),
+            std::mem::size_of_val(quantized.scales.as_slice()) as u64,
+            shared,
+        );
         let output_count = BATCH * binding.rows;
         let output = self.device.new_buffer((output_count * 4) as u64, shared);
         let error = 0_u32;
@@ -258,7 +278,7 @@ impl WideMetalMoeRuntime {
         encoder.set_compute_pipeline_state(if full_qkv_layout {
             &self.full_qkv_pipeline
         } else {
-            &self.projection_pipelines[BATCH - 1]
+            &self.blockscaled_projection_pipelines[BATCH - 1]
         });
         encoder.set_buffer(
             0,
@@ -270,10 +290,18 @@ impl WideMetalMoeRuntime {
             },
         );
         encoder.set_buffer(1, Some(&scale), binding.scale.tensor_offset as u64);
-        encoder.set_buffer(2, Some(&staged), 0);
-        encoder.set_buffer(3, Some(&output), 0);
-        encoder.set_buffer(4, Some(&shape_buffer), 0);
-        encoder.set_buffer(5, Some(&self.lut_buffer), 0);
+        if full_qkv_layout {
+            encoder.set_buffer(2, Some(&staged), 0);
+            encoder.set_buffer(3, Some(&output), 0);
+            encoder.set_buffer(4, Some(&shape_buffer), 0);
+            encoder.set_buffer(5, Some(&self.lut_buffer), 0);
+        } else {
+            encoder.set_buffer(2, Some(&encoded_buffer), 0);
+            encoder.set_buffer(3, Some(&activation_scale_buffer), 0);
+            encoder.set_buffer(4, Some(&output), 0);
+            encoder.set_buffer(5, Some(&shape_buffer), 0);
+            encoder.set_buffer(6, Some(&self.lut_buffer), 0);
+        }
         encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * BATCH as u64 * 4);
         encoder.dispatch_thread_groups(
             MTLSize {
@@ -320,6 +348,151 @@ impl WideMetalMoeRuntime {
             wall_ms: started.elapsed().as_secs_f64() * 1000.0,
             mapped_source_bytes: (binding.weight.bytes.len() + binding.scale.bytes.len()) as u64,
         })
+    }
+
+    #[cfg(test)]
+    fn probe_sglang_blockscaled_projection(&self) -> Result<(), String> {
+        const ROWS: usize = 128;
+        const COLUMNS: usize = 256;
+        const ACTIVE: usize = 2;
+        let input = (0..ACTIVE * COLUMNS)
+            .map(|index| ((index * 29 % 401) as f32 - 200.0) / 37.0)
+            .collect::<Vec<_>>();
+        let quantized = dynamic_fp8_activations(&input, ACTIVE, COLUMNS)?;
+        let weights = (0..ROWS * COLUMNS)
+            .map(|index| ((index * 37 + 11) % 0x7f) as u8)
+            .collect::<Vec<_>>();
+        let weight_scales = (0..ROWS / 128 * COLUMNS / 128)
+            .map(|index| 0.003_f32 + index as f32 * 0.0017)
+            .collect::<Vec<_>>();
+        let mut expected = vec![0.0_f32; ACTIVE * ROWS];
+        for position in 0..ACTIVE {
+            for row in 0..ROWS {
+                let mut total = 0.0_f32;
+                for block in 0..COLUMNS / 128 {
+                    let mut dot = 0.0_f32;
+                    for within in 0..128 {
+                        let column = block * 128 + within;
+                        dot += decode_f8_e4m3fn(weights[row * COLUMNS + column])
+                            * decode_f8_e4m3fn(quantized.encoded[position * COLUMNS + column]);
+                    }
+                    total += dot
+                        * weight_scales[(row / 128) * (COLUMNS / 128) + block]
+                        * quantized.scales[position * (COLUMNS / 128) + block];
+                }
+                expected[position * ROWS + row] = total;
+            }
+        }
+
+        let shared = MTLResourceOptions::StorageModeShared;
+        let input_buffer = self.device.new_buffer_with_data(
+            input.as_ptr().cast(),
+            std::mem::size_of_val(input.as_slice()) as u64,
+            shared,
+        );
+        let code_buffer = self.device.new_buffer((input.len()) as u64, shared);
+        let input_scale_buffer = self
+            .device
+            .new_buffer((quantized.scales.len() * 4) as u64, shared);
+        let weight_buffer =
+            self.device
+                .new_buffer_with_data(weights.as_ptr().cast(), weights.len() as u64, shared);
+        let weight_scale_buffer = self.device.new_buffer_with_data(
+            weight_scales.as_ptr().cast(),
+            std::mem::size_of_val(weight_scales.as_slice()) as u64,
+            shared,
+        );
+        let output_buffer = self.device.new_buffer((expected.len() * 4) as u64, shared);
+        let error = 0_u32;
+        let error_buffer =
+            self.device
+                .new_buffer_with_data((&error as *const u32).cast(), 4, shared);
+        let shape = GemvShape {
+            rows: ROWS as u32,
+            columns: COLUMNS as u32,
+            block_rows: 128,
+            block_columns: 128,
+        };
+        let shape_buffer = self.device.new_buffer_with_data(
+            (&shape as *const GemvShape).cast(),
+            std::mem::size_of::<GemvShape>() as u64,
+            shared,
+        );
+        let command = self.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&self.quantized_dynamic_pipeline);
+        encoder.set_buffer(0, Some(&input_buffer), 0);
+        encoder.set_buffer(1, Some(&code_buffer), 0);
+        encoder.set_buffer(2, Some(&input_scale_buffer), 0);
+        encoder.set_buffer(3, Some(&self.lut_buffer), 0);
+        encoder.set_buffer(4, Some(&error_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, 128 * 4);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: (input.len() / 128) as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 128,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.set_compute_pipeline_state(&self.blockscaled_projection_pipelines[ACTIVE - 1]);
+        encoder.set_buffer(0, Some(&weight_buffer), 0);
+        encoder.set_buffer(1, Some(&weight_scale_buffer), 0);
+        encoder.set_buffer(2, Some(&code_buffer), 0);
+        encoder.set_buffer(3, Some(&input_scale_buffer), 0);
+        encoder.set_buffer(4, Some(&output_buffer), 0);
+        encoder.set_buffer(5, Some(&shape_buffer), 0);
+        encoder.set_buffer(6, Some(&self.lut_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * ACTIVE as u64 * 4);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: ROWS as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: PROJECTION_LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+        if command.status() != MTLCommandBufferStatus::Completed
+            || unsafe { *(error_buffer.contents().cast::<u32>()) } != 0
+        {
+            return Err("SGLang block-scaled probe command failed".to_owned());
+        }
+        let actual_codes =
+            unsafe { std::slice::from_raw_parts(code_buffer.contents().cast::<u8>(), input.len()) };
+        let actual_scales = unsafe {
+            std::slice::from_raw_parts(
+                input_scale_buffer.contents().cast::<f32>(),
+                quantized.scales.len(),
+            )
+        };
+        if actual_codes != quantized.encoded || actual_scales != quantized.scales {
+            return Err("Metal dynamic FP8 codes/scales differ from CPU authority".to_owned());
+        }
+        let actual = unsafe {
+            std::slice::from_raw_parts(output_buffer.contents().cast::<f32>(), expected.len())
+        };
+        let maximum_error = actual
+            .iter()
+            .zip(&expected)
+            .map(|(left, right)| (left - right).abs())
+            .fold(0.0_f32, f32::max);
+        if !maximum_error.is_finite() || maximum_error > 0.01 {
+            return Err(format!(
+                "SGLang block-scaled projection mismatch: max error {maximum_error}"
+            ));
+        }
+        Ok(())
     }
 
     pub(crate) fn execute_bf16_linear(
@@ -836,6 +1009,15 @@ impl WideMetalMoeRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sglang_blockscaled_fp8_codes_scales_and_projection_match_cpu_equation() {
+        let runtime = WideMetalMoeRuntime::compile(Path::new("kernels/block_fp8_gemv.metal"))
+            .expect("compile block-scaled pipelines");
+        runtime
+            .probe_sglang_blockscaled_projection()
+            .expect("block-scaled Metal parity");
+    }
 
     #[test]
     fn partial_wide_rows_are_zero_padded_without_changing_real_rows() {

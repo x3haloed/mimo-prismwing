@@ -78,6 +78,64 @@ kernel void dynamic_fp8_dequantized_group128(
     output[index] = decode_lut[encoded] * scale;
 }
 
+// Preserve the two operands SGLang's block-FP8 kernels consume instead of
+// collapsing the activation code and scale into a dequantized float. One
+// threadgroup owns one contiguous 128-value token group.
+kernel void dynamic_fp8_quantized_group128(
+    device const float *input [[buffer(0)]],
+    device uchar *codes [[buffer(1)]],
+    device float *scales [[buffer(2)]],
+    constant float *decode_lut [[buffer(3)]],
+    device atomic_uint *error_flags [[buffer(4)]],
+    threadgroup float *maximums [[threadgroup(0)]],
+    uint group [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    if (lanes != 128) {
+        if (lane == 0) {
+            atomic_fetch_or_explicit(error_flags, 1u, memory_order_relaxed);
+        }
+        return;
+    }
+    const uint index = group * 128 + lane;
+    const float value = input[index];
+    if (!isfinite(value)) {
+        atomic_fetch_or_explicit(error_flags, 2u, memory_order_relaxed);
+        maximums[lane] = 0.0f;
+    } else {
+        maximums[lane] = abs(value);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint offset = 64; offset > 0; offset /= 2) {
+        if (lane < offset) {
+            maximums[lane] = max(maximums[lane], maximums[lane + offset]);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    const float scale = max(maximums[0], 1.0e-10f) / 448.0f;
+    if (lane == 0) {
+        scales[group] = scale;
+    }
+    const float normalized = clamp(value / scale, -448.0f, 448.0f);
+    if (normalized == 0.0f) {
+        codes[index] = signbit(normalized) ? uchar(0x80) : uchar(0);
+        return;
+    }
+    const float magnitude = abs(normalized);
+    uchar best = 0;
+    float distance = INFINITY;
+    for (uint candidate = 0; candidate <= 0x7e; ++candidate) {
+        const float candidate_distance = abs(magnitude - decode_lut[candidate]);
+        if (candidate_distance < distance ||
+            (candidate_distance == distance && (candidate & 1u) == 0u &&
+             (uint(best) & 1u) != 0u)) {
+            best = uchar(candidate);
+            distance = candidate_distance;
+        }
+    }
+    codes[index] = best | (signbit(normalized) ? uchar(0x80) : uchar(0));
+}
+
 kernel void bf16_staged_swiglu(
     device float *gate [[buffer(0)]],
     device float *up [[buffer(1)]],
@@ -720,6 +778,95 @@ PW_DEFINE_SPECIALIZED_GEMM(6)
 PW_DEFINE_SPECIALIZED_GEMM(7)
 
 #undef PW_DEFINE_SPECIALIZED_GEMM
+
+template <uint active>
+inline void block_fp8_gemm_blockscaled_impl(
+    device const uchar *weights,
+    device const float *weight_scales,
+    device const uchar *input_codes,
+    device const float *input_scales,
+    device float *output,
+    constant GemvShape &shape,
+    constant float *decode_lut,
+    threadgroup float *partial,
+    uint row,
+    uint lane,
+    uint lanes) {
+    if (row >= shape.rows || lanes != 64 || shape.block_rows != 128 ||
+        shape.block_columns != 128 || shape.columns % 128 != 0) {
+        return;
+    }
+    const uint row_offset = row * shape.columns;
+    const uint blocks = shape.columns / 128;
+    const uint weight_scale_offset = (row / 128) * blocks;
+    float totals[active];
+    for (uint position = 0; position < active; ++position) {
+        totals[position] = 0.0f;
+    }
+    for (uint block = 0; block < blocks; ++block) {
+        const uint column_base = block * 128;
+        for (uint position = 0; position < active; ++position) {
+            float dot = 0.0f;
+            for (uint within = lane; within < 128; within += lanes) {
+                const uint column = column_base + within;
+                dot += decode_lut[weights[row_offset + column]] *
+                    decode_lut[input_codes[position * shape.columns + column]];
+            }
+            partial[lane * active + position] = dot;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+            if (lane < offset) {
+                for (uint position = 0; position < active; ++position) {
+                    partial[lane * active + position] +=
+                        partial[(lane + offset) * active + position];
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        if (lane == 0) {
+            const float weight_scale = weight_scales[weight_scale_offset + block];
+            for (uint position = 0; position < active; ++position) {
+                const float input_scale = input_scales[position * blocks + block];
+                totals[position] += partial[position] * weight_scale * input_scale;
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        for (uint position = 0; position < active; ++position) {
+            output[position * shape.rows + row] = totals[position];
+        }
+    }
+}
+
+#define PW_DEFINE_BLOCKSCALED_GEMM(WIDTH) \
+kernel void block_fp8_gemm##WIDTH##_sglang_blockscaled( \
+    device const uchar *weights [[buffer(0)]], \
+    device const float *weight_scales [[buffer(1)]], \
+    device const uchar *input_codes [[buffer(2)]], \
+    device const float *input_scales [[buffer(3)]], \
+    device float *output [[buffer(4)]], \
+    constant GemvShape &shape [[buffer(5)]], \
+    constant float *decode_lut [[buffer(6)]], \
+    threadgroup float *partial [[threadgroup(0)]], \
+    uint row [[threadgroup_position_in_grid]], \
+    uint lane [[thread_index_in_threadgroup]], \
+    uint lanes [[threads_per_threadgroup]]) { \
+    block_fp8_gemm_blockscaled_impl<WIDTH>(weights, weight_scales, input_codes, \
+        input_scales, output, shape, decode_lut, partial, row, lane, lanes); \
+}
+
+PW_DEFINE_BLOCKSCALED_GEMM(1)
+PW_DEFINE_BLOCKSCALED_GEMM(2)
+PW_DEFINE_BLOCKSCALED_GEMM(3)
+PW_DEFINE_BLOCKSCALED_GEMM(4)
+PW_DEFINE_BLOCKSCALED_GEMM(5)
+PW_DEFINE_BLOCKSCALED_GEMM(6)
+PW_DEFINE_BLOCKSCALED_GEMM(7)
+PW_DEFINE_BLOCKSCALED_GEMM(8)
+
+#undef PW_DEFINE_BLOCKSCALED_GEMM
 
 kernel void block_fp8_gemm8_simdgroup_matrix_lut_blocked(
     device const uchar *weights [[buffer(0)]],
