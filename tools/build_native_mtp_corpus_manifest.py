@@ -15,7 +15,12 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tools.audit_native_mtp_window_corpus import PRIMARY_WINDOWS, audit, sha256
+from tools.audit_native_mtp_window_corpus import (
+    PRIMARY_WINDOWS,
+    audit,
+    protected_baseline_survived,
+    sha256,
+)
 
 CATEGORIES = ("ordinary", "code", "multilingual", "rare_route")
 PROMPTS = {
@@ -57,6 +62,109 @@ def mtp_target_hidden_binding(report: dict[str, Any], transaction_index: int) ->
     }
 
 
+def validate_prefill_source(
+    category: str,
+    prefill_root: Path,
+    corpus_report: dict[str, Any],
+    prompt_path: Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    category_root = prefill_root / category
+    report_path = category_root / "report.json"
+    hidden_path = category_root / "target-layer47-hidden.f32"
+    report = json.loads(report_path.read_text())
+    hidden_hash = sha256(hidden_path)
+    expected_rows = len(corpus_report["prompt_token_ids"])
+    if (
+        report["schema_version"] != 1
+        or report["evidence_class"] != "pw0208_native_mtp_corrected_prefill_hidden_capture"
+        or report["semantic"]
+        != "mimo_v2_5_pw0208_corrected_target_layer47_prefill_hidden_capture"
+        or report["git_dirty"]
+        or report["user_prompt_utf8"] != prompt_path.read_text()
+        or report["prompt_token_ids"] != corpus_report["prompt_token_ids"]
+        or report["first_anchor_token_id"] != corpus_report["generated_token_ids"][0]
+        or report["target_hidden"]["category"] != category
+        or report["target_hidden"]["artifact_file"] != hidden_path.name
+        or report["target_hidden"]["artifact_sha256"] != hidden_hash
+        or report["target_hidden"]["shape"] != [expected_rows, 4096]
+        or report["target_hidden"]["dtype"] != "float32"
+        or report["target_hidden"]["byte_order"] != "little_endian"
+        or hidden_path.stat().st_size != expected_rows * HIDDEN_ROW_BYTES
+        or report["prefill_chunks"] != (expected_rows + 7) // 8
+        or len(report["chunk_layer_traces"]) != report["prefill_chunks"]
+        or any(len(chunk) != 48 for chunk in report["chunk_layer_traces"])
+        or report["metal_device"] != "Apple M1"
+        or report["batch_size"] != 1
+        or report["concurrency"] != 1
+        or report["peak_resident_bytes"] > 8 * 1024**3
+        or report["complete_wall_ms"] < report["prefill_wall_ms"]
+        or any(item["swap_growth_bytes"] != 0 for item in report["safety_snapshots"])
+        or any(item["new_throttled_pages"] != 0 for item in report["safety_snapshots"])
+        or not protected_baseline_survived(report["safety_snapshots"])
+    ):
+        raise ValueError(f"{category}: prefill authority gate failed")
+    source = {
+        "category": category,
+        "capture_commit": report["commit"],
+        "report_file": str(report_path),
+        "report_sha256": sha256(report_path),
+        "hidden_file": str(hidden_path),
+        "hidden_sha256": hidden_hash,
+        "hidden_rows": expected_rows,
+        "first_anchor_token_id": report["first_anchor_token_id"],
+        "complete_wall_ms": report["complete_wall_ms"],
+        "peak_resident_bytes": report["peak_resident_bytes"],
+    }
+    return report, source
+
+
+def mtp_history_binding(
+    report: dict[str, Any],
+    transaction_index: int,
+    prefill_hidden_file: str,
+    verifier_hidden_file: str,
+) -> dict[str, Any]:
+    if transaction_index < 1:
+        raise ValueError("transaction zero lacks the preceding target-hidden authority")
+    prompt_ids = report["prompt_token_ids"]
+    generated = [report["generated_token_ids"][0]]
+    segments = [
+        {
+            "source": "prefill",
+            "file": prefill_hidden_file,
+            "byte_offset": 0,
+            "byte_length": len(prompt_ids) * HIDDEN_ROW_BYTES,
+            "rows": len(prompt_ids),
+        }
+    ]
+    for previous in report["transactions"][:transaction_index]:
+        retained = previous["retained_proposal_rows"]
+        segments.append(
+            {
+                "source": "verifier_transaction",
+                "transaction_index": previous["index"],
+                "file": verifier_hidden_file,
+                "byte_offset": previous["index"] * WINDOW_BYTES,
+                "byte_length": retained * HIDDEN_ROW_BYTES,
+                "rows": retained,
+            }
+        )
+        generated.extend(previous["emitted_token_ids"])
+    transaction = report["transactions"][transaction_index]
+    anchor = transaction["proposal_token_ids"][0]
+    if generated[-1] != anchor:
+        raise ValueError("reconstructed anchor does not match proposal")
+    target_input_ids = [*prompt_ids, *generated[:-1]]
+    if sum(segment["rows"] for segment in segments) != len(target_input_ids):
+        raise ValueError("target hidden history and target token history differ")
+    return {
+        "target_input_token_ids": target_input_ids,
+        "target_hidden_rows": len(target_input_ids),
+        "target_hidden_segments": segments,
+        "mtp_layer0_input_token_ids": [*target_input_ids[1:], anchor],
+    }
+
+
 def git_identity(repo: Path) -> tuple[str, bool]:
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=repo, check=True, text=True, capture_output=True
@@ -69,8 +177,9 @@ def git_identity(repo: Path) -> tuple[str, bool]:
     return commit, dirty
 
 
-def build_manifest(evidence_root: Path, repo: Path) -> dict[str, Any]:
+def build_manifest(evidence_root: Path, prefill_root: Path, repo: Path) -> dict[str, Any]:
     sources = []
+    prefill_sources = []
     reports = {}
     primary_windows = []
     for category in CATEGORIES:
@@ -89,6 +198,10 @@ def build_manifest(evidence_root: Path, repo: Path) -> dict[str, Any]:
             prompt_path=prompt_path,
         )
         reports[category] = report
+        _prefill_report, prefill_source = validate_prefill_source(
+            category, prefill_root, report, prompt_path
+        )
+        prefill_sources.append(prefill_source)
         sources.append(
             {
                 "category": category,
@@ -110,6 +223,12 @@ def build_manifest(evidence_root: Path, repo: Path) -> dict[str, Any]:
         for transaction in report["transactions"][start : start + PRIMARY_WINDOWS]:
             index = transaction["index"]
             hidden_binding = mtp_target_hidden_binding(report, index)
+            history_binding = mtp_history_binding(
+                report,
+                index,
+                prefill_source["hidden_file"],
+                str(hidden_path),
+            )
             accepted = len(transaction["emitted_token_ids"])
             primary_windows.append(
                 {
@@ -117,6 +236,7 @@ def build_manifest(evidence_root: Path, repo: Path) -> dict[str, Any]:
                     "category": category,
                     "transaction_index": index,
                     **hidden_binding,
+                    **history_binding,
                     "anchor_token_id": transaction["proposal_token_ids"][0],
                     "proposal_token_ids": transaction["proposal_token_ids"],
                     "posterior_token_ids": transaction["posterior_token_ids"],
@@ -151,13 +271,14 @@ def build_manifest(evidence_root: Path, repo: Path) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "evidence_class": "pw0208_balanced_corrected_native_mtp_window_corpus",
-        "semantic": "first_eight_chronological_mtp_evaluable_corrected_verifier_windows_per_category_using_the_preceding_retained_target_hidden_row",
+        "semantic": "first_eight_chronological_mtp_evaluable_corrected_verifier_windows_per_category_with_complete_segmented_target_hidden_history",
         "builder_commit": commit,
         "builder_git_dirty": dirty,
         "verifier_window_shape": [8, 4096],
         "mtp_target_hidden_shape": [4096],
         "hidden_dtype": "float32_little_endian",
         "sources": sources,
+        "prefill_sources": prefill_sources,
         "primary_windows": primary_windows,
         "control": {
             "windows": len(primary_windows),
@@ -189,12 +310,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("evidence_root", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--prefill-root", required=True, type=Path)
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
     if args.output.exists():
         raise SystemExit(f"refusing to overwrite {args.output}")
     try:
-        manifest = build_manifest(args.evidence_root, args.repo.resolve())
+        manifest = build_manifest(args.evidence_root, args.prefill_root, args.repo.resolve())
     except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError, subprocess.SubprocessError) as error:
         raise SystemExit(f"manifest build failed: {error}") from error
     args.output.write_text(json.dumps(manifest, indent=2) + "\n")

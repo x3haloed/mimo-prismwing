@@ -7,12 +7,39 @@ from tools.build_native_mtp_corpus_manifest import (
     FIRST_MTP_EVALUABLE_TRANSACTION,
     HIDDEN_ROW_BYTES,
     WINDOW_BYTES,
+    mtp_history_binding,
     mtp_target_hidden_binding,
     route_counts,
 )
 
 
 class NativeMtpCorpusManifestTests(unittest.TestCase):
+    def test_complete_mtp_history_pairs_shifted_tokens_with_all_target_hiddens(self):
+        report = {
+            "prompt_token_ids": [10, 11],
+            "generated_token_ids": [12, 13, 14],
+            "transactions": [
+                {
+                    "index": 0,
+                    "retained_proposal_rows": 1,
+                    "emitted_token_ids": [13],
+                    "proposal_token_ids": [12, 99],
+                },
+                {
+                    "index": 1,
+                    "retained_proposal_rows": 1,
+                    "emitted_token_ids": [14],
+                    "proposal_token_ids": [13, 98],
+                },
+            ],
+        }
+        binding = mtp_history_binding(report, 1, "prefill.f32", "verify.f32")
+        self.assertEqual(binding["target_input_token_ids"], [10, 11, 12])
+        self.assertEqual(binding["mtp_layer0_input_token_ids"], [11, 12, 13])
+        self.assertEqual(binding["target_hidden_rows"], 3)
+        self.assertEqual(binding["target_hidden_segments"][0]["rows"], 2)
+        self.assertEqual(binding["target_hidden_segments"][1]["rows"], 1)
+
     def test_mtp_anchor_uses_preceding_retained_target_hidden_row(self):
         report = {
             "transactions": [
