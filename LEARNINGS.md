@@ -4174,3 +4174,15 @@ survive. PW-0208 provides corrected text route/byte authority for 32 balanced
 windows, not the multimodal, long-context, or final representation holdout.
 Do not close corrected-layout representation or prefetch branches by silently
 importing PW-0112/PW-0116 values.
+
+PW-0211's clean last-row native-MTP reference reproduces PW-0206 more strongly
+than token agreement: all 152,576 logits are bit-identical to the full-row
+oracle. On the first ordinary, code, multilingual, and rare-route PW-0208
+windows, trained q4 acceptance is `[4,4,1,4]`. The first, second, and fourth
+native blocks match every available three-token draft position; multilingual
+rejects at its first draft token. Complete CPU-reference walls are only
+8.70--10.44 seconds versus 138.83--157.26 seconds for the seven same-model q8
+proposal steps, but they include authority work and are not endpoint TPS.
+Promote the branch to one real q4 verifier timing before spending all 32 CPU
+references. Preserve the three positive slices even if the combined schedule
+later loses.

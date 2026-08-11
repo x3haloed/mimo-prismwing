@@ -51,9 +51,45 @@ lower-milestone branch.
 
 ## Decision
 
-Executing. PW-0208's complete-history manifest SHA-256 is
+Executing; the correctness/pilot gate passes and a real q=4 verifier timing is
+authorized. PW-0208's complete-history manifest SHA-256 is
 `a9bb6bd26bf048a2144133cc0a96023a8af112eae58122b666915149f2993a7b`.
 The four prefill source reports hash to `11a02fd9d653c6351ed22d03f7d39efb80ee8d6009fc9a3d22d41fd2f42d1ddb`,
 `a75aab62fa434f73d8f0053919fc9c3eab68c71e96a690cfed6f8871306b35ae`,
 `b8c68eac9834c24ea09ffa65e7f3f5ef2ef5c015209c862419f4471480e846d2`,
 and `385425155ab48a965169d860ff56c09e8967325e536b72dfd3b5e8e164c83773`.
+
+Clean commit `ba09e9b2a02285a7c94eef288d00f9870558b6e2` adds a
+complete-history last-row reference. It preserves the full history row count
+through the FP8 MLP GEMMs because the readable authority's reduction topology
+is row-count dependent. The known PW-0206 validation emits token `0` and all
+152,576 logits are bit-identical to the earlier full-row oracle. Its report
+hashes to
+`395e61eb628c1b9ec3c892d285f5b3d0bc0749b6e5e7bc782cb5671dd299645f`.
+
+The first chronological window in each category then produces:
+
+| Category | Native q4 block | Target posterior prefix | Native `A` | Control `A` | CPU reference complete ms | Control proposal ms |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| ordinary | `[11941,7949,7324,8628]` | `[7949,7324,8628,2041]` | 4 | 7 | 10,444.325 | 143,313.654 |
+| code | `[3084,2268,1097,3286]` | `[2268,1097,3286,3255]` | 4 | 7 | 8,922.493 | 142,806.753 |
+| multilingual | `[102533,101920,99607,101079]` | `[33108,81812,101920,99607]` | 1 | 7 | 8,699.134 | 138,834.677 |
+| rare-route | `[549,17588,11,308]` | `[17588,11,308,488]` | 4 | 7 | 9,015.061 | 157,260.542 |
+
+The four report hashes are respectively
+`511aa5b4d1353074f193e4c5488d001c3ce1cb0d3b9342f91454a7a9c35a33bc`,
+`3573e1e25472d19523c7ed0e1b617dc0032136aec5cd300ef7c6fdeb86f247fa`,
+`124a8064963d79eadbb303ed2baf9811da6357978557a08abb88cb6b2fb93f2a`,
+and `a82be5904a6ff67d9a86eba164b3a5153470025e22c1b73d3399b7f5c2503bce`.
+Three of four pilots perfectly accept the trained three-token draft; the
+multilingual pilot accepts only the anchor. This is enough to pass the frozen
+continuation gate, but it is not a corpus mean and the CPU wall is diagnostic,
+not endpoint TPS.
+
+Do not run all 32 proposal references yet. Replay the exact preceding control
+transaction where required, then measure one ordinary q=4 target verifier with
+the frozen native block and the same checkpoint, cache, cold-state, Metal, and
+residency accounting. Only that real verifier wall can estimate a complete
+candidate transaction. If the enclosing model remains positive, integrate the
+native proposer and broaden acceptance measurement; otherwise preserve the
+three positive category results and close only the tested runtime schedule.
