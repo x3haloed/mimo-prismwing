@@ -534,27 +534,33 @@ fn main() {
             })
         }
         #[cfg(target_os = "macos")]
-        Some("arbitrary-text-q4-diagnostic") if arguments.len() == 9 => {
+        Some("arbitrary-text-q4-diagnostic") if arguments.len() == 10 => {
+            let output_tokens = arguments[7]
+                .parse::<usize>()
+                .map_err(|error| format!("output token count: {error}"));
             let checkpoint = PathBuf::from(&arguments[2]);
             let model_lock = PathBuf::from(&arguments[3]);
             let verification = PathBuf::from(&arguments[4]);
             let kernel = PathBuf::from(&arguments[5]);
             let prompt = PathBuf::from(&arguments[6]);
-            let output = PathBuf::from(&arguments[7]);
-            run_arbitrary_text_q4_diagnostic(
-                &checkpoint,
-                &model_lock,
-                &verification,
-                &kernel,
-                &prompt,
-                &output,
-                &arguments[8],
-            )
-            .and_then(|report| {
-                serde_json::to_writer(std::io::stdout(), &report)
-                    .map_err(|error| error.to_string())?;
-                println!();
-                Ok(Some(output))
+            let output = PathBuf::from(&arguments[8]);
+            output_tokens.and_then(|output_tokens| {
+                run_arbitrary_text_q4_diagnostic(
+                    &checkpoint,
+                    &model_lock,
+                    &verification,
+                    &kernel,
+                    &prompt,
+                    output_tokens,
+                    &output,
+                    &arguments[9],
+                )
+                .and_then(|report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output))
+                })
             })
         }
         #[cfg(target_os = "macos")]

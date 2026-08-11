@@ -6404,6 +6404,7 @@ pub fn run_arbitrary_text_q4_diagnostic(
     verification_path: &Path,
     kernel_path: &Path,
     prompt_path: &Path,
+    requested_output_tokens: usize,
     output_path: &Path,
     commit: &str,
 ) -> Result<ArbitraryTextGenerationReport, String> {
@@ -6413,7 +6414,7 @@ pub fn run_arbitrary_text_q4_diagnostic(
         verification_path,
         kernel_path,
         prompt_path,
-        4,
+        requested_output_tokens,
         output_path,
         commit,
         true,
