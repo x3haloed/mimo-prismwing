@@ -6393,6 +6393,33 @@ pub fn run_arbitrary_text_generation(
         false,
         None,
         None,
+        8,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_arbitrary_text_q4_diagnostic(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        4,
+        output_path,
+        commit,
+        true,
+        None,
+        None,
+        4,
     )
 }
 
@@ -6419,6 +6446,7 @@ pub fn run_arbitrary_text_route_trace(
         true,
         None,
         None,
+        8,
     )
 }
 
@@ -6449,6 +6477,7 @@ pub fn run_native_mtp_window_capture(
             category,
             output_path: hidden_output_path,
         }),
+        8,
     )
 }
 
@@ -6480,6 +6509,7 @@ pub fn run_arbitrary_text_resident_route_trace(
             identity: resident_identity,
         }),
         None,
+        8,
     )
 }
 
@@ -6511,6 +6541,7 @@ pub fn run_arbitrary_text_resident_set_route_trace(
             limit_bytes: resident_limit_bytes,
         }),
         None,
+        8,
     )
 }
 
@@ -6543,8 +6574,12 @@ fn run_arbitrary_text_generation_internal(
     capture_route_trace: bool,
     residency: Option<GenerationResidencySelection<'_>>,
     native_mtp_capture: Option<NativeMtpWindowCapture<'_>>,
+    verifier_width: usize,
 ) -> Result<ArbitraryTextGenerationReport, String> {
-    const WIDTH: usize = 8;
+    const PREFILL_WIDTH: usize = 8;
+    if !(2..=8).contains(&verifier_width) {
+        return Err("generation verifier width must be between two and eight".to_owned());
+    }
     if output_path.exists() {
         return Err(format!("refusing to overwrite {}", output_path.display()));
     }
@@ -6646,9 +6681,9 @@ fn run_arbitrary_text_generation_internal(
     let prefill_started = Instant::now();
     let mut caches = (0..48).map(|_| LayerKvCache::default()).collect::<Vec<_>>();
     let mut prefill_ledger = EndpointLedger::for_checkpoint(&checkpoint);
-    let prefill_chunks = prompt_token_ids.len().div_ceil(WIDTH);
+    let prefill_chunks = prompt_token_ids.len().div_ceil(PREFILL_WIDTH);
     let mut first_anchor = None;
-    for (chunk_index, chunk) in prompt_token_ids.chunks(WIDTH).enumerate() {
+    for (chunk_index, chunk) in prompt_token_ids.chunks(PREFILL_WIDTH).enumerate() {
         let final_chunk = chunk_index + 1 == prefill_chunks;
         let mut metal_ledger = MetalExpertLedger::default();
         let step = decode_step(
@@ -6814,12 +6849,12 @@ fn run_arbitrary_text_generation_internal(
         let transaction_index = transactions.len();
         let transaction_disk_before = process_disk_bytes_read()?;
         let proposal_started = Instant::now();
-        let mut proposal = Vec::with_capacity(WIDTH);
-        let mut proposal_layer_traces = Vec::with_capacity(WIDTH - 1);
+        let mut proposal = Vec::with_capacity(verifier_width);
+        let mut proposal_layer_traces = Vec::with_capacity(verifier_width - 1);
         proposal.push(next_anchor);
         let mut proposal_caches = caches.clone();
         let mut proposal_ledger = EndpointLedger::for_checkpoint(&checkpoint);
-        for _ in 1..WIDTH {
+        for _ in 1..verifier_width {
             let mut metal_ledger = MetalExpertLedger::default();
             let step = decode_step(
                 &checkpoint,
@@ -6863,7 +6898,7 @@ fn run_arbitrary_text_generation_internal(
             DecodeOutput::AllLogits,
         )?;
         if native_mtp_capture.is_some() {
-            if verified.final_hidden.len() != WIDTH * HIDDEN {
+            if verified.final_hidden.len() != verifier_width * HIDDEN {
                 return Err("native MTP verifier hidden capture cardinality gate failed".to_owned());
             }
             native_mtp_hidden.push(verified.final_hidden.clone());
@@ -7076,7 +7111,7 @@ fn run_arbitrary_text_generation_internal(
         }
         let window_count = native_mtp_hidden.len();
         let hidden = native_mtp_hidden.into_iter().flatten().collect::<Vec<_>>();
-        let artifact_bytes = finite_f32_le_bytes(&hidden, window_count * WIDTH * HIDDEN)?;
+        let artifact_bytes = finite_f32_le_bytes(&hidden, window_count * verifier_width * HIDDEN)?;
         write_create_new(capture.output_path, &artifact_bytes)?;
         let artifact_file = capture
             .output_path
@@ -7089,7 +7124,7 @@ fn run_arbitrary_text_generation_internal(
             artifact_file,
             artifact_sha256: sha256_hex(&artifact_bytes),
             windows: window_count,
-            shape: [window_count, WIDTH, HIDDEN],
+            shape: [window_count, verifier_width, HIDDEN],
             dtype: "float32",
             byte_order: "little_endian",
             semantic: "consecutive_target_layer_47_final_hidden_before_model_final_norm_for_each_width_eight_verifier_window_and_row",
@@ -7161,7 +7196,7 @@ fn run_arbitrary_text_generation_internal(
         safety_snapshots: safety.snapshots,
         batch_size: 1,
         concurrency: 1,
-        verifier_width: WIDTH,
+        verifier_width,
         exactness: if requested_output_tokens <= 8 {
             "PW-0205 diagnostic: SGLang-directed 128-column block-scaled FP8 QKV, ordinary spine, and routed MoE projections"
         } else {

@@ -4,9 +4,10 @@ use prismwing::{
     benchmark_layer4_metal_ready_artifact, benchmark_layer4_two_barrier_transaction,
     benchmark_metal_io_acquisition, benchmark_pread_expert_acquisition,
     build_layer4_metal_ready_artifact, run_arbitrary_text_generation,
-    run_arbitrary_text_resident_route_trace, run_arbitrary_text_resident_set_route_trace,
-    run_arbitrary_text_route_trace, run_bounded_metal_routed_row, run_layer4_metal_diagnostic,
-    run_metal_base_layer_attention, run_metal_checkpoint_offset_probe, run_metal_direct_fp8_expert,
+    run_arbitrary_text_q4_diagnostic, run_arbitrary_text_resident_route_trace,
+    run_arbitrary_text_resident_set_route_trace, run_arbitrary_text_route_trace,
+    run_bounded_metal_routed_row, run_layer4_metal_diagnostic, run_metal_base_layer_attention,
+    run_metal_checkpoint_offset_probe, run_metal_direct_fp8_expert,
     run_metal_direct_fp8_expert_batch8_shared_weight, run_metal_direct_mapped_fp8_gemv,
     run_metal_direct_route_replay_fp8_moe_block, run_metal_direct_source_bf16_fp8_gemv,
     run_metal_direct_source_bf16_fp8_gemv_audit,
@@ -530,6 +531,30 @@ fn main() {
                     );
                     Some(output)
                 })
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("arbitrary-text-q4-diagnostic") if arguments.len() == 9 => {
+            let checkpoint = PathBuf::from(&arguments[2]);
+            let model_lock = PathBuf::from(&arguments[3]);
+            let verification = PathBuf::from(&arguments[4]);
+            let kernel = PathBuf::from(&arguments[5]);
+            let prompt = PathBuf::from(&arguments[6]);
+            let output = PathBuf::from(&arguments[7]);
+            run_arbitrary_text_q4_diagnostic(
+                &checkpoint,
+                &model_lock,
+                &verification,
+                &kernel,
+                &prompt,
+                &output,
+                &arguments[8],
+            )
+            .and_then(|report| {
+                serde_json::to_writer(std::io::stdout(), &report)
+                    .map_err(|error| error.to_string())?;
+                println!();
+                Ok(Some(output))
             })
         }
         #[cfg(target_os = "macos")]
