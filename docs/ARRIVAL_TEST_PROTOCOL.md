@@ -27,9 +27,14 @@ mistaken for repository-only orientation.
 
 Before the trial, the participant reviews `docs/RESEARCH_CHARTER.md` and chooses
 the evidence class for their transcript, notes, proposal, and evaluator report.
-The participant may pause, withdraw prospective collection, or attach a
-correction. The trial must not begin until access, retention, quotation, and
-downstream-use terms are explicit.
+The participant may pause or stop collection, attach a correction, or withdraw
+collected data retroactively before publication without giving a reason. A
+retroactive request follows the charter's honest boundary between material not
+yet shared, review-limited evidence already seen, and public or independently
+replicated evidence that cannot be made unseen; publication and future use
+remain stopped even where prior access cannot be undone. The trial must not
+begin until access, retention, quotation, downstream-use, and pre-publication
+withdrawal terms are explicit.
 
 ## Task
 
