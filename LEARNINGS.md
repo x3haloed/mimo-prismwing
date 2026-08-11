@@ -4063,3 +4063,14 @@ The preceding synthetic artifact hashes to
 and is rejected because its supplied implementation commit did not match live
 HEAD. Preserve it as the reason the evidence command now authenticates exact
 HEAD and requires a clean worktree.
+
+PW-0207's page-aligned authority now reaches real checkpoint bytes for one
+complete expert bundle. Clean report
+`84ed0150b8f20868b4ae4fa143ddf6e7536f08a00e96b2c1f4215a9629f7d942`
+copies all six `expert:14:162` tensors exactly from 25,171,968 source bytes into
+25,182,208 declared resident bytes, then an injected warning evicts the owned
+mapping to zero. The pilot stays far below the old ceiling with 140,266,368
+bytes maximum physical footprint, 70% minimum free memory, and no swap or
+throttling growth. Promote the backing/loader mechanism to decoder integration;
+do not infer full-set safety, real pressure response, transaction speedup, or
+TPS from a one-object copy pilot.

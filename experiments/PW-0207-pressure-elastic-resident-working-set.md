@@ -124,3 +124,19 @@ SHA-256 is
 and its supplied implementation commit does not match live Git HEAD. That
 failure caused commit identity and clean-worktree authentication to become a
 mandatory executable gate before the corrected report.
+
+The first real-checkpoint backing pilot is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0207/checkpoint-pilot-001.json`,
+SHA-256
+`84ed0150b8f20868b4ae4fa143ddf6e7536f08a00e96b2c1f4215a9629f7d942`,
+from clean commit `7fae15e8fd5e5f2fb1e6b9d9e91c941a42078a0e`. Selected object
+`expert:14:162` copies six authenticated checkpoint tensors totaling
+25,171,968 source bytes into its declared 25,182,208-byte page-aligned owned
+mapping. Every tensor byte compares exactly. Injected warning pressure removes
+the object and returns declared residency to zero through the live observer
+lifecycle. Maximum physical footprint is 140,266,368 bytes, minimum free
+memory is 70%, and swap growth and new throttled pages are zero.
+
+This promotes the page-aligned backing and single-object loader to the decoder
+integration step. It is not a real OS warning, full 12 GiB residency,
+interleaved transaction, or TPS result, so none of those gates move.
