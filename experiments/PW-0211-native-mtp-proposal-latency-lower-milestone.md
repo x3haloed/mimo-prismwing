@@ -71,18 +71,19 @@ The first chronological window in each category then produces:
 
 | Category | Native q4 block | Target posterior prefix | Native `A` | Control `A` | CPU reference complete ms | Control proposal ms |
 | --- | --- | --- | ---: | ---: | ---: | ---: |
-| ordinary | `[11941,7949,7324,8628]` | `[7949,7324,8628,2041]` | 4 | 7 | 10,444.325 | 143,313.654 |
-| code | `[3084,2268,1097,3286]` | `[2268,1097,3286,3255]` | 4 | 7 | 8,922.493 | 142,806.753 |
+| ordinary | `[11941,7949,7324,8628]` | `[7949,7324,8628,2041]` | 3 | 7 | 10,444.325 | 143,313.654 |
+| code | `[3084,2268,1097,3286]` | `[2268,1097,3286,3255]` | 3 | 7 | 8,922.493 | 142,806.753 |
 | multilingual | `[102533,101920,99607,101079]` | `[33108,81812,101920,99607]` | 1 | 7 | 8,699.134 | 138,834.677 |
-| rare-route | `[549,17588,11,308]` | `[17588,11,308,488]` | 4 | 7 | 9,015.061 | 157,260.542 |
+| rare-route | `[549,17588,11,308]` | `[17588,11,308,488]` | 3 | 7 | 9,015.061 | 157,260.542 |
 
 The four report hashes are respectively
 `511aa5b4d1353074f193e4c5488d001c3ce1cb0d3b9342f91454a7a9c35a33bc`,
 `3573e1e25472d19523c7ed0e1b617dc0032136aec5cd300ef7c6fdeb86f247fa`,
 `124a8064963d79eadbb303ed2baf9811da6357978557a08abb88cb6b2fb93f2a`,
 and `a82be5904a6ff67d9a86eba164b3a5153470025e22c1b73d3399b7f5c2503bce`.
-Three of four pilots perfectly accept the trained three-token draft; the
-multilingual pilot accepts only the anchor. This is enough to pass the frozen
+Three of four pilots perfectly accept and commit the trained three-token draft;
+the multilingual pilot rejects immediately and commits one verifier correction
+token. This is enough to pass the frozen
 continuation gate, but it is not a corpus mean and the CPU wall is diagnostic,
 not endpoint TPS.
 
@@ -97,19 +98,40 @@ three positive category results and close only the tested runtime schedule.
 Clean q4 diagnostic commit `f0541d167e5784388209f7f46970e6d2461ff2ce`
 replays ordinary transaction zero and reaches the exact transaction-one cache
 state. Its transaction-one proposal `[11941,7949,7324,8628]` and posterior
-`[7949,7324,8628,2041]` are identical to the native pilot. The verifier
-converges at `A=4`, `U=5.377659574468085`, 26,286.0165 ms wall,
+`[7949,7324,8628,2041]` are identical to the native pilot. The verification
+helper converges over a four-token prefix including the known anchor. Endpoint
+accounting therefore records `A=3` newly committed tokens, with
+`U=5.377659574468085`, 26,286.0165 ms wall,
 84,815,844,864 logical source bytes, and 84,910,256,128 process-read bytes.
 The report and progress log hash to
 `0537ac6941d7289e857ebe4e6ebdbb223970db2de5c031d518d72a5b360f0c21`
 and `2d65aba15bbecee3d54e55632e0af3b50d5bcf4a0fa0a0120398d0704862f961`.
 
 Composing that real verifier wall with the 10,444.325 ms CPU reference gives a
-diagnostic 36,730.341 ms candidate transaction model, or 0.108902 accepted
+diagnostic 36,730.341 ms candidate transaction model, or 0.081676 accepted
 TPS. The matched q8 control is 7 accepted tokens in 178,169.855 ms, or
-0.039288 TPS. The modeled gain is `2.771859x`. This passes the integration
+0.039288 TPS. The corrected modeled gain is about `2.079x`. The earlier
+0.108902-TPS/2.771859x expression is rejected because it counted the known
+anchor as newly accepted output. The corrected model still passes the integration
 gate but is not a performance claim because proposal and verification were
 measured in separate processes. The next implementation must run the native
 proposal while the real target K/V cache is live, include artifact transfer,
 authentication, correction, and rollback, and report complete transaction
 wall before promotion.
+
+Clean live-integration commit `4762c02059aeee090f8cf16be66a5513af7323f1`
+runs the native proposer against the live target cache, authenticates the child
+request and response, and lets the ordinary verifier authorize every committed
+token. The request emits exactly seven tokens
+`[32,3283,646,11941,7949,7324,8628]`, decoding to
+`A city can significantly reduce summer heat`. Transaction one commits three
+new tokens in 35,570.945 ms, or 0.084338 accepted TPS, versus the matched q8
+control's 0.039288 TPS: a measured `2.146654x` transaction gain. Including
+prefill and transaction zero, complete request wall is 332,964.720 ms versus
+447,480.279 ms for the same-output q4 control, a `1.343927x` gain. These are
+single candidate/control observations, so the result is a positive lower
+milestone rather than a promoted default. The report, progress log, and
+external configuration hash respectively to
+`8bbaeae15a6856790c3f5404c3c58aa7a3b88e11fd751bfd1e3ae3c0b4b16f9f`,
+`37ff78744b5d0ff6e404377ecea61c36df4e5f1f46ea3b046a81abd0f1526b3e`,
+and `cfa9fd57f49ca1dedfd6e3dcd5c3120918884704d9a6ade06ff8bf2b56a19294`.

@@ -54,6 +54,17 @@ CORPUS_SHA256 = "a9bb6bd26bf048a2144133cc0a96023a8af112eae58122b666915149f2993a7
 KNOWN_MTP_MANIFEST_SHA256 = "07233ee71f194c887d96aac2cb341239df1728a7e05fc36f692a1188c65b3379"
 
 
+def endpoint_committed_tokens(verification: Any) -> int:
+    """Convert source prefix convergence to newly committed endpoint output."""
+    if (
+        verification.q < 2
+        or verification.accepted_length_a != verification.matching_draft_tokens + 1
+        or not 1 <= verification.accepted_length_a <= verification.q
+    ):
+        raise ValueError("inconsistent greedy verification accounting")
+    return min(verification.accepted_length_a, verification.q - 1)
+
+
 def authenticate_corpus(path: Path) -> dict[str, Any]:
     if sha256_file(path) != CORPUS_SHA256:
         raise ValueError("PW-0208 complete-history corpus hash mismatch")
@@ -211,6 +222,9 @@ def run_corpus(arguments: argparse.Namespace, safety: HostSafetyMonitor) -> dict
     verification = verify_greedy_block(
         torch.tensor([block], dtype=torch.long), torch.tensor([posterior], dtype=torch.long)
     )
+    # verify_greedy_block reports the converged prefix including the already
+    # committed anchor. Endpoint A counts only newly committed output tokens.
+    endpoint_committed_length = endpoint_committed_tokens(verification)
     commit, dirty = source_control()
     return {
         "schema_version": 1,
@@ -226,6 +240,7 @@ def run_corpus(arguments: argparse.Namespace, safety: HostSafetyMonitor) -> dict
         "native_mtp_q4_block_token_ids": block,
         "target_posterior_token_ids": posterior,
         "greedy_verification": verification.to_dict(),
+        "endpoint_committed_length_A": endpoint_committed_length,
         "layer_results": layer_records,
         "control": {
             "proposal_block_token_ids": window["proposal_token_ids"],

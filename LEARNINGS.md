@@ -4178,9 +4178,11 @@ importing PW-0112/PW-0116 values.
 PW-0211's clean last-row native-MTP reference reproduces PW-0206 more strongly
 than token agreement: all 152,576 logits are bit-identical to the full-row
 oracle. On the first ordinary, code, multilingual, and rare-route PW-0208
-windows, trained q4 acceptance is `[4,4,1,4]`. The first, second, and fourth
-native blocks match every available three-token draft position; multilingual
-rejects at its first draft token. Complete CPU-reference walls are only
+windows, newly committed q4 endpoint lengths are `[3,3,1,3]`. The verification
+helper's full-convergence prefix includes the already-known anchor and must not
+be used directly as endpoint `A`. The first, second, and fourth native blocks
+match every available three-token draft position; multilingual rejects
+immediately and commits one verifier correction token. Complete CPU-reference walls are only
 8.70--10.44 seconds versus 138.83--157.26 seconds for the seven same-model q8
 proposal steps, but they include authority work and are not endpoint TPS.
 Promote the branch to one real q4 verifier timing before spending all 32 CPU
@@ -4189,8 +4191,21 @@ later loses.
 
 PW-0211's real q4 replay tightens the ordinary model without extrapolating
 verifier width. At the exact transaction-one cache state, the same native block
-and target posterior converge at `A=4`, `U=5.377660`, and 26.286 seconds of
+and target posterior converge over a four-token prefix including the known
+anchor, so endpoint accounting is `A=3`, with `U=5.377660` and 26.286 seconds of
 real verifier wall. Composed with the 10.444-second CPU native reference, the
-diagnostic candidate is 0.108902 accepted TPS versus 0.039288 for the matched
-q8 control, or 2.771859x. This authorizes live-cache integration; it is not yet
-accepted TPS because the two walls came from separate processes.
+diagnostic candidate is 0.081676 accepted TPS versus 0.039288 for the matched
+q8 control, or about 2.079x. Reject the earlier 0.108902-TPS/2.771859x
+expression because it counted the anchor as newly accepted output. This
+authorizes live-cache integration; it is not yet accepted TPS because the two
+walls came from separate processes.
+
+PW-0211's first live-cache native-MTP integration preserves the corrected
+positive result end to end. It emits exactly seven verifier-authorized tokens;
+transaction one commits three tokens in 35.571 seconds, or 0.084338 TPS,
+versus 0.039288 TPS for the matched q8 control, a measured 2.146654x gain.
+Complete request wall is 332.965 seconds versus 447.480 seconds for the
+same-output q4 control, a 1.343927x gain including prefill. This is one
+candidate/control observation, not a repeatable default promotion. Preserve it
+as a positive lower milestone and run an interleaved matched control plus a
+second candidate before deciding promotion.
