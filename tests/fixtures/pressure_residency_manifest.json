@@ -1,23 +1,28 @@
 {
   "residency_manifest": {
     "capacity_bytes": 12884901888,
-    "selected_bytes": 8,
-    "unallocated_bytes": 12884901880,
+    "allocation_alignment_bytes": 16384,
+    "selected_bytes": 32768,
+    "unallocated_bytes": 12884869120,
     "persistent_lifetime": "one repeated decoder transaction",
     "warning_eviction_order": "ascending warning_eviction_order; lowest priority first",
     "critical_pressure_action": "stop; reject all subsequent resident growth",
     "objects": [
       {
         "identity": "first",
-        "bytes": 3,
-        "tensor_metadata_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source_bytes": 3,
+        "bytes": 16384,
+        "tensor_metadata_sha256": "e1b70269f8bb30e2c331c68fd636262322619dae7fc67a346bb2196373a30cfd",
+        "tensors": [{"tensor":"fixture.first","dtype":"U8","shape":[3],"bytes":3,"backing_file":"fixture.safetensors","backing_file_sha256":"2222222222222222222222222222222222222222222222222222222222222222"}],
         "lifetime": "one_repeated_decoder_transaction",
         "warning_eviction_order": 1
       },
       {
         "identity": "second",
-        "bytes": 5,
-        "tensor_metadata_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "source_bytes": 5,
+        "bytes": 16384,
+        "tensor_metadata_sha256": "3db5e4014b59a285333386e92dd6e0c2c901a55453a7510689c21f16ee309858",
+        "tensors": [{"tensor":"fixture.second","dtype":"U8","shape":[5],"bytes":5,"backing_file":"fixture.safetensors","backing_file_sha256":"3333333333333333333333333333333333333333333333333333333333333333"}],
         "lifetime": "one_repeated_decoder_transaction",
         "warning_eviction_order": 2
       }

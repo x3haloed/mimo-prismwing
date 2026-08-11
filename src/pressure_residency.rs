@@ -21,10 +21,24 @@ pub const PRESSURE_WARNING: u64 = 2;
 pub const PRESSURE_CRITICAL: u64 = 4;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DeclaredResidentTensor {
+    pub tensor: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row: Option<u64>,
+    pub dtype: String,
+    pub shape: Vec<u64>,
+    pub bytes: u64,
+    pub backing_file: String,
+    pub backing_file_sha256: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DeclaredResidentObject {
     pub identity: String,
+    pub source_bytes: u64,
     pub bytes: u64,
     pub tensor_metadata_sha256: String,
+    pub tensors: Vec<DeclaredResidentTensor>,
     pub lifetime: String,
     pub warning_eviction_order: u64,
 }
@@ -32,6 +46,7 @@ pub struct DeclaredResidentObject {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DeclaredResidencyManifest {
     pub capacity_bytes: u64,
+    pub allocation_alignment_bytes: u64,
     pub selected_bytes: u64,
     pub unallocated_bytes: u64,
     pub persistent_lifetime: String,
@@ -62,6 +77,16 @@ impl DeclaredResidencyManifest {
                 self.capacity_bytes
             ));
         }
+        let host_page_bytes = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        if host_page_bytes <= 0
+            || self.allocation_alignment_bytes != host_page_bytes as u64
+            || !self.allocation_alignment_bytes.is_power_of_two()
+        {
+            return Err(format!(
+                "declared allocation alignment {} does not match host page size {host_page_bytes}",
+                self.allocation_alignment_bytes
+            ));
+        }
         let selected = self.objects.iter().try_fold(0_u64, |total, object| {
             total
                 .checked_add(object.bytes)
@@ -89,6 +114,20 @@ impl DeclaredResidencyManifest {
             if object.bytes == 0 {
                 return Err(format!("zero-byte resident object: {}", object.identity));
             }
+            let expected_resident_bytes = object
+                .source_bytes
+                .checked_add(self.allocation_alignment_bytes - 1)
+                .map(|bytes| bytes / self.allocation_alignment_bytes)
+                .and_then(|pages| pages.checked_mul(self.allocation_alignment_bytes))
+                .ok_or_else(|| {
+                    format!("resident byte rounding overflow for {}", object.identity)
+                })?;
+            if object.source_bytes == 0 || object.bytes != expected_resident_bytes {
+                return Err(format!(
+                    "resident allocation bytes do not page-round source bytes for {}",
+                    object.identity
+                ));
+            }
             if object.tensor_metadata_sha256.len() != 64
                 || !object
                     .tensor_metadata_sha256
@@ -100,6 +139,7 @@ impl DeclaredResidencyManifest {
             if canonical_lifetime(&object.lifetime) != expected_lifetime {
                 return Err(format!("lifetime mismatch for {}", object.identity));
             }
+            validate_tensor_authority(object)?;
             if !orders.insert(object.warning_eviction_order) {
                 return Err(format!(
                     "duplicate warning eviction order {}",
@@ -122,6 +162,102 @@ impl DeclaredResidencyManifest {
         }
         Ok(())
     }
+}
+
+fn is_lower_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+fn validate_tensor_authority(object: &DeclaredResidentObject) -> Result<(), String> {
+    if object.tensors.is_empty() {
+        return Err(format!(
+            "resident object has no tensors: {}",
+            object.identity
+        ));
+    }
+    let mut names = BTreeSet::new();
+    let mut source_bytes = 0_u64;
+    for tensor in &object.tensors {
+        let identity = (tensor.tensor.as_str(), tensor.row);
+        if tensor.tensor.is_empty() || !names.insert(identity) {
+            return Err(format!("duplicate or empty tensor in {}", object.identity));
+        }
+        if Path::new(&tensor.backing_file).is_absolute()
+            || Path::new(&tensor.backing_file)
+                .components()
+                .any(|component| !matches!(component, std::path::Component::Normal(_)))
+            || !is_lower_sha256(&tensor.backing_file_sha256)
+        {
+            return Err(format!("invalid tensor backing in {}", object.identity));
+        }
+        let item_bytes = match tensor.dtype.as_str() {
+            "F8_E4M3" | "U8" => 1_u64,
+            "BF16" => 2,
+            "F32" => 4,
+            _ => return Err(format!("unsupported resident dtype: {}", tensor.dtype)),
+        };
+        let values = tensor.shape.iter().try_fold(1_u64, |total, dimension| {
+            if *dimension == 0 {
+                return Err(format!("zero tensor dimension in {}", object.identity));
+            }
+            total
+                .checked_mul(*dimension)
+                .ok_or_else(|| format!("tensor shape overflow in {}", object.identity))
+        })?;
+        if values.checked_mul(item_bytes) != Some(tensor.bytes) {
+            return Err(format!("tensor byte mismatch in {}", object.identity));
+        }
+        source_bytes = source_bytes
+            .checked_add(tensor.bytes)
+            .ok_or_else(|| format!("tensor byte sum overflow in {}", object.identity))?;
+    }
+    if source_bytes != object.source_bytes {
+        return Err(format!("tensor bytes do not close in {}", object.identity));
+    }
+    let metadata = object
+        .tensors
+        .iter()
+        .map(|tensor| {
+            let mut row = BTreeMap::new();
+            row.insert(
+                "backing_file".to_owned(),
+                Value::String(tensor.backing_file.clone()),
+            );
+            row.insert(
+                "backing_file_sha256".to_owned(),
+                Value::String(tensor.backing_file_sha256.clone()),
+            );
+            row.insert("bytes".to_owned(), Value::from(tensor.bytes));
+            row.insert("dtype".to_owned(), Value::String(tensor.dtype.clone()));
+            if let Some(index) = tensor.row {
+                row.insert("row".to_owned(), Value::from(index));
+            }
+            row.insert(
+                "shape".to_owned(),
+                Value::Array(tensor.shape.iter().copied().map(Value::from).collect()),
+            );
+            row.insert("tensor".to_owned(), Value::String(tensor.tensor.clone()));
+            row
+        })
+        .collect::<Vec<_>>();
+    let canonical = if metadata.len() == 1 {
+        serde_json::to_vec(&metadata[0]).map_err(|error| error.to_string())?
+    } else {
+        serde_json::to_vec(&metadata).map_err(|error| error.to_string())?
+    };
+    let mut canonical = canonical;
+    canonical.push(b'\n');
+    let actual = format!("{:x}", Sha256::digest(&canonical));
+    if actual != object.tensor_metadata_sha256 {
+        return Err(format!(
+            "tensor metadata hash mismatch for {}",
+            object.identity
+        ));
+    }
+    Ok(())
 }
 
 fn canonical_lifetime(value: &str) -> String {
@@ -608,11 +744,11 @@ mod tests {
 
     #[test]
     fn validates_the_canonical_offline_manifest() {
-        let path = Path::new("/Volumes/Elements/mimo-prismwing/evidence/PW-0207/offline-001.json");
+        let path = Path::new("/Volumes/Elements/mimo-prismwing/evidence/PW-0207/offline-002.json");
         if path.exists() {
             let parsed = DeclaredResidencyManifest::from_offline_report(path).unwrap();
             assert_eq!(parsed.objects.len(), 592);
-            assert_eq!(parsed.selected_bytes, 12_878_375_808);
+            assert_eq!(parsed.selected_bytes, 12_882_755_584);
         }
     }
 
@@ -629,14 +765,36 @@ mod tests {
     }
 
     #[test]
+    fn rejects_tampered_tensor_metadata() {
+        let mut invalid = manifest();
+        invalid.objects[0].tensors[0].shape[0] = 4;
+        assert!(
+            invalid
+                .validate()
+                .unwrap_err()
+                .contains("tensor byte mismatch")
+        );
+    }
+
+    #[test]
     fn warning_immediately_evicts_owned_payloads_in_declared_order() {
         let controller = PressureResidencyController::new(manifest()).unwrap();
         let drops = Arc::new(AtomicUsize::new(0));
         controller
-            .install("second", 5, &"1".repeat(64), DropCounter(drops.clone()))
+            .install(
+                "second",
+                16_384,
+                "3db5e4014b59a285333386e92dd6e0c2c901a55453a7510689c21f16ee309858",
+                DropCounter(drops.clone()),
+            )
             .unwrap();
         controller
-            .install("first", 3, &"0".repeat(64), DropCounter(drops.clone()))
+            .install(
+                "first",
+                16_384,
+                "e1b70269f8bb30e2c331c68fd636262322619dae7fc67a346bb2196373a30cfd",
+                DropCounter(drops.clone()),
+            )
             .unwrap();
         controller.handle_pressure_mask(PRESSURE_WARNING).unwrap();
         assert_eq!(controller.resident_bytes().unwrap(), 0);
@@ -650,13 +808,23 @@ mod tests {
     fn critical_pressure_evicts_and_permanently_stops_growth() {
         let controller = PressureResidencyController::new(manifest()).unwrap();
         controller
-            .install("first", 3, &"0".repeat(64), vec![0_u8; 3])
+            .install(
+                "first",
+                16_384,
+                "e1b70269f8bb30e2c331c68fd636262322619dae7fc67a346bb2196373a30cfd",
+                vec![0_u8; 16_384],
+            )
             .unwrap();
         controller.handle_pressure_mask(PRESSURE_CRITICAL).unwrap();
         assert!(controller.growth_stopped().unwrap());
         assert!(
             controller
-                .install("second", 5, &"1".repeat(64), vec![0_u8; 5])
+                .install(
+                    "second",
+                    16_384,
+                    "3db5e4014b59a285333386e92dd6e0c2c901a55453a7510689c21f16ee309858",
+                    vec![0_u8; 16_384],
+                )
                 .unwrap_err()
                 .contains("stopped")
         );
@@ -666,10 +834,15 @@ mod tests {
     fn normal_pressure_retains_payloads_and_unknown_pressure_fails_closed() {
         let controller = PressureResidencyController::new(manifest()).unwrap();
         controller
-            .install("first", 3, &"0".repeat(64), vec![0_u8; 3])
+            .install(
+                "first",
+                16_384,
+                "e1b70269f8bb30e2c331c68fd636262322619dae7fc67a346bb2196373a30cfd",
+                vec![0_u8; 16_384],
+            )
             .unwrap();
         controller.handle_pressure_mask(PRESSURE_NORMAL).unwrap();
-        assert_eq!(controller.resident_bytes().unwrap(), 3);
+        assert_eq!(controller.resident_bytes().unwrap(), 16_384);
         assert!(controller.handle_pressure_mask(8).is_err());
         assert_eq!(controller.resident_bytes().unwrap(), 0);
         assert!(controller.growth_stopped().unwrap());
