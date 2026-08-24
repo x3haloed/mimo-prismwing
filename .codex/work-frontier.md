@@ -14,4 +14,5 @@ None beyond the authoritative contracts in `TARGET.md`, `RED_LINES.md`, and
 ## Prediction errors
 
 None unresolved. The stronger worker's large-cache result is target-inadmissible;
-its RAM-neutral one-row kernels remain an unverified M1 performance hypothesis.
+its RAM-neutral one-row kernels remain an M1 performance hypothesis under
+repeatability testing.
