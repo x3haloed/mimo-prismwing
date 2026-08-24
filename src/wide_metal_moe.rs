@@ -122,6 +122,7 @@ pub(crate) struct WideMetalMoeRuntime {
     blockscaled_full_qkv_pipeline: metal::ComputePipelineState,
     blockscaled_swa_qkv_pipeline: metal::ComputePipelineState,
     bf16_pipeline: metal::ComputePipelineState,
+    bf16_single_pipeline: metal::ComputePipelineState,
     lut_buffer: metal::Buffer,
     pub(crate) compile_ms: f64,
     pub(crate) device_name: String,
@@ -208,6 +209,7 @@ impl WideMetalMoeRuntime {
         let blockscaled_full_qkv_pipeline = pipeline("full_qkv_fp8_gemm8_sglang_blockscaled")?;
         let blockscaled_swa_qkv_pipeline = pipeline("swa_qkv_fp8_gemm8_sglang_blockscaled")?;
         let bf16_pipeline = pipeline("bf16_gemm8_shared_weight")?;
+        let bf16_single_pipeline = pipeline("bf16_gemv_shared_weight")?;
         let decode_lut = (0_u16..=255)
             .map(|bits| decode_f8_e4m3fn(bits as u8))
             .collect::<Vec<_>>();
@@ -232,6 +234,7 @@ impl WideMetalMoeRuntime {
             blockscaled_full_qkv_pipeline,
             blockscaled_swa_qkv_pipeline,
             bf16_pipeline,
+            bf16_single_pipeline,
             lut_buffer,
             compile_ms,
             device_name,
@@ -752,7 +755,7 @@ impl WideMetalMoeRuntime {
             std::mem::size_of_val(padded_input.as_slice()) as u64,
             shared,
         );
-        let output_count = BATCH * rows;
+        let output_count = if active_rows == 1 { rows } else { BATCH * rows };
         let output = self.device.new_buffer((output_count * 4) as u64, shared);
         let shape = GemvShape {
             rows: rows as u32,
@@ -779,12 +782,19 @@ impl WideMetalMoeRuntime {
         );
         let command = self.queue.new_command_buffer();
         let encoder = command.new_compute_command_encoder();
-        encoder.set_compute_pipeline_state(&self.bf16_pipeline);
+        encoder.set_compute_pipeline_state(if active_rows == 1 {
+            &self.bf16_single_pipeline
+        } else {
+            &self.bf16_pipeline
+        });
         encoder.set_buffer(0, Some(&weight), weight_region.tensor_offset() as u64);
         encoder.set_buffer(1, Some(&input_buffer), 0);
         encoder.set_buffer(2, Some(&output), 0);
         encoder.set_buffer(3, Some(&shape_buffer), 0);
-        encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * BATCH as u64 * 4);
+        encoder.set_threadgroup_memory_length(
+            0,
+            PROJECTION_LANES * if active_rows == 1 { 1 } else { BATCH as u64 } * 4,
+        );
         encoder.dispatch_thread_groups(
             MTLSize {
                 width: rows as u64,
@@ -831,6 +841,162 @@ impl WideMetalMoeRuntime {
             mapped_source_bytes: weight_region.mapped_bytes(),
             resident_source_bytes: weight_region.resident_bytes(),
         })
+    }
+
+    #[cfg(test)]
+    fn probe_bf16_single_projection(&self) -> Result<(), String> {
+        const ROWS: usize = 129;
+        const COLUMNS: usize = 257;
+        let input = (0..COLUMNS)
+            .map(|index| ((index * 29 % 401) as f32 - 200.0) / 37.0)
+            .collect::<Vec<_>>();
+        let padded_input = padded_rows(&input, 1, COLUMNS, BATCH);
+        let weights = (0..ROWS * COLUMNS)
+            .map(|index| {
+                let value = ((index * 37 % 509) as f32 - 254.0) / 61.0;
+                (value.to_bits() >> 16) as u16
+            })
+            .collect::<Vec<_>>();
+        let shape = GemvShape {
+            rows: ROWS as u32,
+            columns: COLUMNS as u32,
+            block_rows: 1,
+            block_columns: 1,
+        };
+        let single_count = ROWS as u32;
+        let control_count = (BATCH * ROWS) as u32;
+        let error = 0_u32;
+        let shared = MTLResourceOptions::StorageModeShared;
+        let f32_buffer = |values: &[f32]| {
+            self.device.new_buffer_with_data(
+                values.as_ptr().cast(),
+                std::mem::size_of_val(values) as u64,
+                shared,
+            )
+        };
+        let weight_buffer = self.device.new_buffer_with_data(
+            weights.as_ptr().cast(),
+            std::mem::size_of_val(weights.as_slice()) as u64,
+            shared,
+        );
+        let input_buffer = f32_buffer(&input);
+        let padded_input_buffer = f32_buffer(&padded_input);
+        let single_output = self.device.new_buffer((ROWS * 4) as u64, shared);
+        let control_output = self.device.new_buffer((BATCH * ROWS * 4) as u64, shared);
+        let shape_buffer = self.device.new_buffer_with_data(
+            (&shape as *const GemvShape).cast(),
+            std::mem::size_of::<GemvShape>() as u64,
+            shared,
+        );
+        let single_count_buffer = self.device.new_buffer_with_data(
+            (&single_count as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        );
+        let control_count_buffer = self.device.new_buffer_with_data(
+            (&control_count as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        );
+        let error_buffer = self.device.new_buffer_with_data(
+            (&error as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        );
+        let command = self.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&self.bf16_single_pipeline);
+        encoder.set_buffer(0, Some(&weight_buffer), 0);
+        encoder.set_buffer(1, Some(&input_buffer), 0);
+        encoder.set_buffer(2, Some(&single_output), 0);
+        encoder.set_buffer(3, Some(&shape_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * 4);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: ROWS as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: PROJECTION_LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.set_compute_pipeline_state(&self.round_pipeline);
+        encoder.set_buffer(0, Some(&single_output), 0);
+        encoder.set_buffer(1, Some(&single_count_buffer), 0);
+        encoder.set_buffer(2, Some(&error_buffer), 0);
+        encoder.dispatch_threads(
+            MTLSize {
+                width: ROWS as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 256,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.set_compute_pipeline_state(&self.bf16_pipeline);
+        encoder.set_buffer(0, Some(&weight_buffer), 0);
+        encoder.set_buffer(1, Some(&padded_input_buffer), 0);
+        encoder.set_buffer(2, Some(&control_output), 0);
+        encoder.set_buffer(3, Some(&shape_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * BATCH as u64 * 4);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: ROWS as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: PROJECTION_LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.set_compute_pipeline_state(&self.round_pipeline);
+        encoder.set_buffer(0, Some(&control_output), 0);
+        encoder.set_buffer(1, Some(&control_count_buffer), 0);
+        encoder.set_buffer(2, Some(&error_buffer), 0);
+        encoder.dispatch_threads(
+            MTLSize {
+                width: (BATCH * ROWS) as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 256,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+        if command.status() != MTLCommandBufferStatus::Completed
+            || unsafe { *error_buffer.contents().cast::<u32>() } != 0
+        {
+            return Err("BF16 single-row parity probe command failed".to_owned());
+        }
+        let single =
+            unsafe { std::slice::from_raw_parts(single_output.contents().cast::<f32>(), ROWS) };
+        let control = unsafe {
+            std::slice::from_raw_parts(control_output.contents().cast::<f32>(), BATCH * ROWS)
+        };
+        if single != &control[..ROWS] {
+            let maximum_error = single
+                .iter()
+                .zip(control)
+                .map(|(left, right)| (left - right).abs())
+                .fold(0.0_f32, f32::max);
+            return Err(format!(
+                "BF16 single-row kernel differs from batch-eight control: max error {maximum_error}"
+            ));
+        }
+        Ok(())
     }
 
     pub(crate) fn execute(
@@ -1350,6 +1516,14 @@ mod tests {
                 .probe_fused_gate_up_swiglu(active)
                 .unwrap_or_else(|error| panic!("fused width {active}: {error}"));
         }
+    }
+
+    #[test]
+    fn single_row_bf16_specialization_matches_batch_eight_control_exactly() {
+        WideMetalMoeRuntime::compile(Path::new("kernels/block_fp8_gemv.metal"))
+            .expect("compile BF16 pipelines")
+            .probe_bf16_single_projection()
+            .expect("single-row BF16 Metal parity");
     }
 
     #[test]

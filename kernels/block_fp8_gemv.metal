@@ -396,6 +396,37 @@ kernel void bf16_gemm8_shared_weight(
     }
 }
 
+kernel void bf16_gemv_shared_weight(
+    device const ushort *weights [[buffer(0)]],
+    device const float *input [[buffer(1)]],
+    device float *output [[buffer(2)]],
+    constant GemvShape &shape [[buffer(3)]],
+    threadgroup float *partial [[threadgroup(0)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    if (row >= shape.rows) {
+        return;
+    }
+    const uint row_offset = row * shape.columns;
+    float sum = 0.0f;
+    for (uint column = lane; column < shape.columns; column += lanes) {
+        const float weight = as_type<float>(uint(weights[row_offset + column]) << 16);
+        sum += weight * input[column];
+    }
+    partial[lane] = sum;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+        if (lane < offset) {
+            partial[lane] += partial[lane + offset];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        output[row] = partial[0];
+    }
+}
+
 kernel void full_qkv_fp8_gemm8_shared_weight_lut_blocked(
     device const uchar *weights [[buffer(0)]],
     device const float *scales [[buffer(1)]],
