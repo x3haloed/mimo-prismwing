@@ -120,7 +120,9 @@ pub(crate) struct WideMetalMoeRuntime {
     round_pipeline: metal::ComputePipelineState,
     scatter_pipeline: metal::ComputePipelineState,
     blockscaled_full_qkv_pipeline: metal::ComputePipelineState,
+    blockscaled_full_qkv_single_pipeline: metal::ComputePipelineState,
     blockscaled_swa_qkv_pipeline: metal::ComputePipelineState,
+    blockscaled_swa_qkv_single_pipeline: metal::ComputePipelineState,
     bf16_pipeline: metal::ComputePipelineState,
     bf16_single_pipeline: metal::ComputePipelineState,
     lut_buffer: metal::Buffer,
@@ -207,7 +209,10 @@ impl WideMetalMoeRuntime {
         let round_pipeline = pipeline("bf16_round_in_place")?;
         let scatter_pipeline = pipeline("route_weighted_scatter_add_f32")?;
         let blockscaled_full_qkv_pipeline = pipeline("full_qkv_fp8_gemm8_sglang_blockscaled")?;
+        let blockscaled_full_qkv_single_pipeline =
+            pipeline("full_qkv_fp8_gemv_sglang_blockscaled")?;
         let blockscaled_swa_qkv_pipeline = pipeline("swa_qkv_fp8_gemm8_sglang_blockscaled")?;
+        let blockscaled_swa_qkv_single_pipeline = pipeline("swa_qkv_fp8_gemv_sglang_blockscaled")?;
         let bf16_pipeline = pipeline("bf16_gemm8_shared_weight")?;
         let bf16_single_pipeline = pipeline("bf16_gemv_shared_weight")?;
         let decode_lut = (0_u16..=255)
@@ -232,7 +237,9 @@ impl WideMetalMoeRuntime {
             round_pipeline,
             scatter_pipeline,
             blockscaled_full_qkv_pipeline,
+            blockscaled_full_qkv_single_pipeline,
             blockscaled_swa_qkv_pipeline,
+            blockscaled_swa_qkv_single_pipeline,
             bf16_pipeline,
             bf16_single_pipeline,
             lut_buffer,
@@ -258,7 +265,15 @@ impl WideMetalMoeRuntime {
         {
             return Err("wide FP8 linear layout mismatch".to_owned());
         }
-        let padded_input = padded_rows(input, active_rows, binding.columns, BATCH);
+        let specialized_qkv_single = active_rows == 1
+            && (full_qkv_layout || (binding.rows == 14_848 && binding.columns == HIDDEN));
+        let execution_rows =
+            if full_qkv_layout || (binding.rows == 14_848 && binding.columns == HIDDEN) {
+                if specialized_qkv_single { 1 } else { BATCH }
+            } else {
+                active_rows
+            };
+        let padded_input = padded_rows(input, active_rows, binding.columns, execution_rows);
         let started = Instant::now();
         let shared = MTLResourceOptions::StorageModeShared;
         let no_copy = |region: &WideSourceRegion<'_>| {
@@ -278,7 +293,7 @@ impl WideMetalMoeRuntime {
             no_copy(&binding.weight)
         };
         let scale = no_copy(&binding.scale);
-        let quantized = dynamic_fp8_activations(&padded_input, BATCH, binding.columns)?;
+        let quantized = dynamic_fp8_activations(&padded_input, execution_rows, binding.columns)?;
         let encoded_buffer = self.device.new_buffer_with_data(
             quantized.encoded.as_ptr().cast(),
             quantized.encoded.len() as u64,
@@ -289,7 +304,7 @@ impl WideMetalMoeRuntime {
             std::mem::size_of_val(quantized.scales.as_slice()) as u64,
             shared,
         );
-        let output_count = BATCH * binding.rows;
+        let output_count = execution_rows * binding.rows;
         let output = self.device.new_buffer((output_count * 4) as u64, shared);
         let error = 0_u32;
         let error_buffer = self.device.new_buffer_with_data(
@@ -316,12 +331,16 @@ impl WideMetalMoeRuntime {
         );
         let command = self.queue.new_command_buffer();
         let encoder = command.new_compute_command_encoder();
-        encoder.set_compute_pipeline_state(if full_qkv_layout {
+        encoder.set_compute_pipeline_state(if full_qkv_layout && specialized_qkv_single {
+            &self.blockscaled_full_qkv_single_pipeline
+        } else if full_qkv_layout {
             &self.blockscaled_full_qkv_pipeline
+        } else if binding.rows == 14_848 && binding.columns == HIDDEN && specialized_qkv_single {
+            &self.blockscaled_swa_qkv_single_pipeline
         } else if binding.rows == 14_848 && binding.columns == HIDDEN {
             &self.blockscaled_swa_qkv_pipeline
         } else {
-            &self.blockscaled_projection_pipelines[BATCH - 1]
+            &self.blockscaled_projection_pipelines[active_rows - 1]
         });
         encoder.set_buffer(
             0,
@@ -338,7 +357,7 @@ impl WideMetalMoeRuntime {
         encoder.set_buffer(4, Some(&output), 0);
         encoder.set_buffer(5, Some(&shape_buffer), 0);
         encoder.set_buffer(6, Some(&self.lut_buffer), 0);
-        encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * BATCH as u64 * 4);
+        encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * execution_rows as u64 * 4);
         encoder.dispatch_thread_groups(
             MTLSize {
                 width: binding.rows as u64,
@@ -529,6 +548,192 @@ impl WideMetalMoeRuntime {
         if !maximum_error.is_finite() || maximum_error > 0.01 {
             return Err(format!(
                 "SGLang block-scaled projection mismatch: max error {maximum_error}"
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn probe_qkv_single_projection(&self, sliding_window: bool) -> Result<(), String> {
+        const COLUMNS: usize = HIDDEN;
+        let rows = if sliding_window { 14_848 } else { 13_568 };
+        let scale_rows = if sliding_window { rows / 128 } else { 108 };
+        let input = (0..COLUMNS)
+            .map(|index| ((index * 29 % 401) as f32 - 200.0) / 37.0)
+            .collect::<Vec<_>>();
+        let padded_input = padded_rows(&input, 1, COLUMNS, BATCH);
+        let single_quantized = dynamic_fp8_activations(&input, 1, COLUMNS)?;
+        let control_quantized = dynamic_fp8_activations(&padded_input, BATCH, COLUMNS)?;
+        if single_quantized.encoded != control_quantized.encoded[..COLUMNS]
+            || single_quantized.scales != control_quantized.scales[..COLUMNS / 128]
+        {
+            return Err("QKV single-row activation encoding differs from control".to_owned());
+        }
+        let weights = (0..rows * COLUMNS)
+            .map(|index| ((index * 37 + 11) % 0x7f) as u8)
+            .collect::<Vec<_>>();
+        let weight_scales = (0..scale_rows * (COLUMNS / 128))
+            .map(|index| 0.001_f32 + (index * 13 % 97) as f32 * 0.00003)
+            .collect::<Vec<_>>();
+        let shape = GemvShape {
+            rows: rows as u32,
+            columns: COLUMNS as u32,
+            block_rows: 128,
+            block_columns: 128,
+        };
+        let single_count = rows as u32;
+        let control_count = (BATCH * rows) as u32;
+        let error = 0_u32;
+        let shared = MTLResourceOptions::StorageModeShared;
+        let bytes_buffer = |values: &[u8]| {
+            self.device
+                .new_buffer_with_data(values.as_ptr().cast(), values.len() as u64, shared)
+        };
+        let f32_buffer = |values: &[f32]| {
+            self.device.new_buffer_with_data(
+                values.as_ptr().cast(),
+                std::mem::size_of_val(values) as u64,
+                shared,
+            )
+        };
+        let weight_buffer = bytes_buffer(&weights);
+        let weight_scale_buffer = f32_buffer(&weight_scales);
+        let single_code_buffer = bytes_buffer(&single_quantized.encoded);
+        let single_scale_buffer = f32_buffer(&single_quantized.scales);
+        let control_code_buffer = bytes_buffer(&control_quantized.encoded);
+        let control_scale_buffer = f32_buffer(&control_quantized.scales);
+        let single_output = self.device.new_buffer((rows * 4) as u64, shared);
+        let control_output = self.device.new_buffer((BATCH * rows * 4) as u64, shared);
+        let shape_buffer = self.device.new_buffer_with_data(
+            (&shape as *const GemvShape).cast(),
+            std::mem::size_of::<GemvShape>() as u64,
+            shared,
+        );
+        let single_count_buffer = self.device.new_buffer_with_data(
+            (&single_count as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        );
+        let control_count_buffer = self.device.new_buffer_with_data(
+            (&control_count as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        );
+        let error_buffer = self.device.new_buffer_with_data(
+            (&error as *const u32).cast(),
+            std::mem::size_of::<u32>() as u64,
+            shared,
+        );
+        let command = self.queue.new_command_buffer();
+        let encoder = command.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(if sliding_window {
+            &self.blockscaled_swa_qkv_single_pipeline
+        } else {
+            &self.blockscaled_full_qkv_single_pipeline
+        });
+        encoder.set_buffer(0, Some(&weight_buffer), 0);
+        encoder.set_buffer(1, Some(&weight_scale_buffer), 0);
+        encoder.set_buffer(2, Some(&single_code_buffer), 0);
+        encoder.set_buffer(3, Some(&single_scale_buffer), 0);
+        encoder.set_buffer(4, Some(&single_output), 0);
+        encoder.set_buffer(5, Some(&shape_buffer), 0);
+        encoder.set_buffer(6, Some(&self.lut_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * 4);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: rows as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: PROJECTION_LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.set_compute_pipeline_state(&self.round_pipeline);
+        encoder.set_buffer(0, Some(&single_output), 0);
+        encoder.set_buffer(1, Some(&single_count_buffer), 0);
+        encoder.set_buffer(2, Some(&error_buffer), 0);
+        encoder.dispatch_threads(
+            MTLSize {
+                width: rows as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 256,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.set_compute_pipeline_state(if sliding_window {
+            &self.blockscaled_swa_qkv_pipeline
+        } else {
+            &self.blockscaled_full_qkv_pipeline
+        });
+        encoder.set_buffer(0, Some(&weight_buffer), 0);
+        encoder.set_buffer(1, Some(&weight_scale_buffer), 0);
+        encoder.set_buffer(2, Some(&control_code_buffer), 0);
+        encoder.set_buffer(3, Some(&control_scale_buffer), 0);
+        encoder.set_buffer(4, Some(&control_output), 0);
+        encoder.set_buffer(5, Some(&shape_buffer), 0);
+        encoder.set_buffer(6, Some(&self.lut_buffer), 0);
+        encoder.set_threadgroup_memory_length(0, PROJECTION_LANES * BATCH as u64 * 4);
+        encoder.dispatch_thread_groups(
+            MTLSize {
+                width: rows as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: PROJECTION_LANES,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.set_compute_pipeline_state(&self.round_pipeline);
+        encoder.set_buffer(0, Some(&control_output), 0);
+        encoder.set_buffer(1, Some(&control_count_buffer), 0);
+        encoder.set_buffer(2, Some(&error_buffer), 0);
+        encoder.dispatch_threads(
+            MTLSize {
+                width: (BATCH * rows) as u64,
+                height: 1,
+                depth: 1,
+            },
+            MTLSize {
+                width: 256,
+                height: 1,
+                depth: 1,
+            },
+        );
+        encoder.end_encoding();
+        command.commit();
+        command.wait_until_completed();
+        if command.status() != MTLCommandBufferStatus::Completed
+            || unsafe { *error_buffer.contents().cast::<u32>() } != 0
+        {
+            return Err("QKV single-row parity probe command failed".to_owned());
+        }
+        let single =
+            unsafe { std::slice::from_raw_parts(single_output.contents().cast::<f32>(), rows) };
+        let control = unsafe {
+            std::slice::from_raw_parts(control_output.contents().cast::<f32>(), BATCH * rows)
+        };
+        if single != &control[..rows] {
+            let maximum_error = single
+                .iter()
+                .zip(control)
+                .map(|(left, right)| (left - right).abs())
+                .fold(0.0_f32, f32::max);
+            return Err(format!(
+                "{} QKV single-row kernel differs from batch-eight control: max error {maximum_error}",
+                if sliding_window {
+                    "sliding-window"
+                } else {
+                    "full"
+                }
             ));
         }
         Ok(())
@@ -1496,13 +1701,25 @@ mod tests {
     fn sglang_blockscaled_fp8_codes_scales_and_projection_match_cpu_equation() {
         let runtime = WideMetalMoeRuntime::compile(Path::new("kernels/block_fp8_gemv.metal"))
             .expect("compile block-scaled pipelines");
-        for active in [2, 9, 26, MAX_EXPERT_ROWS] {
+        for active in [1, 2, 4, 9, 26, MAX_EXPERT_ROWS] {
             runtime
                 .probe_sglang_blockscaled_projection(active)
                 .unwrap_or_else(|error| {
                     panic!("block-scaled Metal parity width {active}: {error}")
                 });
         }
+    }
+
+    #[test]
+    fn single_row_qkv_specializations_match_batch_eight_controls_exactly() {
+        let runtime = WideMetalMoeRuntime::compile(Path::new("kernels/block_fp8_gemv.metal"))
+            .expect("compile QKV pipelines");
+        runtime
+            .probe_qkv_single_projection(false)
+            .expect("full-QKV single-row Metal parity");
+        runtime
+            .probe_qkv_single_projection(true)
+            .expect("sliding-window-QKV single-row Metal parity");
     }
 
     #[test]

@@ -538,6 +538,55 @@ kernel void full_qkv_fp8_gemm8_sglang_blockscaled(
     }
 }
 
+kernel void full_qkv_fp8_gemv_sglang_blockscaled(
+    device const uchar *weights [[buffer(0)]],
+    device const float *weight_scales [[buffer(1)]],
+    device const uchar *input_codes [[buffer(2)]],
+    device const float *input_scales [[buffer(3)]],
+    device float *output [[buffer(4)]],
+    constant GemvShape &shape [[buffer(5)]],
+    constant float *decode_lut [[buffer(6)]],
+    threadgroup float *partial [[threadgroup(0)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    if (row >= shape.rows || lanes != 64 || shape.rows != 13568 ||
+        shape.columns != 4096 || shape.block_rows != 128 ||
+        shape.block_columns != 128) {
+        return;
+    }
+    const uint source_row = full_qkv_source_row(row);
+    const uint scale_row = full_qkv_source_scale_row(source_row);
+    const uint row_offset = source_row * shape.columns;
+    constexpr uint blocks = 32;
+    float total = 0.0f;
+    for (uint block = 0; block < blocks; ++block) {
+        const uint column_base = block * 128;
+        float dot = 0.0f;
+        for (uint within = lane; within < 128; within += lanes) {
+            const uint column = column_base + within;
+            dot += decode_lut[weights[row_offset + column]] *
+                decode_lut[input_codes[column]];
+        }
+        partial[lane] = dot;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+            if (lane < offset) {
+                partial[lane] += partial[lane + offset];
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        if (lane == 0) {
+            total += partial[0] * weight_scales[scale_row * blocks + block] *
+                input_scales[block];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        output[row] = total;
+    }
+}
+
 kernel void swa_qkv_fp8_gemm8_sglang_blockscaled(
     device const uchar *weights [[buffer(0)]],
     device const float *weight_scales [[buffer(1)]],
@@ -595,6 +644,55 @@ kernel void swa_qkv_fp8_gemm8_sglang_blockscaled(
         for (uint position = 0; position < batch; ++position) {
             output[position * shape.rows + row] = totals[position];
         }
+    }
+}
+
+kernel void swa_qkv_fp8_gemv_sglang_blockscaled(
+    device const uchar *weights [[buffer(0)]],
+    device const float *weight_scales [[buffer(1)]],
+    device const uchar *input_codes [[buffer(2)]],
+    device const float *input_scales [[buffer(3)]],
+    device float *output [[buffer(4)]],
+    constant GemvShape &shape [[buffer(5)]],
+    constant float *decode_lut [[buffer(6)]],
+    threadgroup float *partial [[threadgroup(0)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    if (row >= shape.rows || lanes != 64 || shape.rows != 14848 ||
+        shape.columns != 4096 || shape.block_rows != 128 ||
+        shape.block_columns != 128) {
+        return;
+    }
+    const uint source_row = swa_qkv_source_row(row);
+    const uint scale_row = source_row / 128;
+    const uint row_offset = source_row * shape.columns;
+    constexpr uint blocks = 32;
+    float total = 0.0f;
+    for (uint block = 0; block < blocks; ++block) {
+        const uint column_base = block * 128;
+        float dot = 0.0f;
+        for (uint within = lane; within < 128; within += lanes) {
+            const uint column = column_base + within;
+            dot += decode_lut[weights[row_offset + column]] *
+                decode_lut[input_codes[column]];
+        }
+        partial[lane] = dot;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+            if (lane < offset) {
+                partial[lane] += partial[lane + offset];
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        if (lane == 0) {
+            total += partial[0] * weight_scales[scale_row * blocks + block] *
+                input_scales[block];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        output[row] = total;
     }
 }
 
