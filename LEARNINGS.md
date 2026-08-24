@@ -4456,3 +4456,31 @@ Report hashes are
 `bd5a5a4002b28e875ca45eee232ee461b0943391284d823b0641e7640e40fcb5`,
 `353a14b6f7dddc7f5009876697f639999151b47539da24126237f4be253c17dc`,
 and `1cd4987260b97943aaceebdda30cf4429e3aa6a6235bb60e84a41968fd16d6f6`.
+
+PW-0306 separates the useful RAM-neutral mechanism from the stronger worker's
+target-inadmissible 20 GiB cache architecture. A specialized one-row BF16
+Metal kernel retains the established 64-lane reduction tree and is byte-exact
+against the batch-eight control after BF16 staging on a deterministic
+129-by-257 tail fixture. It adds no resident model state and leaves widths two
+through eight unchanged.
+
+On the 16 GiB Apple M1, a cold candidate-control-candidate native-q4 ordinary
+sequence emits identical seven-token output with `A=[3,3]`,
+`U=[6.053191489361702,5.377659574468085]`, and 427,197,245,056 logical source
+bytes. Complete walls are 324,809.095, 329,247.747, and 327,252.117 ms. The
+candidate median is therefore 326,030.606 ms and `0.0214704` accepted TPS
+versus control's `0.0212606`, a repeatable `1.009868x` gain. Median candidate
+post-prefill wall is 73,474.074 ms versus 75,254.765 ms (`1.024236x`), while
+target-verification wall improves `1.017598x`. All runs record zero swap growth
+and zero new throttled pages with at least 64% free memory.
+
+Promote the single-row BF16 dispatch as an exact target-M1 lower milestone.
+This updates the matched seven-token ordinary native-q4 complete-path constant
+to `0.0214704` accepted TPS with PW-0306 provenance; it does not supersede
+PW-0211/PW-0215/PW-0216's proposer gains or change the 50-TPS conclusion. The
+large resident-cache branch remains closed, and a larger q8 effect remains
+unmeasured rather than inferred. Candidate report hashes are
+`d822636eb9732649d10fde438eebe366338ae76a312aae93a894be47f462fefd` and
+`0e0c18446c0122fc742eb4115e2a85e63aad9ccad667e9c246eee709194c6f2e`;
+the control hashes to
+`c4ca45d10d06f8377bba74882bf4fcc140919191c23518736991d9325ffa1c61`.

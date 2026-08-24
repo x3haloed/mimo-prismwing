@@ -1521,6 +1521,15 @@ Run the following cheap falsifiers in order:
    `1.556782x` complete accepted TPS, `1.962043x` post-prefill wall gain, and
    29.90% fewer process reads with exact output. Positive and negative category
    results remain independent; multilingual and rare-route holdouts remain.
+12. [PW-0306](../experiments/PW-0306-m1-single-row-bf16-metal.md) imports only
+   the stronger-worker handoff's RAM-neutral BF16 specialization. On the 16 GiB
+   M1, its deterministic tail fixture is byte-identical to the established
+   batch-eight kernel after BF16 staging. A cold candidate-control-candidate
+   endpoint sequence preserves exact tokens, `A`, `U`, logical bytes, and host
+   safety while improving median complete accepted TPS `1.009868x` and
+   post-prefill wall `1.024236x`. Promote the one-row dispatch as an exact lower
+   milestone; the handoff's 20 GiB resident-cache architecture remains
+   target-inadmissible.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
