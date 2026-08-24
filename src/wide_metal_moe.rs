@@ -120,8 +120,10 @@ pub(crate) struct WideMetalMoeRuntime {
     round_pipeline: metal::ComputePipelineState,
     scatter_pipeline: metal::ComputePipelineState,
     blockscaled_full_qkv_pipeline: metal::ComputePipelineState,
+    #[cfg(test)]
     blockscaled_full_qkv_single_pipeline: metal::ComputePipelineState,
     blockscaled_swa_qkv_pipeline: metal::ComputePipelineState,
+    #[cfg(test)]
     blockscaled_swa_qkv_single_pipeline: metal::ComputePipelineState,
     bf16_pipeline: metal::ComputePipelineState,
     bf16_single_pipeline: metal::ComputePipelineState,
@@ -209,9 +211,11 @@ impl WideMetalMoeRuntime {
         let round_pipeline = pipeline("bf16_round_in_place")?;
         let scatter_pipeline = pipeline("route_weighted_scatter_add_f32")?;
         let blockscaled_full_qkv_pipeline = pipeline("full_qkv_fp8_gemm8_sglang_blockscaled")?;
+        #[cfg(test)]
         let blockscaled_full_qkv_single_pipeline =
             pipeline("full_qkv_fp8_gemv_sglang_blockscaled")?;
         let blockscaled_swa_qkv_pipeline = pipeline("swa_qkv_fp8_gemm8_sglang_blockscaled")?;
+        #[cfg(test)]
         let blockscaled_swa_qkv_single_pipeline = pipeline("swa_qkv_fp8_gemv_sglang_blockscaled")?;
         let bf16_pipeline = pipeline("bf16_gemm8_shared_weight")?;
         let bf16_single_pipeline = pipeline("bf16_gemv_shared_weight")?;
@@ -237,8 +241,10 @@ impl WideMetalMoeRuntime {
             round_pipeline,
             scatter_pipeline,
             blockscaled_full_qkv_pipeline,
+            #[cfg(test)]
             blockscaled_full_qkv_single_pipeline,
             blockscaled_swa_qkv_pipeline,
+            #[cfg(test)]
             blockscaled_swa_qkv_single_pipeline,
             bf16_pipeline,
             bf16_single_pipeline,
@@ -265,14 +271,7 @@ impl WideMetalMoeRuntime {
         {
             return Err("wide FP8 linear layout mismatch".to_owned());
         }
-        let specialized_qkv_single = active_rows == 1
-            && (full_qkv_layout || (binding.rows == 14_848 && binding.columns == HIDDEN));
-        let execution_rows =
-            if full_qkv_layout || (binding.rows == 14_848 && binding.columns == HIDDEN) {
-                if specialized_qkv_single { 1 } else { BATCH }
-            } else {
-                active_rows
-            };
+        let execution_rows = BATCH;
         let padded_input = padded_rows(input, active_rows, binding.columns, execution_rows);
         let started = Instant::now();
         let shared = MTLResourceOptions::StorageModeShared;
@@ -331,16 +330,12 @@ impl WideMetalMoeRuntime {
         );
         let command = self.queue.new_command_buffer();
         let encoder = command.new_compute_command_encoder();
-        encoder.set_compute_pipeline_state(if full_qkv_layout && specialized_qkv_single {
-            &self.blockscaled_full_qkv_single_pipeline
-        } else if full_qkv_layout {
+        encoder.set_compute_pipeline_state(if full_qkv_layout {
             &self.blockscaled_full_qkv_pipeline
-        } else if binding.rows == 14_848 && binding.columns == HIDDEN && specialized_qkv_single {
-            &self.blockscaled_swa_qkv_single_pipeline
         } else if binding.rows == 14_848 && binding.columns == HIDDEN {
             &self.blockscaled_swa_qkv_pipeline
         } else {
-            &self.blockscaled_projection_pipelines[active_rows - 1]
+            &self.blockscaled_projection_pipelines[BATCH - 1]
         });
         encoder.set_buffer(
             0,

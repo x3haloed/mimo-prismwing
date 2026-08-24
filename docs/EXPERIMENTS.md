@@ -1530,6 +1530,14 @@ Run the following cheap falsifiers in order:
    post-prefill wall `1.024236x`. Promote the one-row dispatch as an exact lower
    milestone; the handoff's 20 GiB resident-cache architecture remains
    target-inadmissible.
+13. [PW-0307](../experiments/PW-0307-m1-active-width-fp8-metal.md) tests the
+   handoff's other RAM-neutral kernel direction with exact block-scaled
+   arithmetic. Production-shaped QKV fixtures are byte-identical and the
+   candidate improves median target verification `1.013131x`, including a
+   `1.121290x` summed layer-zero gain. It nevertheless fails the full-path gate:
+   median complete accepted TPS is `0.994065x` control with 3.790% candidate
+   spread. Restore batch-eight FP8 dispatch and retain only the exact kernels
+   and fixtures as research material; no throughput-model constant changes.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

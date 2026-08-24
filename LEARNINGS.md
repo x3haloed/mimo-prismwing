@@ -4484,3 +4484,28 @@ unmeasured rather than inferred. Candidate report hashes are
 `0e0c18446c0122fc742eb4115e2a85e63aad9ccad667e9c246eee709194c6f2e`;
 the control hashes to
 `c4ca45d10d06f8377bba74882bf4fcc140919191c23518736991d9325ffa1c61`.
+
+PW-0307 tests the stronger-worker handoff's other RAM-neutral kernel idea while
+repairing its arithmetic association: exact active-width block-scaled FP8 keeps
+activation codes and scales separate and retains the 64-lane per-block
+reduction. Production-shaped one-row full- and sliding-window-QKV fixtures are
+byte-identical to batch-eight controls after BF16 staging, and generic FP8 CPU
+parity passes at widths 1, 2, 4, 9, 26, and 32.
+
+On the 16 GiB M1, candidate-control-candidate runs preserve exact output,
+`A=[3,3]`, `U=[6.053191489361702,5.377659574468085]`, 427,197,245,056 logical
+source bytes, and host safety. Candidate median target verification improves
+`1.013131x`, and summed layer-zero transaction wall improves `1.121290x`.
+However, candidate complete walls of 339,042.852 and 326,432.534 ms have 3.790%
+spread around a 330,763.011-ms control. Candidate median complete accepted TPS
+is `0.0210376` versus `0.0211632`, a `0.994065x` ratio and 0.597% regression.
+
+Reject active-width FP8 dispatch as a production default and restore
+batch-eight selection. Retain the exact kernels and fixtures as research
+material, not a performance claim. This supersedes the untested transfer belief
+for that dispatch; it leaves PW-0306's BF16 promotion intact and changes no
+throughput-model constant. Candidate report hashes are
+`d04bd8f6762802b7cf9b01db6965a039c4b9faa7202a5067f6481d2b39323be5` and
+`56e271f0e70600638a1208b8389c05fc9f1212bfcaad34df669e9ccbf2285758`;
+the control hashes to
+`0a466cfd4f4848c4807d9dd27d14f6125529c1d9123d0714973aeba7b1f417b8`.

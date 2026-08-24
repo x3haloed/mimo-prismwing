@@ -14,5 +14,5 @@ None beyond the authoritative contracts in `TARGET.md`, `RED_LINES.md`, and
 ## Prediction errors
 
 None unresolved. The stronger worker's large-cache result is target-inadmissible;
-its RAM-neutral one-row kernels remain an M1 performance hypothesis under
-repeatability testing.
+its RAM-neutral BF16 one-row kernel passed M1 repeatability, while exact
+active-width FP8 improved target-local slices but failed the complete-TPS gate.
