@@ -1,7 +1,7 @@
 # PW-0311 — K4 full-bank toolchain recovery and reproduction
 
-- Status: in progress
-- Disposition: pending
+- Status: complete
+- Disposition: conditional
 - Date: 2026-08-26
 - Owner: Codex
 - Parent experiments: PW-0308 through PW-0310
@@ -103,6 +103,41 @@ unproven. No throughput-model constant changes.
 - If required semantic authority is genuinely unavailable and cannot be
   reconstructed from source/specification, record the exact missing facts and
   request only that material from the M4 research worker or project owner.
+
+## Result
+
+The first clean-commit attempt stopped before quantization because the new
+wrapper hashed only array payload bytes while the authenticated M4 array
+identity also binds dtype and shape. The failed report is preserved at SHA-256
+`428d93f0e37f2c3f9049b31d40f342bdd1365439de9958e586eee3495afc4bfb`.
+The corrected hash semantic has a deterministic regression fixture and was
+committed before rerunning.
+
+Clean commit `f9a4faf351e8e988278a9d449acc52966b945847` reproduced layer-28
+expert 114 on the 16 GiB M1. Every generated gate, up, and down candidate array,
+packed trellis, manifest, fixture, and referenced payload is bit-identical to
+PW-0352: 33 files and 30,002,948 bytes in total. Independent decode relative L2
+is zero for all three projections. Quantization took `161.321788`, `159.051128`,
+and `162.865302` seconds; complete wall was `509.648385` seconds.
+
+Gate 8 passes with `1,408,827,392`-byte peak RSS,
+`1,682,772,672`-byte maximum physical footprint, 71% minimum free memory, zero
+swap growth, zero new throttled pages, and all baseline protected services
+present. The release boundary falls to a `364,809,792`-byte physical footprint.
+Process I/O reaches 684,851,200 bytes read and 35,647,488 bytes written; this is
+construction accounting, not inference or TPS.
+
+The passing report hashes to
+`ab771be635b1bae618bc1c0355bc69376113540f71edfbda36b45b229539da0c`.
+
+## Decision
+
+Promote the authenticated constructor for held-out same-layer expert tests.
+This proves that the M4 K4 artifact is reproducible rather than a one-off
+serialized payload for expert 114. It does not yet prove identity-independent
+or cross-layer construction, a complete bank, general fidelity, capabilities,
+or endpoint TPS. PW-0312 predeclares the held-out identity gate. No runtime
+default or throughput-model constant changes.
 
 ## Claims excluded
 

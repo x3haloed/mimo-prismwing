@@ -1569,9 +1569,14 @@ Run the following cheap falsifiers in order:
    first requires one real bundled expert to reproduce payload-for-payload.
    The M4 handoff now passes transport, full-tree, embedded-manifest, QTIP,
    Metal/MPS, and exact-TLUT preflights, closing authority acquisition only.
-   One-expert reconstruction remains the next gate. Success opens held-out
-   route and full-bank work; numerical similarity alone cannot silently create
-   a new representation revision.
+   The target M1 now reproduces expert 114 payload-for-payload across all three
+   projections, clearing the one-expert gate. Promote held-out same-layer
+   construction only; numerical similarity cannot silently create a new
+   representation revision, and cross-layer/bank work remains unproven.
+18. [PW-0312](../experiments/PW-0312-k4-held-out-expert-construction.md)
+   requires untouched experts 41 and 199, sourced from two distinct mini-shards,
+   to reproduce payload-for-payload before the constructor may advance to a
+   new-layer artifact.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

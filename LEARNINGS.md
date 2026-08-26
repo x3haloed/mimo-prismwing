@@ -4626,3 +4626,19 @@ payload-for-payload reconstruction. The receipt hashes to
 Arbitrary-expert construction, a complete bank, general fidelity, capabilities,
 and accepted-token TPS remain unproven, so no throughput-model constant or
 runtime default changes.
+
+PW-0311 then clears the first target-host construction gate. At clean commit
+`f9a4faf351e8e988278a9d449acc52966b945847`, the 16 GiB M1 reconstructs all
+three layer-28 expert-114 K4 projections and reproduces every M4 candidate
+array, packed trellis, manifest, fixture, and referenced payload bit for bit:
+33 files and 30,002,948 bytes, with zero independent-decode relative L2.
+Complete construction takes `509.648385` seconds and accepts no tokens.
+
+The run passes Gate 8 with `1,408,827,392`-byte peak RSS,
+`1,682,772,672`-byte maximum footprint, 71% minimum free memory, no swap or
+throttle growth, and a `364,809,792`-byte release footprint. Its report hashes
+to `ab771be635b1bae618bc1c0355bc69376113540f71edfbda36b45b229539da0c`.
+Promote only held-out same-layer construction tests. Identity independence,
+cross-layer construction, complete-bank coverage, fidelity, capabilities, and
+endpoint TPS remain unproven; no throughput constant or runtime default
+changes.
