@@ -104,11 +104,15 @@ identity set. PW-0310 supersedes PW-0309's fixture-supplied-routing limitation:
 the bundle can participate in a checkpoint-derived route transaction. It does
 not supply arbitrary expert coverage.
 
-Kill construction of a full K4 bank as the next Prismwing 50 performance move.
-Even ideal generalization would inherit PW-0308's `351.680083`-ms p90 for 47
-routed components—about `2.84` routed tokens/s before attention, sampling,
-modalities, or endpoint overhead. That is more than 12 times below the user's
-useful `34.3`-TPS milestone and more than 17 times below 50 TPS. Retain the
-bundle and live gate as a conditional modified-mode research fixture; reopen
-bank construction only if a new representation or executor changes that
-measured component ceiling.
+The initial interpretation killed construction of a full K4 bank as the next
+performance move because PW-0308's `351.680083`-ms p90 for 47 routed components
+is only about `2.84` routed tokens/s before attention, sampling, modalities, or
+endpoint overhead. That correctly excludes 34.3/50-TPS promotion from the
+current executor, but incorrectly treated those higher targets as the only
+valuable outcome.
+
+The project owner explicitly corrected that valuation: a fully proved system
+around 2 TPS is an important first-tier deliverable. Supersede the bank-kill
+inference while retaining its numerical ceiling. Reopen full-bank construction
+and complete-system proof under an explicit Prismwing-2 milestone; do not
+mislabel that milestone as Prismwing 34.3 or 50.

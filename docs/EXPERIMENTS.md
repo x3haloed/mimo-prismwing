@@ -1561,9 +1561,14 @@ Run the following cheap falsifiers in order:
    gate, not an arbitrary-route bank or an endpoint-TPS claim. The live route
    matches exactly in expert order with `2.98e-8` maximum weight error, and
    Metal remains bit-exact to the modified fixture. Retain the route gate as a
-   conditional fixture, but kill full-bank construction as the next 50-TPS
-   move because PW-0308's measured routed-component ceiling is only about
-   `2.84` tokens/s before the rest of the endpoint.
+   conditional fixture. Its measured routed-component ceiling is only about
+   `2.84` tokens/s before the rest of the endpoint, excluding current 34.3/50
+   promotion but motivating the owner's explicitly valuable Prismwing-2 tier.
+17. [PW-0311](../experiments/PW-0311-k4-bank-toolchain-recovery.md) recovers or
+   reconstructs the missing arbitrary-expert K4 construction authorities and
+   first requires one real bundled expert to reproduce payload-for-payload.
+   Success opens held-out route and full-bank work; numerical similarity alone
+   cannot silently create a new representation revision.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

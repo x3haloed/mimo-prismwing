@@ -172,8 +172,10 @@ The construction order follows the least-proven boundaries:
   route-weight error is `2.98e-8`, and the modified Metal output remains
   bit-exact to its independent fixture. The runtime fails closed for every
   identity set absent from the bundle. This is a real route gate for one set,
-  not arbitrary coverage; full K4-bank construction is not the active 50-TPS
-  path because the measured routed-component ceiling is about `2.84` tokens/s.
+  not arbitrary coverage. Its measured routed-component ceiling is about
+  `2.84` tokens/s, so this architecture targets the owner's explicitly valuable
+  Prismwing-2 tier while remaining disqualified from 34.3/50-TPS claims without
+  a changed measured premise.
 
 Every unknown schema, revision, tensor, shape, layout, provider, or runtime mode
 fails closed. Compatibility paths require an explicit external reason and

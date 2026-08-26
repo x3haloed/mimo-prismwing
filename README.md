@@ -119,9 +119,9 @@ speculation:
 - PW-0310 replaces fixture-supplied router values with the installed
   checkpoint's live layer-28 route. Expert order matches exactly, maximum
   weight error is `2.98e-8`, and Metal still reproduces every modified
-  candidate bit. The route gate is retained as a conditional fixture, while
-  full-bank construction is removed from the active 50-TPS frontier because
-  the measured routed-component ceiling is only about `2.84` tokens/s.
+  candidate bit. The route gate is retained as a conditional fixture. Its
+  measured routed-component ceiling is only about `2.84` tokens/s, which rules
+  out current 34.3/50 promotion but makes it a serious Prismwing-2 foundation.
 
 The append-only reasoning and evidence history lives in
 [LEARNINGS.md](LEARNINGS.md) and the [experiment ledger](experiments/README.md).
@@ -205,9 +205,9 @@ satisfy the primary target. See [RED_LINES.md](RED_LINES.md).
 
 The active sequence is deliberately evidence-first:
 
-1. re-evaluate the owned companion-host and sub-`$500` hardware frontier using
-   measured full-path traffic/compute bounds; the K4 full-bank branch is no
-   longer the next performance move;
+1. recover the arbitrary-expert K4 construction toolchain, reproduce one
+   authenticated bundled expert payload-for-payload, then expand to held-out
+   routes and bank coverage for the explicit Prismwing-2 tier;
 2. finish the frozen PW-0216 multilingual and rare-route 32-token holdouts;
 3. reduce native proposer embodiment cost without changing its authority;
 4. attack the dominant prefill/storage cut while preserving the smaller

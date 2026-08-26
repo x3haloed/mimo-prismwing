@@ -4582,12 +4582,21 @@ conditional L3 research fixture.
 This resolves integration but not coverage or performance. The bundle contains
 only one eight-expert identity set, and PW-0308 already measures 47 repeated
 routed components at `351.680083` ms p90, about `2.84` routed tokens/s before
-attention, sampling, modality work, or endpoint overhead. Supersede the belief
-that a general K4 bank is the next useful Prismwing 50 move: even ideal bank
-construction would remain over 12 times below `34.3` TPS and over 17 times
-below 50 TPS on the measured executor. Retain the artifact for modified-mode
-research and kill bank scaling unless a new representation or executor changes
-that component ceiling.
+attention, sampling, modality work, or endpoint overhead. The initial
+disposition correctly observed that even ideal bank construction would remain
+over 12 times below `34.3` TPS and over 17 times below 50 TPS on the measured
+executor, but incorrectly inferred that bank scaling therefore lacked outcome
+value. The project owner explicitly identifies a fully proved system around 2
+TPS as an important first-tier objective. Supersede the kill: reopen bank
+construction under a named Prismwing-2 milestone while preserving the
+numerical exclusion from 34.3/50-TPS claims.
+
+New goal invariant from direct owner evidence: a fully local, full-capability,
+fidelity-qualified endpoint around 2 accepted TPS is a materially valuable
+delivery tier. It must meet the same capability, fidelity, safety, and
+reproducibility contract; only the named throughput milestone is lower. This
+invariant applies beyond K4 and prevents higher stretch targets from erasing a
+useful complete system.
 
 The paired causal run changes no throughput-model constant because it accepts
 zero tokens. It repeats PW-0309's distribution pass and internal divergence,
