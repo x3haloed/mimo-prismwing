@@ -1558,7 +1558,12 @@ Run the following cheap falsifiers in order:
    authenticated hidden state before the K4/source transaction may execute.
    The fixed bundle remains eligible only for its exact eight-expert identity
    set; every unsupported route fails closed. This is a causal integration
-   gate, not an arbitrary-route bank or an endpoint-TPS claim.
+   gate, not an arbitrary-route bank or an endpoint-TPS claim. The live route
+   matches exactly in expert order with `2.98e-8` maximum weight error, and
+   Metal remains bit-exact to the modified fixture. Retain the route gate as a
+   conditional fixture, but kill full-bank construction as the next 50-TPS
+   move because PW-0308's measured routed-component ceiling is only about
+   `2.84` tokens/s before the rest of the endpoint.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

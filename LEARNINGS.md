@@ -4569,3 +4569,32 @@ growth/new throttling, and stable protected PID sets. Raw-002 hashes to
 `5f4de82b4242c5ebecf1b6c4da61ae03863ce8e75e2d0b057ac5b4cfeb5dd1a3`;
 the preserved pre-execution prediction-error record hashes to
 `bbef064d229c84d5a9b9b02165e667e4e84efbb63eeefbc680c13c891853c735`.
+
+PW-0310 supersedes PW-0309's fixture-supplied-routing limitation. Starting
+from the authenticated residual, the installed source checkpoint's layer-28
+router independently selects experts `[114,188,93,199,248,41,117,252]` in the
+same execution order, with only `2.9802322e-8` maximum route-weight absolute
+error. The runtime passes those live-derived values—not the fixture values—to
+Metal, and the transaction still reproduces all 4,096 modified candidate F32
+bits. Promote the fail-closed route gate for that exact identity set as a
+conditional L3 research fixture.
+
+This resolves integration but not coverage or performance. The bundle contains
+only one eight-expert identity set, and PW-0308 already measures 47 repeated
+routed components at `351.680083` ms p90, about `2.84` routed tokens/s before
+attention, sampling, modality work, or endpoint overhead. Supersede the belief
+that a general K4 bank is the next useful Prismwing 50 move: even ideal bank
+construction would remain over 12 times below `34.3` TPS and over 17 times
+below 50 TPS on the measured executor. Retain the artifact for modified-mode
+research and kill bank scaling unless a new representation or executor changes
+that component ceiling.
+
+The paired causal run changes no throughput-model constant because it accepts
+zero tokens. It repeats PW-0309's distribution pass and internal divergence,
+takes `119,226.933` ms, reads `15,306,051,584` bytes, and passes Gate 8 with
+66% minimum free memory, 3,095,054,144-byte maximum/final footprint,
+4,327,604,224-byte peak RSS, zero swap growth/new throttling, and stable
+protected services. The result hashes to
+`3eb547a2de3311ecf35d395885e1d56d405622f71836b575cebc6419dfced3f6`;
+the compact manifest hashes to
+`52120788685cdd90f4bde1becf99957c007b340dc376a111b71070d13d8cfcb9`.

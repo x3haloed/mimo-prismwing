@@ -116,6 +116,12 @@ speculation:
   slice retains the same argmax, 20/20 top-set overlap, `0.005353`-nat
   source-token error, and `0.000493` projected JSD. This is a conditional
   frozen-route fidelity result, not endpoint performance or general K4 safety.
+- PW-0310 replaces fixture-supplied router values with the installed
+  checkpoint's live layer-28 route. Expert order matches exactly, maximum
+  weight error is `2.98e-8`, and Metal still reproduces every modified
+  candidate bit. The route gate is retained as a conditional fixture, while
+  full-bank construction is removed from the active 50-TPS frontier because
+  the measured routed-component ceiling is only about `2.84` tokens/s.
 
 The append-only reasoning and evidence history lives in
 [LEARNINGS.md](LEARNINGS.md) and the [experiment ledger](experiments/README.md).
@@ -199,9 +205,9 @@ satisfy the primary target. See [RED_LINES.md](RED_LINES.md).
 
 The active sequence is deliberately evidence-first:
 
-1. finish PW-0310's checkpoint-derived live route gate, then decide whether
-   arbitrary-expert K4 bank construction remains justified, while preserving
-   a source control and explicit modified mode;
+1. re-evaluate the owned companion-host and sub-`$500` hardware frontier using
+   measured full-path traffic/compute bounds; the K4 full-bank branch is no
+   longer the next performance move;
 2. finish the frozen PW-0216 multilingual and rare-route 32-token holdouts;
 3. reduce native proposer embodiment cost without changing its authority;
 4. attack the dominant prefill/storage cut while preserving the smaller

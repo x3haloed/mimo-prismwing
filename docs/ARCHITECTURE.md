@@ -167,6 +167,13 @@ The construction order follows the least-proven boundaries:
   distribution slice still passes with the same argmax and `0.000493366`
   projected top-20 JSD. This authorizes a live-routing L3 experiment, not a
   source-equivalent architecture, K4 default, or throughput claim.
+- PW-0310 derives that route from the installed source checkpoint rather than
+  supplying fixture IDs and weights. The expert order matches exactly, maximum
+  route-weight error is `2.98e-8`, and the modified Metal output remains
+  bit-exact to its independent fixture. The runtime fails closed for every
+  identity set absent from the bundle. This is a real route gate for one set,
+  not arbitrary coverage; full K4-bank construction is not the active 50-TPS
+  path because the measured routed-component ceiling is about `2.84` tokens/s.
 
 Every unknown schema, revision, tensor, shape, layout, provider, or runtime mode
 fails closed. Compatibility paths require an explicit external reason and
