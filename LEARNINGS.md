@@ -4607,3 +4607,22 @@ protected services. The result hashes to
 `3eb547a2de3311ecf35d395885e1d56d405622f71836b575cebc6419dfced3f6`;
 the compact manifest hashes to
 `52120788685cdd90f4bde1becf99957c007b340dc376a111b71070d13d8cfcb9`.
+
+PW-0311 closes the K4 construction-authority acquisition blocker without yet
+claiming construction reproducibility. The M4 handoff's transport ZIP passes
+CRC extraction and hashes to
+`885de973e13ec61281d65fc9d86e9bea6349a2d0aa4de6c3c7bd67463da4cd6a`.
+Although its expected top-level `SHA256SUMS` was omitted, a fresh 10,926-file
+target-host ledger binds the extracted tree at
+`9be0f7f22b47412e4c5b9f2be6d522c0e2e61647e94270108eb8bd34287de131`.
+Every declared atlas capture, MRL-0147 anchor capture, PW-0351 source artifact,
+and PW-0352 K4 projection payload matches its embedded authority. The
+standalone Metal compiler, MPS PyTorch, authenticated QTIP LDLQ/math modules,
+and exact TLUT regeneration also pass a target-host execution smoke test.
+
+Promote this package only as authenticated input to the next one-expert
+payload-for-payload reconstruction. The receipt hashes to
+`4387273bf8127600d3b4e61742b78ab1dbd35782e08151c858f734bf0e4f2878`.
+Arbitrary-expert construction, a complete bank, general fidelity, capabilities,
+and accepted-token TPS remain unproven, so no throughput-model constant or
+runtime default changes.

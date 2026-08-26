@@ -1567,8 +1567,11 @@ Run the following cheap falsifiers in order:
 17. [PW-0311](../experiments/PW-0311-k4-bank-toolchain-recovery.md) recovers or
    reconstructs the missing arbitrary-expert K4 construction authorities and
    first requires one real bundled expert to reproduce payload-for-payload.
-   Success opens held-out route and full-bank work; numerical similarity alone
-   cannot silently create a new representation revision.
+   The M4 handoff now passes transport, full-tree, embedded-manifest, QTIP,
+   Metal/MPS, and exact-TLUT preflights, closing authority acquisition only.
+   One-expert reconstruction remains the next gate. Success opens held-out
+   route and full-bank work; numerical similarity alone cannot silently create
+   a new representation revision.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

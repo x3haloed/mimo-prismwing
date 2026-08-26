@@ -27,12 +27,12 @@ standards; only its named throughput tier differs.
 
 ## Hypothesis and mechanism
 
-The causal addendum preserves the exact exporter, bundle builder, QTIP settings,
-payload hashes, and source checkpoint. It does not preserve the `mimo_lab`
-package, calibration atlas, three helper scripts, or pinned external QTIP
-checkout those tools import. Recovering or reconstructing those authorities and
-reproducing one bundled expert payload-by-payload is the cheapest fail-closed
-proof that arbitrary bank construction is possible.
+At experiment opening, the causal addendum preserved the exact exporter,
+bundle builder, QTIP settings, payload hashes, and source checkpoint, but not
+the `mimo_lab` package, calibration atlas, three helper scripts, or pinned
+external QTIP checkout those tools import. The verified M4 handoff below closes
+that acquisition gap. Reproducing one bundled expert payload-by-payload remains
+the cheapest fail-closed proof that arbitrary bank construction is possible.
 
 ## Protocol
 
@@ -52,6 +52,46 @@ proof that arbitrary bank construction is possible.
    versions, checkpoint identity, and Gate 8 safety. This is construction and
    correctness evidence, not accepted TPS.
 
+## Authority-handoff preflight
+
+The M4 worker payload is now a verified construction input. The transport ZIP
+is `27,726,810,563` bytes and hashes to
+`885de973e13ec61281d65fc9d86e9bea6349a2d0aa4de6c3c7bd67463da4cd6a`.
+ZIP CRC extraction passed. The package omitted the expected top-level
+`SHA256SUMS`, so the target host generated a fresh 10,926-file extracted-tree
+ledger on the external disk; that ledger hashes to
+`9be0f7f22b47412e4c5b9f2be6d522c0e2e61647e94270108eb8bd34287de131`.
+
+The fresh ledger reconciles every declared payload needed by the construction
+path:
+
+- 27 atlas manifests retain canonical manifest-set SHA-256
+  `e1b47f45dfa5975e8fff56f114779ba5242bcf6aadb55b5673d8f8a4d22edcf8`;
+  all 8,883 capture files and 56,469,159,936 declared bytes match.
+- The MRL-0147 anchor manifest retains SHA-256
+  `14331fa6e6314d0b82b5a5b7085870e549db2dc9810d03d9251565ca5b281d9a`;
+  all 329 capture files and 884,015,104 declared bytes match.
+- The PW-0351 source-expert manifest retains SHA-256
+  `c567a637e643476820ed07960385a9de84010ab48d9428441a08a84687b29ac8`;
+  all 12 artifact/manifest files and 176,228,261 bytes match.
+- All 21 PW-0352 projection manifests and 189 referenced payload files match,
+  covering 89,098,324 bytes. The exporter, helper scripts, contracts, panel
+  report, fixture, index, and TLUT also retain their recorded authorities.
+
+The installed standalone Metal compiler reports Apple Metal `32023.883`.
+PyTorch `2.13.0` sees MPS, the authenticated QTIP checkout is exactly commit
+`e90c6688c8dfae326a3a81b5eb032db7c6680ec0`, official LDLQ and math modules
+load, and regenerated TLUT SHA-256 is exactly
+`21bab03171fb4ccaf2b4fb86f3b48efb2d7daa526f2b6dd3b01ceef9db95a9d8`.
+The original absolute M4 paths resolve through a small symlink to the external
+payload, so no 58-GB copy occupies the SSD.
+
+The raw handoff receipt remains outside Git and hashes to
+`4387273bf8127600d3b4e61742b78ab1dbd35782e08151c858f734bf0e4f2878`.
+Promote the package only to authenticated construction input. Arbitrary-expert
+reproduction, bank coverage, fidelity, capability, and endpoint TPS remain
+unproven. No throughput-model constant changes.
+
 ## Decision rule
 
 - If one real expert reproduces payload-for-payload, promote arbitrary expert
@@ -70,4 +110,3 @@ proof that arbitrary bank construction is possible.
 - general fidelity or modalities;
 - ordinary endpoint execution;
 - accepted-token TPS, 34.3 TPS, 50 TPS, or `TARGET.md` completion.
-

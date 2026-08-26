@@ -2,17 +2,25 @@
 
 ## Outcome
 
-Advance the primary 16 GiB Apple M1 target in `TARGET.md`; treat stronger-worker
-results as candidate mechanisms until they pass target-machine correctness,
-safety, and full-path performance gates.
+Deliver the primary 16 GiB Apple M1 target in `TARGET.md`, while proving a
+named **Prismwing-2** intermediate endpoint if it becomes reachable first.
+Stronger-worker artifacts remain candidate mechanisms until reconstructed on
+the target and passed through target-machine correctness, safety, fidelity,
+full-capability, and complete-path performance gates.
 
 ## Goal invariants
 
-None beyond the authoritative contracts in `TARGET.md`, `RED_LINES.md`, and
-`docs/WORKFLOW.md`.
+- The primary completion target remains Prismwing 50; Prismwing-2 is a valuable
+  intermediate delivery tier, not a target rewrite.
+- A roughly 2 accepted-TPS result must retain the same local-inference,
+  full-capability, fidelity, safety, and reproducibility requirements. Only its
+  named throughput tier is lower.
+- Modified K4 weights remain L3 and cannot be reported as source-exact even if
+  they pass external near-equivalence gates.
 
 ## Prediction errors
 
-None unresolved. The stronger worker's large-cache result is target-inadmissible;
-its RAM-neutral BF16 one-row kernel passed M1 repeatability, while exact
-active-width FP8 improved target-local slices but failed the complete-TPS gate.
+None unresolved. The M4 K4 authority package is transport- and
+content-address-validated, but arbitrary-expert reconstruction and a complete
+Prismwing-2 endpoint remain unproven research work rather than prediction
+errors.
