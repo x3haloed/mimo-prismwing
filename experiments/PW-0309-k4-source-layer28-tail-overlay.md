@@ -60,6 +60,26 @@ per-layer K/V caches without depending on the omitted 223 later rows.
    throttled pages, protected service PID continuity, explicit page release,
    and final footprint at most 4 GiB.
 
+## Open prediction error resolved before execution
+
+Expected: PW-0424 would be schema version 1 and its embedded
+`candidate_routed_sha256` and `native_source_routed_sha256` fields would name
+the little-endian F32 serialization of the corresponding JSON arrays.
+
+Observed: the authenticated fixture is schema version 2. The two historical
+fields match the archived build record but not an F32LE serialization of the
+parsed arrays. The one-off PW-0424 assembler that defined those labels was not
+preserved. The first clean-commit preflight rejected before Metal/checkpoint
+execution and wrote no result.
+
+Resolution: require the historical fields unchanged as construction
+authorities, and independently require reproducible parsed-array F32LE hashes:
+input `05a9a3e311a775cda46a343ca0828338c78b96d3a4755d098794a291473b63dd`,
+candidate `83be648c5918e1eecd962a9f10c6765dd0ebf94e75b0df81e66f0c316f06ba57`,
+and source `01396d596c277bba4fffb277a1acc272c6b5ab75d311644a18c25729c47650ae`.
+The whole-fixture SHA-256 remains the primary authority and no gate is
+weakened.
+
 ## Decision rule
 
 - If causal identity gates and the declared distribution gates pass, retain

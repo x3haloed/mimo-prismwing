@@ -592,6 +592,11 @@ pub struct K4SourceTailOverlayReport {
     pub capture_provenance_sha256: String,
     pub post_attention_sha256: String,
     pub route_fixture_sha256: String,
+    pub route_input_f32le_sha256: String,
+    pub candidate_routed_f32le_sha256: String,
+    pub source_routed_f32le_sha256: String,
+    pub historical_candidate_routed_authority_sha256: String,
+    pub historical_source_routed_authority_sha256: String,
     pub bundle_sha256: String,
     pub bundle_manifest_sha256: String,
     pub checkpoint_verification_sha256: String,
@@ -6297,6 +6302,12 @@ pub fn run_k4_source_layer28_tail_overlay(
         "6b7b0459c75aa1885009a44c31b4653e405d30921e6a6c85a8192516aaf55104";
     const SOURCE_ROUTED_SHA256: &str =
         "d0d3cffc1b8eac5ba35e58b5a99af56a0a31afbc1e75732cb4dd61c0d40b954d";
+    const ROUTE_INPUT_F32LE_SHA256: &str =
+        "05a9a3e311a775cda46a343ca0828338c78b96d3a4755d098794a291473b63dd";
+    const CANDIDATE_ROUTED_F32LE_SHA256: &str =
+        "83be648c5918e1eecd962a9f10c6765dd0ebf94e75b0df81e66f0c316f06ba57";
+    const SOURCE_ROUTED_F32LE_SHA256: &str =
+        "01396d596c277bba4fffb277a1acc272c6b5ab75d311644a18c25729c47650ae";
 
     if output_path.exists() {
         return Err(format!("refusing to overwrite {}", output_path.display()));
@@ -6354,7 +6365,7 @@ pub fn run_k4_source_layer28_tail_overlay(
         .map_err(|error| format!("{}: {error}", route_fixture_path.display()))?;
     let route: K4SourceTailRouteFixture = serde_json::from_slice(&route_bytes)
         .map_err(|error| format!("PW-0309 route fixture: {error}"))?;
-    if route.schema_version != 1
+    if route.schema_version != 2
         || route.semantic != "pw0424_layer28_three_k4_five_source_native_fixture"
         || route.layer != 28
         || route.input_f32.len() != HIDDEN
@@ -6364,8 +6375,9 @@ pub fn run_k4_source_layer28_tail_overlay(
         || route.native_router_weights.len() != TOP_K
         || route.candidate_routed_sha256 != CANDIDATE_ROUTED_SHA256
         || route.native_source_routed_sha256 != SOURCE_ROUTED_SHA256
-        || sha256_hex(&f32_le_bytes(&route.candidate_routed_f32)) != CANDIDATE_ROUTED_SHA256
-        || sha256_hex(&f32_le_bytes(&route.native_source_routed_f32)) != SOURCE_ROUTED_SHA256
+        || sha256_hex(&f32_le_bytes(&route.input_f32)) != ROUTE_INPUT_F32LE_SHA256
+        || sha256_hex(&f32_le_bytes(&route.candidate_routed_f32)) != CANDIDATE_ROUTED_F32LE_SHA256
+        || sha256_hex(&f32_le_bytes(&route.native_source_routed_f32)) != SOURCE_ROUTED_F32LE_SHA256
         || route
             .input_f32
             .iter()
@@ -6493,6 +6505,11 @@ pub fn run_k4_source_layer28_tail_overlay(
         capture_provenance_sha256: CAPTURE_PROVENANCE_SHA256.to_owned(),
         post_attention_sha256: POST_ATTENTION_SHA256.to_owned(),
         route_fixture_sha256: ROUTE_FIXTURE_SHA256.to_owned(),
+        route_input_f32le_sha256: ROUTE_INPUT_F32LE_SHA256.to_owned(),
+        candidate_routed_f32le_sha256: CANDIDATE_ROUTED_F32LE_SHA256.to_owned(),
+        source_routed_f32le_sha256: SOURCE_ROUTED_F32LE_SHA256.to_owned(),
+        historical_candidate_routed_authority_sha256: CANDIDATE_ROUTED_SHA256.to_owned(),
+        historical_source_routed_authority_sha256: SOURCE_ROUTED_SHA256.to_owned(),
         bundle_sha256: BUNDLE_SHA256.to_owned(),
         bundle_manifest_sha256: BUNDLE_MANIFEST_SHA256.to_owned(),
         checkpoint_verification_sha256,
