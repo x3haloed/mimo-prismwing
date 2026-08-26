@@ -1,7 +1,7 @@
 # PW-0308 — Modified K4/source M1 routed-component calibration
 
-- Status: in progress
-- Disposition: pending clean-commit replay
+- Status: complete
+- Disposition: conditional component lower bound; modified layer-28 endpoint overlay authorized
 - Date: 2026-08-26
 - Owner: Codex
 - Starting commit: clean `942fb42cae8c3dafce6093157a769139305f5935`
@@ -66,16 +66,50 @@ authenticated here.
    default until the modified complete endpoint and downstream fidelity are
    measured.
 
-## Preliminary observation
+## Result
 
-An uncommitted review-worktree calibration produced exact candidate parity.
-The target-M1 single-layer complete-call p90 was `16.514291` ms. The 47-repeat
-complete-call p90 was `367.741542` ms and GPU p90 was `356.975083` ms. It
-therefore passed the two-TPS component condition and failed the three-TPS
-diagnostic. Minimum free memory was 64%, swap and throttled-page growth were
-zero, protected PID identities were stable, peak RSS was 194,740,224 bytes,
-and the final physical footprint was 10,225,152 bytes.
+The corrected import is clean commit
+`1301c61713f2f19d0ee5bb2b6784e6df0ba47eba`. Formatting, all 110 Rust tests,
+the release build, runtime Metal compilation, and standalone compilation of all
+four hash-bound Metal sources pass.
 
-These observations select the endpoint overlay as the next causal slice but
-are not final evidence. Replay from the clean implementation commit before
-adjudication.
+The clean `raw-002` replay reproduces all 4,096 candidate F32 output bit
+patterns for the initial layer execution, 20 warmups, 100 layer samples, and
+120 repeated-component comparisons. The single-layer complete-call p90 is
+`15.448083` ms. The 47-repeat complete-call p90 is `351.680083` ms and GPU p90
+is `341.382917` ms. The wall-minus-GPU gap is only `10.297166` ms, so command
+submission and CPU synchronization are no longer the dominant routed-component
+cost in this realization.
+
+The strict two-TPS component condition passes and the three-TPS diagnostic
+fails. System-free memory remains at least 56%; swap use does not grow; no new
+throttled page appears; all baseline protected PID identities remain; peak RSS
+is 194,854,912 bytes; and final physical footprint is 19,662,336 bytes. The
+bundle mapping and phase resources are therefore released safely.
+
+The valid raw manifest is
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0308/raw-002/manifest.json`,
+SHA-256 `d395cd1844ee46a938578063ab7c68ba156b6e3b1e53f29b29c58c6e33949613`.
+Its readback, layer, and repeated reports hash respectively to
+`d2cc16bd35b0a445e0affb6350bf7a4f0594dc67078b0ac0e197b2cd1ec58328`,
+`c222cdda47f894924fe4154c67e606e13324314fbe0ee4576d95487c6a216ca1`,
+and `754cb36ba8d3831a3d7e3c59f5faebd7ea17c924b9d34f34343541ff3e7d9c4e`.
+The durable 15-file input ledger hashes to
+`a080398b1de4cc78fae39a1004947a5f50fac40fb8adbeef3d048021db5a3618`.
+
+`raw-001` is preserved as invalid evidence because its readback was given a
+guessed commit argument; its manifest hashes to
+`6c393b4379704cdc42e015df169dce0bad6f12a9f1edbed9d0a475db0fd84d5a`.
+
+## Decision
+
+Retain the mixed K4/source runtime as an authenticated L3 modified component
+lower bound and proceed to the complete source endpoint's layer-28 overlay
+slice. Do not promote the K4 weights, claim three TPS, infer distinct-layer or
+cache behavior, or update a measured endpoint throughput constant. The result
+confirms that another top-eight batching pass is not the missing mechanism:
+GPU arithmetic owns about 97% of p90 complete-call time after 47 dispatches are
+amortized. A greater-than-three-TPS embodiment still requires materially
+smaller executable expert records or a different representation, while the
+overlay determines this fallback's actual complete-path and downstream-error
+cost.

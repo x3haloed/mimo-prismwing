@@ -151,6 +151,15 @@ The construction order follows the least-proven boundaries:
   residency make it an oracle baseline, not the performance architecture.
 - Frozen raw evidence owns measurements; Markdown reports interpret it but do
   not override it.
+- PW-0308 adds a conditional **L3 modified-weight component** authority for one
+  frozen layer-28 route: three selected logical expert identities use QTIP K4
+  approximations and five retain source FP8. The bundle is hash-bound,
+  page-aligned, mapped without a Metal shadow copy, and the combined transaction
+  reproduces the independent candidate fixture bit for bit. It is not L1:
+  expert identity is preserved but source function is not. Its 47-repeat M1
+  result authorizes only a complete-endpoint layer-28 overlay experiment, not a
+  production default, distinct-layer decoder claim, cache claim, or TPS
+  authority.
 
 Every unknown schema, revision, tensor, shape, layout, provider, or runtime mode
 fails closed. Compatibility paths require an explicit external reason and

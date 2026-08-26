@@ -4509,3 +4509,31 @@ throughput-model constant. Candidate report hashes are
 `56e271f0e70600638a1208b8389c05fc9f1212bfcaad34df669e9ccbf2285758`;
 the control hashes to
 `0a466cfd4f4848c4807d9dd27d14f6125529c1d9123d0714973aeba7b1f417b8`.
+
+PW-0308 imports the stronger M4 worker's mixed QTIP-K4/source-FP8 routed
+component and corrects a consequential vocabulary error before promotion.
+Keeping selected expert IDs and forbidding substitution preserves logical
+identity, but three approximate K4 expert records do not preserve the source
+function: the frozen route's candidate-to-source relative L2 is
+`0.004701688420027494`. This branch is L3 modified weights. Exact fixture
+parity proves the Metal executor reproduces that candidate, not that K4 is L1.
+
+On the target 16 GiB M1, the clean-commit replay matches all 4,096 candidate
+F32 bits across the initial layer run, 20 warmups, 100 layer samples, and 120
+47-repeat comparisons. Single-layer complete-call p90 is `15.448083` ms. With
+47 identical components encoded into one command buffer, complete-call p90 is
+`351.680083` ms and GPU p90 is `341.382917` ms. The small wall-minus-GPU gap
+confirms that dispatch and CPU synchronization are no longer the dominant
+routed-component cost in this realization; another top-eight batching pass is
+not the missing mechanism.
+
+The strict two-TPS component condition passes, while the three-TPS diagnostic
+fails. Gate 8 passes with 56% minimum free memory, zero swap growth or new
+throttled pages, stable protected PID identities, 194,854,912-byte peak RSS,
+and a 19,662,336-byte final physical footprint. Promote only the modified
+layer-28 complete-endpoint overlay as the next causal slice. Do not promote K4
+weights, a throughput-model constant, or endpoint TPS. The valid raw manifest
+hashes to
+`d395cd1844ee46a938578063ab7c68ba156b6e3b1e53f29b29c58c6e33949613`;
+the invalid guessed-commit preflight remains preserved at
+`6c393b4379704cdc42e015df169dce0bad6f12a9f1edbed9d0a475db0fd84d5a`.

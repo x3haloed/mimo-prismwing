@@ -29,6 +29,7 @@ the same endpoint.
 | Native-MTP seven-token category panel | **1.864× ordinary**, **1.298× code**, **1.289× multilingual**, **1.174× rare-route** | Complete exact-output requests; conditional, not a general default |
 | Accelerated width-eight verifier | **0.219850 accepted TPS warm** | Post-prefill verifier transaction; proposal generation excluded |
 | Layer-major routed-MoE prefill slice | **1.161×–1.192×** | One real layer; misses its 3× continuation and absolute numerical gates |
+| Modified K4/source routed component | **351.680 ms p90 for 47 repeats** | L3 frozen layer/route/input; passes 2-TPS component condition, fails 3-TPS diagnostic; not endpoint TPS |
 | Earlier arbitrary-prompt endpoint | **0.026253 complete-path TPS**, 47 coherent tokens | SGLang-directed modified arithmetic; retained as a control |
 
 The strongest new result is [PW-0216](experiments/PW-0216-native-mtp-longer-output-holdout.md).
@@ -103,6 +104,11 @@ speculation:
   joint SwiGLU balance, and recursive polar forms all failed their predeclared
   fidelity or equal-traffic gates. Their negative results narrow the next
   representation search rather than weakening acceptance thresholds.
+- PW-0308 imported a mixed K4/source Metal component from a stronger M4 worker,
+  corrected its identity-preserving label to L3 modified weights, and replayed
+  it on the target M1. Forty-seven repeated components take `351.680` ms p90,
+  with `341.383` ms on GPU: dispatch is no longer dominant, but even this
+  frozen fallback misses the three-TPS component diagnostic.
 
 The append-only reasoning and evidence history lives in
 [LEARNINGS.md](LEARNINGS.md) and the [experiment ledger](experiments/README.md).
@@ -186,13 +192,15 @@ satisfy the primary target. See [RED_LINES.md](RED_LINES.md).
 
 The active sequence is deliberately evidence-first:
 
-1. finish the frozen PW-0216 multilingual and rare-route 32-token holdouts;
-2. reduce native proposer embodiment cost without changing its authority;
-3. attack the dominant prefill/storage cut while preserving the smaller
+1. splice PW-0308's authenticated L3 layer-28 overlay into the complete source
+   endpoint and measure actual downstream error and accepted-token timing;
+2. finish the frozen PW-0216 multilingual and rare-route 32-token holdouts;
+3. reduce native proposer embodiment cost without changing its authority;
+4. attack the dominant prefill/storage cut while preserving the smaller
    verified gains already found;
-4. close accumulated hosted-reference parity and expand the causal path through
+5. close accumulated hosted-reference parity and expand the causal path through
    native modalities;
-5. continue representation research only through predeclared cheap falsifiers
+6. continue representation research only through predeclared cheap falsifiers
    and real-query controls.
 
 ## Repository map

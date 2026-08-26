@@ -1538,6 +1538,13 @@ Run the following cheap falsifiers in order:
    median complete accepted TPS is `0.994065x` control with 3.790% candidate
    spread. Restore batch-eight FP8 dispatch and retain only the exact kernels
    and fixtures as research material; no throughput-model constant changes.
+14. [PW-0308](../experiments/PW-0308-k4-source-m1-component.md) imports the
+   stronger M4 worker's mixed QTIP-K4/source-FP8 routed component with corrected
+   L3 labeling. On the target 16 GiB M1 it reproduces every candidate F32 bit,
+   reaches `351.680083` ms p90 for 47 repeated components in one command buffer,
+   and passes Gate 8. This passes the strict two-TPS component condition but
+   fails the `333.333`-ms three-TPS diagnostic. Authorize only a modified
+   layer-28 complete-endpoint overlay; do not promote weights or endpoint TPS.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
