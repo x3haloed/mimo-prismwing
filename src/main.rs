@@ -273,7 +273,7 @@ fn usage() -> ! {
     );
     #[cfg(target_os = "macos")]
     eprintln!(
-        "  prismwing run-k4-source-layer28-tail-overlay <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <origin-record.json> <capture-provenance.json> <post-attention.f32> <bundle.bin> <bundle-manifest.json> <route-fixture.json> <kernel-dir> <output.json> <commit>"
+        "  prismwing run-k4-source-live-route-layer28-tail-overlay <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <origin-record.json> <capture-provenance.json> <post-attention.f32> <bundle.bin> <bundle-manifest.json> <route-fixture.json> <kernel-dir> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -1074,7 +1074,7 @@ fn main() {
             })
         }
         #[cfg(target_os = "macos")]
-        Some("run-k4-source-layer28-tail-overlay") if arguments.len() == 14 => {
+        Some("run-k4-source-live-route-layer28-tail-overlay") if arguments.len() == 14 => {
             let checkpoint = PathBuf::from(&arguments[2]);
             let model_lock = PathBuf::from(&arguments[3]);
             let verification = PathBuf::from(&arguments[4]);

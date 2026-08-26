@@ -199,8 +199,9 @@ satisfy the primary target. See [RED_LINES.md](RED_LINES.md).
 
 The active sequence is deliberately evidence-first:
 
-1. turn PW-0309's downstream-safe frozen L3 slice into a true live-routing
-   embodiment, while preserving a source control and explicit modified mode;
+1. finish PW-0310's checkpoint-derived live route gate, then decide whether
+   arbitrary-expert K4 bank construction remains justified, while preserving
+   a source control and explicit modified mode;
 2. finish the frozen PW-0216 multilingual and rare-route 32-token holdouts;
 3. reduce native proposer embodiment cost without changing its authority;
 4. attack the dominant prefill/storage cut while preserving the smaller

@@ -601,6 +601,11 @@ pub struct K4SourceTailOverlayReport {
     pub bundle_manifest_sha256: String,
     pub checkpoint_verification_sha256: String,
     pub layer28_moe_input_bitexact: bool,
+    pub layer28_live_router_experts: Vec<u32>,
+    pub layer28_live_router_weights: Vec<f32>,
+    pub layer28_live_route_experts_exact: bool,
+    pub layer28_live_route_maximum_weight_absolute_error: f32,
+    pub layer28_route_ledger: EndpointLedger,
     pub layer28_candidate_routed_bitexact: bool,
     pub layer28_source_vs_candidate_routed: NumericalParity,
     pub layer28_source_vs_candidate_final: NumericalParity,
@@ -6180,7 +6185,7 @@ fn execute_k4_source_tail_branch(
     branch: &str,
 ) -> Result<K4SourceTailState, String> {
     if hidden.len() != HIDDEN || hidden.iter().any(|value| !value.is_finite()) {
-        return Err(format!("PW-0309 {branch} initial hidden state mismatch"));
+        return Err(format!("PW-0310 {branch} initial hidden state mismatch"));
     }
     let started = Instant::now();
     let mut ledger = EndpointLedger::for_checkpoint(checkpoint);
@@ -6209,7 +6214,7 @@ fn execute_k4_source_tail_branch(
             None,
         )?;
         if cache.positions != 1 || cache.validate().is_err() {
-            return Err(format!("PW-0309 {branch} layer {layer} K/V cache mismatch"));
+            return Err(format!("PW-0310 {branch} layer {layer} K/V cache mismatch"));
         }
         let post_attention = hidden
             .iter()
@@ -6230,7 +6235,7 @@ fn execute_k4_source_tail_branch(
             || routed.weights[0].len() != TOP_K
         {
             return Err(format!(
-                "PW-0309 {branch} layer {layer} route shape mismatch"
+                "PW-0310 {branch} layer {layer} route shape mismatch"
             ));
         }
         hidden = post_attention
@@ -6239,7 +6244,7 @@ fn execute_k4_source_tail_branch(
             .map(|(&residual, &projected)| round_bf16(residual + projected))
             .collect();
         checkpoint.release_file_pages()?;
-        safety.checkpoint(&format!("pw0309_{branch}_layer_{layer}_complete"), true)?;
+        safety.checkpoint(&format!("pw0310_{branch}_layer_{layer}_complete"), true)?;
         layers.push(K4SourceTailLayerState {
             layer,
             hidden: hidden.clone(),
@@ -6260,7 +6265,7 @@ fn execute_k4_source_tail_branch(
         &mut ledger,
     )?;
     checkpoint.release_file_pages()?;
-    safety.checkpoint(&format!("pw0309_{branch}_logits_complete"), true)?;
+    safety.checkpoint(&format!("pw0310_{branch}_logits_complete"), true)?;
     Ok(K4SourceTailState {
         layers,
         final_norm,
@@ -6317,12 +6322,12 @@ pub fn run_k4_source_layer28_tail_overlay(
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     {
-        return Err("PW-0309 commit must be lowercase 40-hex".to_owned());
+        return Err("PW-0310 commit must be lowercase 40-hex".to_owned());
     }
     let git_head = command_output("/usr/bin/git", &["rev-parse", "HEAD"])?;
     let git_status = command_output("/usr/bin/git", &["status", "--porcelain"])?;
     if git_head.trim() != commit || !git_status.is_empty() {
-        return Err("PW-0309 evidence requires exact clean Git HEAD".to_owned());
+        return Err("PW-0310 evidence requires exact clean Git HEAD".to_owned());
     }
     let complete_started = Instant::now();
     let disk_bytes_read_before = process_disk_bytes_read()?;
@@ -6334,24 +6339,24 @@ pub fn run_k4_source_layer28_tail_overlay(
         || hash_file(bundle_path)? != BUNDLE_SHA256
         || hash_file(bundle_manifest_path)? != BUNDLE_MANIFEST_SHA256
     {
-        return Err("PW-0309 content authority hash mismatch".to_owned());
+        return Err("PW-0310 content authority hash mismatch".to_owned());
     }
     let origin: K4SourceTailOriginRecord = serde_json::from_reader(
         File::open(origin_record_path)
             .map_err(|error| format!("{}: {error}", origin_record_path.display()))?,
     )
-    .map_err(|error| format!("PW-0309 origin record: {error}"))?;
+    .map_err(|error| format!("PW-0310 origin record: {error}"))?;
     if origin.id != "aggregate-code-07"
         || origin.text_sha256 != ORIGIN_TEXT_SHA256
         || sha256_hex(origin.text.as_bytes()) != ORIGIN_TEXT_SHA256
     {
-        return Err("PW-0309 origin text identity mismatch".to_owned());
+        return Err("PW-0310 origin text identity mismatch".to_owned());
     }
     let provenance: Value = serde_json::from_reader(
         File::open(capture_provenance_path)
             .map_err(|error| format!("{}: {error}", capture_provenance_path.display()))?,
     )
-    .map_err(|error| format!("PW-0309 capture provenance: {error}"))?;
+    .map_err(|error| format!("PW-0310 capture provenance: {error}"))?;
     if provenance["record"]["id"] != "aggregate-code-07"
         || provenance["record"]["text_sha256"] != ORIGIN_TEXT_SHA256
         || provenance["record"]["captured_position"] != 0
@@ -6359,12 +6364,12 @@ pub fn run_k4_source_layer28_tail_overlay(
         || provenance["position_zero"]["moe_input_sha256"]
             != "05a9a3e311a775cda46a343ca0828338c78b96d3a4755d098794a291473b63dd"
     {
-        return Err("PW-0309 capture provenance semantic mismatch".to_owned());
+        return Err("PW-0310 capture provenance semantic mismatch".to_owned());
     }
     let route_bytes = fs::read(route_fixture_path)
         .map_err(|error| format!("{}: {error}", route_fixture_path.display()))?;
     let route: K4SourceTailRouteFixture = serde_json::from_slice(&route_bytes)
-        .map_err(|error| format!("PW-0309 route fixture: {error}"))?;
+        .map_err(|error| format!("PW-0310 route fixture: {error}"))?;
     if route.schema_version != 2
         || route.semantic != "pw0424_layer28_three_k4_five_source_native_fixture"
         || route.layer != 28
@@ -6386,7 +6391,7 @@ pub fn run_k4_source_layer28_tail_overlay(
             .chain(&route.native_router_weights)
             .any(|value| !value.is_finite())
     {
-        return Err("PW-0309 route fixture semantic mismatch".to_owned());
+        return Err("PW-0310 route fixture semantic mismatch".to_owned());
     }
     let (_, post_attention) = read_f32_file(post_attention_path, Some(HIDDEN))?;
     let (checkpoint, _, config, _, _, _, mut safety, checkpoint_verification_sha256) =
@@ -6408,25 +6413,52 @@ pub fn run_k4_source_layer28_tail_overlay(
         f32_le_bytes(&recomputed_input) == f32_le_bytes(&route.input_f32);
     if !layer28_moe_input_bitexact {
         return Err(
-            "PW-0309 residual did not reproduce the captured layer-28 MoE input".to_owned(),
+            "PW-0310 residual did not reproduce the captured layer-28 MoE input".to_owned(),
         );
     }
-    safety.checkpoint("pw0309_layer28_input_authenticated", true)?;
+    safety.checkpoint("pw0310_layer28_input_authenticated", true)?;
+
+    let live_route = route_mlp(&checkpoint, 28, &recomputed_input, 1, &mut layer28_ledger)?;
+    let layer28_live_router_experts = live_route
+        .selected
+        .into_iter()
+        .next()
+        .ok_or("PW-0310 live layer-28 router produced no route")?;
+    let layer28_live_router_weights = live_route
+        .weights
+        .into_iter()
+        .next()
+        .ok_or("PW-0310 live layer-28 router produced no weights")?;
+    let layer28_live_route_experts_exact =
+        layer28_live_router_experts == route.native_router_experts;
+    let layer28_live_route_maximum_weight_absolute_error = layer28_live_router_weights
+        .iter()
+        .zip(&route.native_router_weights)
+        .map(|(actual, expected)| (actual - expected).abs())
+        .fold(0.0_f32, f32::max);
+    if !layer28_live_route_experts_exact
+        || layer28_live_route_maximum_weight_absolute_error > 5.0e-7
+    {
+        return Err(format!(
+            "PW-0310 live layer-28 route does not match bundle authority: experts_exact={layer28_live_route_experts_exact}, maximum_weight_absolute_error={layer28_live_route_maximum_weight_absolute_error}"
+        ));
+    }
+    safety.checkpoint("pw0310_layer28_live_route_authenticated", true)?;
 
     let bundle = K4SourceLayerBundle::open(bundle_path, bundle_manifest_path)?;
     let runtime = K4SourceMetalRuntime::compile(kernel_root)?;
     let candidate_execution = runtime.execute(
         &bundle,
-        &route.input_f32,
-        &route.native_router_experts,
-        &route.native_router_weights,
+        &recomputed_input,
+        &layer28_live_router_experts,
+        &layer28_live_router_weights,
     )?;
     let layer28_candidate_routed_bitexact =
         f32_le_bytes(&candidate_execution.output) == f32_le_bytes(&route.candidate_routed_f32);
     if !layer28_candidate_routed_bitexact {
-        return Err("PW-0309 Metal candidate diverged from the authenticated fixture".to_owned());
+        return Err("PW-0310 Metal candidate diverged from the authenticated fixture".to_owned());
     }
-    safety.checkpoint("pw0309_layer28_candidate_complete", true)?;
+    safety.checkpoint("pw0310_layer28_candidate_complete", true)?;
     let layer28_source_vs_candidate_routed =
         numerical_parity(&candidate_execution.output, &route.native_source_routed_f32)?;
     let source_layer28_final = reconstruct_final(&post_attention, &route.native_source_routed_f32)?;
@@ -6439,7 +6471,7 @@ pub fn run_k4_source_layer28_tail_overlay(
     drop(runtime);
     drop(bundle);
     checkpoint.release_file_pages()?;
-    safety.checkpoint("pw0309_layer28_resources_released", true)?;
+    safety.checkpoint("pw0310_layer28_resources_released", true)?;
 
     let control = execute_k4_source_tail_branch(
         &checkpoint,
@@ -6456,7 +6488,7 @@ pub fn run_k4_source_layer28_tail_overlay(
         "candidate",
     )?;
     if control.layers.len() != 19 || candidate.layers.len() != 19 {
-        return Err("PW-0309 tail layer count mismatch".to_owned());
+        return Err("PW-0310 tail layer count mismatch".to_owned());
     }
     let tail_layers = control
         .layers
@@ -6464,7 +6496,7 @@ pub fn run_k4_source_layer28_tail_overlay(
         .zip(&candidate.layers)
         .map(|(control, candidate)| {
             if control.layer != candidate.layer {
-                return Err("PW-0309 paired tail layer identity mismatch".to_owned());
+                return Err("PW-0310 paired tail layer identity mismatch".to_owned());
             }
             let maximum_route_weight_absolute_error = control
                 .weights
@@ -6491,13 +6523,13 @@ pub fn run_k4_source_layer28_tail_overlay(
         && distribution.projected_top20_jsd_nats <= 0.01
         && distribution.source_top20_candidate_overlap >= 18;
     checkpoint.release_file_pages()?;
-    safety.checkpoint("pw0309_final_release", true)?;
+    safety.checkpoint("pw0310_final_release", true)?;
     let process_disk_bytes_read = process_disk_bytes_read()?
         .checked_sub(disk_bytes_read_before)
-        .ok_or("PW-0309 process disk byte counter moved backwards")?;
+        .ok_or("PW-0310 process disk byte counter moved backwards")?;
     let report = K4SourceTailOverlayReport {
-        schema_version: 1,
-        semantic: "prismwing_modified_k4_source_layer28_to_logits_causal_overlay",
+        schema_version: 2,
+        semantic: "prismwing_modified_k4_source_live_route_gated_layer28_to_logits_causal_overlay",
         revision: REVISION,
         commit: commit.to_owned(),
         exactness_class: "L3_modified_weights",
@@ -6514,6 +6546,11 @@ pub fn run_k4_source_layer28_tail_overlay(
         bundle_manifest_sha256: BUNDLE_MANIFEST_SHA256.to_owned(),
         checkpoint_verification_sha256,
         layer28_moe_input_bitexact,
+        layer28_live_router_experts,
+        layer28_live_router_weights,
+        layer28_live_route_experts_exact,
+        layer28_live_route_maximum_weight_absolute_error,
+        layer28_route_ledger: layer28_ledger,
         layer28_candidate_routed_bitexact,
         layer28_source_vs_candidate_routed,
         layer28_source_vs_candidate_final,
@@ -6543,12 +6580,12 @@ pub fn run_k4_source_layer28_tail_overlay(
         safety_snapshots: safety.snapshots,
         performance_claim: None,
         status: if distribution_probe_passed {
-            "modified_frozen_route_tail_distribution_gates_pass"
+            "modified_live_route_gated_tail_distribution_gates_pass"
         } else {
-            "modified_frozen_route_tail_distribution_gates_fail"
+            "modified_live_route_gated_tail_distribution_gates_fail"
         },
         claims_excluded: [
-            "routes_other_than_frozen_layer28_position0",
+            "routes_other_than_the_authenticated_bundle_identity_set",
             "ordinary_prompt_to_token_execution",
             "accepted_token_tps_or_A_over_U",
             "full_bank_acquisition_or_cache_behavior",

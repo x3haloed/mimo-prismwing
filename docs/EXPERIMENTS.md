@@ -1553,6 +1553,12 @@ Run the following cheap falsifiers in order:
    error, 20/20 top-set overlap, and `0.000493366` projected JSD. Retain only a
    conditional frozen-route L3 fallback and authorize live-routing work; no
    endpoint TPS or throughput constant is promoted.
+16. [PW-0310](../experiments/PW-0310-k4-source-live-route-gate.md) requires the
+   installed source router to derive layer 28's expert IDs and weights from the
+   authenticated hidden state before the K4/source transaction may execute.
+   The fixed bundle remains eligible only for its exact eight-expert identity
+   set; every unsupported route fails closed. This is a causal integration
+   gate, not an arbitrary-route bank or an endpoint-TPS claim.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
