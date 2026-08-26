@@ -47,8 +47,10 @@ def sha256_file(path: Path) -> str:
 
 
 def array_sha256(value: np.ndarray) -> str:
-    array = np.asarray(value)
+    array = np.ascontiguousarray(value)
     digest = hashlib.sha256()
+    digest.update(str(array.dtype).encode())
+    digest.update(str(tuple(array.shape)).encode())
     digest.update(array.tobytes(order="C"))
     return digest.hexdigest()
 
@@ -357,7 +359,7 @@ def reproduce(
             torch.mps.empty_cache()
 
         status = "one_expert_payload_bit_exact"
-        decision = "authorize_arbitrary_expert_constructor_generalization"
+        decision = "authorize_held_out_expert_construction"
     except (
         FileNotFoundError,
         HostSafetyViolation,

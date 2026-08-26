@@ -3,7 +3,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
+import numpy as np
+
 from tools.reproduce_pw0311_k4_expert import (
+    array_sha256,
     compare_projection_directory,
     select_reference_slot,
     sha256_file,
@@ -11,6 +14,15 @@ from tools.reproduce_pw0311_k4_expert import (
 
 
 class Pw0311K4ExpertReproductionTests(unittest.TestCase):
+    def test_array_authority_includes_dtype_and_shape(self):
+        value = np.asarray([[1.0, 2.0]], dtype=np.float32)
+        self.assertEqual(
+            array_sha256(value),
+            "7a164e75acdd3efe475392a0e54792396713720bce9617d4015cd2a251ca2880",
+        )
+        self.assertNotEqual(array_sha256(value), array_sha256(value.reshape(2)))
+        self.assertNotEqual(array_sha256(value), array_sha256(value.astype(np.float64)))
+
     def test_reference_slot_fails_closed_on_unknown_or_duplicate_expert(self):
         projection_reports = {name: {} for name in ("gate", "up", "down")}
         report = {"slots": [{"expert": 114, "projection_reports": projection_reports}]}
