@@ -6,6 +6,8 @@ use super::{
     sha256_hex, sha256_reader, stable_rms_inverse, validate_fp8_views,
     validate_prevalidated_fp8_views, write_create_new,
 };
+use crate::k4_source_bundle::K4SourceLayerBundle;
+use crate::k4_source_metal::K4SourceMetalRuntime;
 use crate::pressure_residency::{
     DarwinMemoryPressureObserver, DeclaredResidencyManifest, DeclaredResidentObject,
     PRESSURE_WARNING, PageAlignedResidentObject, PressureEvent, PressureResidencyController,
@@ -567,6 +569,62 @@ pub struct MetalIncrementalTextReport {
     pub implementation: &'static str,
     pub promotion_gates_passed: bool,
     pub status: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct K4SourceTailLayerParity {
+    pub layer: usize,
+    pub selected_experts_exact: bool,
+    pub maximum_route_weight_absolute_error: f32,
+    pub hidden: NumericalParity,
+    pub control_wall_ms: f64,
+    pub candidate_wall_ms: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct K4SourceTailOverlayReport {
+    pub schema_version: u32,
+    pub semantic: &'static str,
+    pub revision: &'static str,
+    pub commit: String,
+    pub exactness_class: &'static str,
+    pub origin_record_sha256: String,
+    pub capture_provenance_sha256: String,
+    pub post_attention_sha256: String,
+    pub route_fixture_sha256: String,
+    pub bundle_sha256: String,
+    pub bundle_manifest_sha256: String,
+    pub checkpoint_verification_sha256: String,
+    pub layer28_moe_input_bitexact: bool,
+    pub layer28_candidate_routed_bitexact: bool,
+    pub layer28_source_vs_candidate_routed: NumericalParity,
+    pub layer28_source_vs_candidate_final: NumericalParity,
+    pub layer28_candidate_wall_ms: f64,
+    pub layer28_candidate_gpu_ms: f64,
+    pub tail_layers: Vec<K4SourceTailLayerParity>,
+    pub final_norm: NumericalParity,
+    pub logits: NumericalParity,
+    pub source_argmax_token_id: u32,
+    pub candidate_argmax_token_id: u32,
+    pub source_chosen_token_absolute_logprob_error_nats: f64,
+    pub source_top20_candidate_overlap: usize,
+    pub top20_token_identity: bool,
+    pub projected_top20_jsd_nats: f64,
+    pub distribution_probe_passed: bool,
+    pub control_ledger: EndpointLedger,
+    pub candidate_ledger: EndpointLedger,
+    pub process_disk_bytes_read: u64,
+    pub control_tail_wall_ms: f64,
+    pub candidate_tail_wall_ms: f64,
+    pub complete_wall_ms: f64,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub accepted_tokens: usize,
+    pub cache_state: &'static str,
+    pub safety_snapshots: Vec<SafetySnapshot>,
+    pub performance_claim: Option<String>,
+    pub status: &'static str,
+    pub claims_excluded: [&'static str; 7],
 }
 
 #[derive(Debug, Serialize)]
@@ -6069,6 +6127,423 @@ pub fn run_slow_text_endpoint(
     };
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;
+    Ok(report)
+}
+
+#[derive(Debug, Deserialize)]
+struct K4SourceTailOriginRecord {
+    id: String,
+    text: String,
+    text_sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct K4SourceTailRouteFixture {
+    schema_version: u32,
+    semantic: String,
+    layer: usize,
+    input_f32: Vec<f32>,
+    candidate_routed_f32: Vec<f32>,
+    candidate_routed_sha256: String,
+    native_source_routed_f32: Vec<f32>,
+    native_source_routed_sha256: String,
+    native_router_experts: Vec<u32>,
+    native_router_weights: Vec<f32>,
+}
+
+struct K4SourceTailLayerState {
+    layer: usize,
+    hidden: Vec<f32>,
+    selected: Vec<u32>,
+    weights: Vec<f32>,
+    wall_ms: f64,
+}
+
+struct K4SourceTailState {
+    layers: Vec<K4SourceTailLayerState>,
+    final_norm: Vec<f32>,
+    logits: Vec<f32>,
+    ledger: EndpointLedger,
+    wall_ms: f64,
+}
+
+fn execute_k4_source_tail_branch(
+    checkpoint: &Checkpoint,
+    config: &ModelConfig,
+    mut hidden: Vec<f32>,
+    safety: &mut SafetyMonitor,
+    branch: &str,
+) -> Result<K4SourceTailState, String> {
+    if hidden.len() != HIDDEN || hidden.iter().any(|value| !value.is_finite()) {
+        return Err(format!("PW-0309 {branch} initial hidden state mismatch"));
+    }
+    let started = Instant::now();
+    let mut ledger = EndpointLedger::for_checkpoint(checkpoint);
+    let mut layers = Vec::with_capacity(19);
+    for layer in 29..48 {
+        let layer_started = Instant::now();
+        let prefix = format!("model.layers.{layer}");
+        let input_norm = bf16_vector(
+            checkpoint,
+            &format!("{prefix}.input_layernorm.weight"),
+            HIDDEN,
+            &mut ledger,
+        )?;
+        let normalized = rms_norm(&hidden, 1, &input_norm, config.layernorm_epsilon)?;
+        let mut cache = LayerKvCache::default();
+        let attention_output = attention(
+            checkpoint,
+            config,
+            layer,
+            &normalized,
+            1,
+            &mut cache,
+            &mut ledger,
+            None,
+            None,
+            None,
+        )?;
+        if cache.positions != 1 || cache.validate().is_err() {
+            return Err(format!("PW-0309 {branch} layer {layer} K/V cache mismatch"));
+        }
+        let post_attention = hidden
+            .iter()
+            .zip(attention_output)
+            .map(|(&residual, projected)| round_bf16(residual + projected))
+            .collect::<Vec<_>>();
+        let post_norm = bf16_vector(
+            checkpoint,
+            &format!("{prefix}.post_attention_layernorm.weight"),
+            HIDDEN,
+            &mut ledger,
+        )?;
+        let moe_input = rms_norm(&post_attention, 1, &post_norm, config.layernorm_epsilon)?;
+        let routed = routed_mlp(checkpoint, layer, &moe_input, 1, &mut ledger)?;
+        if routed.selected.len() != 1
+            || routed.weights.len() != 1
+            || routed.selected[0].len() != TOP_K
+            || routed.weights[0].len() != TOP_K
+        {
+            return Err(format!(
+                "PW-0309 {branch} layer {layer} route shape mismatch"
+            ));
+        }
+        hidden = post_attention
+            .iter()
+            .zip(&routed.output)
+            .map(|(&residual, &projected)| round_bf16(residual + projected))
+            .collect();
+        checkpoint.release_file_pages()?;
+        safety.checkpoint(&format!("pw0309_{branch}_layer_{layer}_complete"), true)?;
+        layers.push(K4SourceTailLayerState {
+            layer,
+            hidden: hidden.clone(),
+            selected: routed.selected[0].clone(),
+            weights: routed.weights[0].clone(),
+            wall_ms: layer_started.elapsed().as_secs_f64() * 1000.0,
+        });
+    }
+    let final_norm_weight = bf16_vector(checkpoint, "model.norm.weight", HIDDEN, &mut ledger)?;
+    let final_norm = rms_norm(&hidden, 1, &final_norm_weight, config.layernorm_epsilon)?;
+    let logits = bf16_linear(
+        checkpoint,
+        "lm_head.weight",
+        &final_norm,
+        1,
+        HIDDEN,
+        config.vocab_size,
+        &mut ledger,
+    )?;
+    checkpoint.release_file_pages()?;
+    safety.checkpoint(&format!("pw0309_{branch}_logits_complete"), true)?;
+    Ok(K4SourceTailState {
+        layers,
+        final_norm,
+        logits,
+        ledger,
+        wall_ms: started.elapsed().as_secs_f64() * 1000.0,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_k4_source_layer28_tail_overlay(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    origin_record_path: &Path,
+    capture_provenance_path: &Path,
+    post_attention_path: &Path,
+    bundle_path: &Path,
+    bundle_manifest_path: &Path,
+    route_fixture_path: &Path,
+    kernel_root: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<K4SourceTailOverlayReport, String> {
+    const ORIGIN_RECORD_SHA256: &str =
+        "40367aac70920fa35c81dac80005abb8e5f8ae83051b3024a03bc1a291b58cdb";
+    const ORIGIN_TEXT_SHA256: &str =
+        "fa8614ba59817de170bfc72d1cb65f1352811c274870d6f67ea2c058d4c8110b";
+    const CAPTURE_PROVENANCE_SHA256: &str =
+        "9231014694c983f53e4e776f016fac945ccb2bdf5f7bc5e8108222aa2b2e189f";
+    const POST_ATTENTION_SHA256: &str =
+        "e585e851d1b5651717293d4f287f56c804b6435529b58cd85da7c86c2d168ffd";
+    const ROUTE_FIXTURE_SHA256: &str =
+        "05439a232c2002530002d95ac29831b38a5c74b1049903406747620b3ce4f64e";
+    const BUNDLE_SHA256: &str = "1851c1fe713abce8e6583908937ca831ed591c4abc23517511ff7624f3f9294c";
+    const BUNDLE_MANIFEST_SHA256: &str =
+        "86e486d4cc3fcad237b504ffbd6d276ed7c53688f44709f7bc5c5a334479555b";
+    const CANDIDATE_ROUTED_SHA256: &str =
+        "6b7b0459c75aa1885009a44c31b4653e405d30921e6a6c85a8192516aaf55104";
+    const SOURCE_ROUTED_SHA256: &str =
+        "d0d3cffc1b8eac5ba35e58b5a99af56a0a31afbc1e75732cb4dd61c0d40b954d";
+
+    if output_path.exists() {
+        return Err(format!("refusing to overwrite {}", output_path.display()));
+    }
+    if commit.len() != 40
+        || !commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err("PW-0309 commit must be lowercase 40-hex".to_owned());
+    }
+    let git_head = command_output("/usr/bin/git", &["rev-parse", "HEAD"])?;
+    let git_status = command_output("/usr/bin/git", &["status", "--porcelain"])?;
+    if git_head.trim() != commit || !git_status.is_empty() {
+        return Err("PW-0309 evidence requires exact clean Git HEAD".to_owned());
+    }
+    let complete_started = Instant::now();
+    let disk_bytes_read_before = process_disk_bytes_read()?;
+    if hash_file(model_lock_path)? != MODEL_LOCK_SHA256
+        || hash_file(origin_record_path)? != ORIGIN_RECORD_SHA256
+        || hash_file(capture_provenance_path)? != CAPTURE_PROVENANCE_SHA256
+        || hash_file(post_attention_path)? != POST_ATTENTION_SHA256
+        || hash_file(route_fixture_path)? != ROUTE_FIXTURE_SHA256
+        || hash_file(bundle_path)? != BUNDLE_SHA256
+        || hash_file(bundle_manifest_path)? != BUNDLE_MANIFEST_SHA256
+    {
+        return Err("PW-0309 content authority hash mismatch".to_owned());
+    }
+    let origin: K4SourceTailOriginRecord = serde_json::from_reader(
+        File::open(origin_record_path)
+            .map_err(|error| format!("{}: {error}", origin_record_path.display()))?,
+    )
+    .map_err(|error| format!("PW-0309 origin record: {error}"))?;
+    if origin.id != "aggregate-code-07"
+        || origin.text_sha256 != ORIGIN_TEXT_SHA256
+        || sha256_hex(origin.text.as_bytes()) != ORIGIN_TEXT_SHA256
+    {
+        return Err("PW-0309 origin text identity mismatch".to_owned());
+    }
+    let provenance: Value = serde_json::from_reader(
+        File::open(capture_provenance_path)
+            .map_err(|error| format!("{}: {error}", capture_provenance_path.display()))?,
+    )
+    .map_err(|error| format!("PW-0309 capture provenance: {error}"))?;
+    if provenance["record"]["id"] != "aggregate-code-07"
+        || provenance["record"]["text_sha256"] != ORIGIN_TEXT_SHA256
+        || provenance["record"]["captured_position"] != 0
+        || provenance["position_zero"]["post_attention_sha256"] != POST_ATTENTION_SHA256
+        || provenance["position_zero"]["moe_input_sha256"]
+            != "05a9a3e311a775cda46a343ca0828338c78b96d3a4755d098794a291473b63dd"
+    {
+        return Err("PW-0309 capture provenance semantic mismatch".to_owned());
+    }
+    let route_bytes = fs::read(route_fixture_path)
+        .map_err(|error| format!("{}: {error}", route_fixture_path.display()))?;
+    let route: K4SourceTailRouteFixture = serde_json::from_slice(&route_bytes)
+        .map_err(|error| format!("PW-0309 route fixture: {error}"))?;
+    if route.schema_version != 1
+        || route.semantic != "pw0424_layer28_three_k4_five_source_native_fixture"
+        || route.layer != 28
+        || route.input_f32.len() != HIDDEN
+        || route.candidate_routed_f32.len() != HIDDEN
+        || route.native_source_routed_f32.len() != HIDDEN
+        || route.native_router_experts.len() != TOP_K
+        || route.native_router_weights.len() != TOP_K
+        || route.candidate_routed_sha256 != CANDIDATE_ROUTED_SHA256
+        || route.native_source_routed_sha256 != SOURCE_ROUTED_SHA256
+        || sha256_hex(&f32_le_bytes(&route.candidate_routed_f32)) != CANDIDATE_ROUTED_SHA256
+        || sha256_hex(&f32_le_bytes(&route.native_source_routed_f32)) != SOURCE_ROUTED_SHA256
+        || route
+            .input_f32
+            .iter()
+            .chain(&route.candidate_routed_f32)
+            .chain(&route.native_source_routed_f32)
+            .chain(&route.native_router_weights)
+            .any(|value| !value.is_finite())
+    {
+        return Err("PW-0309 route fixture semantic mismatch".to_owned());
+    }
+    let (_, post_attention) = read_f32_file(post_attention_path, Some(HIDDEN))?;
+    let (checkpoint, _, config, _, _, _, mut safety, checkpoint_verification_sha256) =
+        open_arbitrary_text_authority(
+            checkpoint_root,
+            model_lock_path,
+            verification_path,
+            &origin.text,
+        )?;
+    let mut layer28_ledger = EndpointLedger::for_checkpoint(&checkpoint);
+    let post_norm = bf16_vector(
+        &checkpoint,
+        "model.layers.28.post_attention_layernorm.weight",
+        HIDDEN,
+        &mut layer28_ledger,
+    )?;
+    let recomputed_input = rms_norm(&post_attention, 1, &post_norm, config.layernorm_epsilon)?;
+    let layer28_moe_input_bitexact =
+        f32_le_bytes(&recomputed_input) == f32_le_bytes(&route.input_f32);
+    if !layer28_moe_input_bitexact {
+        return Err(
+            "PW-0309 residual did not reproduce the captured layer-28 MoE input".to_owned(),
+        );
+    }
+    safety.checkpoint("pw0309_layer28_input_authenticated", true)?;
+
+    let bundle = K4SourceLayerBundle::open(bundle_path, bundle_manifest_path)?;
+    let runtime = K4SourceMetalRuntime::compile(kernel_root)?;
+    let candidate_execution = runtime.execute(
+        &bundle,
+        &route.input_f32,
+        &route.native_router_experts,
+        &route.native_router_weights,
+    )?;
+    let layer28_candidate_routed_bitexact =
+        f32_le_bytes(&candidate_execution.output) == f32_le_bytes(&route.candidate_routed_f32);
+    if !layer28_candidate_routed_bitexact {
+        return Err("PW-0309 Metal candidate diverged from the authenticated fixture".to_owned());
+    }
+    safety.checkpoint("pw0309_layer28_candidate_complete", true)?;
+    let layer28_source_vs_candidate_routed =
+        numerical_parity(&candidate_execution.output, &route.native_source_routed_f32)?;
+    let source_layer28_final = reconstruct_final(&post_attention, &route.native_source_routed_f32)?;
+    let candidate_layer28_final = reconstruct_final(&post_attention, &candidate_execution.output)?;
+    let layer28_source_vs_candidate_final =
+        numerical_parity(&candidate_layer28_final, &source_layer28_final)?;
+    let layer28_candidate_wall_ms = candidate_execution.wall_ms;
+    let layer28_candidate_gpu_ms = candidate_execution.gpu_ms;
+    drop(candidate_execution);
+    drop(runtime);
+    drop(bundle);
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("pw0309_layer28_resources_released", true)?;
+
+    let control = execute_k4_source_tail_branch(
+        &checkpoint,
+        &config,
+        source_layer28_final,
+        &mut safety,
+        "control",
+    )?;
+    let candidate = execute_k4_source_tail_branch(
+        &checkpoint,
+        &config,
+        candidate_layer28_final,
+        &mut safety,
+        "candidate",
+    )?;
+    if control.layers.len() != 19 || candidate.layers.len() != 19 {
+        return Err("PW-0309 tail layer count mismatch".to_owned());
+    }
+    let tail_layers = control
+        .layers
+        .iter()
+        .zip(&candidate.layers)
+        .map(|(control, candidate)| {
+            if control.layer != candidate.layer {
+                return Err("PW-0309 paired tail layer identity mismatch".to_owned());
+            }
+            let maximum_route_weight_absolute_error = control
+                .weights
+                .iter()
+                .zip(&candidate.weights)
+                .map(|(&left, &right)| (left - right).abs())
+                .fold(0.0_f32, f32::max);
+            Ok(K4SourceTailLayerParity {
+                layer: control.layer,
+                selected_experts_exact: control.selected == candidate.selected,
+                maximum_route_weight_absolute_error,
+                hidden: numerical_parity(&candidate.hidden, &control.hidden)?,
+                control_wall_ms: control.wall_ms,
+                candidate_wall_ms: candidate.wall_ms,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let final_norm = numerical_parity(&candidate.final_norm, &control.final_norm)?;
+    let logits = numerical_parity(&candidate.logits, &control.logits)?;
+    let distribution = distribution_probe_metrics(&control.logits, &candidate.logits)?;
+    let distribution_probe_passed = distribution.source_argmax_token_id
+        == distribution.candidate_argmax_token_id
+        && distribution.source_chosen_token_absolute_logprob_error_nats <= 0.08
+        && distribution.projected_top20_jsd_nats <= 0.01
+        && distribution.source_top20_candidate_overlap >= 18;
+    checkpoint.release_file_pages()?;
+    safety.checkpoint("pw0309_final_release", true)?;
+    let process_disk_bytes_read = process_disk_bytes_read()?
+        .checked_sub(disk_bytes_read_before)
+        .ok_or("PW-0309 process disk byte counter moved backwards")?;
+    let report = K4SourceTailOverlayReport {
+        schema_version: 1,
+        semantic: "prismwing_modified_k4_source_layer28_to_logits_causal_overlay",
+        revision: REVISION,
+        commit: commit.to_owned(),
+        exactness_class: "L3_modified_weights",
+        origin_record_sha256: ORIGIN_RECORD_SHA256.to_owned(),
+        capture_provenance_sha256: CAPTURE_PROVENANCE_SHA256.to_owned(),
+        post_attention_sha256: POST_ATTENTION_SHA256.to_owned(),
+        route_fixture_sha256: ROUTE_FIXTURE_SHA256.to_owned(),
+        bundle_sha256: BUNDLE_SHA256.to_owned(),
+        bundle_manifest_sha256: BUNDLE_MANIFEST_SHA256.to_owned(),
+        checkpoint_verification_sha256,
+        layer28_moe_input_bitexact,
+        layer28_candidate_routed_bitexact,
+        layer28_source_vs_candidate_routed,
+        layer28_source_vs_candidate_final,
+        layer28_candidate_wall_ms,
+        layer28_candidate_gpu_ms,
+        tail_layers,
+        final_norm,
+        logits,
+        source_argmax_token_id: distribution.source_argmax_token_id,
+        candidate_argmax_token_id: distribution.candidate_argmax_token_id,
+        source_chosen_token_absolute_logprob_error_nats: distribution
+            .source_chosen_token_absolute_logprob_error_nats,
+        source_top20_candidate_overlap: distribution.source_top20_candidate_overlap,
+        top20_token_identity: distribution.top20_token_identity,
+        projected_top20_jsd_nats: distribution.projected_top20_jsd_nats,
+        distribution_probe_passed,
+        control_ledger: control.ledger,
+        candidate_ledger: candidate.ledger,
+        process_disk_bytes_read,
+        control_tail_wall_ms: control.wall_ms,
+        candidate_tail_wall_ms: candidate.wall_ms,
+        complete_wall_ms: complete_started.elapsed().as_secs_f64() * 1000.0,
+        batch_size: 1,
+        concurrency: 1,
+        accepted_tokens: 0,
+        cache_state: "cold process; verified SSD checkpoint mmap; paired control then candidate; source pages released at every layer; authenticated K4 bundle mapped no-copy",
+        safety_snapshots: safety.snapshots,
+        performance_claim: None,
+        status: if distribution_probe_passed {
+            "modified_frozen_route_tail_distribution_gates_pass"
+        } else {
+            "modified_frozen_route_tail_distribution_gates_fail"
+        },
+        claims_excluded: [
+            "routes_other_than_frozen_layer28_position0",
+            "ordinary_prompt_to_token_execution",
+            "accepted_token_tps_or_A_over_U",
+            "full_bank_acquisition_or_cache_behavior",
+            "multimodal_or_hosted_reference_equivalence",
+            "sixty_minute_stability",
+            "TARGET.md_completion",
+        ],
+    };
+    write_create_new(
+        output_path,
+        &serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?,
+    )?;
     Ok(report)
 }
 
@@ -13647,6 +14122,29 @@ mod tests {
             .map(|(&left, &right)| round_bf16(left + right))
             .collect::<Vec<_>>();
         assert_eq!(f32_le_bytes(&final_hidden), f32_le_bytes(&expected_final));
+    }
+
+    #[test]
+    fn k4_source_tail_overlay_preserves_the_source_bf16_consumer_boundary() {
+        let post_attention = (0..HIDDEN)
+            .map(|index| round_bf16((index as f32 - 2048.0) / 1024.0))
+            .collect::<Vec<_>>();
+        let source_routed = (0..HIDDEN)
+            .map(|index| round_bf16((index % 31) as f32 / 127.0))
+            .collect::<Vec<_>>();
+        let mut candidate_routed = source_routed.clone();
+        candidate_routed[17] = round_bf16(candidate_routed[17] + 1.0);
+        let source = reconstruct_final(&post_attention, &source_routed).expect("source final");
+        let candidate =
+            reconstruct_final(&post_attention, &candidate_routed).expect("candidate final");
+        let expected_source = post_attention
+            .iter()
+            .zip(&source_routed)
+            .map(|(&residual, &projected)| round_bf16(residual + projected))
+            .collect::<Vec<_>>();
+        assert_eq!(f32_le_bytes(&source), f32_le_bytes(&expected_source));
+        assert_ne!(f32_le_bytes(&candidate), f32_le_bytes(&source));
+        assert!(reconstruct_final(&post_attention[..HIDDEN - 1], &source_routed).is_err());
     }
 
     #[test]

@@ -42,8 +42,8 @@ use prismwing::{
 };
 #[cfg(target_os = "macos")]
 use prismwing::{
-    run_k4_source_metal_layer_fixture, run_k4_source_metal_repeated_fixture,
-    verify_k4_source_layer_bundle,
+    run_k4_source_layer28_tail_overlay, run_k4_source_metal_layer_fixture,
+    run_k4_source_metal_repeated_fixture, verify_k4_source_layer_bundle,
 };
 use std::fs::OpenOptions;
 use std::path::PathBuf;
@@ -270,6 +270,10 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing run-k4-source-metal-47-layer-fixture <bundle.bin> <bundle-manifest.json> <fixture.json> <kernel-dir> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing run-k4-source-layer28-tail-overlay <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <origin-record.json> <capture-provenance.json> <post-attention.f32> <bundle.bin> <bundle-manifest.json> <route-fixture.json> <kernel-dir> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -1061,6 +1065,40 @@ fn main() {
                 &kernels,
                 &output,
                 &arguments[7],
+            )
+            .and_then(|report| {
+                serde_json::to_writer(std::io::stdout(), &report)
+                    .map_err(|error| error.to_string())?;
+                println!();
+                Ok(Some(output))
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("run-k4-source-layer28-tail-overlay") if arguments.len() == 14 => {
+            let checkpoint = PathBuf::from(&arguments[2]);
+            let model_lock = PathBuf::from(&arguments[3]);
+            let verification = PathBuf::from(&arguments[4]);
+            let origin_record = PathBuf::from(&arguments[5]);
+            let capture_provenance = PathBuf::from(&arguments[6]);
+            let post_attention = PathBuf::from(&arguments[7]);
+            let bundle = PathBuf::from(&arguments[8]);
+            let bundle_manifest = PathBuf::from(&arguments[9]);
+            let route_fixture = PathBuf::from(&arguments[10]);
+            let kernels = PathBuf::from(&arguments[11]);
+            let output = PathBuf::from(&arguments[12]);
+            run_k4_source_layer28_tail_overlay(
+                &checkpoint,
+                &model_lock,
+                &verification,
+                &origin_record,
+                &capture_provenance,
+                &post_attention,
+                &bundle,
+                &bundle_manifest,
+                &route_fixture,
+                &kernels,
+                &output,
+                &arguments[13],
             )
             .and_then(|report| {
                 serde_json::to_writer(std::io::stdout(), &report)
