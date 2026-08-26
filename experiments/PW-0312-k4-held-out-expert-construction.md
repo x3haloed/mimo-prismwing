@@ -40,6 +40,26 @@ unchanged.
    software, and commit. Construction time is diagnostic and accepts zero
    tokens.
 
+## Open prediction error
+
+Expected: expert 41 would reproduce bit for bit when constructed independently
+with the authenticated inputs and seeds.
+
+Observed: two fresh M1 processes deterministically produce the same gate
+payload, but it differs from the M4 authority in 681 of 2,097,152 packed words.
+The decoded candidates have relative L2 `0.002102904`; source-derived signs,
+global scale, and validation input remain exact. The first failed report hashes
+to `c600db1eaaef99e9a02713a7a9bb3d57de29afe551044f2cbbdf3ba551173d3c`;
+the byte-identical repeat report hashes to
+`adaf3ed22f501650ba8da3ec887bc3d701ddf1edbf4457948d53434ac002f96b`.
+
+Uncertain: whether QTIP/MPS construction depends on the preceding panel
+sequence or differs across M1 and M4 for weight-dependent numerical boundary
+cases. PW-0312 therefore pauses expert 199 and first replays expert 114 before
+constructing expert 188 in its original slot. A match attributes the discrepancy
+to omitted prefix state; a mismatch leaves cross-device arithmetic as the
+remaining live mechanism and kills payload-independent bank reconstruction.
+
 ## Decision rule
 
 - If both held-out experts reproduce bit for bit and pass Gate 8, authorize one

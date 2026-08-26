@@ -8,6 +8,7 @@ import numpy as np
 from tools.reproduce_pw0311_k4_expert import (
     array_sha256,
     compare_projection_directory,
+    panel_prefix,
     select_reference_slot,
     sha256_file,
 )
@@ -32,6 +33,14 @@ class Pw0311K4ExpertReproductionTests(unittest.TestCase):
         report["slots"].append({"expert": 114, "projection_reports": projection_reports})
         with self.assertRaisesRegex(ValueError, "exactly one"):
             select_reference_slot(report, 114)
+
+    def test_panel_prefix_replays_only_authenticated_predecessors(self):
+        self.assertEqual(panel_prefix(114, True), ())
+        self.assertEqual(panel_prefix(188, True), (114,))
+        self.assertEqual(panel_prefix(41, True), (114, 188, 93, 199, 248))
+        self.assertEqual(panel_prefix(41, False), ())
+        with self.assertRaisesRegex(ValueError, "outside the authenticated"):
+            panel_prefix(117, True)
 
     def test_projection_tree_requires_every_byte_to_match(self):
         with tempfile.TemporaryDirectory() as directory:

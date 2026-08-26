@@ -27,7 +27,8 @@ except ModuleNotFoundError:
     from openrouter_reference import atomic_write_new, canonical_json
 
 
-EXPERIMENT_ID = "PW-0311"
+DEFAULT_EXPERIMENT_ID = "PW-0311"
+EXPERIMENT_IDS = ("PW-0311", "PW-0312")
 PANEL_CONTRACT_SHA256 = "dddcafc5cbac96246c62e401d6eed00706595a2918ef01b97e03fa3047280258"
 PANEL_EXPORT_SHA256 = "054c5fd41031ab91b234e7817864db9af0d3b8756ec189186ed1f2a67c5a51a5"
 SOURCE_MANIFEST_SHA256 = "c567a637e643476820ed07960385a9de84010ab48d9428441a08a84687b29ac8"
@@ -127,6 +128,14 @@ def select_reference_slot(report: dict[str, Any], expert: int) -> dict[str, Any]
     return slots[0]
 
 
+def panel_prefix(expert: int, replay: bool) -> tuple[int, ...]:
+    if expert not in SUPPORTED_EXPERTS:
+        raise ValueError(f"expert {expert} is outside the authenticated PW-0352 panel")
+    if not replay:
+        return ()
+    return SUPPORTED_EXPERTS[: SUPPORTED_EXPERTS.index(expert)]
+
+
 def compare_projection_directory(
     candidate: Path,
     reference: Path,
@@ -183,6 +192,8 @@ def reproduce(
     expert: int,
     repo: Path,
     commit: str,
+    replay_panel_prefix: bool = False,
+    experiment_id: str = DEFAULT_EXPERIMENT_ID,
 ) -> dict[str, Any]:
     if output.exists():
         raise FileExistsError(output)
@@ -196,6 +207,10 @@ def reproduce(
     paths = authority_paths(authority_root.resolve())
     report_path = output / "reproduction.json"
     authority: dict[str, Any] = {}
+    replayed_experts: list[int] = []
+
+    if experiment_id not in EXPERIMENT_IDS:
+        raise ValueError(f"unsupported experiment id: {experiment_id}")
 
     try:
         verify_clean_commit(repo.resolve(), commit)
@@ -268,8 +283,62 @@ def reproduce(
         phase = "calibration_loaded"
         safety.checkpoint(phase)
 
-        prefix = f"model.layers.{layer}.mlp.experts.{expert}"
+        replay_experts = panel_prefix(expert, replay_panel_prefix)
         with modules["checkpoint"].Checkpoint(paths["source_checkpoint"]) as checkpoint:
+            for replay_expert in replay_experts:
+                replay_prefix = f"model.layers.{layer}.mlp.experts.{replay_expert}"
+                replay_exact = {
+                    name: checkpoint.read_dequantized_fp8(f"{replay_prefix}.{name}_proj.weight")
+                    for name in NAMES
+                }
+                replay_calibration = {
+                    "gate": fit_x,
+                    "up": fit_x,
+                    "down": modules["activation"]._staged_activations(
+                        fit_x,
+                        replay_exact["gate"],
+                        replay_exact["up"],
+                    ),
+                }
+                for index, name in enumerate(NAMES):
+                    replay_result = modules["export"]._quantize(
+                        name,
+                        replay_exact[name],
+                        replay_calibration[name],
+                        int(pilot_contract["seed"]) + index * 1000,
+                        codebook,
+                        settings,
+                        official_ldlq,
+                        official_math,
+                        torch,
+                        device,
+                    )
+                    replay_decoded = modules["export"]._decode_k4(
+                        replay_result["packed"],
+                        tlut,
+                        replay_result["rows"],
+                        replay_result["columns"],
+                        replay_result["scale"],
+                        replay_result["left_sign"],
+                        replay_result["right_sign"],
+                    )
+                    replay_parity = modules["panel"]._metric(
+                        replay_result["candidate"], replay_decoded
+                    )
+                    if replay_parity["relative_l2"] > contract["gates"][
+                        "maximum_independent_decode_relative_l2"
+                    ]:
+                        raise ValueError(f"prefix independent decode mismatch: {replay_expert}.{name}")
+                    del replay_result, replay_decoded
+                    gc.collect()
+                replayed_experts.append(replay_expert)
+                phase = f"prefix_expert_{replay_expert}_replayed"
+                safety.checkpoint(phase)
+                del replay_exact, replay_calibration
+                gc.collect()
+                torch.mps.empty_cache()
+
+            prefix = f"model.layers.{layer}.mlp.experts.{expert}"
             exact = {
                 name: checkpoint.read_dequantized_fp8(f"{prefix}.{name}_proj.weight")
                 for name in NAMES
@@ -399,10 +468,12 @@ def reproduce(
 
     result = {
         "schema_version": 1,
-        "experiment_id": EXPERIMENT_ID,
+        "experiment_id": experiment_id,
         "status": status,
         "decision": decision,
         "expert": expert,
+        "replay_panel_prefix": replay_panel_prefix,
+        "replayed_experts": replayed_experts,
         "exactness_class": "L3 artifact construction; payload reproduction is bit exact",
         "commit": commit,
         "tool_sha256": sha256_file(Path(__file__).resolve()),
@@ -448,6 +519,8 @@ def main() -> int:
     parser.add_argument("--expert", required=True, type=int)
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--replay-panel-prefix", action="store_true")
+    parser.add_argument("--experiment-id", choices=EXPERIMENT_IDS, default=DEFAULT_EXPERIMENT_ID)
     arguments = parser.parse_args()
     try:
         result = reproduce(
@@ -457,6 +530,8 @@ def main() -> int:
             expert=arguments.expert,
             repo=arguments.repo,
             commit=arguments.commit,
+            replay_panel_prefix=arguments.replay_panel_prefix,
+            experiment_id=arguments.experiment_id,
         )
         print(json.dumps({"output": str(arguments.output), "status": result["status"]}))
         return 0 if result["failure"] is None else 1
