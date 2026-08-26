@@ -1576,7 +1576,10 @@ Run the following cheap falsifiers in order:
 18. [PW-0312](../experiments/PW-0312-k4-held-out-expert-construction.md)
    requires untouched experts 41 and 199, sourced from two distinct mini-shards,
    to reproduce payload-for-payload before the constructor may advance to a
-   new-layer artifact.
+   new-layer artifact. Independent expert 41 construction exposed canonical
+   sequence dependence; replaying expert 114 restored complete bit-exact expert
+   188 identity. Held-out tests must therefore bind and replay their
+   authenticated panel prefixes.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

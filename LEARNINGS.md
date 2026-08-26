@@ -4642,3 +4642,20 @@ Promote only held-out same-layer construction tests. Identity independence,
 cross-layer construction, complete-bank coverage, fidelity, capabilities, and
 endpoint TPS remain unproven; no throughput constant or runtime default
 changes.
+
+PW-0312 shows that K4 artifact identity also binds construction sequence. Two
+fresh M1 processes independently constructing panel-slot-5 expert 41 produce
+the same local gate payload, but 681 of 2,097,152 packed words differ from the
+M4 authority (`0.002102904` decoded relative L2) despite exact signs, scale, and
+input. This is not random local instability.
+
+Replaying slot-0 expert 114 before constructing slot-1 expert 188 restores exact
+M4 identity for all three projections: 33 files and 29,993,518 bytes, zero
+independent-decode relative L2. The passing report hashes to
+`8864837afa5f56d25500f08fbd278f2d49a0cc7a9317d497546c8d497cc19b7b`.
+Supersede the assumption that authenticated weights, calibration, seeds, and
+code make each later panel slot independently reproducible. Bind canonical
+construction order or use a separately evidenced sequence-independent backend.
+Promote prefix-replayed held-out tests; kill independent reconstruction of
+later-slot artifact identities. No throughput constant or runtime default
+changes.
