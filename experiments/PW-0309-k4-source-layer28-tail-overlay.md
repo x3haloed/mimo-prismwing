@@ -1,7 +1,7 @@
 # PW-0309 — Modified K4/source layer-28-to-logits causal overlay
 
-- Status: planned
-- Disposition: pending paired control/candidate target-M1 evidence
+- Status: complete
+- Disposition: conditional frozen-route L3 fallback; live-routing embodiment authorized
 - Date: 2026-08-26
 - Owner: Codex
 - Starting commit: `1c7c370069f77f6177ea6a610fedb628e95945ca`
@@ -100,3 +100,50 @@ weakened.
 - multimodal or hosted-reference equivalence;
 - 60-minute stability; and
 - `TARGET.md` completion.
+
+## Result
+
+Raw-002 ran from exact clean commit
+`263962dddabf562337ee480ae32978c630b78f05` on the target 16-GiB Apple M1.
+The result file SHA-256 is
+`5f4de82b4242c5ebecf1b6c4da61ae03863ce8e75e2d0b057ac5b4cfeb5dd1a3`.
+Its compact external manifest hashes to
+`5a48581b00f258667eb09b3fbd1d1278b4b6b50d9b743227da6b7ef6fb28b57b`.
+Raw-001 is preserved as a pre-execution contract failure, SHA-256
+`bbef064d229c84d5a9b9b02165e667e4e84efbb63eeefbc680c13c891853c735`.
+
+The new causal links pass exactly: the residual recomputes all 4,096 captured
+MoE-input F32 bits, and Metal reproduces all 4,096 modified candidate routed
+bits. The source-versus-candidate routed relative L2 is `0.00470168823`; the
+shared BF16 consumer boundary reduces the layer-28 final relative L2 to
+`0.000720244216`.
+
+Drift then compounds nonlinearly. Tail route sets differ at layers 32, 34, 37,
+39, 40, 41, 44, 45, 46, and 47. Layer-47 hidden relative L2 reaches
+`0.0844552885`, final-norm relative L2 `0.120816266`, and full-logit relative L2
+`0.0596321419`. These internal identity metrics fail and must not be described
+as source parity.
+
+The declared external distribution slice nevertheless passes: both branches
+choose token 284, source-token absolute log-probability error is
+`0.005353492` nat, all 20 source top tokens remain in the candidate top 20, and
+projected top-20 JSD is `0.000493366323` nat. Top-20 order is not identical.
+
+The cold control and candidate tails take `58,865.629` and `58,380.442` ms.
+The paired process takes `119,435.677` ms and reads `15,308,759,040` physical
+bytes. Accepted tokens are explicitly zero; this is not endpoint TPS. No
+throughput-model constant changes.
+
+Gate 8 passes across 45 snapshots: minimum free memory is 60%, maximum physical
+footprint 3,386,313,088 bytes, maximum peak RSS 4,340,203,520 bytes, final
+footprint 3,094,595,712 bytes, and swap growth/new throttled pages are both
+zero. Every protected PID set remains stable.
+
+## Decision
+
+Promote only the claim that this one frozen L3 route is downstream-safe under
+the declared distribution slice, and authorize a true live-routing
+embodiment. Do not promote the K4 weights, a runtime default, source-equivalent
+intermediate semantics, accepted-token performance, or a throughput-model
+constant. Generalization remains untested because the missing PW-0424 assembler
+still prevents minting arbitrary K4/source route fixtures.

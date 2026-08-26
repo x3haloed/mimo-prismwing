@@ -160,6 +160,13 @@ The construction order follows the least-proven boundaries:
   result authorizes only a complete-endpoint layer-28 overlay experiment, not a
   production default, distinct-layer decoder claim, cache claim, or TPS
   authority.
+- PW-0309 extends that one frozen route from the authenticated layer-28
+  post-attention residual through source-weight layers 29–47, final norm, and
+  logits. It preserves neither later hidden states nor routes: ten later route
+  sets change and layer-47 hidden relative L2 reaches `0.0844553`. The named
+  distribution slice still passes with the same argmax and `0.000493366`
+  projected top-20 JSD. This authorizes a live-routing L3 experiment, not a
+  source-equivalent architecture, K4 default, or throughput claim.
 
 Every unknown schema, revision, tensor, shape, layout, provider, or runtime mode
 fails closed. Compatibility paths require an explicit external reason and

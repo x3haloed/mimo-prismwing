@@ -1545,6 +1545,14 @@ Run the following cheap falsifiers in order:
    and passes Gate 8. This passes the strict two-TPS component condition but
    fails the `333.333`-ms three-TPS diagnostic. Authorize only a modified
    layer-28 complete-endpoint overlay; do not promote weights or endpoint TPS.
+15. [PW-0309](../experiments/PW-0309-k4-source-layer28-tail-overlay.md) closes
+   the causal residual gap and runs paired source/candidate branches from the
+   frozen layer-28 route through layers 29–47 and logits. Internal drift grows
+   substantially and changes ten later route sets, but the declared
+   distribution slice passes: same argmax, `0.005353492`-nat source-token
+   error, 20/20 top-set overlap, and `0.000493366` projected JSD. Retain only a
+   conditional frozen-route L3 fallback and authorize live-routing work; no
+   endpoint TPS or throughput constant is promoted.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

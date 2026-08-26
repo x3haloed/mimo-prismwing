@@ -4537,3 +4537,35 @@ hashes to
 `d395cd1844ee46a938578063ab7c68ba156b6e3b1e53f29b29c58c6e33949613`;
 the invalid guessed-commit preflight remains preserved at
 `6c393b4379704cdc42e015df169dce0bad6f12a9f1edbed9d0a475db0fd84d5a`.
+
+PW-0309 supersedes PW-0308's pending-overlay belief with a measured paired
+layer-28-to-logits causal slice. The addendum's post-attention residual
+recomputes the PW-0424 MoE input bit for bit, and the M1 Metal executor again
+matches every modified candidate routed bit. The source-versus-candidate route
+relative L2 is `0.00470168823`; the source BF16 consumer boundary attenuates
+the immediate layer-final relative L2 to `0.000720244216`.
+
+That small local difference does not preserve internal semantics downstream.
+Route sets diverge at layers 32, 34, 37, 39, 40, 41, 44, 45, 46, and 47;
+layer-47 hidden relative L2 reaches `0.0844552885`, final-norm relative L2
+`0.120816266`, and logit relative L2 `0.0596321419`. Supersede any assumption
+that a sub-one-percent routed error implies stable later routes or hidden
+states.
+
+The declared distribution slice still passes: source and candidate argmax are
+both token 284, source-token absolute log-probability error is `0.005353492`
+nat, source top-20 overlap is 20/20, and projected top-20 JSD is
+`0.000493366323` nat. Top-20 order differs. Promote only a conditional claim
+that this frozen modified route is downstream-safe for the named slice and
+authorize a true live-routing L3 embodiment. Do not promote weights, defaults,
+source identity, accepted-token TPS, or general fidelity.
+
+The paired cold tails take `58,865.629` ms control and `58,380.442` ms
+candidate, read `15,308,759,040` physical bytes in total, and accept zero
+tokens. These diagnostics change no throughput-model constant. Gate 8 passes
+with 60% minimum free memory, 3,386,313,088-byte maximum footprint,
+4,340,203,520-byte peak RSS, 3,094,595,712-byte final footprint, zero swap
+growth/new throttling, and stable protected PID sets. Raw-002 hashes to
+`5f4de82b4242c5ebecf1b6c4da61ae03863ce8e75e2d0b057ac5b4cfeb5dd1a3`;
+the preserved pre-execution prediction-error record hashes to
+`bbef064d229c84d5a9b9b02165e667e4e84efbb63eeefbc680c13c891853c735`.

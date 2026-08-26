@@ -30,6 +30,7 @@ the same endpoint.
 | Accelerated width-eight verifier | **0.219850 accepted TPS warm** | Post-prefill verifier transaction; proposal generation excluded |
 | Layer-major routed-MoE prefill slice | **1.161×–1.192×** | One real layer; misses its 3× continuation and absolute numerical gates |
 | Modified K4/source routed component | **351.680 ms p90 for 47 repeats** | L3 frozen layer/route/input; passes 2-TPS component condition, fails 3-TPS diagnostic; not endpoint TPS |
+| Modified K4/source downstream slice | **same argmax; 0.000493 top-20 JSD** | One frozen layer-28 route through logits; ten later route sets change; zero accepted tokens |
 | Earlier arbitrary-prompt endpoint | **0.026253 complete-path TPS**, 47 coherent tokens | SGLang-directed modified arithmetic; retained as a control |
 
 The strongest new result is [PW-0216](experiments/PW-0216-native-mtp-longer-output-holdout.md).
@@ -109,6 +110,12 @@ speculation:
   it on the target M1. Forty-seven repeated components take `351.680` ms p90,
   with `341.383` ms on GPU: dispatch is no longer dominant, but even this
   frozen fallback misses the three-TPS component diagnostic.
+- PW-0309 authenticates the missing layer-28 residual and propagates the same
+  frozen L3 substitution through layers 29–47 and logits. Internal drift is
+  large enough to change ten later route sets, but the declared distribution
+  slice retains the same argmax, 20/20 top-set overlap, `0.005353`-nat
+  source-token error, and `0.000493` projected JSD. This is a conditional
+  frozen-route fidelity result, not endpoint performance or general K4 safety.
 
 The append-only reasoning and evidence history lives in
 [LEARNINGS.md](LEARNINGS.md) and the [experiment ledger](experiments/README.md).
@@ -192,8 +199,8 @@ satisfy the primary target. See [RED_LINES.md](RED_LINES.md).
 
 The active sequence is deliberately evidence-first:
 
-1. splice PW-0308's authenticated L3 layer-28 overlay into the complete source
-   endpoint and measure actual downstream error and accepted-token timing;
+1. turn PW-0309's downstream-safe frozen L3 slice into a true live-routing
+   embodiment, while preserving a source control and explicit modified mode;
 2. finish the frozen PW-0216 multilingual and rare-route 32-token holdouts;
 3. reduce native proposer embodiment cost without changing its authority;
 4. attack the dominant prefill/storage cut while preserving the smaller
