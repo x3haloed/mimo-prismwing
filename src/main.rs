@@ -40,6 +40,11 @@ use prismwing::{
     run_routed_mixture_activation_corpus, run_slow_text_endpoint,
     run_structured_sparse_layer0_trace,
 };
+#[cfg(target_os = "macos")]
+use prismwing::{
+    run_k4_source_metal_layer_fixture, run_k4_source_metal_repeated_fixture,
+    verify_k4_source_layer_bundle,
+};
 use std::fs::OpenOptions;
 use std::path::PathBuf;
 use tokenizers::Tokenizer;
@@ -253,6 +258,18 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing benchmark-pread-expert-acquisition <artifact.bin> <artifact-manifest.json> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing verify-k4-source-layer-bundle <bundle.bin> <bundle-manifest.json> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing run-k4-source-metal-layer-fixture <bundle.bin> <bundle-manifest.json> <fixture.json> <kernel-dir> <output.json> <commit>"
+    );
+    #[cfg(target_os = "macos")]
+    eprintln!(
+        "  prismwing run-k4-source-metal-47-layer-fixture <bundle.bin> <bundle-manifest.json> <fixture.json> <kernel-dir> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -993,6 +1010,64 @@ fn main() {
                     println!();
                     Ok(Some(output))
                 })
+        }
+        #[cfg(target_os = "macos")]
+        Some("verify-k4-source-layer-bundle") if arguments.len() == 6 => {
+            let bundle = PathBuf::from(&arguments[2]);
+            let manifest = PathBuf::from(&arguments[3]);
+            let output = PathBuf::from(&arguments[4]);
+            verify_k4_source_layer_bundle(&bundle, &manifest, &output, &arguments[5]).and_then(
+                |report| {
+                    serde_json::to_writer(std::io::stdout(), &report)
+                        .map_err(|error| error.to_string())?;
+                    println!();
+                    Ok(Some(output))
+                },
+            )
+        }
+        #[cfg(target_os = "macos")]
+        Some("run-k4-source-metal-layer-fixture") if arguments.len() == 8 => {
+            let bundle = PathBuf::from(&arguments[2]);
+            let manifest = PathBuf::from(&arguments[3]);
+            let fixture = PathBuf::from(&arguments[4]);
+            let kernels = PathBuf::from(&arguments[5]);
+            let output = PathBuf::from(&arguments[6]);
+            run_k4_source_metal_layer_fixture(
+                &bundle,
+                &manifest,
+                &fixture,
+                &kernels,
+                &output,
+                &arguments[7],
+            )
+            .and_then(|report| {
+                serde_json::to_writer(std::io::stdout(), &report)
+                    .map_err(|error| error.to_string())?;
+                println!();
+                Ok(Some(output))
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("run-k4-source-metal-47-layer-fixture") if arguments.len() == 8 => {
+            let bundle = PathBuf::from(&arguments[2]);
+            let manifest = PathBuf::from(&arguments[3]);
+            let fixture = PathBuf::from(&arguments[4]);
+            let kernels = PathBuf::from(&arguments[5]);
+            let output = PathBuf::from(&arguments[6]);
+            run_k4_source_metal_repeated_fixture(
+                &bundle,
+                &manifest,
+                &fixture,
+                &kernels,
+                &output,
+                &arguments[7],
+            )
+            .and_then(|report| {
+                serde_json::to_writer(std::io::stdout(), &report)
+                    .map_err(|error| error.to_string())?;
+                println!();
+                Ok(Some(output))
+            })
         }
         #[cfg(target_os = "macos")]
         Some("benchmark-uncached-stream-transport") if arguments.len() == 7 => {

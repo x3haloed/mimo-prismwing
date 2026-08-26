@@ -1607,7 +1607,7 @@ pub(crate) struct SafetyMonitor {
     policy: SafetyFixture,
     baseline_swap_bytes: u64,
     baseline_throttled_pages: u64,
-    baseline_services: BTreeSet<String>,
+    baseline_services: BTreeMap<String, Vec<u32>>,
     snapshots: Vec<SafetySnapshot>,
 }
 
@@ -1641,8 +1641,14 @@ impl ComponentSafetyMonitor {
     }
 
     pub(crate) fn released(mut self) -> Result<Vec<SafetySnapshot>, String> {
-        self.0.checkpoint("buffer_release", true)?;
+        let result = self.0.checkpoint("buffer_release", true);
+        result?;
         Ok(self.0.snapshots)
+    }
+
+    pub(crate) fn released_preserving(mut self) -> (Vec<SafetySnapshot>, Result<(), String>) {
+        let result = self.0.checkpoint("buffer_release", true);
+        (self.0.snapshots, result)
     }
 }
 
@@ -2576,9 +2582,9 @@ impl SafetyMonitor {
         let baseline_throttled_pages = throttled_pages()?;
         let services = protected_service_pids(&policy.protect_resident_services)?;
         let baseline_services = services
-            .iter()
-            .filter_map(|(name, pids)| (!pids.is_empty()).then_some(name.clone()))
-            .collect();
+            .into_iter()
+            .filter(|(_, pids)| !pids.is_empty())
+            .collect::<BTreeMap<_, _>>();
         let mut monitor = Self {
             policy,
             baseline_swap_bytes,
@@ -2642,10 +2648,15 @@ impl SafetyMonitor {
         if new_throttled > self.policy.maximum_new_throttled_pages {
             return Err(format!("safety stop at {phase}: VM throttling observed"));
         }
-        for name in &self.baseline_services {
-            if services.get(name).is_none_or(Vec::is_empty) {
+        for (name, baseline_pids) in &self.baseline_services {
+            let Some(current_pids) = services.get(name) else {
                 return Err(format!(
                     "safety stop at {phase}: resident service {name} disappeared"
+                ));
+            };
+            if baseline_pids.iter().any(|pid| !current_pids.contains(pid)) {
+                return Err(format!(
+                    "safety stop at {phase}: resident service {name} PID identity changed"
                 ));
             }
         }

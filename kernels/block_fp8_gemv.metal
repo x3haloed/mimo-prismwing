@@ -238,6 +238,11 @@ struct GemvShape {
     uint block_columns;
 };
 
+struct BundleGemvOffsets {
+    uint weights[5];
+    uint scales[5];
+};
+
 kernel void swiglu_f32(
     device const float *gate [[buffer(0)]],
     device const float *up [[buffer(1)]],
@@ -427,6 +432,33 @@ kernel void bf16_gemv_shared_weight(
     }
 }
 
+kernel void compact_mixture_indexed_weighted_heads(
+    device const float *features [[buffer(0)]],
+    device const ushort *heads [[buffer(1)]],
+    device const uint *selected_heads [[buffer(2)]],
+    device const float *route_weights [[buffer(3)]],
+    device float *output [[buffer(4)]],
+    constant uint4 &shape [[buffer(5)]],
+    uint hidden_index [[thread_position_in_grid]]) {
+    const uint feature_count = shape.y;
+    const uint hidden = shape.z;
+    const uint routes = shape.w;
+    if (hidden_index >= hidden) {
+        return;
+    }
+    float routed = 0.0f;
+    for (uint route = 0; route < routes; ++route) {
+        const uint head_offset = selected_heads[route] * feature_count * hidden;
+        float expert = 0.0f;
+        for (uint feature = 0; feature < feature_count; ++feature) {
+            const uint bits = uint(heads[head_offset + feature * hidden + hidden_index]) << 16;
+            expert += features[feature] * as_type<float>(bits);
+        }
+        routed += route_weights[route] * expert;
+    }
+    output[hidden_index] = routed;
+}
+
 kernel void full_qkv_fp8_gemm8_shared_weight_lut_blocked(
     device const uchar *weights [[buffer(0)]],
     device const float *scales [[buffer(1)]],
@@ -587,6 +619,77 @@ kernel void full_qkv_fp8_gemv_sglang_blockscaled(
     }
 }
 
+kernel void full_qkv_fp8_gemv_dequantized(
+    device const uchar *weights [[buffer(0)]],
+    device const float *weight_scales [[buffer(1)]],
+    device const float *input [[buffer(2)]],
+    device float *output [[buffer(3)]],
+    constant GemvShape &shape [[buffer(4)]],
+    constant float *decode_lut [[buffer(5)]],
+    threadgroup float *partial [[threadgroup(0)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    if (row >= shape.rows || lanes != 64 || shape.rows != 13568 ||
+        shape.columns != 4096 || shape.block_rows != 128 ||
+        shape.block_columns != 128) {
+        return;
+    }
+    const uint source_row = full_qkv_source_row(row);
+    const uint scale_row = full_qkv_source_scale_row(source_row);
+    const uint row_offset = source_row * shape.columns;
+    constexpr uint blocks = 32;
+    float sum = 0.0f;
+    for (uint block = 0; block < blocks; ++block) {
+        const float scale = weight_scales[scale_row * blocks + block];
+        const uint column_base = block * 128;
+        for (uint within = lane; within < 128; within += lanes) {
+            const uint column = column_base + within;
+            sum += decode_lut[weights[row_offset + column]] * scale * input[column];
+        }
+    }
+    partial[lane] = sum;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+        if (lane < offset) {
+            partial[lane] += partial[lane + offset];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        output[row] = partial[0];
+    }
+}
+
+kernel void full_qkv_fp8_gemv_dequantized_simd(
+    device const uchar *weights [[buffer(0)]],
+    device const float *weight_scales [[buffer(1)]],
+    device const float *input [[buffer(2)]],
+    device float *output [[buffer(3)]],
+    constant GemvShape &shape [[buffer(4)]],
+    constant float *decode_lut [[buffer(5)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    if (row >= shape.rows || lanes != 32 || shape.rows != 13568 ||
+        shape.columns != 4096 || shape.block_rows != 128 ||
+        shape.block_columns != 128) {
+        return;
+    }
+    const uint source_row = full_qkv_source_row(row);
+    const uint scale_row = full_qkv_source_scale_row(source_row);
+    const uint row_offset = source_row * shape.columns;
+    float sum = 0.0f;
+    for (uint column = lane; column < 4096; column += 32) {
+        const float scale = weight_scales[scale_row * 32 + column / 128];
+        sum += decode_lut[weights[row_offset + column]] * scale * input[column];
+    }
+    const float reduced = simd_sum(sum);
+    if (lane == 0) {
+        output[row] = reduced;
+    }
+}
+
 kernel void swa_qkv_fp8_gemm8_sglang_blockscaled(
     device const uchar *weights [[buffer(0)]],
     device const float *weight_scales [[buffer(1)]],
@@ -693,6 +796,77 @@ kernel void swa_qkv_fp8_gemv_sglang_blockscaled(
     }
     if (lane == 0) {
         output[row] = total;
+    }
+}
+
+kernel void swa_qkv_fp8_gemv_dequantized(
+    device const uchar *weights [[buffer(0)]],
+    device const float *weight_scales [[buffer(1)]],
+    device const float *input [[buffer(2)]],
+    device float *output [[buffer(3)]],
+    constant GemvShape &shape [[buffer(4)]],
+    constant float *decode_lut [[buffer(5)]],
+    threadgroup float *partial [[threadgroup(0)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    if (row >= shape.rows || lanes != 64 || shape.rows != 14848 ||
+        shape.columns != 4096 || shape.block_rows != 128 ||
+        shape.block_columns != 128) {
+        return;
+    }
+    const uint source_row = swa_qkv_source_row(row);
+    const uint scale_row = source_row / 128;
+    const uint row_offset = source_row * shape.columns;
+    constexpr uint blocks = 32;
+    float sum = 0.0f;
+    for (uint block = 0; block < blocks; ++block) {
+        const float scale = weight_scales[scale_row * blocks + block];
+        const uint column_base = block * 128;
+        for (uint within = lane; within < 128; within += lanes) {
+            const uint column = column_base + within;
+            sum += decode_lut[weights[row_offset + column]] * scale * input[column];
+        }
+    }
+    partial[lane] = sum;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint offset = lanes / 2; offset > 0; offset /= 2) {
+        if (lane < offset) {
+            partial[lane] += partial[lane + offset];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (lane == 0) {
+        output[row] = partial[0];
+    }
+}
+
+kernel void swa_qkv_fp8_gemv_dequantized_simd(
+    device const uchar *weights [[buffer(0)]],
+    device const float *weight_scales [[buffer(1)]],
+    device const float *input [[buffer(2)]],
+    device float *output [[buffer(3)]],
+    constant GemvShape &shape [[buffer(4)]],
+    constant float *decode_lut [[buffer(5)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    if (row >= shape.rows || lanes != 32 || shape.rows != 14848 ||
+        shape.columns != 4096 || shape.block_rows != 128 ||
+        shape.block_columns != 128) {
+        return;
+    }
+    const uint source_row = swa_qkv_source_row(row);
+    const uint scale_row = source_row / 128;
+    const uint row_offset = source_row * shape.columns;
+    float sum = 0.0f;
+    for (uint column = lane; column < 4096; column += 32) {
+        const float scale = weight_scales[scale_row * 32 + column / 128];
+        sum += decode_lut[weights[row_offset + column]] * scale * input[column];
+    }
+    const float reduced = simd_sum(sum);
+    if (lane == 0) {
+        output[row] = reduced;
     }
 }
 
@@ -828,6 +1002,164 @@ kernel void block_fp8_gemv_parallel_lut_blocked(
     }
     if (lane == 0) {
         output[row] = partial[0];
+    }
+}
+
+// Execute up to five independent block-FP8 projections directly from one
+// mmap-backed bundle. The shared-input variant serves gate/up projections;
+// the batched-input variant serves down projections after per-expert SwiGLU.
+kernel void block_fp8_bundle_gemv_parallel_lut_blocked_shared_input(
+    device const uchar *bundle [[buffer(0)]],
+    device const float *input [[buffer(1)]],
+    device float *output [[buffer(2)]],
+    constant GemvShape &shape [[buffer(3)]],
+    constant float *decode_lut [[buffer(4)]],
+    constant BundleGemvOffsets &offsets [[buffer(5)]],
+    constant uint &experts [[buffer(6)]],
+    threadgroup float *partial [[threadgroup(0)]],
+    uint group [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    const uint expert = group / shape.rows;
+    const uint row = group % shape.rows;
+    if (expert >= experts || expert >= 5 || row >= shape.rows ||
+        shape.block_rows == 0 || shape.block_columns == 0 ||
+        shape.columns % shape.block_columns != 0) {
+        return;
+    }
+    device const uchar *weights = bundle + offsets.weights[expert];
+    device const float *scales =
+        reinterpret_cast<device const float *>(bundle + offsets.scales[expert]);
+    const uint row_offset = row * shape.columns;
+    const uint scale_columns = shape.columns / shape.block_columns;
+    const uint scale_row_offset = (row / shape.block_rows) * scale_columns;
+    float sum = 0.0f;
+    for (uint block = 0; block < scale_columns; ++block) {
+        const float scale = scales[scale_row_offset + block];
+        const uint column_base = block * shape.block_columns;
+        for (uint within = lane; within < shape.block_columns; within += lanes) {
+            const uint column = column_base + within;
+            sum += decode_lut[weights[row_offset + column]] * scale * input[column];
+        }
+    }
+    const float total = simd_sum(sum);
+    if (lane == 0) output[expert * shape.rows + row] = total;
+}
+
+kernel void block_fp8_bundle_gate_up_parallel_lut_blocked_shared_input(
+    device const uchar *bundle [[buffer(0)]],
+    device const float *input [[buffer(1)]],
+    device float *gate_output [[buffer(2)]],
+    device float *up_output [[buffer(3)]],
+    constant GemvShape &shape [[buffer(4)]],
+    constant float *decode_lut [[buffer(5)]],
+    constant BundleGemvOffsets &gate_offsets [[buffer(6)]],
+    constant BundleGemvOffsets &up_offsets [[buffer(7)]],
+    constant uint &experts [[buffer(8)]],
+    uint group [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    const uint expert = group / shape.rows;
+    const uint row = group % shape.rows;
+    if (expert >= experts || expert >= 5 || row >= shape.rows ||
+        shape.block_rows == 0 || shape.block_columns == 0 ||
+        shape.columns % shape.block_columns != 0) {
+        return;
+    }
+    device const uchar *gate_weights = bundle + gate_offsets.weights[expert];
+    device const float *gate_scales = reinterpret_cast<device const float *>(
+        bundle + gate_offsets.scales[expert]);
+    device const uchar *up_weights = bundle + up_offsets.weights[expert];
+    device const float *up_scales = reinterpret_cast<device const float *>(
+        bundle + up_offsets.scales[expert]);
+    const uint row_offset = row * shape.columns;
+    const uint scale_columns = shape.columns / shape.block_columns;
+    const uint scale_row_offset = (row / shape.block_rows) * scale_columns;
+    float gate_sum = 0.0f;
+    float up_sum = 0.0f;
+    for (uint block = 0; block < scale_columns; ++block) {
+        const float gate_scale = gate_scales[scale_row_offset + block];
+        const float up_scale = up_scales[scale_row_offset + block];
+        const uint column_base = block * shape.block_columns;
+        for (uint within = lane; within < shape.block_columns; within += lanes) {
+            const uint column = column_base + within;
+            const float activation = input[column];
+            gate_sum += decode_lut[gate_weights[row_offset + column]] * gate_scale * activation;
+            up_sum += decode_lut[up_weights[row_offset + column]] * up_scale * activation;
+        }
+    }
+    const float gate_total = simd_sum(gate_sum);
+    const float up_total = simd_sum(up_sum);
+    if (lane == 0) {
+        gate_output[expert * shape.rows + row] = gate_total;
+        up_output[expert * shape.rows + row] = up_total;
+    }
+}
+
+kernel void block_fp8_bundle_gemv_parallel_lut_blocked_batched_input(
+    device const uchar *bundle [[buffer(0)]],
+    device const float *input [[buffer(1)]],
+    device float *output [[buffer(2)]],
+    constant GemvShape &shape [[buffer(3)]],
+    constant float *decode_lut [[buffer(4)]],
+    constant BundleGemvOffsets &offsets [[buffer(5)]],
+    constant uint &experts [[buffer(6)]],
+    threadgroup float *partial [[threadgroup(0)]],
+    uint group [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    const uint expert = group / shape.rows;
+    const uint row = group % shape.rows;
+    if (expert >= experts || expert >= 5 || row >= shape.rows ||
+        shape.block_rows == 0 || shape.block_columns == 0 ||
+        shape.columns % shape.block_columns != 0) {
+        return;
+    }
+    device const uchar *weights = bundle + offsets.weights[expert];
+    device const float *scales =
+        reinterpret_cast<device const float *>(bundle + offsets.scales[expert]);
+    device const float *expert_input = input + expert * shape.columns;
+    const uint row_offset = row * shape.columns;
+    const uint scale_columns = shape.columns / shape.block_columns;
+    const uint scale_row_offset = (row / shape.block_rows) * scale_columns;
+    float sum = 0.0f;
+    for (uint block = 0; block < scale_columns; ++block) {
+        const float scale = scales[scale_row_offset + block];
+        const uint column_base = block * shape.block_columns;
+        for (uint within = lane; within < shape.block_columns; within += lanes) {
+            const uint column = column_base + within;
+            sum += decode_lut[weights[row_offset + column]] * scale * expert_input[column];
+        }
+    }
+    const float total = simd_sum(sum);
+    if (lane == 0) output[expert * shape.rows + row] = total;
+}
+
+kernel void block_fp8_gemv_dequantized_simd(
+    device const uchar *weights [[buffer(0)]],
+    device const float *scales [[buffer(1)]],
+    device const float *input [[buffer(2)]],
+    device float *output [[buffer(3)]],
+    constant GemvShape &shape [[buffer(4)]],
+    constant float *decode_lut [[buffer(5)]],
+    uint row [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]],
+    uint lanes [[threads_per_threadgroup]]) {
+    if (row >= shape.rows || lanes != 32 || shape.block_rows == 0 ||
+        shape.block_columns == 0 || shape.columns % shape.block_columns != 0) {
+        return;
+    }
+    const uint row_offset = row * shape.columns;
+    const uint scale_columns = shape.columns / shape.block_columns;
+    const uint scale_row_offset = (row / shape.block_rows) * scale_columns;
+    float sum = 0.0f;
+    for (uint column = lane; column < shape.columns; column += 32) {
+        const float scale = scales[scale_row_offset + column / shape.block_columns];
+        sum += decode_lut[weights[row_offset + column]] * scale * input[column];
+    }
+    const float reduced = simd_sum(sum);
+    if (lane == 0) {
+        output[row] = reduced;
     }
 }
 

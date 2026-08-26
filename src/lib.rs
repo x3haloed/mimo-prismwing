@@ -11,6 +11,10 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 #[cfg(target_os = "macos")]
+mod k4_source_bundle;
+#[cfg(target_os = "macos")]
+mod k4_source_metal;
+#[cfg(target_os = "macos")]
 mod metal_io_acquisition;
 #[cfg(target_os = "macos")]
 mod pread_expert_acquisition;
@@ -28,6 +32,13 @@ mod text_endpoint;
 mod uncached_stream_transport;
 #[cfg(target_os = "macos")]
 mod wide_metal_moe;
+#[cfg(target_os = "macos")]
+pub use k4_source_bundle::{K4SourceBundleVerificationReport, verify_k4_source_layer_bundle};
+#[cfg(target_os = "macos")]
+pub use k4_source_metal::{
+    K4SourceMetalLayerReport, K4SourceMetalRepeatedReport, run_k4_source_metal_layer_fixture,
+    run_k4_source_metal_repeated_fixture,
+};
 #[cfg(target_os = "macos")]
 pub use metal_io_acquisition::{MetalIoAcquisitionReport, benchmark_metal_io_acquisition};
 #[cfg(target_os = "macos")]
