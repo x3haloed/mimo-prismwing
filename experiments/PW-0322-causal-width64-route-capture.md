@@ -52,3 +52,11 @@ capture-only repair chunks q64 QKV and BF16 linears into ordered width-eight
 calls and charges repeated logical bytes. Its timing is therefore diagnostic
 and cannot be used as a q64 performance claim. Routed-layer route authority
 remains one causal 64-position transaction.
+
+The next process again completed proposal generation and entered q64
+verification, then failed closed at routed expert 18 because that expert had
+more than the runtime's 32-placement panel capacity. Its progress artifact is
+preserved as `ordinary-q64-report-003.progress.jsonl`. The capture-only repair
+partitions each expert's ordered placements into complete panels of at most 32,
+reuses the same expert identity and exact weights, and scatters every panel into
+the same 64-row layer output. No placement may be truncated or reordered.

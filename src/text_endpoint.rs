@@ -4923,27 +4923,37 @@ fn routed_mlp_metal_wide_configured(
                 columns,
             })
         };
-        let gate = projection("gate", MOE_INTERMEDIATE, HIDDEN, &input[..HIDDEN])?;
-        let up = projection("up", MOE_INTERMEDIATE, HIDDEN, &input[..HIDDEN])?;
-        let down = projection("down", HIDDEN, MOE_INTERMEDIATE, &down_shape_authority)?;
-        logical_source_bytes = [&gate, &up, &down]
-            .iter()
-            .flat_map(|projection| [&projection.weight, &projection.scale])
-            .try_fold(logical_source_bytes, |total, region| {
-                total.checked_add(region.tensor_bytes() as u64)
-            })
-            .ok_or("wide logical source byte ledger overflow")?;
-        bindings.push(WideExpertBinding {
-            expert: *expert,
-            positions: placements
-                .iter()
-                .map(|(position, _)| *position as u32)
-                .collect(),
-            route_weights: placements.iter().map(|(_, weight)| *weight).collect(),
-            gate,
-            up,
-            down,
-        });
+        for (panel_index, range) in wide_expert_panel_ranges(placements.len())
+            .into_iter()
+            .enumerate()
+        {
+            let gate = projection("gate", MOE_INTERMEDIATE, HIDDEN, &input[..HIDDEN])?;
+            let up = projection("up", MOE_INTERMEDIATE, HIDDEN, &input[..HIDDEN])?;
+            let down = projection("down", HIDDEN, MOE_INTERMEDIATE, &down_shape_authority)?;
+            if panel_index == 0 {
+                logical_source_bytes = [&gate, &up, &down]
+                    .iter()
+                    .flat_map(|projection| [&projection.weight, &projection.scale])
+                    .try_fold(logical_source_bytes, |total, region| {
+                        total.checked_add(region.tensor_bytes() as u64)
+                    })
+                    .ok_or("wide logical source byte ledger overflow")?;
+            }
+            bindings.push(WideExpertBinding {
+                expert: *expert,
+                positions: placements[range.clone()]
+                    .iter()
+                    .map(|(position, _)| *position as u32)
+                    .collect(),
+                route_weights: placements[range]
+                    .iter()
+                    .map(|(_, weight)| *weight)
+                    .collect(),
+                gate,
+                up,
+                down,
+            });
+        }
     }
     let execution = if fused_gate_up {
         runtime.execute_fused_gate_up(input, &bindings)?
@@ -4991,6 +5001,13 @@ fn routed_mlp_metal_wide_configured(
         selected: routing.selected,
         weights: routing.weights,
     })
+}
+
+fn wide_expert_panel_ranges(placements: usize) -> Vec<std::ops::Range<usize>> {
+    (0..placements)
+        .step_by(32)
+        .map(|start| start..(start + 32).min(placements))
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -14054,6 +14071,19 @@ mod tests {
             wide_linear_chunk_ranges(64),
             vec![0..8, 8..16, 16..24, 24..32, 32..40, 40..48, 48..56, 56..64]
         );
+    }
+
+    #[test]
+    fn width64_expert_panels_preserve_every_placement_in_order() {
+        assert_eq!(wide_expert_panel_ranges(1), vec![0..1]);
+        assert_eq!(wide_expert_panel_ranges(32), vec![0..32]);
+        assert_eq!(wide_expert_panel_ranges(33), vec![0..32, 32..33]);
+        assert_eq!(wide_expert_panel_ranges(64), vec![0..32, 32..64]);
+        let flattened = wide_expert_panel_ranges(63)
+            .into_iter()
+            .flat_map(|range| range)
+            .collect::<Vec<_>>();
+        assert_eq!(flattened, (0..63).collect::<Vec<_>>());
     }
 
     #[test]
