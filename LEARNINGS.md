@@ -4817,3 +4817,27 @@ Gate 8 includes construction and execution: at least 68% free memory, at most
 830,603,264-byte peak RSS, zero swap growth/new throttling, and completed
 release boundaries. Zero tokens were accepted, so no throughput constant or
 runtime default changes.
+
+PW-0319 rejects the first bounded K4-bank construction tranche using corrected
+route evidence rather than single-row intuition. Across the 12,032 routed rows
+and 96,256 placements in PW-0208's authenticated 32-window corpus, 512
+route-weighted `(layer, expert)` identities provide at least three K4 hits on
+only `0.398853059` of rows. The weakest category reaches `0.320811170`, and the
+weakest layer only `0.12109375`; all three predeclared continuation gates fail.
+
+The first tested qualifying point is 1,024 identities: `0.771276596` overall,
+`0.747007979` in the weakest category, and `0.44140625` in the weakest layer.
+At observed planning constants that means approximately 30.72 GB of artifacts
+and 187,392 seconds (52.1 hours) of M4 construction. A 2,048-identity bank
+reaches complete three-hit row coverage but grows to 61.44 GB and about 104.1
+M4 hours. Supersede the assumption that a useful corrected-route bank can be
+bootstrapped with at most 512 identities; do not silently convert that result
+into authorization for the 1,024-identity build.
+
+The canonical analysis hashes to
+`1dd69cfe879cc9783aac7281396d16ab35b1c9cd05dcf0a55eef7137509d1406`.
+Gate 8 retained at least 70% free memory with at most 129,564,672-byte peak RSS,
+zero swap growth, and zero new throttling. Before buying the larger bank, test
+whether fixed-stride exact-source fallback streaming can sustain the qualified
+`(3,5)` layer transaction. This analysis accepts zero tokens and changes no
+throughput-model constant or runtime default.

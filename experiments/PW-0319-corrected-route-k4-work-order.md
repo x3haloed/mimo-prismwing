@@ -1,7 +1,7 @@
 # PW-0319 — Corrected-route K4 bank coverage curve and work order
 
-- Status: planned
-- Disposition: pending
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-26
 - Owner: Codex
 - Parent experiment: PW-0318
@@ -95,3 +95,52 @@ layers unexecutable.
 - modality coverage beyond the named corrected text corpus;
 - endpoint execution, accepted tokens, or TPS;
 - Prismwing-2, 34.3 TPS, or Prismwing 50 completion.
+
+## Result
+
+The analyzer authenticated all 32 primary windows and produced 12,032 routed
+rows, 96,256 placements, and corrected route-authority SHA-256
+`353d047cbd4c7563a019fed6ef86b0e071aead77cd83c01d096fe376eb5248ad`.
+The coverage frontier is:
+
+| Identities | Rows with >=3 K4 | Minimum category | Minimum layer | Artifact bytes | Estimated M4 wall |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 141 | 1.01% | 0.76% | 0.00% | 4.23 GB | 7.2 h |
+| 256 | 11.94% | 8.68% | 0.00% | 7.68 GB | 13.0 h |
+| 512 | 39.89% | 32.08% | 12.11% | 15.36 GB | 26.0 h |
+| 1,024 | 77.13% | 74.70% | 44.14% | 30.72 GB | 52.1 h |
+| 2,048 | 100.00% | 100.00% | 100.00% | 61.44 GB | 104.1 h |
+
+Budgets above 2,048 retain full three-hit row coverage but increase selected
+route-weight mass. The full 12,032-identity construction is estimated at
+360.96 GB and 611.6 M4 hours; it is a diagnostic upper bound, not an authorized
+plan.
+
+At 512 identities every declared continuation gate fails: overall coverage is
+below 50%, the weakest category is below 40%, and the weakest layer is below
+25%. The first tested qualifying point is 1,024 identities, outside the bounded
+tranche. Consequently the analyzer emitted no work order.
+
+The canonical evidence is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0319/analysis-001/analysis.json`,
+SHA-256
+`1dd69cfe879cc9783aac7281396d16ab35b1c9cd05dcf0a55eef7137509d1406`.
+Gate 8 retained at least 70% free memory, at most 129,564,672-byte peak RSS,
+zero swap growth, zero new throttling, and stable protected services through
+release.
+
+## Decision
+
+Reject the bounded 512-identity construction tranche and preserve the
+predeclared cap. Do not spend approximately 52 M4 hours constructing a
+1,024-identity bank before measuring whether the exact-source fallback side of
+the qualified `(3,5)` transaction can be acquired and executed sustainably.
+
+The next cheapest falsification is a real cold/warm source-expert streaming
+transaction using fixed-stride, page-aligned records and bounded reusable
+Metal-visible slots. If source fallback installation cannot approach the
+qualified layer transaction budget, a larger K4 bank does not repair the
+endpoint. If it can, the measured 1,024-identity frontier becomes a separately
+predeclared scale decision rather than an accidental expansion of PW-0319.
+This experiment accepts zero tokens and changes no throughput-model constant or
+runtime default.

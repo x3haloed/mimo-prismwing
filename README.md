@@ -122,6 +122,13 @@ speculation:
   candidate bit. The route gate is retained as a conditional fixture. Its
   measured routed-component ceiling is only about `2.84` tokens/s, which rules
   out current 34.3/50 promotion but makes it a serious Prismwing-2 foundation.
+- PW-0318 makes one three-K4/five-source routed layer transaction bit-exact to
+  its named one-row decode oracle across 200 timed M1 samples. PW-0319 then
+  measures the corrected-route construction frontier: 512 K4 identities cover
+  only 39.89% of routed rows with three hits, while the first qualifying tested
+  bank is 1,024 identities (about 30.72 GB and 52.1 M4 build hours). The bounded
+  512-identity tranche is rejected; exact-source fallback streaming is the next
+  cheaper causal test.
 
 The append-only reasoning and evidence history lives in
 [LEARNINGS.md](LEARNINGS.md) and the [experiment ledger](experiments/README.md).

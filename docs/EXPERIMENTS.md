@@ -1639,6 +1639,15 @@ Run the following cheap falsifiers in order:
    bits through 20 warmups and 100 samples each. Both batch and decode source
    distances remain below one percent. Promote only the partial-bank decode
    integration boundary; no complete endpoint or TPS claim follows.
+25. [PW-0319](../experiments/PW-0319-corrected-route-k4-work-order.md) measures
+   route-weighted K4-bank coverage over all 12,032 corrected PW-0208 routed
+   rows before authorizing a long M4 build. A 512-identity bank reaches three
+   K4 hits on only 39.89% of rows, with 32.08% weakest-category and 12.11%
+   weakest-layer coverage, failing every predeclared continuation gate. The
+   first tested qualifying point is 1,024 identities, approximately 30.72 GB
+   and 52.1 M4 construction hours. Reject the bounded tranche and emit no work
+   order; measure sustainable exact-source fallback streaming before making a
+   separately bounded larger-bank decision.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
