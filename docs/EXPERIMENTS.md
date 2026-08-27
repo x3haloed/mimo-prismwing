@@ -1682,6 +1682,16 @@ Run the following cheap falsifiers in order:
    2,048-identity K4 bank and free perfect 4 GiB cache. All predeclared closure
    conditions pass; close the current evidence-backed onboard Prismwing-2
    frontier without changing runtime defaults or the Prismwing-50 target.
+31. [PW-0325](../experiments/PW-0325-prismwing1-balanced-k4-envelope.md)
+   replaces PW-0319's three-hit-capped order with a deterministic
+   category-balanced byte objective for the explicitly named Prismwing-1 tier.
+   With an oracle 8 GiB cache, 3,925 selected K4 identities clear the
+   predeclared 1.25 storage-only category gate and 1.149 nearest-rank p10, but
+   omit all compute/common work and require unqualified six-of-eight-like K4
+   density. A subsequent audit found the full-match target-bonus commit bug, so
+   repair and regenerate causal q8 authority before running the otherwise
+   authorized density falsifier. No bank, cache, endpoint claim, or runtime
+   default follows.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

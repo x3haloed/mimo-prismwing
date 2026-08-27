@@ -4942,3 +4942,40 @@ is superseded because it asserted the full-capability/fidelity non-promotion
 condition instead of deriving it. Analysis-002 derives that condition from the
 strongest measured status and audited portfolio; the closure result is
 unchanged.
+
+PW-0325 reopens a narrowly named Prismwing-1 analytical branch without
+reversing PW-0324's Prismwing-2 closure. Supersede the assumption that
+PW-0319's three-hit-capped K4 order remains useful after every corrected route
+has reached the qualified `(3,5)` boundary. A deterministic category-balanced
+byte selector finds that an oracle 8 GiB cache plus 3,925 K4 identities can
+reach conservative storage-only category ceilings of `1.250026`--`1.370841`
+TPS. The exact whole-record oracle reaches `1.313776` aggregate over the 213
+authenticated accepted tokens and `1.149252` nearest-rank p10, moving
+`562,657,289,624` bytes after cache.
+
+That result is not achieved TPS. It omits routed compute, common weights,
+attention, proposal, sampling, and endpoint overhead; uses future-aware cache
+contents; leaves the worst window at only `0.440463`; and requires K4 for
+`75.4465%` of observed identity-window occurrences. The installed hybrid bank
+would be `253,738,465,276` bytes, and constructing the selected identities is
+estimated at 117.75 GB of artifacts and 1,962,500 M1 seconds. Current internal
+free space cannot hold source and construction artifacts concurrently.
+
+Promote only the bounded six-K4/two-source density falsifier. Existing real
+evidence passes three K4 identities at `0.006662339` routed relative L2 but
+rejects four at `0.010988842`; therefore the six-density premise must pass an
+impossible-best authenticated row before any multi-layer panel or bank work.
+The canonical PW-0325 analysis hashes to
+`9391b3b8bc8b4264ec1e74378743f00780f724eab953fb31841434d0516e81c1`.
+No runtime default, achieved endpoint constant, or primary Prismwing-50 target
+changes.
+
+A subsequent source audit preempts that construction order. PW-0204's frozen
+transaction contract says a fully converged window emits the verified proposal
+suffix, carries the final target posterior as the next anchor, and retains all
+proposal-input K/V rows. The implementation instead emits only the proposal
+suffix, retains `q-1` rows, and reuses the last proposal token as anchor, even
+though `accepted_jacobi_tokens` returns `q`. Preserve PW-0208/PW-0325 as named
+bonus-free historical evidence, but do not project `A+1` onto their stale
+routes. Repair and fixture the transaction, then regenerate causal q8 reports
+before deciding whether dense K4 remains necessary.

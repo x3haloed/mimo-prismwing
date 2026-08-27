@@ -1556,6 +1556,34 @@
             "accepted_tokens": 0,
             "status": "current_evidence_backed_onboard_prismwing2_frontier_closed; analytical_synthesis_not_achieved_tps; primary_prismwing50_target_unchanged",
             "provenance": "PW-0324 canonical analysis 97d4d20a4c709d42429973e867138495756ce9d52d417f98a7edd40b282ccff3; clean analyzer a44ffd0903b178eb211362aacf570ad9d32fd516; analysis-001 e2b2d2426c52fb268ed5d60518844ec3642b17006d7cc7c34b36867e987bcc67 preserved and superseded because one closure condition was asserted rather than derived; Apple M1 16 GiB internal checkpoint; batch-one/concurrency-one measured lower milestone and authenticated storage-only upper bounds kept distinct"
+        },
+        "pw0325_prismwing1_balanced_k4_envelope": {
+            "target_accepted_tps": 1.0,
+            "analytical_category_margin_target_tps": 1.25,
+            "selected_k4_identities": 3925,
+            "selection_order_sha256": "d5a68bb4291076fbf62c8def45837b6a948d06438bbde298077fdec380f6b25a",
+            "selected_identity_window_occurrence_fraction": 0.7544647048881711,
+            "perfect_free_oracle_cache_bytes": 8589934592,
+            "observed_A_total": 213,
+            "observed_U_source": "PW-0208 per-window authority; emitted in canonical analysis",
+            "bytes_after_exact_whole_record_oracle_cache": 562657289624,
+            "exact_oracle_storage_wall_seconds": 162.128128534581,
+            "aggregate_optimistic_storage_only_tps": 1.3137757274152975,
+            "nearest_rank_p10_window_optimistic_storage_only_tps": 1.1492521148006662,
+            "minimum_window_optimistic_storage_only_tps": 0.4404634503990036,
+            "minimum_category_optimistic_storage_only_tps": 1.2519161290303789,
+            "installed_hybrid_expert_bank_bytes": 253738465276,
+            "all_source_expert_bank_bytes": 302869118976,
+            "construction_artifact_bytes_estimate": 117750000000,
+            "m1_construction_seconds_estimate": 1962500.0,
+            "batch_size": 1,
+            "concurrency": 1,
+            "accepted_tokens": 0,
+            "hardware": "Apple M1 16 GiB",
+            "cache_state": "analytical exact whole-record oracle; not populated or timed",
+            "prefill_state": "excluded; authenticated post-prefill verifier windows",
+            "status": "storage_only_analytical_envelope; six_of_eight_k4_fidelity_compute_cache_and_complete_endpoint_unqualified; no_achieved_tps_claim",
+            "provenance": "PW-0325 canonical analysis 9391b3b8bc8b4264ec1e74378743f00780f724eab953fb31841434d0516e81c1; clean analyzer 371431ca7febc5982401159e48e8b8d269f729ac; PW-0208 A/U and corrected routes; PW-0318 record sizes; PW-0136 cold internal-SSD bandwidth; analysis-001 ec5ac8ae869ab76dc973d36b3969c0af889261167eb103db1412d7a6c5653a98 preserved and superseded for incomplete identity/U/route-chain metadata"
         }
     }
 }

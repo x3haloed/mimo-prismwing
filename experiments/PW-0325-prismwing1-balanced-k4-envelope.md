@@ -1,7 +1,7 @@
 # PW-0325 — Prismwing-1 category-balanced K4 envelope
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: continuation approved — bounded six-of-eight density falsifier
 - Date: 2026-08-27
 - Owner: Codex
 - Parent experiments: PW-0181, PW-0208, PW-0216, PW-0318, PW-0319,
@@ -110,9 +110,60 @@ PW-0181's onboard one-TPS closure for the current portfolio.
 
 ## Result
 
-Unexecuted.
+Clean analyzer commit `371431ca7febc5982401159e48e8b8d269f729ac`
+authenticated PW-0208, PW-0318, PW-0319, and PW-0320, including independent
+cross-checks of the corrected route authority. It evaluated every predeclared
+cache/target pair with a deterministic canonical tie break and emitted each
+window's exact `A`, `U`, identities, representation, physical bytes, storage
+wall, and optimistic storage-only TPS.
+
+The only predeclared candidate point uses an oracle 8 GiB cache and the 1.25
+category target. Its selector chooses 3,925 identities; the order hashes to
+`d5a68bb4291076fbf62c8def45837b6a948d06438bbde298077fdec380f6b25a`.
+Those identities cover `75.446470489%` of observed identity-window
+occurrences. Conservative category storage-only ceilings are `1.250026` code,
+`1.315182` ordinary, `1.370841` multilingual, and `1.308061` rare-route TPS.
+The stronger exact whole-record oracle yields `1.251916`, `1.317077`,
+`1.372790`, and `1.309836` respectively.
+
+Across all 32 authenticated q8 windows, observed `A` totals 213 and the exact
+oracle moves `562,657,289,624` bytes in `162.128129` modeled storage seconds:
+`1.313776` aggregate optimistic TPS. Nearest-rank p10 is `1.149252`; the worst
+window is only `0.440463`, so this is neither a per-window guarantee nor an
+endpoint claim. Batch size and concurrency are one. Prefill is excluded, and
+no cache was populated or timed.
+
+The installed hybrid expert-bank estimate is `253,738,465,276` bytes versus
+`302,869,118,976` all-source bytes, but construction would create an estimated
+`117.75` GB of artifacts and take `1,962,500` M1 seconds under the inherited
+per-identity constant. Current internal storage cannot hold source and build
+artifacts concurrently; this experiment authorizes neither relocation nor
+construction.
+
+All five continuation gates pass, including Gate 8. The canonical report is:
+
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0325/analysis-002/analysis.json`
+
+SHA-256:
+`9391b3b8bc8b4264ec1e74378743f00780f724eab953fb31841434d0516e81c1`.
+
+Analysis-001 hashes to
+`ec5ac8ae869ab76dc973d36b3969c0af889261167eb103db1412d7a6c5653a98`
+and is preserved but superseded. It produced the same numerical decision but
+omitted the contract's exact per-window identity list, did not carry `U`, and
+did not cross-check the recomputed route hash against both upstream reports.
 
 ## Decision
 
-Unexecuted. Commit this contract before implementing or inspecting canonical
-PW-0325 output.
+Authorize only a bounded impossible-best six-K4/two-source density falsifier.
+PW-0325 demonstrates a storage envelope worth testing, not a way to
+run the model at one TPS: K4 fidelity at the required density, a causal cache,
+q8-batched compute, common weights, attention, proposal, sampling, and the
+complete endpoint all remain unqualified. No runtime default changes.
+
+Subsequent source audit found that the full-match q8 commit violates PW-0204's
+target-bonus and next-anchor contract. That prediction error does not change
+this report's historical bonus-free arithmetic, but it preempts density
+construction: PW-0326 must repair the transaction and regenerate causal q8
+authority first. Only a new envelope may decide whether the density falsifier
+is still needed.
