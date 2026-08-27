@@ -17,8 +17,9 @@ PW-0321's stitched route unions?
 Use the authenticated ordinary PW-0208 prompt and pinned checkpoint. Generate
 63 proposal positions autoregressively with the same local target arithmetic
 from one anchor, then verify all 64 positions in one target call with complete
-per-layer route traces. Emit only the first observable token so execution stops
-after this transaction. This target-generated proposal measures a favorable
+per-layer route traces. Retain the prefill-produced anchor plus only one
+transaction-authorized observable token so execution stops after this
+transaction. This target-generated proposal measures a favorable
 route/acceptance ceiling; it is not a deployable draft.
 
 Require verifier width 64, one transaction, 48 layer traces, 47 routed layers,
@@ -30,3 +31,15 @@ verifier-authorized `A` and union imply at least 2 optimistic accepted TPS.
 
 No K4 construction, streaming runtime, endpoint TPS, hosted parity, modality
 claim, or proposer promotion is authorized by this capture.
+
+## Preserved failed attempts
+
+Two initial attempts stopped during prefill because PW-0323's superseded Rust
+Gate 8 rule treated healthy supervised `nxnode` PID replacement as service
+loss. A third process completed prefill but executed zero transactions because
+the capture requested one output token and the prefill path had already
+produced that anchor. Its report SHA-256 is
+`d9d4f5c6ae5ce229e5cc4c3c322274fe7d4d9d9c66bc75d2c19a375439f8b0d6`;
+it records `transactions=0` and zero proposal/verification wall and is rejected.
+The corrected runner requests exactly two observable tokens, forcing one loop
+entry while retaining only one transaction-authorized token.

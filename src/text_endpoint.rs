@@ -7673,13 +7673,14 @@ pub fn run_width64_route_capture(
     output_path: &Path,
     commit: &str,
 ) -> Result<ArbitraryTextGenerationReport, String> {
+    const PREFILL_ANCHOR_PLUS_ONE_TRANSACTION_TOKEN: usize = 2;
     run_arbitrary_text_generation_internal(
         checkpoint_root,
         model_lock_path,
         verification_path,
         kernel_path,
         prompt_path,
-        1,
+        PREFILL_ANCHOR_PLUS_ONE_TRANSACTION_TOKEN,
         output_path,
         commit,
         true,
@@ -14009,6 +14010,16 @@ mod tests {
         for width in [0, 1, 9, 16, 32, 63, 65] {
             assert!(!generation_verifier_width_supported(width));
         }
+    }
+
+    #[test]
+    fn width64_capture_output_bound_forces_exactly_one_loop_entry() {
+        let prefill_generated_tokens = 1_usize;
+        let requested_output_tokens = 2_usize;
+        assert!(prefill_generated_tokens < requested_output_tokens);
+        let remaining_after_first_transaction_entry =
+            requested_output_tokens - prefill_generated_tokens;
+        assert_eq!(remaining_after_first_transaction_entry, 1);
     }
 
     #[test]
