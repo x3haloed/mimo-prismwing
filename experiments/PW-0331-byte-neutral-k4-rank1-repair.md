@@ -1,6 +1,6 @@
 # PW-0331 — Byte-neutral K4 down-rank-one repair
 
-- Status: in progress; first construction attempt failed closed before output
+- Status: in progress; two pre-held-out control errors preserved
 - Disposition: unexecuted
 - Date: 2026-08-27
 - Owner: Codex
@@ -54,13 +54,30 @@ weight, layout, held-out, or fidelity-gate mismatch.
 
 The complete observation is frozen in
 `evals/fixtures/tiny/pw0331-serialized-dense-control.json`, SHA-256
-`1666c47f7f0a883546fdfd710cd9a3b228aa82afc24f8118636a09aeb21d7676`.
+`d6f3a30271fdafec67941161fb5b096239e51554ea239a7bd47ebe401c36d569`.
 The repair must authenticate both independently computed paths and require the
 exact stage hashes and mismatch ledger in that fixture; it must not require the
 two numerical orders to be equal. The serialized path remains the fit and
 Stage-A authority. The historical dense path remains the authority for replay
 of the published PW-0315/PW-0316 bits and scalars. All held-out thresholds and
 the separate Stage-B Metal answer key remain unchanged.
+
+The first repaired fit pair at clean commit
+`64fec8cb9ee48bb73944265204daa74f451650d8` produced byte-identical factors
+and deterministic trees, but the analyzer again failed before held-out access.
+The fixture had transcribed one diagnostic scalar as
+`0.00006365680786416775`; canonical F32 subtraction followed by the frozen F64
+norm is `0.00006365680786416774`. Every array hash, mismatch count, maximum
+absolute difference, factor byte, and semantic threshold was unchanged. The
+two preserved construction reports hash to
+`e7995a56bd98adfb8db2ac633f07ea6e24f425b2b0afec13480a94f27249f79c`
+and `be6cb82a181a672d34debbd3f38faf053abcc5ad7c1824cad2fcc61551fe8dbc`;
+the analyzer error output hashes to
+`2d6451cdbd4b12f431ba9debd41b32b9914118403183821b58f0314ae339a9af`.
+The corrected fixture above supersedes only that decimal transcription. Its
+diagnostic and stage-table canonical hashes are respectively
+`9c4b542414466664e3f7af9fbe011e1827d4b05da89edaaa88e9cdb90db0e551`
+and `726bb2337ba46443f38af0a87d3c70efd2d868b32ec39fefcfdbbae767086a4e`.
 
 ## Frozen authorities
 
@@ -267,9 +284,11 @@ Both construction and execution reports set `accepted_tokens: 0`, `A: 0`,
 ## Result
 
 The first construction attempt rejected before producing a factor or opening a
-held-out payload. The rejected result is the bit-identity assumption between
-two different reduction orders, not the down-only rank-one embodiment. The
-semantic fit and all correctness gates remain unexecuted.
+held-out payload. The first repaired pair then produced byte-identical factors,
+but its analyzer rejected a one-unit-last-decimal diagnostic transcription
+before opening held-out evidence. Both fail-closed controls are preserved. The
+rejected results concern evidence arithmetic, not the down-only rank-one
+embodiment; all held-out correctness gates remain unexecuted.
 
 ## Decision
 

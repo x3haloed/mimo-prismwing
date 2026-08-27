@@ -50,7 +50,7 @@
         "elements": 221184,
         "bit_mismatches": 4,
         "max_abs": 0.39508914947509766,
-        "relative_l2": 0.00006365680786416775,
+        "relative_l2": 0.00006365680786416774,
         "serialized_sha256": "060bfb1f4d6f90fb33979573e9491a9489d4c2aea46d4f2c20304db1b1bcd018",
         "historical_dense_sha256": "7a03c5ead66ec44e40df4b9156e066babc23b87a49a7aa27d5ae52c552ddf6f4"
       },

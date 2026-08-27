@@ -5133,3 +5133,13 @@ of published PW-0315/PW-0316 evidence. The unseen, validation, pilot, routed,
 layer-final, exclusive `0.01`/`0.05`, and Stage-B Metal gates do not change.
 This is a fail-closed provenance repair, not a tolerance relaxation or K4
 fidelity result; the throughput model and runtime defaults remain unchanged.
+
+The first repaired PW-0331 pair at `64fec8c` confirms deterministic factor
+construction, then exposes a one-unit-last-decimal fixture transcription before
+held-out access. The diagnostic computed with frozen F32 subtraction followed
+by an F64 norm is `0.00006365680786416774`, not the manually transcribed
+`0.00006365680786416775`. Preserve both byte-identical fit trees and the
+fail-closed analyzer error; correct the fixture rather than tolerating a
+content-hash mismatch or rewriting the report. No array hash, factor byte,
+mismatch count, maximum difference, threshold, throughput constant, or branch
+disposition changes.
