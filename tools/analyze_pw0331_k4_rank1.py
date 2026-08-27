@@ -607,6 +607,31 @@ def _load_pw0315_candidate(
     return candidate
 
 
+def authenticate_historical_dense_zero_control(
+    historical: dict[str, Any], stored_zero: np.ndarray
+) -> dict[str, Any]:
+    candidate = np.asarray(historical.get("candidate_output_bf16_f32"))
+    stored = np.asarray(stored_zero)
+    if (
+        candidate.dtype != np.float32
+        or stored.dtype != np.float32
+        or candidate.ndim != 2
+        or candidate.shape != stored.shape
+        or not np.isfinite(candidate).all()
+        or not np.isfinite(stored).all()
+        or not np.array_equal(candidate, stored)
+    ):
+        raise ValueError(
+            "PW-0331 historical dense zero factors do not reproduce PW-0315 bits"
+        )
+    return {
+        "semantic": "decoded_k4_numpy_matmul_historical_pw0315_control",
+        "candidate_output_raw_sha256": array_sha256(candidate),
+        "stored_output_raw_sha256": array_sha256(stored),
+        "bit_identical": True,
+    }
+
+
 def analyze(
     *,
     fit_runs: list[Path],
@@ -708,8 +733,10 @@ def analyze(
     stored_zero = _load_pw0315_candidate(
         pw0315_evidence_root, summary, layer_row, EXPERT
     )
-    if not np.array_equal(base_bf16, stored_zero):
-        raise ValueError("PW-0331 zero factors do not reproduce PW-0315 bits")
+    historical_dense = modules["panel"].complete_outputs(selected_input, decoded)
+    historical_dense_control = authenticate_historical_dense_zero_control(
+        historical_dense, stored_zero
+    )
     corrected = apply_serialized_rank_one(dynamic_hidden, base_raw, left, right)
 
     identity_down = _replace_expert(expert_down, layer_row, EXPERT, corrected)
@@ -818,6 +845,7 @@ def analyze(
         },
         "source_replay_exact": True,
         "zero_factor_control": {
+            "historical_dense_pw0315": historical_dense_control,
             "position1_route": zero_route_metric,
             "position1_final": zero_final_metric,
         },
@@ -873,6 +901,8 @@ def analyze(
         decoded,
         serialized,
         stages,
+        historical_dense,
+        historical_dense_control,
         dynamic_hidden,
         base_raw,
         base_bf16,
