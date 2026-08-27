@@ -133,8 +133,10 @@ an executable bank and is the byte-floor kill authority.
 
 ### Row-feasible fixed bank
 
-For `d ∈ {3, 6}` construct deterministic candidates capped at 4,096 global
-identities. Report `d=8` only as an unqualified diagnostic.
+For every `(d, R, target)` with `d ∈ {3, 6}`, `R ∈ {4, 6, 8, 12} GiB`,
+and target in `{1.10, 1.25, 1.50}`, construct an independent deterministic
+candidate capped at 4,096 global identities. Run the same grid for `d=8`, but
+report it only as an unqualified diagnostic.
 
 Start with every identity source FP8. An identity may be selected only when
 adding it leaves every authenticated eight-expert route row at or below `d`
@@ -143,6 +145,17 @@ layer union in which it appears. For category storage targets
 `{1.10, 1.25, 1.50}`, choose the identity maximizing the sum across deficient
 categories of clipped byte reduction divided by that category's initial byte
 deficit. Resolve exact ties by layer then expert.
+
+The selector objective is the guarded current-layout model below, not the
+fractional byte floor. For category `c` at target `T`, define its wall deficit
+as `max(0, sum_w(t_guarded_w) - sum_w(A_w)/T)`. For each feasible identity,
+recompute the exact guarded miss reduction in every affected window, clip each
+category's wall reduction to its current deficit, divide by that category's
+initial positive deficit, and sum across deficient categories. Choose the
+largest score; an exact tie selects the lowest canonical `(layer, expert)` ID.
+Stop when all category deficits close, the bank reaches 4,096 identities, or
+no feasible positive-score identity remains. Incremental indexing may optimize
+this calculation, but an independent final recomputation is authoritative.
 
 Emit the complete order and hash, selected count, row-density histogram,
 layer/category coverage, installed hybrid bytes, construction-artifact bytes,
@@ -189,10 +202,19 @@ shared manifest's per-object page rounding:
 K_schema2_stride = 12,877,824
 source_schema2_stride = 25,214,976
 S_alloc = 7,745,470,464
+total_alloc_w = S_alloc + sum_l(k_wl * K_schema2_stride
+                                + (n_wl - k_wl) * source_schema2_stride)
 L = max(1,249,902,592, largest selected expert allocation)
 M_guarded_w = 0                               if total_alloc <= R
               total_alloc - max(0, R - L)     otherwise
 ```
+
+This candidate-favorable guarded model deliberately omits allocation for the
+eight per-window embedding rows and the shared 4,096-byte logical/16,384-byte
+allocated K4 TLUT. Report both omissions explicitly; do not silently count
+either as resident fixed authority. The executable-stride saving per K4
+substitution is `12,337,152` bytes, distinct from the exact logical saving
+`12,517,364` and the hypothetical-repack saving `12,517,376`.
 
 For sensitivity only, report `ceil(logical_record/16 KiB)` as a more favorable
 hypothetical whole-record repack: K4 `12,664,832`, source `25,182,208`. It is
@@ -252,7 +274,9 @@ density six or eight, or as a hard gate.
    mixed q8 timing remain later prerequisites.
 7. Any survivor requiring more than 8 GiB interposes PW-0207's declared-
    residency/pressure-observer requalification and a complete process memory
-   manifest. Twelve-GiB analysis is not physical authorization.
+   manifest. Twelve-GiB analysis is not physical authorization. Gate 8 on this
+   analyzer validates only analyzer safety and logical ceilings; it cannot
+   establish that a 12-GiB runtime allocation is pressure-safe.
 
 If relaxed density survives but no fixed bank clears the margin, emit a
 conditional analytical survivor and no work order. Every disposition records
@@ -271,7 +295,10 @@ Before execution, add deterministic tests that:
 - prove common and expert residency cannot both consume the full `R`;
 - derive logical payload sums and current schema-2 record strides, distinguish
   them from hypothetical whole-record page rounding, and cover the
-  largest-object guard and fit-all case;
+  explicitly omitted embedding/TLUT allocations, largest-object guard, and
+  fit-all case;
+- prove the optimized fixed-bank selector exactly matches a naive reference on
+  deterministic tiny grids, including guarded marginal scores and ties;
 - compute the fourth-lowest p10 and token-total-over-wall aggregates; and
 - enforce strongest-scenario disposition precedence.
 
