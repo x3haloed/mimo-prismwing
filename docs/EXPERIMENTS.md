@@ -1588,7 +1588,13 @@ Run the following cheap falsifiers in order:
 19. [PW-0313](../experiments/PW-0313-m1-native-k4-revision.md) creates a named
    target-native L3 revision, requires fresh-process local byte repeatability,
    and judges policy-relevant expert 199 plus the harder expert-41 control under
-   frozen source, route, and Gate 8 thresholds before any new-layer work.
+   frozen source, route, and Gate 8 thresholds before any new-layer work. Both
+   identities repeat byte-for-byte locally. Expert 199 is executable-semantic
+   identical to M4 and preserves the frozen route exactly; expert 41's
+   deterministic `0.006918367` complete-output relative L2 exceeds the `0.005`
+   gate. Conditionally authorize only expert 199 and prohibit expert-41
+   expansion under this revision. Do not generalize to arbitrary identities or
+   layers.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

@@ -20,11 +20,14 @@ full-capability, and complete-path performance gates.
 - Cross-device artifact hashes are not representation semantics. Any
   target-native modified artifact must have an explicit revision, locally
   repeatable content identity, and unchanged external quality gates.
+- A target-native representation revision is not a blanket portability claim.
+  Each new K4 identity must pass its own local-repeatability and semantic gate;
+  one exact trellis alias cannot authorize a numerically drifting expert.
 
 ## Prediction errors
 
-None unresolved. PW-0312 rejects arbitrary M1 reproduction of M4 payload hashes
-while preserving exact local determinism and several semantic-portability
-classes. PW-0313 is ordinary pending research: determine whether the explicit
-`m1-native-k4-v1` revision passes source/routed quality and local repeatability
-before advancing to new-layer construction.
+None unresolved. PW-0313 qualifies policy-relevant expert 199 as locally
+repeatable and M4-semantic identical, but deterministically rejects expert 41
+at the frozen complete-output gate. The next bank work must preserve this split
+and classify every new identity rather than treating `m1-native-k4-v1` as a
+blanket authorization.

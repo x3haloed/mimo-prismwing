@@ -1,7 +1,7 @@
 # PW-0313 — M1-native K4 revision and semantic gate
 
-- Status: in progress
-- Disposition: pending
+- Status: complete
+- Disposition: conditional for expert 199; rejected for expert 41 expansion
 - Date: 2026-08-26
 - Owner: Codex
 - Parent experiment: PW-0312
@@ -70,3 +70,81 @@ in that mixed policy and supplies the harder numerical-drift control.
 - hosted-reference or multimodal equivalence;
 - ordinary endpoint execution;
 - accepted-token TPS, Prismwing-2 completion, or Prismwing 50 completion.
+
+## Execution and evidence
+
+The constructor and repeated-evidence analyzer were committed and pushed before
+their respective evidence runs. The two decision runs per expert bind clean
+commit `922641c17d2f532f36e76e9cafc4638beb6759f9`.
+
+| Expert | Run | Status | Wall seconds | Peak RSS bytes | Report SHA-256 |
+| ---: | --- | --- | ---: | ---: | --- |
+| 199 | 002 | qualified | 503.955450 | 1,461,338,112 | `d3aa12831c12d5d214f403c4bdcb597a50ca29b50857e0ae9be84a939bff0992` |
+| 199 | 003 | qualified | 505.760279 | 1,472,675,840 | `66bce59587ef656a0969fa00aa187f03b6bd4f89bac09a09f41519d6aa44bc39` |
+| 41 | 001 | semantic gate failed | 505.926391 | 1,464,041,472 | `3758952e971a57bffd3449366696b46a46148c8597be607ebfa8bb1967259c23` |
+| 41 | 002 | semantic gate failed | 508.361189 | 1,508,933,632 | `0f0157e1d0e5373bfeabec26b9b8a500185a4b9cac1dbd96295507811fd51957` |
+
+For each expert, the two fresh processes produce the same 33-file deterministic
+tree and identical semantic report. Expert 199's tree contains 29,992,910
+bytes; expert 41's contains 29,991,879 bytes.
+
+The canonical analyzer output is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0313/summary.json`, SHA-256
+`e61c1487055cce54a7a72e3505003eb7f6c5c4c70fca7ab8f9fa3bd037397ddd`.
+It binds all four report paths, byte sizes, hashes, commits, repeat trees,
+semantic results, and safety decisions.
+
+## Results
+
+### Policy-relevant expert 199
+
+- gate and down executable payloads are M4-identical;
+- up uses a different packed trellis but independently decodes to every M4 F32
+  weight bit exactly;
+- M1-native versus M4 complete-expert relative L2 and maximum absolute error
+  are both zero;
+- source degradation relative to M4 is zero;
+- substituting the bit-identical expert output leaves the authenticated
+  PW-0424 candidate route hash unchanged at
+  `6b7b0459c75aa1885009a44c31b4653e405d30921e6a6c85a8192516aaf55104`;
+- the route remains at `0.004701004` relative L2 versus source, below `0.01`.
+
+The preserved first attempt at commit `a78c9a0` failed only because the
+evaluator demanded reconstruction of PW-0424's one-off route assembler, whose
+source was never preserved. Its report hashes to
+`a8beac83812dfae5a77b6bf566823933930ed947bcb17be270429128c9914890`.
+The corrected proof does not approximate that missing assembler: it requires
+the replacement expert output to be bit-identical and then proves that exact
+substitution cannot change the frozen route. Any non-identical replacement
+still fails closed.
+
+### Harder expert-41 control
+
+- up and down executable payloads are M4-identical;
+- gate is a deterministic numerical-drift case: decoded M1 versus M4 relative
+  L2 is `0.002102904`, maximum absolute error `0.0001217201`;
+- complete-expert M1 versus M4 relative L2 is `0.006918367`, exceeding the
+  predeclared `0.005` gate, with maximum absolute error `0.0078125`;
+- additional source error is only `0.0000442093`, within its separate gate.
+
+The threshold remains unchanged. Expert 41 fails this revision even though its
+source-relative quality penalty is small.
+
+All four decision runs pass Gate 8: minimum free memory is 69%, maximum process
+footprint is 1,592,464,640 bytes, maximum peak RSS is 1,508,933,632 bytes,
+release footprints are 346,574,720--357,781,504 bytes, and swap growth and new
+throttling are zero. Protected services remain healthy.
+
+## Decision
+
+Promote `m1-native-k4-v1` only for the policy-relevant expert-199 identity under
+the authenticated layer-28 fixture. It is locally byte-repeatable, executable-
+semantic identical to M4, and route-preserving. Reject expert-41 expansion
+under this revision because its deterministic complete-output error exceeds the
+frozen gate.
+
+This is a split conditional result, not arbitrary-expert or new-layer
+authorization. A subsequent bank experiment must classify and gate each new
+identity; it may not infer portability from expert 199 or silently include
+expert 41. Construction accepts zero tokens, so this result changes no
+throughput-model constant and makes no endpoint-TPS claim.

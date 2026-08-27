@@ -4690,3 +4690,26 @@ semantics or the authenticated M4-built runtime bundle. Open an explicit
 `m1-native-k4-v1` revision whose own hashes must repeat locally and whose source,
 routed, and eventual external fidelity gates remain unchanged. No throughput
 constant or runtime default changes.
+
+PW-0313 proves that the explicit target-native revision needs an identity-local
+semantic gate, not merely a revision-wide label. At clean commit `922641c`, two
+fresh expert-199 processes reproduce the same 33 files and 29,992,910 bytes.
+Gate and down payloads match M4; up is a different trellis alias whose decoded
+weights, complete-expert output, and authenticated PW-0424 routed output are
+all M4-bit-identical. The route hash remains
+`6b7b0459c75aa1885009a44c31b4653e405d30921e6a6c85a8192516aaf55104`
+and stays at `0.004701004` relative L2 versus source.
+
+Expert 41 also repeats locally across 33 files and 29,991,879 bytes, but its
+gate projection retains `0.002102904` M1/M4 decoded relative L2 and propagates
+to `0.006918367` complete-expert relative L2. That exceeds the frozen `0.005`
+gate even though additional source error is only `0.0000442093`. Keep the
+threshold and reject expert-41 expansion under `m1-native-k4-v1`.
+
+The canonical four-run summary hashes to
+`e61c1487055cce54a7a72e3505003eb7f6c5c4c70fca7ab8f9fa3bd037397ddd`.
+All runs pass Gate 8 with at least 69% free memory, at most 1,592,464,640-byte
+footprint, at most 1,508,933,632-byte peak RSS, zero swap growth, and zero new
+throttling. Promote only policy-relevant expert 199 under its named fixture;
+new identities must be independently classified and gated. These constructions
+accept zero tokens, so no throughput-model constant or runtime default changes.
