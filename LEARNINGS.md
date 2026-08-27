@@ -4713,3 +4713,25 @@ footprint, at most 1,508,933,632-byte peak RSS, zero swap growth, and zero new
 throttling. Promote only policy-relevant expert 199 under its named fixture;
 new identities must be independently classified and gated. These constructions
 accept zero tokens, so no throughput-model constant or runtime default changes.
+
+PW-0314 closes the next construction boundary: the receipt-authenticated full
+installed checkpoint can feed the same target-native recipe outside layer 28.
+At clean commit `33ea641`, two fresh layer-4 expert-64 processes produce the
+same 33 files and 30,005,932 bytes. The source expert reproduces all 181 frozen
+PW-0116 placement outputs bit-for-bit, and expert-major reconstruction
+reproduces all 224 routed and final source rows exactly.
+
+The K4 expert has `0.006314151` aggregate output relative L2 versus source, but
+its route-weighted effect is much smaller: `0.000945201` overall routed relative
+L2, `0.002181414` on the hardest validation aggregate, and `0.005299529` on the
+worst row. Layer-final metrics also pass every `0.01` aggregate and `0.05` row
+gate. The reports hash to
+`3adba8e673f75e949e5f6b37d5b0b407cbf70b51f02a20837f1d7a0f86a59cb6`
+and `654da3f02e96a89b3fce23c3c68e5b6cafcf64444fdf9785cae596a06e4dc6dc`.
+
+Gate 8 passes with 61% minimum free memory, 1,728,042,176-byte maximum
+footprint, 1,532,395,520-byte peak RSS, sub-394-MB release footprints, zero swap
+growth, and zero new throttling. Authorize only a bounded multi-identity
+layer-4 bank test. Identity-local qualification remains mandatory, and these
+zero-token constructions change no throughput-model constant or runtime
+default.

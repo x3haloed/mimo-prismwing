@@ -23,11 +23,16 @@ full-capability, and complete-path performance gates.
 - A target-native representation revision is not a blanket portability claim.
   Each new K4 identity must pass its own local-repeatability and semantic gate;
   one exact trellis alias cannot authorize a numerically drifting expert.
+- Full-checkpoint receipt-backed K4 construction is viable on the target M1 at
+  a second layer. Bank growth must accumulate routed error over frozen
+  partitions rather than judging isolated expert error alone.
 
 ## Prediction errors
 
 None unresolved. PW-0313 qualifies policy-relevant expert 199 as locally
 repeatable and M4-semantic identical, but deterministically rejects expert 41
-at the frozen complete-output gate. The next bank work must preserve this split
-and classify every new identity rather than treating `m1-native-k4-v1` as a
-blanket authorization.
+at the frozen complete-output gate. PW-0314 qualifies full-checkpoint layer-4
+expert 64 across 181 real placements and authorizes a bounded multi-identity
+layer-4 bank test. That next work must preserve identity-local gates and measure
+cumulative routed error rather than treating `m1-native-k4-v1` as blanket
+authorization.

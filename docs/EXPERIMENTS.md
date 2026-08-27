@@ -1601,6 +1601,12 @@ Run the following cheap falsifiers in order:
    requires exact source replay across its 181 real PW-0116 placements, gates
    routed quality separately on train, validation, and pilot holdout, and
    requires a fresh-process byte-identical repeat before any layer-bank scaling.
+   Both runs reproduce the same 33 files and 30,005,932 bytes, exact source
+   expert/route/final answer keys, and identical semantic metrics. Overall
+   routed relative L2 is `0.000945201`; the hardest aggregate slice is
+   validation at `0.002181414`, and the worst row is `0.005299529`. Conditionally
+   authorize a bounded multi-identity layer-4 bank test; do not generalize this
+   one identity to a bank or endpoint.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

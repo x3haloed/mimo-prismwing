@@ -1,7 +1,7 @@
 # PW-0314 — Full-checkpoint layer-4 target-native K4 control
 
-- Status: in progress
-- Disposition: pending
+- Status: complete
+- Disposition: conditional
 - Date: 2026-08-26
 - Owner: Codex
 - Parent experiment: PW-0313
@@ -93,3 +93,63 @@ change across reboot while inode, size, and nanosecond mtime remain stable.
 - hosted-reference, multimodal, long-context, or capability equivalence;
 - ordinary endpoint execution or accepted-token TPS;
 - Prismwing-2, 34.3 TPS, or Prismwing 50 completion.
+
+## Execution and evidence
+
+The constructor was committed and pushed at clean commit
+`33ea64171f22fdfd8cf87b813c2a684ae595edd9`. Two fresh processes produced:
+
+| Run | Status | Wall seconds | Peak RSS bytes | Report SHA-256 |
+| --- | --- | ---: | ---: | --- |
+| 001 | qualified | 502.164624 | 1,532,395,520 | `3adba8e673f75e949e5f6b37d5b0b407cbf70b51f02a20837f1d7a0f86a59cb6` |
+| 002 | qualified | 501.933432 | 1,530,118,144 | `654da3f02e96a89b3fce23c3c68e5b6cafcf64444fdf9785cae596a06e4dc6dc` |
+
+Both runs produce the same 33-file, 30,005,932-byte deterministic tree. Every
+candidate-array, packed-trellis, projection-manifest, fixture, and referenced
+payload hash matches. The semantic reports are identical. Only diagnostic
+quantization seconds and host counters differ.
+
+## Results
+
+The installed checkpoint receipt, revision, index, tensor-to-shard mappings,
+shard inode/size/mtime, QTIP recipe, calibration atlas, codebook, TLUT, and
+PW-0116 corpus preflights pass in both runs. The source expert reproduces every
+F32 bit of all 181 captured expert-64 outputs. Expert-major schedule
+reconstruction reproduces all 224 source routed rows and final rows bit for
+bit.
+
+Each serialized K4 projection independently decodes to the in-process candidate
+with zero relative L2. Across the 181 selected placements, candidate expert
+output relative L2 versus source is `0.006314151`; maximum row relative L2 is
+`0.018526057`.
+
+Replacing only expert 64 yields these routed-output results:
+
+| Slice | Aggregate relative L2 | Maximum row relative L2 |
+| --- | ---: | ---: |
+| overall | 0.000945201 | 0.005299529 |
+| train | 0.000943151 | 0.004591835 |
+| validation | 0.002181414 | 0.004356384 |
+| pilot holdout | 0.000918785 | 0.005299529 |
+
+Layer-final relative L2 is `0.000984831` overall, `0.000983206` train,
+`0.001334509` validation, and `0.000626691` pilot holdout. Its worst row is
+`0.002801227`. Every aggregate remains below `0.01` and every row remains below
+`0.05`.
+
+Gate 8 passes both runs. Minimum free memory is 61%, maximum process footprint
+is 1,728,042,176 bytes, maximum peak RSS is 1,532,395,520 bytes, release
+footprints are 387,911,616 and 393,383,936 bytes, and swap growth and new
+throttling are zero. Protected services remain healthy.
+
+## Decision
+
+Conditionally qualify `m1-native-k4-v1` for layer-4 expert 64 under the frozen
+PW-0116 corpus. This closes the full-checkpoint receipt and second-layer
+construction gates and authorizes a bounded multi-identity layer-4 bank test.
+
+Do not generalize this result to other identities: PW-0313 already proves that
+semantic qualification is identity-local. The next experiment must construct
+and gate each added identity, accumulate their routed error across the same
+partitions, and preserve expert-64 as an immutable control. This experiment
+accepts zero tokens and changes no throughput-model constant or runtime default.
