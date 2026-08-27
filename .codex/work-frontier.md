@@ -17,10 +17,14 @@ full-capability, and complete-path performance gates.
   named throughput tier is lower.
 - Modified K4 weights remain L3 and cannot be reported as source-exact even if
   they pass external near-equivalence gates.
+- Cross-device artifact hashes are not representation semantics. Any
+  target-native modified artifact must have an explicit revision, locally
+  repeatable content identity, and unchanged external quality gates.
 
 ## Prediction errors
 
-None unresolved. The M4 K4 authority package is transport- and
-content-address-validated, but arbitrary-expert reconstruction and a complete
-Prismwing-2 endpoint remain unproven research work rather than prediction
-errors.
+None unresolved. PW-0312 rejects arbitrary M1 reproduction of M4 payload hashes
+while preserving exact local determinism and several semantic-portability
+classes. PW-0313 is ordinary pending research: determine whether the explicit
+`m1-native-k4-v1` revision passes source/routed quality and local repeatability
+before advancing to new-layer construction.

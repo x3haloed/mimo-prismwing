@@ -1,7 +1,7 @@
 # PW-0312 — K4 held-out expert construction
 
-- Status: in progress
-- Disposition: pending
+- Status: complete
+- Disposition: rejected for arbitrary byte portability; semantic portability retained
 - Date: 2026-08-26
 - Owner: Codex
 - Parent experiment: PW-0311
@@ -88,6 +88,32 @@ expert-41 difference as cross-device, weight-dependent numerical boundary
 behavior. If it differs, sequence effects exist for expert 188 but are not a
 sufficient general constructor contract.
 
+The fresh no-prefix expert-188 control resolves that question. All 33 files
+and 29,993,518 bytes match independently without replay, proving that prefix
+work was irrelevant. Its report hashes to
+`263b246cee429aec05c98acd28e12b0e6ff7e13a729f06a3b9608b8f509b2e4f`.
+Complete wall is `506.037431` seconds; peak RSS is `1,443,725,312` bytes;
+maximum physical footprint is `1,665,831,872` bytes; minimum free memory is
+69%; swap/throttle growth is zero; and the release footprint is `347,950,848`
+bytes.
+
+Expert 199 adds a third, finer classification. Gate reproduces all 11 files and
+9,991,465 bytes exactly. Up has the exact M4 candidate-array hash but 64 of
+2,097,152 packed words differ. Independent decoding proves the two packed forms
+produce every one of 8,388,608 F32 candidate elements identically. This is a
+non-canonical trellis encoding difference, not a weight-semantic difference.
+The fail-closed report hashes to
+`019987400b0db0bec1f468e650a4fb013e51115fc711245ebcbd978bc46f565c`.
+It passes Gate 8 with `1,385,594,880`-byte peak RSS,
+`1,505,940,224`-byte maximum footprint, 68% minimum free memory, zero
+swap/throttle growth, and a `385,863,552`-byte release footprint.
+
+The prediction error is closed. The QTIP/MPS constructor is deterministic on
+the target M1, but M1/M4 byte portability is weight- and projection-dependent:
+some projections are payload-identical, some use different semantically exact
+trellis aliases, and some produce slightly different candidates. Sequence
+replay is not causal.
+
 ## Decision rule
 
 - If both held-out experts reproduce bit for bit and pass Gate 8, authorize one
@@ -103,3 +129,17 @@ sufficient general constructor contract.
 - general fidelity or modalities;
 - ordinary endpoint execution;
 - accepted-token TPS or Prismwing completion.
+
+## Decision
+
+Reject arbitrary M4-payload reconstruction on the M1. Do not use a payload hash
+from one Apple GPU generation as the artifact identity for a reconstruction on
+another. Preserve the authenticated M4-built PW-0425 bundle unchanged; its
+target Metal execution evidence remains valid because runtime decoding, not
+reconstruction, is the relevant path.
+
+Open PW-0313 as an explicit `m1-native-k4-v1` L3 representation. It must create
+complete target-native artifacts, reproduce them locally byte for byte,
+classify M4 semantic differences without substituting hashes, and pass frozen
+source, routed, and Gate 8 checks. No cross-layer, bank, fidelity, capability,
+runtime, or TPS claim is promoted here, and no throughput constant changes.

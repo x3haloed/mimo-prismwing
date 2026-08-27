@@ -1580,7 +1580,15 @@ Run the following cheap falsifiers in order:
    authority. Although expert 188 matched after replaying expert 114, a full
    five-expert prefix leaves expert 41 byte-identical to its independent M1
    result and still mismatched. Sequence dependence is therefore unproven; an
-   independent expert-188 control is the next discriminator.
+   independent expert-188 control proves sequence replay irrelevant. Expert
+   188 is fully byte-portable; expert 199 up uses 64 different packed words but
+   decodes to the identical candidate; expert 41 has small real candidate
+   drift. Reject arbitrary cross-device payload identity while retaining the
+   authenticated M4 runtime bundle and explicit semantic evidence.
+19. [PW-0313](../experiments/PW-0313-m1-native-k4-revision.md) creates a named
+   target-native L3 revision, requires fresh-process local byte repeatability,
+   and judges policy-relevant expert 199 plus the harder expert-41 control under
+   frozen source, route, and Gate 8 thresholds before any new-layer work.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

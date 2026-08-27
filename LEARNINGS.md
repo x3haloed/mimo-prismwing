@@ -4670,3 +4670,23 @@ not identify replay as the cause. Preserve prefix replay as a diagnostic, not a
 representation invariant. Cross-device, weight-dependent numerical boundary
 behavior is again the live explanation pending the independent expert-188
 control. No throughput constant or runtime default changes.
+
+PW-0312 closes that prediction error with a controlled classification. A fresh
+no-prefix expert-188 run reproduces all 33 M4 files and 29,993,518 bytes exactly;
+its report hashes to
+`263b246cee429aec05c98acd28e12b0e6ff7e13a729f06a3b9608b8f509b2e4f`.
+Sequence replay is therefore not causal.
+
+Expert 199 gate is also payload-exact. Its up projection has the exact M4
+candidate-array hash while 64 of 2,097,152 packed words differ; independent
+decode yields all 8,388,608 F32 candidate values bit-identically. The report
+hashes to `019987400b0db0bec1f468e650a4fb013e51115fc711245ebcbd978bc46f565c`.
+Together with expert 41's real `0.002102904` candidate drift, this proves three
+cross-device classes: payload-identical, semantically identical trellis aliases,
+and small numerical candidate divergence.
+
+Reject arbitrary M4 payload reconstruction on the M1 without rejecting K4
+semantics or the authenticated M4-built runtime bundle. Open an explicit
+`m1-native-k4-v1` revision whose own hashes must repeat locally and whose source,
+routed, and eventual external fidelity gates remain unchanged. No throughput
+constant or runtime default changes.
