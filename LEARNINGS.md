@@ -4735,3 +4735,26 @@ growth, and zero new throttling. Authorize only a bounded multi-identity
 layer-4 bank test. Identity-local qualification remains mandatory, and these
 zero-token constructions change no throughput-model constant or runtime
 default.
+
+PW-0315 proves that target-native K4 construction can grow beyond a single
+full-checkpoint identity without hiding identity-local failures or cumulative
+error. At clean commit `9dd77d1`, experts 64, 96, 31, and 232 each reproduce
+their complete 34-file tree, candidate output, and semantic report across two
+fresh M1 processes. Expert 64 also remains hash-identical to its PW-0314
+projection control.
+
+Raw expert quality varies materially: aggregate relative L2 ranges from
+`0.004453180` for expert 232 to `0.021996005` for expert 96. The declared
+route-weighted gates nevertheless pass separately for every identity. With all
+four candidates active, routed relative L2 is `0.003130533` overall,
+`0.002940495` on validation, and `0.001091375` on pilot holdout; the worst row
+is `0.014743290`. Layer-final relative L2 is `0.003160456` overall and its worst
+row is `0.009032566`.
+
+The canonical summary hashes to
+`07b3d3793a6750a030eb5b7e12a0add1b603d48758a85e6f45b44504e404d0e8`.
+Gate 8 retains at least 61% free memory with at most 1,734,661,312-byte process
+footprint, 1,554,481,152-byte peak RSS, zero swap growth, and zero new
+throttling. Authorize bounded cumulative bank expansion while retaining
+identity-local qualification. These constructions accept zero tokens, so no
+throughput-model constant or runtime default changes.

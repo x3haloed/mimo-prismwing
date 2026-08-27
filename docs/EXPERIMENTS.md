@@ -1607,6 +1607,16 @@ Run the following cheap falsifiers in order:
    validation at `0.002181414`, and the worst row is `0.005299529`. Conditionally
    authorize a bounded multi-identity layer-4 bank test; do not generalize this
    one identity to a bank or endpoint.
+21. [PW-0315](../experiments/PW-0315-layer4-four-expert-k4-bank.md) expands the
+   layer-4 control to the four most-used frozen identities, gates each identity
+   separately in two fresh processes, preserves expert 64 as a hash-pinned
+   PW-0314 control, and independently reconstructs their cumulative mixture.
+   Every identity repeats across the complete 34-file tree. Cumulative routed
+   relative L2 is `0.003130533` overall and `0.002940495` on validation; the
+   worst routed row is `0.014743290`. Layer-final relative L2 is `0.003160456`
+   overall and the worst row is `0.009032566`. All unchanged slice and Gate 8
+   thresholds pass. Authorize bounded bank expansion, not a full-bank or
+   endpoint claim.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

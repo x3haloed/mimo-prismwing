@@ -26,13 +26,17 @@ full-capability, and complete-path performance gates.
 - Full-checkpoint receipt-backed K4 construction is viable on the target M1 at
   a second layer. Bank growth must accumulate routed error over frozen
   partitions rather than judging isolated expert error alone.
+- A four-identity layer-4 bank repeats locally and passes cumulative routed and
+  final gates. This authorizes bounded geometric bank growth, but not
+  extrapolation to untested identities, layers, or endpoint quality.
 
 ## Prediction errors
 
 None unresolved. PW-0313 qualifies policy-relevant expert 199 as locally
 repeatable and M4-semantic identical, but deterministically rejects expert 41
 at the frozen complete-output gate. PW-0314 qualifies full-checkpoint layer-4
-expert 64 across 181 real placements and authorizes a bounded multi-identity
-layer-4 bank test. That next work must preserve identity-local gates and measure
-cumulative routed error rather than treating `m1-native-k4-v1` as blanket
-authorization.
+expert 64. PW-0315 expands that control to experts 64, 96, 31, and 232: all
+repeat locally and the cumulative bank remains below every frozen slice gate.
+The next work must choose a bounded expansion that increases endpoint coverage
+faster than one-off construction evidence while retaining identity-local and
+cumulative stopping conditions.
