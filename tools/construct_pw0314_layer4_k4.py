@@ -76,6 +76,8 @@ TOP_K = 8
 PARTITIONS = {"train": (0, 112), "validation": (112, 168), "pilot_holdout": (168, 224)}
 MAXIMUM_ROUTE_RELATIVE_L2 = 0.01
 MAXIMUM_ROW_RELATIVE_L2 = 0.05
+EXPECTED_PROJECTION_HASHES: dict[str, dict[str, str]] | None = None
+EXPECTED_PLACEMENT_COUNT: int | None = 181
 
 
 def verify_full_checkpoint_install(
@@ -307,6 +309,7 @@ def construct(
             "recipe_export_sha256": PANEL_EXPORT_SHA256,
             "recipe_anchor_sha256": ANCHOR_MANIFEST_SHA256,
             "qtip": verified_qtip,
+            "expected_projection_hashes": EXPECTED_PROJECTION_HASHES,
         }
         phase = "authorities_verified"
         safety.checkpoint(phase)
@@ -351,9 +354,29 @@ def construct(
         source_routed = load_capture(corpus_root, layer_row, "routed_output")
         post_attention = load_capture(corpus_root, layer_row, "post_attention")
         source_final = load_capture(corpus_root, layer_row, "final")
-        positions, slots, selected_weights, source_offsets = selected_rows(layer_row)
-        if len(positions) != 181 or [sum((start <= positions) & (positions < end)) for start, end in PARTITIONS.values()] != [106, 56, 19]:
-            raise ValueError("layer-4 expert-64 placement authority mismatch")
+        positions, slots, selected_weights, source_offsets = selected_rows(
+            layer_row, EXPERT
+        )
+        partition_counts = {
+            name: int(np.sum((start <= positions) & (positions < end)))
+            for name, (start, end) in PARTITIONS.items()
+        }
+        scheduled_count = sum(
+            len(row["positions"])
+            for row in layer_row["expert_schedule"]
+            if int(row["expert"]) == EXPERT
+        )
+        if (
+            len(positions) == 0
+            or len(positions) != scheduled_count
+            or (
+                EXPECTED_PLACEMENT_COUNT is not None
+                and len(positions) != EXPECTED_PLACEMENT_COUNT
+            )
+        ):
+            raise ValueError(
+                f"layer-{LAYER} expert-{EXPERT} placement authority mismatch"
+            )
         selected_input = np.asarray(moe_input[positions], dtype=np.float32)
         expected_source_output = np.asarray(
             expert_down[source_offsets], dtype=np.float32
@@ -451,9 +474,22 @@ def construct(
             gc.collect()
             torch.mps.empty_cache()
 
+        if EXPECTED_PROJECTION_HASHES is not None:
+            for name, expected in EXPECTED_PROJECTION_HASHES.items():
+                observed = projections.get(name, {})
+                for field, digest in expected.items():
+                    if observed.get(field) != digest:
+                        raise ValueError(
+                            f"immutable projection control mismatch: {name}.{field}"
+                        )
+
         candidate_output = modules["panel"].complete_outputs(
             selected_input, decoded_weights
         )["candidate_output_bf16_f32"]
+        candidate_output_path = artifact_root / "candidate-output.f32le"
+        candidate_output_path.write_bytes(
+            np.asarray(candidate_output, dtype="<f4").tobytes(order="C")
+        )
         candidate_expert = partition_metrics(source_output, candidate_output)
         candidate_expert["selected_placements"] = int(len(positions))
         candidate_down = expert_down.copy()
@@ -473,9 +509,7 @@ def construct(
             "final_candidate_vs_source": final_metrics,
             "placements": {
                 "total": int(len(positions)),
-                "train": 106,
-                "validation": 56,
-                "pilot_holdout": 19,
+                **partition_counts,
                 "minimum_route_weight": float(np.min(selected_weights)),
                 "median_route_weight": float(np.median(selected_weights)),
                 "maximum_route_weight": float(np.max(selected_weights)),
@@ -492,8 +526,16 @@ def construct(
             "final_pass": metrics_pass(final_metrics),
             "pass": semantic_pass,
         }
-        status = "layer4_expert64_semantically_qualified" if semantic_pass else "layer4_expert64_semantic_gate_failed"
-        decision = "require_local_repeat" if semantic_pass else "reject_layer4_expert64_k4"
+        status = (
+            f"layer{LAYER}_expert{EXPERT}_semantically_qualified"
+            if semantic_pass
+            else f"layer{LAYER}_expert{EXPERT}_semantic_gate_failed"
+        )
+        decision = (
+            "require_local_repeat"
+            if semantic_pass
+            else f"reject_layer{LAYER}_expert{EXPERT}_k4"
+        )
     except (
         FileNotFoundError,
         HostSafetyViolation,
@@ -504,7 +546,7 @@ def construct(
         ValueError,
         json.JSONDecodeError,
     ) as error:
-        status = "layer4_expert64_construction_failed"
+        status = f"layer{LAYER}_expert{EXPERT}_construction_failed"
         decision = "keep_cross_layer_k4_unproven"
         failure = {"phase": phase, "type": type(error).__name__, "message": str(error)}
     finally:
@@ -515,7 +557,7 @@ def construct(
                 torch.mps.empty_cache()
             except RuntimeError as error:
                 if failure is None:
-                    status = "layer4_expert64_construction_failed"
+                    status = f"layer{LAYER}_expert{EXPERT}_construction_failed"
                     decision = "keep_cross_layer_k4_unproven"
                     failure = {"phase": "mps_release", "type": type(error).__name__, "message": str(error)}
         if safety is not None:
@@ -527,7 +569,7 @@ def construct(
                 safety.checkpoint("final_service_health")
             except (HostSafetyViolation, RuntimeError) as error:
                 if failure is None:
-                    status = "layer4_expert64_construction_failed"
+                    status = f"layer{LAYER}_expert{EXPERT}_construction_failed"
                     decision = "keep_cross_layer_k4_unproven"
                     failure = {"phase": "construction_buffers_released", "type": type(error).__name__, "message": str(error)}
 

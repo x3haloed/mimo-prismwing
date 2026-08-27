@@ -38,6 +38,22 @@ class Pw0314Layer4K4Tests(unittest.TestCase):
         np.testing.assert_allclose(weights, [0.7, 0.6])
         np.testing.assert_array_equal(offsets, [4, 5])
 
+    def test_selected_rows_accepts_a_nondefault_identity(self):
+        row = {
+            "selected_experts_by_position": [[64, 96], [96, 31]],
+            "route_weights_by_position": [[0.4, 0.6], [0.7, 0.3]],
+            "expert_schedule": [
+                {"expert": 31, "positions": [1]},
+                {"expert": 64, "positions": [0]},
+                {"expert": 96, "positions": [0, 1]},
+            ],
+        }
+        positions, slots, weights, offsets = selected_rows(row, 96)
+        np.testing.assert_array_equal(positions, [0, 1])
+        np.testing.assert_array_equal(slots, [1, 0])
+        np.testing.assert_allclose(weights, [0.6, 0.7])
+        np.testing.assert_array_equal(offsets, [2, 3])
+
     def test_route_reconstruction_applies_float32_sum_then_bf16_boundary(self):
         values = np.zeros((ROWS * TOP_K, HIDDEN), dtype=np.float32)
         values[:ROWS, :] = 2.0
