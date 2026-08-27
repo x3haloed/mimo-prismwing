@@ -55,8 +55,17 @@ following:
    the manifest. Transaction-zero prefill history remains mandatory.
 3. PW-0318 summary SHA-256
    `a91af31bdea45749c9ae9d5d679260bcbcd8284c238479938206a7e7e0b5eb2f`
-   for source-FP8 `25,171,968`-byte and K4 `12,654,604`-byte executable expert
-   records and the narrow `(3,5)` boundary.
+   for the narrow `(3,5)` correctness and executable boundary. Record sizes do
+   not appear in that summary. Derive them from its bound schema-2 manifest
+   `/Volumes/Elements/mimo-prismwing/evidence/PW-0318/run-001/layer04-position001.k4-source.manifest.json`,
+   SHA-256
+   `ca2cd8005c3c8f712fabd0b2fc88183d740bd6613efa065cdd4b25738c4924c3`,
+   and authenticate its 164,724,736-byte bundle SHA-256
+   `e87a0af2aba57f46b6a2f394d70e530533d04c18aa61650afbc8528a4b8bdc35`.
+   Independently sum payloads to source-FP8 `25,171,968` and K4
+   `12,654,604` logical bytes per expert. Preserve the current individually
+   aligned schema-2 record strides, source `25,214,976` and K4 `12,877,824`,
+   separately from logical bytes and hypothetical whole-record repacking.
 4. PW-0316 rejection SHA-256
    `7e5560cf2cdc2abdec8ec1a17af0462f69fa7204f8ba528808ce1f046d0e6ff4`:
    its four-K4/four-source routed row reaches `0.0109888419` relative L2 and
@@ -68,9 +77,23 @@ following:
    Independently sum the 381 fixed objects to `7,743,236,992` source bytes and
    `7,745,470,464` page-aligned allocation bytes. The largest object is the
    `1,249,902,592`-byte LM head.
-6. PW-0136's authenticated cold internal-SSD transport evidence and exact
-   `3,470,448,309.677419` logical bytes/s constant.
-7. The current `TARGET.md`, `RED_LINES.md`, model revision, hardware, batch one,
+6. PW-0136 raw SHA-256
+   `e6ab84cada19c6036ee7b83f318c3920631141b9ea5e882cc88eb9784d0b5a56`
+   and validated-analysis SHA-256
+   `7ebf2cde5c4a3f4931d2d705993f822e38af13ea66bc3efc91410296b14e2aab`.
+   Its exact `58.125375`-ms two-worker median for `201,719,808` bytes gives
+   `3,470,425,919.832775` logical bytes/s. The inherited
+   `3,470,448,309.677419` value used by PW-0320/PW-0325 comes from the prose's
+   rounded `58.125` ms; retain it only as the slightly faster, candidate-
+   favorable historical comparison and label that provenance explicitly.
+7. PW-0308 raw manifest SHA-256
+   `d395cd1844ee46a938578063ab7c68ba156b6e3b1e53f29b29c58c6e33949613`
+   and repeated-47 result SHA-256
+   `754cb36ba8d3831a3d7e3c59f5faebd7ea17c924b9d34f34343541ff3e7d9c4e`.
+   Its `351.680083`-ms p90 is 47 repeats of one eight-expert row, hence
+   `U=1`; it is a mixed three-K4/five-source diagnostic, not a density-six or
+   density-eight compute theorem.
+8. The current `TARGET.md`, `RED_LINES.md`, model revision, hardware, batch one,
    concurrency one, Gate 8 limits, and explicit companion-hardware exclusion.
 
 The exact traffic model includes eight embedding rows per q8 verifier. The
@@ -154,21 +177,29 @@ byte-fraction packing and free reshaping between windows, and charges no fill,
 compute, attention, routing, native-MTP proposal, synchronization, sampling,
 rollback, or endpoint work. It is never achieved TPS.
 
+The relaxed kill ceiling deliberately uses the slightly faster inherited
+rounded bandwidth. Also report all scenarios at the exact raw-derived
+`3,470,425,919.832775` bytes/s.
+
 Report an exact-logical variant using `S_q8_exact`. Report a conservative
-whole-object allocation model using 16 KiB page rounding:
+current-layout allocation model using the schema-2 record strides and the
+shared manifest's per-object page rounding:
 
 ```text
-K_alloc = 12,664,832
-source_alloc = 25,182,208
+K_schema2_stride = 12,877,824
+source_schema2_stride = 25,214,976
 S_alloc = 7,745,470,464
 L = max(1,249,902,592, largest selected expert allocation)
 M_guarded_w = 0                               if total_alloc <= R
               total_alloc - max(0, R - L)     otherwise
 ```
 
-The largest-object slack prevents a fractional packing claim. Page allocation
-belongs only to this residency model and must not be charged again as logical
-traffic.
+For sensitivity only, report `ceil(logical_record/16 KiB)` as a more favorable
+hypothetical whole-record repack: K4 `12,664,832`, source `25,182,208`. It is
+not the authenticated executable schema-2 layout and cannot authorize a
+runtime without a separately qualified repacker/loader. The largest-object
+slack prevents a fractional packing claim. Page allocation belongs only to
+these residency models and must not be charged again as logical traffic.
 
 For every window, category, and scenario report `A`, `U`, route identities,
 row hits, logical/allocated bytes, cache credit, storage wall, and optimistic
@@ -186,7 +217,9 @@ Negative headroom is a storage-only rejection. Positive headroom is only the
 maximum allowance for every omitted complete-path component; it is not a
 prediction that those components fit. Separately report PW-0308's
 `351.680083`-ms p90 repeated mixed routed component scaled by `sum(U)` as a
-diagnostic, never as a theorem for all-K4 distinct layers or a hard gate.
+diagnostic: window `w` is `351.680083 ms * U_w` and corpus diagnostic time is
+the sum over windows. Never use it as a theorem for all-K4 distinct layers,
+density six or eight, or as a hard gate.
 
 ## Frozen gates and disposition order
 
@@ -236,7 +269,9 @@ Before execution, add deterministic tests that:
 - reject a fourth selected identity in a `d=3` route row;
 - reproduce `k=min(n,8d)` and canonical selector ties;
 - prove common and expert residency cannot both consume the full `R`;
-- cover 16-KiB allocation, largest-object guard, and the fit-all case;
+- derive logical payload sums and current schema-2 record strides, distinguish
+  them from hypothetical whole-record page rounding, and cover the
+  largest-object guard and fit-all case;
 - compute the fourth-lowest p10 and token-total-over-wall aggregates; and
 - enforce strongest-scenario disposition precedence.
 
