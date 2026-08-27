@@ -46,6 +46,11 @@ full-capability, and complete-path performance gates.
   to the named one-row decode oracle while both batch and decode candidates
   remain below one-percent source distance. This is now the partial-bank decode
   integration boundary, not an arbitrary-route or endpoint result.
+- PW-0319 rejects a bounded 512-identity K4 tranche; 1,024 identities are the
+  first corrected-route three-hit coverage point and cost about 52 M4 hours.
+- PW-0320 rejects constructing that bank for the current width-eight M1
+  streaming architecture. Even 2,048 identities and a perfect free 4 GiB
+  cache cannot reach two optimistic accepted TPS before compute.
 
 ## Prediction errors
 
@@ -54,6 +59,8 @@ repeatable and M4-semantic identical, but deterministically rejects expert 41
 at the frozen complete-output gate. PW-0314 qualifies full-checkpoint layer-4
 expert 64. PW-0315 expands that control to experts 64, 96, 31, and 232: all
 repeat locally and the cumulative bank remains below every frozen slice gate.
-The next work must choose a bounded expansion that increases endpoint coverage
-faster than one-off construction evidence while retaining identity-local and
-cumulative stopping conditions.
+The prediction that a useful bank plus source fallback streaming could turn the
+qualified one-row transaction into Prismwing-2 is now false at width eight.
+The next work must change the byte/acceptance bound itself: test a materially
+smaller executable representation, obtain measured wider-verifier route-union
+evidence, or evaluate a resident companion embodiment under the $500 cap.

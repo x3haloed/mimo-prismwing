@@ -1,7 +1,7 @@
 # PW-0320 — Corrected width-eight hybrid-bank byte floor
 
-- Status: planned
-- Disposition: pending
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-26
 - Owner: Codex
 - Parent experiment: PW-0319
@@ -50,3 +50,39 @@ No new weights are qualified, no endpoint runs, no accepted tokens are emitted,
 and no storage-only bound is reported as measured TPS. Wider speculation,
 faster purchased storage, modalities, Prismwing-2, and Prismwing 50 remain
 outside this record.
+
+## Result
+
+Every tested bank/cache pair fails. With no cache, median optimistic accepted
+TPS rises only from `0.6309` at 512 identities to `0.7353` at 2,048. Granting
+the 2,048-identity bank a perfect per-window 4 GiB cache raises the median to
+only `0.8452`; the range is `0.2312` to `1.0710`, and zero of 32 windows reaches
+2 TPS. Every category therefore has zero passing windows.
+
+The strongest configuration still moves 22.691–33.282 GB per width-eight
+transaction after the free oracle cache. At the observed `A`, individual
+windows require 6.483–30.017 GB/s for 2 TPS. Even replacing every observed
+acceptance with the structural maximum `A=8` leaves the best window below
+1.23 TPS on the measured transport, before charging any compute or common
+weights.
+
+Canonical evidence:
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0320/analysis-001/analysis.json`,
+SHA-256
+`de6424aa68d0c65f8f9206a53f61475286bde501873cd4f6ee06299c9b37d7a9`.
+Gate 8 retained 70% free memory, at most 134,266,880-byte peak RSS, zero swap
+growth, zero new throttling, and stable protected services through release.
+
+## Decision
+
+Reject an integrated width-eight source/K4 streaming runner on the current M1
+storage path. PW-0136's cold acquisition miss was not a scheduling accident:
+corrected width-eight expert union is too large even with a much larger K4 bank,
+perfect caching, and all non-storage work removed.
+
+Do not construct the 1,024-identity bank for this architecture. Reopening
+requires a premise that changes the bound: a materially smaller executable
+record, a wider verifier with measured sublinear expert-union growth and much
+higher accepted tokens per transaction, or a resident companion embodiment.
+Zero tokens were accepted and no throughput-model constant or runtime default
+changes.

@@ -1648,6 +1648,13 @@ Run the following cheap falsifiers in order:
    and 52.1 M4 construction hours. Reject the bounded tranche and emit no work
    order; measure sustainable exact-source fallback streaming before making a
    separately bounded larger-bank decision.
+26. [PW-0320](../experiments/PW-0320-corrected-width8-hybrid-byte-floor.md)
+   applies the PW-0319 bank frontiers to complete corrected width-eight expert
+   unions. Even 2,048 K4 identities plus a free perfect 4 GiB cache yields only
+   0.845 optimistic median accepted TPS and no 2-TPS window when all compute and
+   common-weight costs are omitted. Reject the current M1 width-eight streaming
+   embodiment and the proposed 1,024-identity build; require a smaller record,
+   wider measured verifier, or resident companion premise before reopening.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

@@ -4841,3 +4841,21 @@ zero swap growth, and zero new throttling. Before buying the larger bank, test
 whether fixed-stride exact-source fallback streaming can sustain the qualified
 `(3,5)` layer transaction. This analysis accepts zero tokens and changes no
 throughput-model constant or runtime default.
+
+PW-0320 shows that PW-0319's larger K4 frontier cannot rescue the current
+width-eight M1 streaming embodiment. It grants each corrected verifier window a
+perfect, free, per-window 4 GiB expert cache; charges K4 identities at only
+12,654,604 executable bytes versus 25,171,968 source bytes; uses PW-0136's
+measured 3.470 GB/s cold transport; and omits every compute and common-weight
+cost. Even then, the 2,048-identity bank moves 22.691–33.282 GB per transaction
+and reaches only `0.2312`–`1.0710` optimistic accepted TPS, median `0.8452`.
+Zero of 32 windows or four categories reaches two TPS.
+
+The failure is structural at width eight: even ideal `A=8` leaves the best
+window below 1.23 TPS. Supersede the premise that source/K4 slot scheduling or
+a 1,024-identity build is the next Prismwing-2 step. The bound can reopen only
+with smaller executable records, a wider measured verifier whose union grows
+sublinearly enough, or resident companion memory. The canonical analysis hashes
+to `de6424aa68d0c65f8f9206a53f61475286bde501873cd4f6ee06299c9b37d7a9`.
+Gate 8 passes with 70% free memory, 134,266,880-byte peak RSS, zero swap growth,
+and zero new throttling. No endpoint constant or runtime default changes.
