@@ -1698,6 +1698,13 @@ Run the following cheap falsifiers in order:
    120 Rust and 15 affected Python tests pass. Preserve legacy bonus-free
    evidence and authorize only a fresh causal four-category q8 pilot, not an
    `A+1` projection or performance claim.
+33. [PW-0327](../experiments/PW-0327-target-bonus-q8-causal-pilot.md)
+   authenticates one corrected target-bonus q8 transaction in each frozen
+   text category. Code, multilingual, and rare-route fully converge at `A=8`;
+   ordinary takes the unchanged mismatch path at `A=3`. All causal, byte, and
+   Gate 8 checks pass, so authorize the complete corrected-semantic recapture.
+   The four cold diagnostics move 686.959 GB of transaction logical bytes and
+   make no sustained TPS or native-MTP performance claim.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

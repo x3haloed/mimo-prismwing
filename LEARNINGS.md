@@ -4995,3 +4995,23 @@ zero-model-token report hashes to
 Promote the correctness repair only; no accepted TPS, throughput-model runtime
 constant, or stale-route acceptance projection follows. Capture causal q8
 routes under the new transaction boundary before resuming bank planning.
+
+PW-0327 replaces uncertainty about whether that repaired boundary survives a
+real q8 source-target transaction. One clean cold Apple M1 diagnostic in each
+frozen text category passes semantic, proposer, route, byte-ledger, and Gate 8
+authentication. Code, multilingual, and rare-route fully converge and each
+authorize eight verifier tokens including the target bonus; ordinary
+mismatches at proposal index two and authorizes three under the unchanged
+correction rule. Full `A` totals 27, summed `U` is `18.40159574468085`, and
+`sum(A)/sum(U)` is `1.4672640554993497`.
+
+This supersedes the assumption that the target-bonus repair still required
+another semantic feasibility check before causal recapture. It does not
+supersede PW-0208's acceptance distribution or PW-0325's envelope: four
+one-transaction diagnostics move 686,959,400,960 logical target-transaction
+bytes, exclude a fast native-MTP proposer, and intentionally clip observable
+output after one transaction token. The canonical analysis hashes to
+`a54eeab1d136b938ddebe01a4206d6084bbeb2a2ca6a1395d88edfac337eaeed`.
+Promote the complete corrected-semantic four-category recapture, not a runtime
+or TPS claim; the bonus-free corpus remains historical rather than silently
+rewritten.

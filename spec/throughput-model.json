@@ -1604,6 +1604,28 @@
             "hardware": "Apple M1 16 GiB",
             "status": "correctness_repair_promoted; zero_model_tokens; causal_q8_recapture_required; no_A_plus_one_projection_or_tps_claim",
             "provenance": "PW-0326 canonical analysis 57a7c2ee1044b6b3fd3710ecf27fd013c78c7a6533e3d9636adaaa5765e3becb; clean implementation accb1e96e223f253db4b2772da18ccf087cb7454; PW-0204 frozen transaction contract; analysis-001 ed674a3041c7487c36e1c607b11febaa8f251657c8775580e794c78dd8bf80fe preserved and superseded for incomplete auditor/test evidence"
+        },
+        "pw0327_target_bonus_q8_causal_pilot": {
+            "transaction_semantic": "target_bonus_full_match_v1",
+            "verifier_width": 8,
+            "categories": 4,
+            "full_match_categories": 3,
+            "full_verifier_A": 27,
+            "sum_U": 18.40159574468085,
+            "sum_A_per_sum_U": 1.4672640554993497,
+            "transaction_logical_source_bytes": 686959400960,
+            "transaction_process_disk_bytes_read": 687705100288,
+            "report_logical_source_bytes_including_prefill": 2658630945792,
+            "report_process_disk_bytes_read_including_prefill": 2661595774976,
+            "complete_wall_ms": 2213061.791,
+            "batch_size": 1,
+            "concurrency": 1,
+            "accepted_tokens": 8,
+            "hardware": "Apple M1 16 GiB",
+            "cache_state": "four independent cold process starts; no warm run",
+            "prefill_state": "included; one prefill anchor and one output-clipped q8 transaction per category",
+            "status": "corrected_semantic_causal_pilot_passed; complete_four_category_recapture_authorized; diagnostic_not_sustained_tps; no_runtime_default",
+            "provenance": "PW-0327 canonical analysis a54eeab1d136b938ddebe01a4206d6084bbeb2a2ca6a1395d88edfac337eaeed; clean analyzer caa5406891c61362af09434ed0240062d4a18cfc; clean captures 75d09e5e0e8ca9679faa5c29ed71445c9b741ad1; target-bonus q8 source-self-proposer transactions on frozen PW-0208 prompts"
         }
     }
 }
