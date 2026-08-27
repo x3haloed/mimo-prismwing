@@ -11,6 +11,7 @@ from tools.build_pw0316_layer4_bundle import (
     align,
     append_file,
     digest,
+    mixed_row_qualified,
     replay_source_expert,
 )
 
@@ -58,6 +59,17 @@ class Pw0316Layer4BundleTests(unittest.TestCase):
         actual = replay_source_expert(panel, values, positions, {}, expected)
         np.testing.assert_array_equal(panel.observed, values[positions])
         np.testing.assert_array_equal(actual, expected)
+
+    def test_mixed_row_gate_is_exclusive_and_checks_both_boundaries(self):
+        self.assertTrue(
+            mixed_row_qualified({"relative_l2": 0.009}, {"relative_l2": 0.009})
+        )
+        self.assertFalse(
+            mixed_row_qualified({"relative_l2": 0.01}, {"relative_l2": 0.0})
+        )
+        self.assertFalse(
+            mixed_row_qualified({"relative_l2": 0.0}, {"relative_l2": 0.01})
+        )
 
 
 if __name__ == "__main__":

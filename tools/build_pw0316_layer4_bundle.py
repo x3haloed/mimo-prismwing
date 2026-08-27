@@ -68,6 +68,7 @@ POSITION = 1
 K4_EXPERTS = (96, 64, 232, 31)
 SOURCE_EXPERTS = (88, 245, 223, 151)
 ROUTE = K4_EXPERTS + SOURCE_EXPERTS
+MAXIMUM_MIXED_ROW_RELATIVE_L2 = 0.01
 PW0315_SUMMARY_SHA256 = "07b3d3793a6750a030eb5b7e12a0add1b603d48758a85e6f45b44504e404d0e8"
 TLUT_FILE_SHA256 = "8c76b28d00a94d037c8699d823abefbea12ebfd0c9039a47098f5b21f9e54293"
 ALIGNMENT = 16 * 1024
@@ -130,6 +131,15 @@ def replay_source_expert(
     if actual.shape != expected.shape or not np.array_equal(actual, expected):
         raise ValueError(f"source expert-major replay mismatch: {metric(expected, actual)}")
     return actual
+
+
+def mixed_row_qualified(
+    route_metric: dict[str, float], final_metric: dict[str, float]
+) -> bool:
+    return (
+        route_metric["relative_l2"] < MAXIMUM_MIXED_ROW_RELATIVE_L2
+        and final_metric["relative_l2"] < MAXIMUM_MIXED_ROW_RELATIVE_L2
+    )
 
 
 def verify_install_for_sources(checkpoint_root: Path, receipt_path: Path, modules: dict[str, Any]) -> dict[str, Any]:
@@ -281,7 +291,47 @@ def build(
     candidate_final = modules["panel"].bf16(post_attention + candidate_route)
     route_metric = metric(source_routed[POSITION : POSITION + 1], candidate_route[POSITION : POSITION + 1])
     final_metric = metric(source_final[POSITION : POSITION + 1], candidate_final[POSITION : POSITION + 1])
-    if route_metric["relative_l2"] >= 0.01 or final_metric["relative_l2"] >= 0.01:
+    if not mixed_row_qualified(route_metric, final_metric):
+        rejection = {
+            "schema_version": 1,
+            "experiment_id": EXPERIMENT_ID,
+            "status": "rejected_mixed_row_semantic_gate",
+            "commit": commit,
+            "authority": {
+                "checkpoint_receipt_sha256": CHECKPOINT_RECEIPT_SHA256,
+                "corpus_sha256": CORPUS_SHA256,
+                "pw0315_summary_sha256": PW0315_SUMMARY_SHA256,
+            },
+            "route": list(ROUTE),
+            "k4_experts": list(K4_EXPERTS),
+            "source_experts": list(SOURCE_EXPERTS),
+            "source_fixture_sha256": {
+                str(expert): sha256_file(row["fixture_path"])
+                for expert, row in sorted(source_records.items())
+            },
+            "semantic": {
+                "route_candidate_vs_source": route_metric,
+                "final_candidate_vs_source": final_metric,
+                "maximum_relative_l2_exclusive": MAXIMUM_MIXED_ROW_RELATIVE_L2,
+                "pass": False,
+            },
+            "safety_snapshots": safety.evidence(),
+            "host": {
+                "machine": platform.machine(),
+                "platform": platform.platform(),
+                "total_memory_bytes": int(
+                    os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+                ),
+            },
+            "complete_seconds": time.monotonic() - started,
+            "peak_rss_bytes": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
+            "batch_size": 1,
+            "concurrency": 1,
+            "accepted_tokens": 0,
+            "performance_claim": None,
+            "decision": "kill_four_k4_four_source_mixed_transaction",
+        }
+        atomic_write_new(output / "rejection.json", canonical_json(rejection))
         raise ValueError(f"mixed row semantic gate failed: route={route_metric}, final={final_metric}")
 
     tlut_path = paths["reference_export"] / "tlut.f32le"
