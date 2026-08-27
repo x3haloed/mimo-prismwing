@@ -63,22 +63,22 @@ except ModuleNotFoundError:
 
 EXPERIMENT_ID = "PW-0331"
 SEMANTIC = "m1-native-k4-r1-down-v1"
-CONTRACT_COMMIT = "c5dfed6ec48fc15198bf42d317a36546383cfe31"
+CONTRACT_COMMIT = "e664b54f6ff7126dbb91a6bd8701a3d8c4c6874c"
 CONTRACT_RELATIVE_PATH = "experiments/PW-0331-byte-neutral-k4-rank1-repair.md"
-CONTRACT_GIT_BLOB = "87e7b3494097f06be382c537dc6588054807e937"
-CONTRACT_SHA256 = "ef168a0e5b46c8602c5ed051b58991da439140c5f991488d4c9124ff65cf059f"
+CONTRACT_GIT_BLOB = "b6cd4c40ff9a20612f433c3cb8737e9a5819b7c6"
+CONTRACT_SHA256 = "18b37aadd250d0aa95aeacac5c4aa6737611a3911672bd885a2252a34478b772"
 SERIALIZED_DENSE_CONTROL_RELATIVE_PATH = (
     "evals/fixtures/tiny/pw0331-serialized-dense-control.json"
 )
-SERIALIZED_DENSE_CONTROL_GIT_BLOB = "4033d25c007b607a90c5817d616e8674ad2fbc3d"
+SERIALIZED_DENSE_CONTROL_GIT_BLOB = "d1a5dca8833f228c19602867a1968f620201caf6"
 SERIALIZED_DENSE_CONTROL_SHA256 = (
-    "1666c47f7f0a883546fdfd710cd9a3b228aa82afc24f8118636a09aeb21d7676"
+    "d6f3a30271fdafec67941161fb5b096239e51554ea239a7bd47ebe401c36d569"
 )
 SERIALIZED_DENSE_CONTROL_DIAGNOSTIC_SHA256 = (
-    "0b981e3b099e61637153f7da8ce69e7def80979a8c1778c7685f3e08695dbea7"
+    "9c4b542414466664e3f7af9fbe011e1827d4b05da89edaaa88e9cdb90db0e551"
 )
 SERIALIZED_DENSE_CONTROL_STAGES_SHA256 = (
-    "7abfbb7d773119aeea346373196c5f337f23373cd9b3e83a7393cd690849472f"
+    "726bb2337ba46443f38af0a87d3c70efd2d868b32ec39fefcfdbbae767086a4e"
 )
 TARGET_SHA256 = "dda459684c194b03491f36e9b66521ff00c400a6cc38d23a567a5a92ef8fb17d"
 RED_LINES_SHA256 = "cc261ad9bd67a865715e72cbbadf3b74c3f1f282e17a8ef86ed02c1a92fb8b36"
@@ -196,7 +196,9 @@ def stage_control_metrics(serialized: np.ndarray, historical: np.ndarray) -> dic
         or not np.isfinite(right).all()
     ):
         raise ValueError("PW-0331 serialized/dense control array mismatch")
-    delta = np.asarray(left, dtype=np.float64) - np.asarray(right, dtype=np.float64)
+    # The frozen preflight diagnostic subtracts in the source F32 domain, then
+    # widens only for the norm. Preserve that reporting definition exactly.
+    delta = np.asarray(left - right, dtype=np.float64)
     denominator = float(np.linalg.norm(np.asarray(right, dtype=np.float64).ravel()))
     numerator = float(np.linalg.norm(delta.ravel()))
     if not math.isfinite(denominator) or denominator <= 0.0 or not math.isfinite(numerator):

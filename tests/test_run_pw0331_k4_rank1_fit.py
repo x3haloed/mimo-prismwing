@@ -131,6 +131,27 @@ class Pw0331RankOneFitTests(unittest.TestCase):
                 np.ones((2, 1), dtype=np.float32),
             )
 
+    def test_serialized_dense_control_uses_frozen_f32_delta_definition(self):
+        serialized = np.asarray([[1.0e10, 4.0]], dtype=np.float32)
+        historical = np.asarray([[1.0, 3.0]], dtype=np.float32)
+        metrics = stage_control_metrics(serialized, historical)
+        delta = np.asarray(serialized - historical, dtype=np.float64)
+        expected = float(
+            np.linalg.norm(delta.ravel())
+            / np.linalg.norm(historical.astype(np.float64).ravel())
+        )
+        widened_first = float(
+            np.linalg.norm(
+                (
+                    serialized.astype(np.float64)
+                    - historical.astype(np.float64)
+                ).ravel()
+            )
+            / np.linalg.norm(historical.astype(np.float64).ravel())
+        )
+        self.assertEqual(metrics["relative_l2"], expected)
+        self.assertNotEqual(metrics["relative_l2"], widened_first)
+
     def test_stage_a_base_emulates_serialized_k4_kernel_order(self):
         fixture = json.loads(FIXTURE.read_text())["serialized_base"]
         rows, columns = fixture["rows"], fixture["columns"]
