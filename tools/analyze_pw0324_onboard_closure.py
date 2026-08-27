@@ -268,6 +268,15 @@ def _portfolio(repo: Path) -> dict[str, Any]:
     return result
 
 
+def no_fast_branch_has_full_capability_promotion(strongest_complete: dict[str, Any], portfolio: dict[str, Any]) -> bool:
+    status = str(strongest_complete.get("status", ""))
+    return (
+        "not_general_default" in status
+        and "full_capability" not in status
+        and not any(bool(row.get("survives_two_tps_closure")) for row in portfolio.values())
+    )
+
+
 def analyze(*, repo: Path, commit: str, checkpoint: Path, checkpoint_receipt: Path, pw0322_report: Path, pw0322_analysis: Path, pw0320_analysis: Path, pw0208_corpus: Path, pw0208_upper: Path, throughput_model: Path, output: Path) -> dict[str, Any]:
     if output.exists():
         raise FileExistsError(output)
@@ -307,6 +316,7 @@ def analyze(*, repo: Path, commit: str, checkpoint: Path, checkpoint_receipt: Pa
     strongest_complete = _strongest_corrected_complete_tps(model)
     reduction = required_uniform_reduction(moved, actual_a, STORAGE_BYTES_PER_SECOND)
     portfolio = _portfolio(repo)
+    no_full_capability_promotion = no_fast_branch_has_full_capability_promotion(strongest_complete, portfolio)
     closure_conditions = {
         "no_measured_corrected_complete_result_reaches_two_tps": strongest_complete["accepted_tps"] < TWO_TPS,
         "q8_structural_storage_ceiling_below_two_tps": q8["structural_a8_maximum_optimistic_tps"] < TWO_TPS,
@@ -316,7 +326,7 @@ def analyze(*, repo: Path, commit: str, checkpoint: Path, checkpoint_receipt: Pa
         "native_mtp_cost_gate_fails_even_with_perfect_proposals": mtp_gain < float(mtp["required_gain"]),
         "portfolio_has_no_evidence_backed_survivor": not any(row["survives_two_tps_closure"] for row in portfolio.values()),
         "companion_hardware_excluded": True,
-        "no_fast_branch_has_full_capability_and_fidelity_promotion": True,
+        "no_fast_branch_has_full_capability_and_fidelity_promotion": no_full_capability_promotion,
     }
     frontier_open = [name for name, passed in closure_conditions.items() if not passed]
     safety = HostSafetyMonitor()
