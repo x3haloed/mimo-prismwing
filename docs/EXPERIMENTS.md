@@ -1692,6 +1692,12 @@ Run the following cheap falsifiers in order:
    repair and regenerate causal q8 authority before running the otherwise
    authorized density falsifier. No bank, cache, endpoint claim, or runtime
    default follows.
+32. [PW-0326](../experiments/PW-0326-full-match-target-bonus.md) repairs the
+   converged q8 commit to emit and carry the already-computed target bonus while
+   retaining all proposal-input K/V rows. Mismatch behavior remains exact; all
+   120 Rust and 15 affected Python tests pass. Preserve legacy bonus-free
+   evidence and authorize only a fresh causal four-category q8 pilot, not an
+   `A+1` projection or performance claim.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

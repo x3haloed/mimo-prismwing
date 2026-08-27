@@ -1,7 +1,7 @@
 # PW-0326 — Full-match target-bonus transaction repair
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: correctness repair promoted; causal q8 pilot authorized
 - Date: 2026-08-27
 - Owner: Codex
 - Parent experiments: PW-0203, PW-0204, PW-0208, PW-0216, PW-0325
@@ -80,8 +80,46 @@ dense K4 and separately reauthorizes the six-of-eight falsifier.
 
 ## Result
 
-Unexecuted.
+Clean implementation commit `accb1e96e223f253db4b2772da18ccf087cb7454`
+changes the shared commit authority to `target_bonus_full_match_v1`. Proposal
+`[41,42,43,44]` with target posterior `[42,43,44,45]` now emits
+`[42,43,44,45]`, retains all four proposal-input rows, and carries 45. The
+legacy `[42,43,44]`/three-row/anchor-44 vector is recorded as superseded.
+The mismatch control remains exactly `[13,15,13,15,481]`, five retained rows,
+and anchor 481.
+
+Two consecutive full matches emit `[42,43,44,45,46,47,48,49]`, demonstrating
+that the first target bonus is neither skipped nor duplicated. Dedicated Rust
+fixtures also cover q=2, terminal output clipping, cache-position arithmetic,
+and native-MTP hidden/input pairing. Future generation reports carry an
+explicit target-bonus semantic. The legacy PW-0208 auditor remains unchanged;
+a separate fail-closed repaired-semantic auditor admits `A=q`, distinguishes
+verifier retention from terminal clipping, and validates the exact bonus.
+
+The canonical analyzer ran all 120 Rust library tests and all 15 affected
+Python audit/corpus tests with zero failures. Gate 8 recorded 79% free memory,
+zero swap growth, zero throttling, stable protected services, and a release
+boundary. The report accepts zero model tokens, moves zero model bytes, and
+makes no performance claim.
+
+Canonical report:
+
+`/Users/chad/Models/mimo-prismwing/evidence/PW-0326/analysis-002/analysis.json`
+
+SHA-256:
+`57a7c2ee1044b6b3fd3710ecf27fd013c78c7a6533e3d9636adaaa5765e3becb`.
+
+Analysis-001 hashes to
+`ed674a3041c7487c36e1c607b11febaa8f251657c8775580e794c78dd8bf80fe`
+and is preserved but superseded. Its core result was correct, but it lacked a
+repaired-semantic corpus auditor, omitted the legacy vector, did not prove the
+named Rust/Python fixtures ran, and retained one contradictory serialization
+fixture.
 
 ## Decision
 
-Unexecuted. Commit this contract before changing transaction code or fixtures.
+Promote the target-bonus transaction repair as correctness, not performance.
+Authorize PW-0327's four-category, one-transaction causal q8 pilot. Preserve
+PW-0204 through PW-0325 as named bonus-free historical evidence and forbid
+`A+1` projections or stale-route economics. No endpoint TPS or runtime
+performance default changes.

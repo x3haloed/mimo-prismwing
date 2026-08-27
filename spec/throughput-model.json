@@ -1584,6 +1584,26 @@
             "prefill_state": "excluded; authenticated post-prefill verifier windows",
             "status": "storage_only_analytical_envelope; six_of_eight_k4_fidelity_compute_cache_and_complete_endpoint_unqualified; no_achieved_tps_claim",
             "provenance": "PW-0325 canonical analysis 9391b3b8bc8b4264ec1e74378743f00780f724eab953fb31841434d0516e81c1; clean analyzer 371431ca7febc5982401159e48e8b8d269f729ac; PW-0208 A/U and corrected routes; PW-0318 record sizes; PW-0136 cold internal-SSD bandwidth; analysis-001 ec5ac8ae869ab76dc973d36b3969c0af889261167eb103db1412d7a6c5653a98 preserved and superseded for incomplete identity/U/route-chain metadata"
+        },
+        "pw0326_full_match_target_bonus_repair": {
+            "transaction_semantic": "target_bonus_full_match_v1",
+            "full_match_verifier_width_fixture": 4,
+            "legacy_full_match_emitted_tokens": 3,
+            "repaired_full_match_emitted_tokens": 4,
+            "legacy_full_match_retained_proposal_rows": 3,
+            "repaired_full_match_retained_proposal_rows": 4,
+            "mismatch_control_unchanged": true,
+            "rust_library_tests_passed": 120,
+            "affected_python_tests_passed": 15,
+            "batch_size": 1,
+            "concurrency": 1,
+            "accepted_tokens": 0,
+            "A": 0,
+            "U": null,
+            "model_bytes_moved": 0,
+            "hardware": "Apple M1 16 GiB",
+            "status": "correctness_repair_promoted; zero_model_tokens; causal_q8_recapture_required; no_A_plus_one_projection_or_tps_claim",
+            "provenance": "PW-0326 canonical analysis 57a7c2ee1044b6b3fd3710ecf27fd013c78c7a6533e3d9636adaaa5765e3becb; clean implementation accb1e96e223f253db4b2772da18ccf087cb7454; PW-0204 frozen transaction contract; analysis-001 ed674a3041c7487c36e1c607b11febaa8f251657c8775580e794c78dd8bf80fe preserved and superseded for incomplete auditor/test evidence"
         }
     }
 }

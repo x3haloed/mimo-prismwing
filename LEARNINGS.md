@@ -4979,3 +4979,19 @@ though `accepted_jacobi_tokens` returns `q`. Preserve PW-0208/PW-0325 as named
 bonus-free historical evidence, but do not project `A+1` onto their stale
 routes. Repair and fixture the transaction, then regenerate causal q8 reports
 before deciding whether dense K4 remains necessary.
+
+PW-0326 completes that repair. Full match now emits the proposal suffix plus
+the final target posterior, retains all `q` proposal-input K/V rows, and carries
+the target bonus as the next uncached anchor. Mismatch behavior is unchanged.
+Two-transaction, q=2, final-clipping, cache-position, and native-MTP
+hidden/input-pairing fixtures pass alongside the entire 120-test Rust library
+suite and 15 affected Python audit/corpus tests.
+
+Preserve the legacy PW-0208 auditor and its immutable bonus-free reports. A
+separate repaired-semantic auditor accepts `A=q`, distinguishes verifier rows
+from terminal output clipping, and checks the exact target bonus. The canonical
+zero-model-token report hashes to
+`57a7c2ee1044b6b3fd3710ecf27fd013c78c7a6533e3d9636adaaa5765e3becb`.
+Promote the correctness repair only; no accepted TPS, throughput-model runtime
+constant, or stale-route acceptance projection follows. Capture causal q8
+routes under the new transaction boundary before resuming bank planning.
