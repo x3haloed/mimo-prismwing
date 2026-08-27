@@ -15,7 +15,8 @@ future-aware 12-GiB resident cache exceed one accepted token/s on every
 corrected PW-0328 category when cache decisions are allowed after every
 verifier-authorized row and all non-storage work is free?
 
-This is a byte-floor falsifier, not a decoder or endpoint. It grants exact
+This is a byte-floor falsifier for the named token-granularity schedule, not a
+decoder or endpoint. It grants exact
 top-seven exponent recoding its zero-escape physical floor even though real
 blocks have escapes, pins encoded fixed weights for free, chooses the initial
 expert cache with future knowledge, charges no decode or prefetch cost, and
@@ -119,7 +120,8 @@ Evaluate exactly:
 
 Scenario three is the hard kill authority. It is strictly more favorable than
 the named format: real blocks need escape bits; scales are not FP8 code blocks;
-metadata, block boundaries, integer record sizes, decoder buffers, alignment,
+metadata, block boundaries, integer byte lengths for whole expert records,
+decoder buffers, alignment,
 and the largest-object guard are free. Scenario two may diagnose observed
 headroom but cannot reject unobserved tensors.
 
@@ -133,6 +135,29 @@ C = floor((R - encoded_fixed_bytes) / encoded_expert_bytes)
 Do not let fixed and expert objects each spend `R`. Do not add embedding-row
 traffic: omitting it is another favorable grant.
 
+### Fixed-residency dominance for this schedule
+
+The q1 event stream demands every fixed tensor once per authorized row in model
+execution order. Each layer-qualified expert identity can be demanded at most
+once per row. Therefore, between two consecutive demands for any fixed byte,
+any particular expert byte can be demanded at most once: the interval spans at
+most one visit to each routed layer.
+
+Take any joint dynamic fixed/expert schedule. Whenever expert storage occupies
+space while fixed storage is absent, exchange up to the same number of bytes
+back to the absent fixed objects until their next demand. The exchange incurs
+no more expert miss bytes than the fixed reload bytes it removes. Repeating the
+exchange yields a schedule with the complete fixed set resident and no greater
+traffic. Whole-object granularity cannot improve the evict-fixed schedule: a
+set of whole experts fitting in an evicted fixed-object byte total saves at most
+that same byte total before the fixed objects are needed again. Thus pinning the
+fixed set is a traffic-minimizing representative for this token-granularity
+stream, not an extra restriction on the hard ceiling.
+
+The proof does not apply to a layer-major or width-eight schedule that reuses a
+fixed tensor across multiple rows before another fixed demand. PW-0332 makes no
+hard claim about those schedules.
+
 ## Batch-set offline Belady oracle
 
 Within each category, map every chronological authorized token row to 47
@@ -140,14 +165,16 @@ ordered layer demands, each an unordered set of exactly eight distinct
 `(layer, expert)` identities. Reset between categories and grant the complete
 initial expert cache for free.
 
-Choose the initial `C` identities by earliest next demand, with canonical
-`(layer, expert)` order breaking equal-next-use ties. For each layer demand
-`D`, count `D - resident` as misses. All identities in `D` must coexist during
-the demand. Insert misses and, when capacity is exceeded, evict only from
-`resident - D`, choosing farthest next demand first, infinity before finite,
-and reverse canonical identity as the deterministic exact tie break. Update
-next-use positions only after the whole set is served. Reject non-distinct
-route rows, `C < 8`, or any result that depends on iteration order within `D`.
+From the universe of identities demanded anywhere in that category, choose
+`min(C, distinct identities)` initial identities by earliest next demand, with
+canonical `(layer, expert)` order breaking equal-next-use ties. For each layer
+demand `D`, count `D - resident` as misses. All identities in `D` must coexist
+during the demand. Insert misses and, when capacity is exceeded, evict only
+from `resident - D`, choosing farthest next demand first, infinity before
+finite, and reverse canonical identity as the deterministic exact tie break.
+Update next-use positions only after the whole set is served. Reject
+non-distinct route rows, `C < 8`, or any result that depends on iteration order
+within `D`.
 
 Implement the oracle twice: an indexed version and an exhaustive tiny-state
 dynamic-programming reference. They must agree on deterministic small fixtures.
@@ -205,6 +232,9 @@ not a theorem about every future lossless code or every possible prompt.
   distinct; prove scenario three is no worse than every other scenario;
 - reject common/expert residency double-spend and cover fit-all, `C=8`, and
   `C<8` branches;
+- reproduce exact scenario capacities `204`, `230`, and `250`, and prove on a
+  tiny q1 event stream that dynamically evicting fixed objects cannot beat the
+  fixed-pinned representative;
 - prove batch-set order invariance, future-use updates after the set, initial
   free-fill ordering, deterministic ties, category reset, and zero misses;
 - compare indexed Belady with exhaustive optimal tiny cases and independently
@@ -220,6 +250,7 @@ not a theorem about every future lossless code or every possible prompt.
   endpoint TPS;
 - direct width-one target arithmetic or route parity beyond the authenticated
   chronological target rows;
+- layer-major or width-eight cache schedules;
 - K4, cyclic-MTP q32, a changed proposer, or a modified target;
 - multimodal/long-context promotion, a runtime default, or companion hardware.
 
