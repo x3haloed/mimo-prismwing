@@ -83,7 +83,11 @@ The executable record must fail closed on all of the following:
    values do not exist while this contract is first committed. Amend and freeze
    them in a clean commit before authoring or executing the runner. Require the
    repaired target-bonus semantic, transaction zero, exact prompt/prefill
-   agreement, all route rows, byte-ledger closure, and Gate 8.
+   agreement, all route rows, byte-ledger closure, and Gate 8. Transaction zero
+   must be a full match with `proposal_converged=true`, full `A=8`, and eight
+   verifier-retained proposal rows. Otherwise its target-prefix authority ends
+   at the first correction and this experiment stops unexecuted; rejected-branch
+   posterior rows or routes may never seed a cyclic proposal comparison.
 4. Model lock SHA-256
    `df8c74e6f9e1cef154aae5881b9042777653206aaff72855f7b1a1340e0d1050`,
    checkpoint receipt SHA-256
@@ -175,10 +179,12 @@ As a planning cross-check only, PW-0327 code gives source-FP8 ceilings for
 - Any first-eight mismatch with a recomputed `TPS_ceiling_A <= 1` rejects
   `cyclic_mtp_012_v1` plus a q8-chunked, prefix-bit-identical source-FP8 q32
   verifier on the required code slice before that verifier is implemented.
-  This is a hard storage rejection for that named schedule, not an achieved
-  measurement or a theorem about unknown future proposers. A different q32
-  arithmetic must first qualify its target prefix and routes directly; width-
-  dependent token drift is not an assumed rescue.
+  The proposal runner reports this as a conditional hard storage rejection:
+  the direct-q32 follow-up must still prove real first-chunk parity before
+  closing the combined verifier. This is not an achieved measurement or a
+  theorem about unknown future proposers. A different q32 arithmetic must
+  qualify its target prefix and routes directly; width-dependent token drift is
+  not an assumed rescue.
 - A mismatch whose ceiling remains above one is analytical only and requires a
   direct q32 verifier trace because the divergent suffix routes are unknown.
 - Eight matching heads authorize only a direct-q32 capture contract. They do
@@ -191,14 +197,17 @@ As a planning cross-check only, PW-0327 code gives source-FP8 ceilings for
 
 - reject stale/wrong-kernel hidden and every wrong hash, shape, category,
   transaction, commit, model, or route authority;
+- reject a non-converged target-self transaction, clipped `A`, or fewer than
+  eight retained rows as an eight-token target spine;
 - preserve immutable hidden and exact shifted/rotated token IDs;
 - reproduce the trained q4 layer order and freeze the fourth reused-layer
   token as the first new scheduler behavior;
 - cover mismatches at heads zero, three, and seven and the eight-match
   exhausted-prefix disposition;
-- prove an arbitrary proposal suffix cannot change earlier causal target rows;
-- require bit-identical first-chunk hidden, router scores, expert order, route
-  weights, and posterior between q8 and the named q8-chunked q32 arithmetic;
+- prove synthetically that an arbitrary proposal suffix cannot change earlier
+  causal target inputs; defer real bit-identical first-chunk hidden, router
+  scores, expert order, route weights, and posterior parity to the conditional
+  direct-q32 follow-up;
 - reconstruct `N_A` independently from eight-expert route rows;
 - reproduce the byte table, joint-residency no-double-spend rule, zero-miss
   branch, exact-versus-rounded bandwidth, and disposition precedence; and
