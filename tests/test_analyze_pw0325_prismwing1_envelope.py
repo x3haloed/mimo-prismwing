@@ -8,6 +8,7 @@ from tools.analyze_pw0325_prismwing1_envelope import (
     category_aggregate,
     conservative_cached_bytes,
     nearest_rank,
+    window_identity_records,
 )
 
 
@@ -43,6 +44,20 @@ class Pw0325Prismwing1EnvelopeTests(unittest.TestCase):
 
     def test_nearest_rank_p10_for_32_windows_is_fourth_lowest(self):
         self.assertEqual(nearest_rank(list(range(32)), 0.10), 3)
+
+    def test_window_identity_records_are_sorted_and_representation_explicit(self):
+        records = window_identity_records(
+            {(2, 7), (1, 9), (1, 3)},
+            {(2, 7)},
+        )
+        self.assertEqual(
+            records,
+            [
+                {"layer": 1, "expert": 3, "representation": "source_fp8"},
+                {"layer": 1, "expert": 9, "representation": "source_fp8"},
+                {"layer": 2, "expert": 7, "representation": "k4"},
+            ],
+        )
 
 
 if __name__ == "__main__":

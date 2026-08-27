@@ -160,12 +160,26 @@ def selection_sha256(universe: tuple[tuple[int, int], ...], order: list[int]) ->
     return hashlib.sha256(canonical_json(payload)).hexdigest()
 
 
+def window_identity_records(
+    identities: set[tuple[int, int]],
+    selected: set[tuple[int, int]],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "layer": layer,
+            "expert": expert,
+            "representation": "k4" if (layer, expert) in selected else "source_fp8",
+        }
+        for layer, expert in sorted(identities)
+    ]
+
+
 def validate_upstream(
     *,
     pw0318_summary: Path,
     pw0319_analysis: Path,
     pw0320_analysis: Path,
-) -> None:
+) -> str:
     expected = (
         (pw0318_summary, PW0318_SUMMARY_SHA256, "PW-0318 summary"),
         (pw0319_analysis, PW0319_ANALYSIS_SHA256, "PW-0319 analysis"),
@@ -177,6 +191,8 @@ def validate_upstream(
     pw0318 = json.loads(pw0318_summary.read_text())
     pw0319 = json.loads(pw0319_analysis.read_text())
     pw0320 = json.loads(pw0320_analysis.read_text())
+    pw0319_route_sha256 = pw0319.get("authority", {}).get("route_authority_sha256")
+    pw0320_route_sha256 = pw0320.get("authority", {}).get("corrected_route_sha256")
     if (
         pw0318.get("experiment_id") != "PW-0318"
         or pw0318.get("status") != "layer4_decode_transaction_qualified"
@@ -185,6 +201,8 @@ def validate_upstream(
         or pw0320.get("experiment_id") != "PW-0320"
         or pw0320.get("authority", {}).get("pw0319_analysis_sha256")
         != PW0319_ANALYSIS_SHA256
+        or not isinstance(pw0319_route_sha256, str)
+        or pw0319_route_sha256 != pw0320_route_sha256
         or int(pw0320.get("constants", {}).get("k4_executable_bytes", -1)) != K4_BYTES
         or int(pw0320.get("constants", {}).get("source_executable_bytes", -1))
         != SOURCE_BYTES
@@ -195,6 +213,7 @@ def validate_upstream(
         )
     ):
         raise ValueError("upstream semantic authority mismatch")
+    return pw0319_route_sha256
 
 
 def scenario(
@@ -203,6 +222,7 @@ def scenario(
     by_window: dict[int, set[tuple[int, int]]],
     categories: dict[int, str],
     accepted: dict[int, int],
+    unique_experts_per_layer: dict[int, float],
     occurrence_counts: np.ndarray,
     category_names: tuple[str, ...],
     cache_bytes: int,
@@ -234,6 +254,12 @@ def scenario(
         exact.update(
             corpus_index=window_index,
             category=categories[window_index],
+            A=accepted[window_index],
+            U=unique_experts_per_layer[window_index],
+            A_per_U=(
+                accepted[window_index] / unique_experts_per_layer[window_index]
+            ),
+            identities=window_identity_records(by_window[window_index], selected),
             conservative_bytes_after_cache=conservative_bytes,
             conservative_storage_wall_seconds=(
                 conservative_bytes / STORAGE_BYTES_PER_SECOND
@@ -347,7 +373,7 @@ def analyze(
     if output.exists():
         raise FileExistsError(output)
     verify_clean_commit(repo.resolve(), commit)
-    validate_upstream(
+    upstream_route_sha256 = validate_upstream(
         pw0318_summary=pw0318_summary,
         pw0319_analysis=pw0319_analysis,
         pw0320_analysis=pw0320_analysis,
@@ -357,11 +383,22 @@ def analyze(
         raise ValueError("PW-0208 manifest mismatch")
     accepted = {int(row["corpus_index"]): int(row["A"]) for row in manifest["primary_windows"]}
     categories = {int(row["corpus_index"]): str(row["category"]) for row in manifest["primary_windows"]}
-    if set(accepted) != set(range(32)) or any(not 1 <= value <= 8 for value in accepted.values()):
+    unique_experts_per_layer = {
+        int(row["corpus_index"]): float(row["U"])
+        for row in manifest["primary_windows"]
+    }
+    if (
+        set(accepted) != set(range(32))
+        or set(unique_experts_per_layer) != set(range(32))
+        or any(not 1 <= value <= 8 for value in accepted.values())
+        or any(not math.isfinite(value) or value <= 0.0 for value in unique_experts_per_layer.values())
+    ):
         raise ValueError("window A authority mismatch")
 
     safety = HostSafetyMonitor()
     rows, route_sha256, source_hashes = load_rows(corpus_manifest)
+    if route_sha256 != upstream_route_sha256:
+        raise ValueError("recomputed route authority mismatch")
     safety.checkpoint("authorities_loaded")
     by_window: dict[int, set[tuple[int, int]]] = defaultdict(set)
     for row in rows:
@@ -385,6 +422,7 @@ def analyze(
                     by_window=by_window,
                     categories=categories,
                     accepted=accepted,
+                    unique_experts_per_layer=unique_experts_per_layer,
                     occurrence_counts=occurrence_counts,
                     category_names=category_names,
                     cache_bytes=cache_bytes,
@@ -445,6 +483,16 @@ def analyze(
             "selector_normalization": "initial category byte deficit",
             "selector_tie_break": "canonical layer then expert",
             "conservative_cache_credit": "max(0, capacity - one source record)",
+        },
+        "measurement_context": {
+            "hardware": "Apple M1 16 GiB",
+            "batch_size": 1,
+            "concurrency": 1,
+            "cache_state": "analytical oracle; no cache was populated or timed",
+            "prefill_state": "not applicable; authenticated post-prefill verifier windows",
+            "accepted_A_authority": "PW-0208 primary windows",
+            "unique_experts_U_authority": "PW-0208 primary windows",
+            "physical_bytes": "reported per window and aggregate for conservative and exact whole-record oracle models",
         },
         "candidate_gate": candidate_gate,
         "candidate_selection_order_sha256": candidate["selection_order_sha256"],
