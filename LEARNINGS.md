@@ -4899,3 +4899,46 @@ runtime and the K4 construction it would require. The raw capture hashes to
 canonical analysis hashes to
 `8c824040776c5ca2b9d9f0854d9066c00f7b5495296c86e113729e6e07a6b98d`.
 Gate 8 passes; zero endpoint tokens or throughput constants are promoted.
+
+PW-0324 closes the current evidence-backed onboard Prismwing-2 frontier after
+the owner excludes companion hardware from this run. The strongest corrected
+measured complete path remains PW-0216's ordinary 32-token holdout at
+`0.0459781517` accepted TPS. PW-0320's strongest q8 configuration reaches only
+`1.070619598` optimistic storage TPS at observed acceptance and
+`1.223565254` even at structural `A=8`, with all compute and common work free.
+
+The real q64 authority is more decisive. Its `A=3` transaction still moves
+`91,589,858,640` bytes after granting a 2,048-identity K4 bank and free perfect
+4 GiB cache, for only `0.113673556` optimistic storage TPS. Two TPS permits
+`5,205,672,464.516129` bytes, so the already favorable representation needs
+another `17.594241525x` uniform reduction, leaving `5.683677802%` of current
+bytes before proposer, compute, attention, common weights, or endpoint work.
+Structural `A=64` reaches `2.425035862` only as a non-executable ceiling: no
+qualified proposer supplies it and proposal cost is absent. Corrected native
+MTP's perfect-proposal expert-byte gain is independently bounded at
+`1.051643192x`, below its `2x` gate.
+
+Because PW-0300's remote JSON was unavailable locally, PW-0324 independently
+reruns its mechanisms from the receipt-authenticated checkpoint. Across 480
+deterministic blocks, no exact six- or seven-bit palette exists, median entropy
+is `6.518677887` bits/weight, the best tested exact escape form retains at least
+`88.562011719%` of source bytes, and the six-bit subset form retains at least
+`75.012207031%` while remaining fidelity-unqualified. This preserves the
+missing-original limitation without relying on a Markdown transcription.
+
+All nine predeclared closure conditions pass. The canonical analysis hashes to
+`97d4d20a4c709d42429973e867138495756ce9d52d417f98a7edd40b282ccff3`;
+Gate 8 retains at least 83% free memory, peaks at 138,215,424 bytes RSS, and
+records zero swap growth or throttling. Close the current onboard portfolio as
+decisive reproducible infeasibility evidence, not a theorem against unknown
+future algorithms. Reopen only on a genuinely new representation/proposer that
+first passes a cheap fidelity/physical gate, or on companion residency under a
+separate authorized run. No runtime default or primary Prismwing-50 target
+changes.
+
+The preserved analysis-001 hash
+`e2b2d2426c52fb268ed5d60518844ec3642b17006d7cc7c34b36867e987bcc67`
+is superseded because it asserted the full-capability/fidelity non-promotion
+condition instead of deriving it. Analysis-002 derives that condition from the
+strongest measured status and audited portfolio; the closure result is
+unchanged.

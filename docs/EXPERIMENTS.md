@@ -1673,6 +1673,15 @@ Run the following cheap falsifiers in order:
    ideal `A=64`; actual verifier authorization is `A=3`, reducing the
    storage-only ceiling to 0.114 TPS even with 2,048 K4 identities and a free
    perfect 4 GiB cache. Reject the q64 streaming runtime and K4 build.
+30. [PW-0324](../experiments/PW-0324-onboard-prismwing2-feasibility-closure.md)
+   recomputes the complete onboard frontier after companion hardware is
+   excluded. The best corrected measured complete path is `0.045978` accepted
+   TPS. q8 remains below `1.224` storage-only TPS even at structural maximum
+   acceptance. The real q64 transaction reaches only `0.113674` storage-only
+   TPS at `A=3` and would need another `17.594x` uniform byte reduction after a
+   2,048-identity K4 bank and free perfect 4 GiB cache. All predeclared closure
+   conditions pass; close the current evidence-backed onboard Prismwing-2
+   frontier without changing runtime defaults or the Prismwing-50 target.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

@@ -1518,6 +1518,44 @@
             "concurrency": 1,
             "status": "conditional_repeatable_untouched_code_32_token_lower_milestone; identical_verifier_authorized_output; multilingual_and_rare_route_holdouts_pending; not_general_default",
             "provenance": "PW-0216 cold candidate-control-candidate untouched code 32-token reports bd5a5a4002b28e875ca45eee232ee461b0943391284d823b0641e7640e40fcb5, 353a14b6f7dddc7f5009876697f639999151b47539da24126237f4be253c17dc, and 1cd4987260b97943aaceebdda30cf4429e3aa6a6235bb60e84a41968fd16d6f6; frozen prompt SHA-256 900d31fa20fa3b839a0e49e6f3b1bfe2bb43ae8b00cbd8bbd3ceea64af0d794a; Apple M1 16 GiB internal checkpoint; clean git 16974043d1c45bbb591d114543cd69be18a48d73"
+        },
+        "pw0322_causal_q64_storage_bound": {
+            "verifier_width": 64,
+            "actual_A": 3,
+            "unique_layer_expert_identities": 4482,
+            "k4_identity_budget": 2048,
+            "unique_k4_identities": 1353,
+            "unique_source_identities": 3129,
+            "perfect_free_oracle_cache_bytes": 4294967296,
+            "bytes_after_oracle_cache": 91589858640,
+            "cold_storage_bytes_per_second": 3470448309.677419,
+            "actual_A_optimistic_storage_only_tps": 0.11367355604242974,
+            "structural_A64_optimistic_storage_only_tps": 2.425035862238501,
+            "required_bytes_per_second_for_2_tps": 61059905760.0,
+            "accepted_tokens": 0,
+            "status": "rejected_actual_causal_acceptance; storage_only_upper_bound; compute_common_weights_and_proposal_cost_omitted; no_endpoint_tps_claim",
+            "provenance": "PW-0322 raw report ef893b83105009576771b4dcbd98b4f82320b838e58920f5c32011e9a52acb60 and canonical analysis 8c824040776c5ca2b9d9f0854d9066c00f7b5495296c86e113729e6e07a6b98d; Apple M1 16 GiB internal checkpoint; clean capture be33e94b1dd586fd57243de222ce65b88792444c"
+        },
+        "pw0324_onboard_prismwing2_closure": {
+            "target_accepted_tps": 2.0,
+            "strongest_corrected_measured_complete_accepted_tps": 0.04597815174359703,
+            "strongest_corrected_measured_complete_constant": "pw0216_live_native_mtp_q4_ordinary_32_token_holdout",
+            "q8_structural_maximum_optimistic_storage_only_tps": 1.223565254474609,
+            "q64_actual_A_optimistic_storage_only_tps": 0.11367355604242974,
+            "q64_current_bytes_after_grants": 91589858640,
+            "q64_allowed_bytes_at_2_tps": 5205672464.516129,
+            "q64_additional_uniform_reduction_factor_required": 17.594241524858084,
+            "q64_maximum_remaining_byte_fraction": 0.05683677802121487,
+            "q64_required_additional_reduction_fraction": 0.9431632219787851,
+            "q64_structural_A64_optimistic_storage_only_tps": 2.425035862238501,
+            "q64_structural_proposer_qualified": false,
+            "q64_structural_proposal_cost_included": false,
+            "companion_hardware_admissible": false,
+            "closure_conditions_passed": 9,
+            "closure_conditions_failed": 0,
+            "accepted_tokens": 0,
+            "status": "current_evidence_backed_onboard_prismwing2_frontier_closed; analytical_synthesis_not_achieved_tps; primary_prismwing50_target_unchanged",
+            "provenance": "PW-0324 canonical analysis 97d4d20a4c709d42429973e867138495756ce9d52d417f98a7edd40b282ccff3; clean analyzer a44ffd0903b178eb211362aacf570ad9d32fd516; analysis-001 e2b2d2426c52fb268ed5d60518844ec3642b17006d7cc7c34b36867e987bcc67 preserved and superseded because one closure condition was asserted rather than derived; Apple M1 16 GiB internal checkpoint; batch-one/concurrency-one measured lower milestone and authenticated storage-only upper bounds kept distinct"
         }
     }
 }
