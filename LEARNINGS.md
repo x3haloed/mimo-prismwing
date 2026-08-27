@@ -4797,3 +4797,23 @@ rejection hashes to
 `7e9ca112a27de9742bcad371655c6fb0a206a7e6802d2f94d9b8ef6056676080`.
 Gate 8 passes through release. Zero tokens were accepted, so no throughput
 constant or runtime default changes.
+
+PW-0318 validates the authority split predicted by PW-0317. Two fresh builds
+reproduce the same 164,724,736-byte schema-2 bundle, manifest, fixture, spec,
+and Rust readback. The batch source comparator remains at `0.00666233943`
+routed relative L2; the named one-row decode oracle remains at
+`0.00666279289`. Both layer-final metrics are `0.00197441695`, below the
+unchanged one-percent gates.
+
+Apple M1 Metal matches all 4,096 decode-oracle bits across two initial runs,
+40 total warmups, and 200 timed samples. Complete-call p90 is `16.986541` and
+`17.098042` ms. Promote the one-row schema-2 transaction only as a partial-bank
+decode integration boundary. These timings describe one frozen routed layer,
+not 47 distinct layers or accepted-token TPS.
+
+The canonical summary hashes to
+`a91af31bdea45749c9ae9d5d679260bcbcd8284c238479938206a7e7e0b5eb2f`.
+Gate 8 includes construction and execution: at least 68% free memory, at most
+830,603,264-byte peak RSS, zero swap growth/new throttling, and completed
+release boundaries. Zero tokens were accepted, so no throughput constant or
+runtime default changes.

@@ -42,6 +42,10 @@ full-capability, and complete-path performance gates.
   Metal result matches an independent one-row source candidate exactly while
   differing from the batch capture at two BF16 values; these authorities must
   stay named and separately gated.
+- PW-0318 repeats a schema-2 layer-4 3/5 bundle and proves exact M1 Metal parity
+  to the named one-row decode oracle while both batch and decode candidates
+  remain below one-percent source distance. This is now the partial-bank decode
+  integration boundary, not an arbitrary-route or endpoint result.
 
 ## Prediction errors
 

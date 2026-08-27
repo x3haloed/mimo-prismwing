@@ -1632,6 +1632,13 @@ Run the following cheap falsifiers in order:
    Metal bit-for-bit and remains well below the source-distance gate. Preserve
    the rejection and test that distinct decode authority only under a new
    contract; do not retroactively change PW-0317's answer key.
+24. [PW-0318](../experiments/PW-0318-layer4-decode-authority-metal.md) names the
+   expert-major batch output as source-fidelity comparator and the independently
+   computed one-row output as decode implementation oracle. Two fresh builds
+   reproduce every deterministic artifact; two M1 Metal runs match all 4,096
+   bits through 20 warmups and 100 samples each. Both batch and decode source
+   distances remain below one percent. Promote only the partial-bank decode
+   integration boundary; no complete endpoint or TPS claim follows.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

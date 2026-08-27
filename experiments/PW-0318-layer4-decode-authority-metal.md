@@ -1,7 +1,7 @@
 # PW-0318 — Layer-4 one-row decode-authority Metal transaction
 
-- Status: planned
-- Disposition: pending
+- Status: completed
+- Disposition: promoted as partial-bank decode integration boundary
 - Date: 2026-08-26
 - Owner: Codex
 - Parent experiment: PW-0317
@@ -91,3 +91,63 @@ relabeling PW-0317:
 - full-bank coverage, complete decoder execution, or accepted-token TPS;
 - hosted, multilingual, modality, long-context, or capability equivalence;
 - Prismwing-2, 34.3 TPS, or Prismwing 50 completion.
+
+## Result
+
+Two fresh constructions from clean pushed implementation commit
+`7024270173ca8bc9659093118ad99f2ea250f996` pass. Both reproduce these
+artifacts byte-for-byte:
+
+- bundle: 164,724,736 bytes, SHA-256
+  `e87a0af2aba57f46b6a2f394d70e530533d04c18aa61650afbc8528a4b8bdc35`;
+- manifest: SHA-256
+  `ca2cd8005c3c8f712fabd0b2fc88183d740bd6613efa065cdd4b25738c4924c3`;
+- decode fixture: SHA-256
+  `0189a8c15299410537cd43f934c4aefbda1c160e7c9f6920790cabfd812a6706`;
+- build specification: SHA-256
+  `ecd5717062a0e430cad05ca5c309755edcb84e53a3a9ef2796691827916bac41`;
+- Rust loader report: SHA-256
+  `06a56ba754f9b1b10696930e05da887186abbffcce12dc702801a7dc417bb171`.
+
+Both numerical authorities pass unchanged. The expert-major batch candidate is
+`0.00666233943` routed and `0.00197441695` layer-final relative L2 versus
+PW-0116. The independently constructed decode candidate is
+`0.00666279289` routed and `0.00197441695` layer-final relative L2. Both are
+strictly below `0.01`.
+
+On Apple M1, each initial execution, 20 warmups, and 100 timed samples matches
+all 4,096 one-row decode-oracle F32 bits. Run 1 complete-call p90 is
+`16.986541` ms and GPU p90 is `10.265500` ms; run 2 complete-call p90 is
+`17.098042` ms and GPU p90 is `10.344333` ms. These are one routed-layer
+component diagnostics, not distinct-layer or endpoint throughput.
+
+The two Metal reports hash to
+`db1becf58c050f50dc88ceb29d20c8ae08e2423f2a9fb61460e8c6321625fa4b`
+and
+`92a9770896120e19b23cd9ece58ae9804640eedcdf5ee1ec87d5e52cc47c8806`.
+The superseding canonical summary, which includes both builder and Metal
+safety phases, is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0318/summary-002.json` and
+hashes to
+`a91af31bdea45749c9ae9d5d679260bcbcd8284c238479938206a7e7e0b5eb2f`.
+The earlier summary is retained but superseded because it aggregated only the
+lower-memory Metal phase.
+
+Gate 8 passes with 68% minimum system-free memory, 830,603,264-byte maximum
+peak RSS, 249,269,248-byte maximum physical footprint,
+241,257,216-byte maximum release-boundary footprint, zero swap growth or new
+throttled pages, and stable protected services. The experiment accepts zero
+tokens and makes no performance claim.
+
+## Decision
+
+Promote the schema-2 one-row decode transaction as the partial-bank integration
+boundary. Preserve PW-0116 expert-major outputs as source-fidelity comparators
+and use named one-row fixtures for decode implementation parity. Reuse the
+verified receipt-bound source records, aligned bundle layout, Rust readback,
+Metal transaction, and Gate 8 lifecycle in the resumable bank/runtime path.
+
+Do not promote K4 weights generally, infer arbitrary-route coverage, claim a
+complete endpoint, or update any measured throughput-model constant. The next
+work must increase layer/route coverage and connect this boundary to real
+incremental execution before accepted-token timing or external fidelity gates.
