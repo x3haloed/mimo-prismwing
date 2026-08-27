@@ -8,6 +8,10 @@ Stronger-worker artifacts remain candidate mechanisms until reconstructed on
 the target and passed through target-machine correctness, safety, fidelity,
 full-capability, and complete-path performance gates.
 
+For the current run, companion hardware is not admissible. The deliverable is
+therefore an onboard-M1 Prismwing-2 endpoint or decisive, reproducible closure
+evidence under the unchanged capability and fidelity contract.
+
 ## Goal invariants
 
 - The primary completion target remains Prismwing 50; Prismwing-2 is a valuable
@@ -15,6 +19,8 @@ full-capability, and complete-path performance gates.
 - A roughly 2 accepted-TPS result must retain the same local-inference,
   full-capability, fidelity, safety, and reproducibility requirements. Only its
   named throughput tier is lower.
+- Companion hardware is outside the authorized architecture set for this run;
+  companion feasibility or procurement evidence cannot satisfy or reopen it.
 - Modified K4 weights remain L3 and cannot be reported as source-exact even if
   they pass external near-equivalence gates.
 - Cross-device artifact hashes are not representation semantics. Any
@@ -71,3 +77,7 @@ Current M1 streaming is rejected at q8, q16, q32, and q64. Do not construct the
 K4 bank. The next premise must remove storage from the critical path through a
 resident companion under the $500 cap, or reduce executable records by the
 order of magnitude now required; a wider block alone is not a continuation.
+Because the owner excludes the companion premise for this run, the remaining
+prediction to test is whether authenticated onboard evidence closes every
+record-reduction and verifier branch strongly enough for a reproducible
+Prismwing-2 infeasibility disposition.
