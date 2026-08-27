@@ -1722,14 +1722,15 @@ Run the following cheap falsifiers in order:
    densities are required. The record remains non-executable until PW-0328's
    completed manifest hash is frozen in a clean commit.
 36. [PW-0330](../experiments/PW-0330-cyclic-mtp-q32-prefix-falsifier.md)
-   predeclares the cheapest causal wide-proposer falsifier: the pinned three
-   non-chain MiMo MTP heads are reused as the distinctly named L2
-   `cyclic_mtp_012_v1` schedule, starting with only the first new layer-zero
-   reuse on corrected code transaction zero. Any authenticated first-eight
-   mismatch is combined with a candidate-favorable 12-GiB joint-residency
-   source-FP8 byte floor before a q32 verifier is built. The fresh PW-0328 code
-   report, progress, and verifier-hidden hashes are now frozen, authorizing the
-   proposal runner without authorizing a q32 verifier.
+   executes the cheapest causal wide-proposer falsifier. The three trained
+   non-chain MiMo MTP heads reproduce the exact q4 prefix, but the first cyclic
+   layer-zero reuse proposes token `13` instead of target token `8129`, fixing
+   its conditional direct-q32 acceptance bound at `A=4` if first-chunk parity
+   holds. Its 1,035 prefix identities leave 22.101 GB to move even after a
+   perfect 12-GiB joint-residency grant, for a candidate-favorable source-FP8
+   ceiling of `0.628115` TPS. Conditionally reject that named proposer plus a
+   prefix-bit-identical q8-chunked q32 verifier; direct-q32 first-chunk parity
+   remains unproven, and no endpoint TPS or general-proposer claim follows.
 37. [PW-0331](../experiments/PW-0331-byte-neutral-k4-rank1-repair.md)
    predeclares the cheapest fidelity falsifier for the density-four/five K4
    frontier. Every schema-2 K4 record already stores and executes rank-one

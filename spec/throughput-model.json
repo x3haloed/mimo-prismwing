@@ -1626,6 +1626,35 @@
             "prefill_state": "included; one prefill anchor and one output-clipped q8 transaction per category",
             "status": "corrected_semantic_causal_pilot_passed; complete_four_category_recapture_authorized; diagnostic_not_sustained_tps; no_runtime_default",
             "provenance": "PW-0327 canonical analysis a54eeab1d136b938ddebe01a4206d6084bbeb2a2ca6a1395d88edfac337eaeed; clean analyzer caa5406891c61362af09434ed0240062d4a18cfc; clean captures 75d09e5e0e8ca9679faa5c29ed71445c9b741ad1; target-bonus q8 source-self-proposer transactions on frozen PW-0208 prompts"
+        },
+        "pw0330_cyclic_mtp_q32_prefix_falsifier": {
+            "scheduler": "cyclic_mtp_012_v1",
+            "verifier_width_hypothesis": 32,
+            "available_target_authority_rows": 8,
+            "evaluated_draft_heads": 4,
+            "matched_draft_heads": 3,
+            "first_mismatch_index": 3,
+            "conditional_A_under_first_chunk_parity": 4,
+            "selected_prefix_unique_layer_expert_records": 1035,
+            "fixed_target_logical_source_bytes": 7743236992,
+            "mtp_only_additional_logical_source_bytes": 1189400448,
+            "source_expert_logical_bytes": 25171968,
+            "joint_residency_bytes": 12884901888,
+            "logical_bytes_before_joint_residency": 34985624320,
+            "unavoidable_miss_bytes": 22100722432,
+            "candidate_favorable_storage_bytes_per_second": 3470448309.677419,
+            "raw_exact_storage_bytes_per_second": 3470425919.832775,
+            "candidate_favorable_storage_only_tps_ceiling": 0.6281149080724167,
+            "raw_exact_storage_only_tps_ceiling": 0.6281108557443151,
+            "proposal_diagnostic_complete_wall_ms": 15830.87141699798,
+            "batch_size": 1,
+            "concurrency": 1,
+            "accepted_tokens": 0,
+            "hardware": "Apple M1 16 GiB",
+            "cache_state": "cold process; authenticated control first; reused MTP layer and warm LM head by the first cyclic head",
+            "prefill_state": "authenticated fresh PW-0328 code prefill hidden; prefill excluded from proposal diagnostic wall",
+            "status": "conditional_hard_storage_rejection_for_named_prefix_identical_source_fp8_q32_composition; direct_q32_first_chunk_parity_unproven; analytical_storage_ceiling_not_endpoint_tps",
+            "provenance": "PW-0330 raw report fbb454f6992ba8e21ade89aff416a494d14625dc126b769f420a861ed6414674; clean runner 1bb8645775b014aa2a59ac1c80d5edd48b05ea90; fresh PW-0328 code prefill and generation authorities; PW-0136 cold internal-SSD bandwidth; Apple M1 16 GiB"
         }
     }
 }

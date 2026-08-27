@@ -5047,3 +5047,28 @@ row. It promotes no density-five bank, cache, default, or TPS claim. The schema-
 manifest and PW-0316 rejection remain bound by SHA-256
 `ca2cd8005c3c8f712fabd0b2fc88183d740bd6613efa065cdd4b25738c4924c3`
 and `7e5560cf2cdc2abdec8ec1a17af0462f69fa7204f8ba528808ce1f046d0e6ff4`.
+
+PW-0330 supersedes the assumption that exact q4 agreement made cyclic reuse of
+MiMo's three trained MTP heads worth a direct q32 verifier. The authenticated
+q4 heads reproduce target tokens `[374,264,4583]` with bit-identical logits,
+but the first reused layer-zero head proposes `13` instead of target token
+`8129`. The frozen correction rule therefore limits the named
+`cyclic_mtp_012_v1` transaction to `A=4`.
+
+That `A=4` is conditional on a direct-q32 verifier proving its first chunk
+prefix-identical; PW-0330 does not implement that verifier.
+
+Those four exact verifier rows contain 1,035 distinct layer/expert identities.
+After granting perfect joint use of all 12 GiB to fixed target weights,
+additional MTP weights, and source-FP8 experts, at least `22,100,722,432` bytes
+still move. PW-0136's candidate-favorable bandwidth caps the composition at
+`0.6281149081` storage-only TPS before proposal, compute, common scans, or
+endpoint work. Conditionally reject the named proposer plus a
+prefix-bit-identical q8-chunked source-FP8 q32 verifier; a direct q32 trace would
+still have to prove first-chunk parity before that combined-verifier closure is
+unconditional. The raw report hashes to
+`fbb454f6992ba8e21ade89aff416a494d14625dc126b769f420a861ed6414674`;
+Gate 8 passes. The throughput model records this analytical ceiling and hashes
+to `8f673b2ec3108b9144e0fc8b6c79504e0a41e7ecf30733760343428f32b78522`.
+No achieved endpoint TPS, measured runtime constant, default, native-q32 claim,
+or general-proposer rejection follows.

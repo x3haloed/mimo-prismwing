@@ -1,7 +1,7 @@
 # PW-0330 — Cyclic MiMo-MTP q32 prefix falsifier
 
-- Status: proposed; unexecuted
-- Disposition: unexecuted
+- Status: complete
+- Disposition: conditional
 - Date: 2026-08-27
 - Owner: Codex
 - Parent experiments: PW-0136, PW-0207, PW-0211, PW-0327, PW-0328
@@ -235,9 +235,61 @@ As a planning cross-check only, PW-0327 code gives source-FP8 ceilings for
 
 ## Result
 
-Unexecuted.
+Executed once from clean commit
+`1bb8645775b014aa2a59ac1c80d5edd48b05ea90` on Apple M1 16 GiB, batch one,
+concurrency one; the process exited zero:
+
+```text
+python3 tools/run_pw0330_cyclic_mtp_prefix.py \
+  --repo /Volumes/Elements/mimo-prismwing/worktrees/pw0330-run \
+  --commit 1bb8645775b014aa2a59ac1c80d5edd48b05ea90 \
+  --checkpoint /Users/chad/Models/mimo-prismwing/checkpoints/MiMo-V2.5-63651580 \
+  --verification /Volumes/Elements/mimo-prismwing/cold-assets/internal-ssd-migration-2026-08-26/Users/chad/Models/mimo-prismwing/evidence/PW-0049/checkpoint-verification.json \
+  --source-root /Volumes/Elements/mimo-prismwing/research-sources/sglang-dflash \
+  --output /Volumes/Elements/mimo-prismwing/evidence/PW-0330/run-001
+```
+
+The canonical raw report is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0330/run-001/report.json`,
+SHA-256
+`fbb454f6992ba8e21ade89aff416a494d14625dc126b769f420a861ed6414674`.
+The runner SHA-256 is
+`298acfa4424991e860939b46e818063da658c6dfd32b7526fe53764cd36d1746`.
+
+Every authority and both q4 controls authenticated. Fresh PW-0328 routes
+reproduced the planning prefix counts exactly. Heads zero through two matched
+the target with bit-identical logits and proposal tokens `[374,264,4583]`.
+The first cyclic reuse, head three/layer zero, proposed token `13`; the exact
+target token was `8129`, rank two. The frozen correction rule therefore fixes
+the conditional direct-q32 transaction at `A=4` if its first chunk is proven
+prefix-identical, and later cyclic heads cannot increase that acceptance.
+
+The first four verifier rows contain `N_A=1,035` distinct layer-qualified
+source-FP8 experts. Fixed target bytes (`7,743,236,992`), additional MTP bytes
+(`1,189,400,448`), and those expert bytes total `34,985,624,320`. After the
+candidate-favorable perfect 12-GiB joint-residency grant, the unavoidable miss
+floor is `22,100,722,432` bytes. The rounded favorable PW-0136 bandwidth gives
+an optimistic storage-only ceiling of `0.6281149080724167` accepted token/s;
+the exact raw-derived bandwidth gives `0.6281108557443151`.
+
+The complete runner took `15,830.87141699798` ms, including authority checks
+and the required known control. That wall is not endpoint TPS and does not
+include a q32 verifier. Gate 8 passed with at least 66% free memory, zero swap
+growth, zero new throttling, and a maximum recorded process peak resident size
+of `4,152,442,880` bytes. This proposal-only run accepted zero endpoint tokens
+and changes no achieved TPS or runtime default.
 
 ## Decision
 
-Unexecuted. The complete PW-0328 code hashes are frozen; runner authorship is
-authorized from this clean commit.
+Conditionally reject `cyclic_mtp_012_v1` combined with a q8-chunked,
+prefix-bit-identical source-FP8 q32 verifier on the required code slice. Its
+authenticated `A=4` prefix is already below one TPS under an impossible-best
+storage model, before proposer, verifier compute, common-weight scans, or
+endpoint work.
+
+This kills the named composition, not every future wide proposer and not an
+implemented direct-q32 target path. A direct q32 follow-up would still have to
+prove first-chunk hidden, routing, and posterior parity before upgrading the
+conditional rejection to a combined-verifier closure. Do not execute heads
+four through 30 from this prefix authority. Preserve K4 and exact-codec
+branches as separate remaining work.
