@@ -66,6 +66,10 @@ following:
    `12,654,604` logical bytes per expert. Preserve the current individually
    aligned schema-2 record strides, source `25,214,976` and K4 `12,877,824`,
    separately from logical bytes and hypothetical whole-record repacking.
+   Verify every K4 projection declares rank one, every correction factor is an
+   all-zero F16 payload, and the Metal/loader path nevertheless executes the
+   allocated correction slot; this is the byte-neutral correction premise,
+   not evidence that a fitted correction passes fidelity.
 4. PW-0316 rejection SHA-256
    `7e5560cf2cdc2abdec8ec1a17af0462f69fa7204f8ba528808ce1f046d0e6ff4`:
    its four-K4/four-source routed row reaches `0.0109888419` relative L2 and
@@ -104,8 +108,17 @@ expert objects.
 
 ## Predeclared scenarios
 
-Evaluate density limits `d ∈ {3, 6, 8}` against total joint residency budgets
+Evaluate density limits `d ∈ {3, 4, 5, 6, 8}` against total joint residency budgets
 `R ∈ {4, 6, 8, 12} GiB`.
+
+Density three is the current qualified mixed-row boundary. Densities four and
+five are separately visible because the authenticated schema-2 records already
+allocate and execute rank-one correction slots whose payloads are all zero:
+activating those slots could improve fidelity without changing the
+`12,877,824`-byte stride or current correction operations. PW-0316 still
+rejects the present zero-correction density-four row; `d=4` and `d=5` are
+therefore prospective sensitivity points, not qualified modes. Densities six
+and eight remain still-more-relaxed falsifier premises.
 
 - Four GiB is the demonstrated post-phase residency scale.
 - Six and eight GiB retain comparability with PW-0325 and are analytical until
@@ -133,7 +146,7 @@ an executable bank and is the byte-floor kill authority.
 
 ### Row-feasible fixed bank
 
-For every `(d, R, target)` with `d ∈ {3, 6}`, `R ∈ {4, 6, 8, 12} GiB`,
+For every `(d, R, target)` with `d ∈ {3, 4, 5, 6}`, `R ∈ {4, 6, 8, 12} GiB`,
 and target in `{1.10, 1.25, 1.50}`, construct an independent deterministic
 candidate capped at 4,096 global identities. Run the same grid for `d=8`, but
 report it only as an unqualified diagnostic.
@@ -255,7 +268,8 @@ density six or eight, or as a hard gate.
    the frozen PW-0325 tail criterion, but is not by itself a universal endpoint
    impossibility claim.
 3. **Density survival.** Apply the same strict overall, required-category, and
-   p10 gates to relaxed `d=6`, `R=12 GiB`. If `d=8` survives but `d=6` fails,
+   p10 gates to relaxed `d ∈ {4, 5, 6}`, `R=12 GiB`, and report the earliest
+   density that crosses each gate. If `d=8` survives but `d=6` fails,
    close the currently evidenced K4 route: only density seven or eight survives
    storage, while a real four-K4 row already fails and no higher-density
    semantic premise is qualified.
@@ -268,11 +282,17 @@ density six or eight, or as a hard gate.
 5. If a row-feasible `d=3` bank clears the margin, authorize only native-MTP q8
    acceptance/latency on PW-0328 histories, an early/middle/deep arbitrary-
    identity fidelity panel, and then a production-shaped mixed q8 layer.
-6. If only `d=6` clears, authorize first the bounded six-of-eight falsifier:
+6. If `d=4` or `d=5` is the first unqualified density to clear the margin,
+   authorize only a zero-byte-growth rank-one correction falsifier using the
+   already allocated schema-2 slots. Start with PW-0316's expert 96 and the
+   four-of-eight row. A passing four-row result is a correctness prerequisite,
+   not evidence for five identities; if `d=5` is required for throughput, a
+   separately frozen five-of-eight row remains mandatory before any bank work.
+7. If only `d=6` clears, authorize first the bounded six-of-eight falsifier:
    complete PW-0316's four missing identities and exhaust all 28 six-K4 subsets
    under the unchanged routed and layer-final gates. Native-MTP acceptance and
    mixed q8 timing remain later prerequisites.
-7. Any survivor requiring more than 8 GiB interposes PW-0207's declared-
+8. Any survivor requiring more than 8 GiB interposes PW-0207's declared-
    residency/pressure-observer requalification and a complete process memory
    manifest. Twelve-GiB analysis is not physical authorization. Gate 8 on this
    analyzer validates only analyzer safety and logical ceilings; it cannot
@@ -290,13 +310,15 @@ Before execution, add deterministic tests that:
   cardinality;
 - reconstruct raw route rows, unions, identities, and `U` exactly;
 - independently sum fixed shared objects and keep embedding rows distinct;
-- reject a fourth selected identity in a `d=3` route row;
+- reject selected identity `d+1` in route rows for every fixed-bank density;
 - reproduce `k=min(n,8d)` and canonical selector ties;
 - prove common and expert residency cannot both consume the full `R`;
 - derive logical payload sums and current schema-2 record strides, distinguish
   them from hypothetical whole-record page rounding, and cover the
   explicitly omitted embedding/TLUT allocations, largest-object guard, and
   fit-all case;
+- authenticate zero-filled rank-one correction slots and prove that replacing
+  their contents does not change logical bytes or schema-2 stride;
 - prove the optimized fixed-bank selector exactly matches a naive reference on
   deterministic tiny grids, including guarded marginal scores and ties;
 - compute the fourth-lowest p10 and token-total-over-wall aggregates; and

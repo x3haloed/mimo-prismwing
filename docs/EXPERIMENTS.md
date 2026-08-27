@@ -1716,7 +1716,10 @@ Run the following cheap falsifiers in order:
    PW-0328 corpus. It charges one joint common-plus-expert residency budget,
    distinguishes exact logical traffic from page allocation, and evaluates
    relaxed density ceilings separately from row-feasible fixed banks before
-   any K4 construction. The record remains non-executable until PW-0328's
+   any K4 construction. It reports densities four and five explicitly after
+   discovering that current records already pay for zero-filled rank-one
+   correction slots, so a byte-neutral fidelity repair can be tested if those
+   densities are required. The record remains non-executable until PW-0328's
    completed manifest hash is frozen in a clean commit.
 36. [PW-0330](../experiments/PW-0330-cyclic-mtp-q32-prefix-falsifier.md)
    predeclares the cheapest causal wide-proposer falsifier: the pinned three
