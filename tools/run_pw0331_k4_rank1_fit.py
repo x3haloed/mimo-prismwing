@@ -156,6 +156,23 @@ def array_sha256(values: np.ndarray) -> str:
     return sha256_bytes(array.view(np.uint8).tobytes())
 
 
+def legacy_framed_array_sha256(values: np.ndarray) -> str:
+    """Hash an array exactly as the frozen PW-0311/PW-0315 authorities do."""
+    array = np.ascontiguousarray(values)
+    digest = hashlib.sha256()
+    digest.update(str(array.dtype).encode())
+    digest.update(str(tuple(array.shape)).encode())
+    digest.update(array.tobytes(order="C"))
+    return digest.hexdigest()
+
+
+def require_legacy_framed_array_sha256(
+    values: np.ndarray, expected: str, label: str
+) -> None:
+    if legacy_framed_array_sha256(values) != expected:
+        raise ValueError(f"PW-0331 {label} legacy framed array hash mismatch")
+
+
 def bf16(values: np.ndarray) -> np.ndarray:
     array = np.asarray(values, dtype=np.float32)
     bits = array.view(np.uint32)
@@ -845,8 +862,9 @@ def load_zero_correction_k4(
             arrays["left_sign"].astype(np.float32),
             arrays["right_sign"].astype(np.float32),
         )
-        if array_sha256(candidate) != manifest["candidate_array_sha256"]:
-            raise ValueError(f"PW-0331 {name} decoded candidate mismatch")
+        require_legacy_framed_array_sha256(
+            candidate, manifest["candidate_array_sha256"], f"{name} decoded candidate"
+        )
         decoded[name] = candidate
         serialized[name] = {
             "rows": expected_shape[0],

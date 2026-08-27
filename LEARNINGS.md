@@ -5072,3 +5072,19 @@ Gate 8 passes. The throughput model records this analytical ceiling and hashes
 to `8f673b2ec3108b9144e0fc8b6c79504e0a41e7ecf30733760343428f32b78522`.
 No achieved endpoint TPS, measured runtime constant, default, native-q32 claim,
 or general-proposer rejection follows.
+
+PW-0331 execution preflight catches a hash-namespace prediction error before
+either fit process or any held-out access. New PW-0331 evidence intentionally
+hashes raw contiguous array bytes, while the frozen PW-0311/PW-0315 manifests
+frame external arrays with dtype and shape before the bytes. Comparing the raw
+digest directly to those older authorities would have rejected valid payloads:
+expert 96's candidate is raw
+`b83fffef12db82614bceabeaac9be153b41060728d14692de595f0a0c67c5e56`
+but legacy-framed
+`6378a43c5a6687c69f569982176f45d5bdf51106477e8840f87ed8ca37c5da15`.
+
+Keep both namespaces explicit. Use the legacy framed helper only for the two
+external projection/candidate authority comparisons and retain raw hashes for
+new PW-0331 arrays and factors. Cross-namespace regression fixtures, 22 focused
+tests, and the full 529-test suite pass. No fit artifact, held-out metric,
+accepted token, throughput-model constant, or disposition changed.

@@ -12,8 +12,10 @@ from tools.run_pw0331_k4_rank1_fit import (
     array_sha256,
     bf16,
     fit_rank_one,
+    legacy_framed_array_sha256,
     partition_fit_positions,
     pread_f32_rows,
+    require_legacy_framed_array_sha256,
     schema2_layout_ledger,
     serialized_k4_projection_base,
     stage_a_candidate_stages,
@@ -44,6 +46,28 @@ class Pw0331RankOneFitTests(unittest.TestCase):
             np.float32(1.0) / np.sqrt(np.float32(result.size))
         )
         return np.asarray(result * normalization, dtype=np.float32)
+
+    def test_raw_and_legacy_framed_array_hash_namespaces_are_exact(self):
+        values = np.asarray([[1.0, -2.0], [3.5, 0.0]], dtype="<f4")
+        self.assertEqual(
+            array_sha256(values),
+            "a76aedd848195ae1236c82d5282e27688c5b43e36e1e6337955b39fbafbc09ee",
+        )
+        self.assertEqual(
+            legacy_framed_array_sha256(values),
+            "e300ba24bab9af38383c2736ede56b4457a6dd6ebb19e20835bd8de678d0df96",
+        )
+        self.assertNotEqual(array_sha256(values), legacy_framed_array_sha256(values))
+
+    def test_external_authority_hash_rejects_raw_pw0331_digest(self):
+        values = np.asarray([[1.0, -2.0], [3.5, 0.0]], dtype="<f4")
+        require_legacy_framed_array_sha256(
+            values, legacy_framed_array_sha256(values), "test external authority"
+        )
+        with self.assertRaisesRegex(ValueError, "legacy framed array hash mismatch"):
+            require_legacy_framed_array_sha256(
+                values, array_sha256(values), "test external authority"
+            )
 
     def test_stage_a_base_emulates_serialized_k4_kernel_order(self):
         fixture = json.loads(FIXTURE.read_text())["serialized_base"]

@@ -66,6 +66,7 @@ try:
         load_panel_authority,
         load_zero_correction_k4,
         partition_fit_positions,
+        require_legacy_framed_array_sha256,
         schema2_layout_ledger,
         sha256_bytes,
         stage_a_numerics_authority,
@@ -118,6 +119,7 @@ except ModuleNotFoundError:
         load_panel_authority,
         load_zero_correction_k4,
         partition_fit_positions,
+        require_legacy_framed_array_sha256,
         schema2_layout_ledger,
         sha256_bytes,
         stage_a_numerics_authority,
@@ -560,8 +562,11 @@ def _load_pw0315_candidate(
     positions, _, _, _ = selected_rows(layer_row, expert)
     path = run / f"layer-{LAYER:02d}-expert-{expert:03d}" / "candidate-output.f32le"
     candidate = np.fromfile(path, dtype="<f4").reshape(len(positions), HIDDEN)
-    if array_sha256(candidate) != report["semantic"]["array_sha256"]["candidate_output_f32"]:
-        raise ValueError(f"PW-0331 expert-{expert} candidate mismatch")
+    require_legacy_framed_array_sha256(
+        candidate,
+        report["semantic"]["array_sha256"]["candidate_output_f32"],
+        f"expert-{expert} candidate",
+    )
     return candidate
 
 
