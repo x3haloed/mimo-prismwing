@@ -1,7 +1,7 @@
 # PW-0328 — Target-bonus 32-window causal corpus
 
-- Status: proposed
-- Disposition: unexecuted
+- Status: complete
+- Disposition: conditional
 - Date: 2026-08-27
 - Owner: Codex
 - Parent experiments: PW-0208, PW-0325, PW-0326, PW-0327
@@ -152,8 +152,44 @@ not substitute a stale legacy window or projected bonus.
 
 ## Result
 
-Unexecuted.
+The canonical manifest is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0328/corpus-001/manifest.json`,
+SHA-256
+`36e4f10b6f807f766c87ee7078f5f18ea8fc339dd12e4dbc24f1f4ac6e824403`.
+It was built from clean detached capture commit
+`26d2ea31852c0d63bd022df6d571fd722137c39f` and authenticates 24 bound
+artifacts: generation report, progress log, verifier hidden, prompt, fresh
+prefill report, and fresh prefill hidden for each of the four categories.
+
+All 32 primary windows pass exact raw-route reconstruction, chronological
+transaction ordering, verifier-authorized commit replay, causal hidden-history
+binding, target/MTP token-history closure, byte-ledger ordering, and Gate 8.
+The corrected corpus totals full verifier `A=232`, observable `A=231`,
+`sum(U)=142.71808510638297`, and `sum(A)/sum(U)=1.62558234877567`:
+
+| category | windows | full `A` | observable `A` | `sum(U)` | `sum(A)/sum(U)` | unique identities |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| ordinary | 8 | 50 | 50 | 35.58510638297872 | 1.4050822122571003 | 4,393 |
+| code | 8 | 58 | 58 | 38.015957446808514 | 1.5256751084371063 | 5,076 |
+| multilingual | 8 | 60 | 60 | 33.11702127659574 | 1.8117571474461935 | 4,229 |
+| rare-route | 8 | 64 | 63 | 36.0 | 1.7777777777777777 | 5,167 |
+
+The eight capture processes were cold, batch one, concurrency one: four fresh
+prefill authorities followed by four fixed-64 generation captures. Generation
+reports record `8,107,486,292,992` logical source bytes and
+`8,116,404,166,656` process-read bytes; the separate fresh-prefill authorities
+record `1,971,671,544,832` and `1,973,921,333,248` bytes respectively. Capture
+free memory stayed at or above 52%, peak RSS was 618,397,696 bytes, and every
+run recorded zero swap growth, zero new throttling, live protected services,
+and a release boundary. The manifest itself accepts zero tokens and contains
+`performance_claim: null`; these capture totals are evidence acquisition, not
+endpoint TPS.
 
 ## Decision
 
-Unexecuted. Commit this contract before launching the first full capture.
+Promote this manifest only as the corrected four-category causal authority for
+PW-0329 and PW-0332. It supersedes the assumption that later bonus-free
+PW-0208 routes or an `A+1` projection can represent the repaired transaction
+boundary. Preserve both historical sources under their original names. No
+runtime default, achieved TPS, K4 fidelity, cache, or general full-capability
+claim follows.

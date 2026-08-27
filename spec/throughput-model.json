@@ -1627,6 +1627,60 @@
             "status": "corrected_semantic_causal_pilot_passed; complete_four_category_recapture_authorized; diagnostic_not_sustained_tps; no_runtime_default",
             "provenance": "PW-0327 canonical analysis a54eeab1d136b938ddebe01a4206d6084bbeb2a2ca6a1395d88edfac337eaeed; clean analyzer caa5406891c61362af09434ed0240062d4a18cfc; clean captures 75d09e5e0e8ca9679faa5c29ed71445c9b741ad1; target-bonus q8 source-self-proposer transactions on frozen PW-0208 prompts"
         },
+        "pw0328_target_bonus_32_window_corpus": {
+            "transaction_semantic": "target_bonus_full_match_v1",
+            "verifier_width": 8,
+            "categories": 4,
+            "windows": 32,
+            "full_verifier_A": 232,
+            "observable_A": 231,
+            "sum_U": 142.71808510638297,
+            "sum_A_per_sum_U": 1.62558234877567,
+            "category_metrics": {
+                "ordinary": {
+                    "full_A": 50,
+                    "observable_A": 50,
+                    "sum_U": 35.58510638297872,
+                    "sum_A_per_sum_U": 1.4050822122571003,
+                    "unique_identities": 4393
+                },
+                "code": {
+                    "full_A": 58,
+                    "observable_A": 58,
+                    "sum_U": 38.015957446808514,
+                    "sum_A_per_sum_U": 1.5256751084371063,
+                    "unique_identities": 5076
+                },
+                "multilingual": {
+                    "full_A": 60,
+                    "observable_A": 60,
+                    "sum_U": 33.11702127659574,
+                    "sum_A_per_sum_U": 1.8117571474461935,
+                    "unique_identities": 4229
+                },
+                "rare_route": {
+                    "full_A": 64,
+                    "observable_A": 63,
+                    "sum_U": 36.0,
+                    "sum_A_per_sum_U": 1.7777777777777777,
+                    "unique_identities": 5167
+                }
+            },
+            "generation_report_logical_source_bytes": 8107486292992,
+            "generation_report_process_disk_bytes_read": 8116404166656,
+            "fresh_prefill_report_logical_source_bytes": 1971671544832,
+            "fresh_prefill_report_process_disk_bytes_read": 1973921333248,
+            "generation_complete_wall_ms": 8104353.902249001,
+            "fresh_prefill_complete_wall_ms": 1452629.0865830001,
+            "batch_size": 1,
+            "concurrency": 1,
+            "accepted_tokens": 0,
+            "hardware": "Apple M1 16 GiB",
+            "cache_state": "eight independent cold processes; four fresh prefill authorities and four fixed-64 generation captures; no warm run",
+            "prefill_state": "fresh same-commit target-hidden captures authenticated separately; generation reports also include their own prefill",
+            "status": "corrected_semantic_32_window_corpus_complete; downstream_storage_analyzers_authorized; evidence_capture_not_sustained_tps; no_runtime_default",
+            "provenance": "PW-0328 canonical manifest 36e4f10b6f807f766c87ee7078f5f18ea8fc339dd12e4dbc24f1f4ac6e824403; clean capture and builder 26d2ea31852c0d63bd022df6d571fd722137c39f; 24 bound artifacts; target-bonus q8 source-self-proposer windows on four frozen text prompts"
+        },
         "pw0330_cyclic_mtp_q32_prefix_falsifier": {
             "scheduler": "cyclic_mtp_012_v1",
             "verifier_width_hypothesis": 32,

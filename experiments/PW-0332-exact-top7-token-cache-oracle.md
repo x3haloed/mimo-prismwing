@@ -24,10 +24,16 @@ permits fractional encoded records. Companion hardware is inadmissible.
 
 ## Input freeze
 
-PW-0328 is incomplete when this contract is first committed. This record is
-non-executable until a later clean commit amends it with the completed
-PW-0328 manifest path and SHA-256. The analyzer must hard-code that hash and
-must not accept an older PW-0208 manifest or a caller-asserted replacement.
+PW-0328 is complete. Its canonical manifest is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0328/corpus-001/manifest.json`,
+SHA-256
+`36e4f10b6f807f766c87ee7078f5f18ea8fc339dd12e4dbc24f1f4ac6e824403`,
+built from clean capture commit
+`26d2ea31852c0d63bd022df6d571fd722137c39f`. An independent replay
+authenticates all 24 bound artifacts, 32 chronological windows, full `A=232`,
+every causal hidden-history binding and q8 route union, byte closure, and Gate
+8. Analyzer authorship is now authorized. It must hard-code this hash and must
+not accept an older PW-0208 manifest or a caller-asserted replacement.
 
 The completed source must contain exactly eight chronological primary windows
 in each of ordinary, code, multilingual, and rare-route. Flatten only the first

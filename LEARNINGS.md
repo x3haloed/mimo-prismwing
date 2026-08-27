@@ -5088,3 +5088,28 @@ external projection/candidate authority comparisons and retain raw hashes for
 new PW-0331 arrays and factors. Cross-namespace regression fixtures, 22 focused
 tests, and the full 529-test suite pass. No fit artifact, held-out metric,
 accepted token, throughput-model constant, or disposition changed.
+
+PW-0328 completes the corrected target-bonus causal authority and supersedes
+the assumption that later bonus-free PW-0208 routes—or an `A+1` adjustment to
+them—can stand in for the repaired transaction boundary. The canonical
+32-window manifest hashes to
+`36e4f10b6f807f766c87ee7078f5f18ea8fc339dd12e4dbc24f1f4ac6e824403`
+and binds 24 generation, progress, hidden, prompt, and fresh-prefill artifacts
+from clean capture commit
+`26d2ea31852c0d63bd022df6d571fd722137c39f`. An independent replay closes
+all chronological q8 route unions, causal target/MTP hidden histories, full
+verifier `A=232`, observable `A=231`, `sum(U)=142.71808510638297`, all byte
+ledgers, and Gate 8. The rare-route slice alone contributes 939 identities not
+seen in the three control categories, confirming that it cannot be omitted or
+silently replaced by a control route.
+
+Promote only this manifest as the execution authority for PW-0329's corrected
+K4 joint-residency bound and PW-0332's exact token-cache oracle; kill the stale
+route/projection branch. The eight evidence processes were cold, batch one,
+concurrency one, and moved 8,107,486,292,992 generation-report logical bytes
+plus 1,971,671,544,832 fresh-prefill logical bytes while producing no accepted
+endpoint tokens or TPS claim. The throughput model records these provenance
+constants and now hashes to
+`5683eec64d019f25804c09c05b8c75f29185e4861f39231085fa4f002b43b961`.
+No K4 fidelity, cache implementation, runtime default, multimodal promotion,
+or companion-hardware branch follows.

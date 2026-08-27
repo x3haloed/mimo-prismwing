@@ -1706,11 +1706,12 @@ Run the following cheap falsifiers in order:
    The four cold diagnostics move 686.959 GB of transaction logical bytes and
    make no sustained TPS or native-MTP performance claim.
 34. [PW-0328](../experiments/PW-0328-target-bonus-32-window-corpus.md)
-   regenerates eight chronological corrected-semantic q8 windows in every
-   frozen category. It binds transaction zero to authenticated prefill hidden
-   history, avoiding the legacy builder's now-insufficient nine-transaction
-   requirement without weakening the native-MTP history contract. Only a
-   complete 32-window manifest may feed the next Prismwing-1 envelope.
+   completes eight chronological corrected-semantic q8 windows in every frozen
+   category. Its SHA-256-bound 32-window manifest authenticates 24 source
+   artifacts, binds transaction zero to fresh same-commit prefill hidden
+   history, and closes full `A=232`, `sum(U)=142.71808510638297`, bytes, causal
+   histories, and Gate 8. It is now the only corrected authority for PW-0329
+   and PW-0332; no endpoint TPS follows.
 35. [PW-0329](../experiments/PW-0329-corrected-k4-joint-residency-bound.md)
    predeclares a common-inclusive Prismwing-1 kill bound over the corrected
    PW-0328 corpus. It charges one joint common-plus-expert residency budget,
@@ -1719,8 +1720,9 @@ Run the following cheap falsifiers in order:
    any K4 construction. It reports densities four and five explicitly after
    discovering that current records already pay for zero-filled rank-one
    correction slots, so a byte-neutral fidelity repair can be tested if those
-   densities are required. The record remains non-executable until PW-0328's
-   completed manifest hash is frozen in a clean commit.
+   densities are required. PW-0328's canonical manifest hash is frozen, so
+   analyzer implementation is now authorized; the experiment remains
+   unexecuted until its fail-closed analyzer produces a report.
 36. [PW-0330](../experiments/PW-0330-cyclic-mtp-q32-prefix-falsifier.md)
    executes the cheapest causal wide-proposer falsifier. The three trained
    non-chain MiMo MTP heads reproduce the exact q4 prefix, but the first cyclic
@@ -1743,9 +1745,10 @@ Run the following cheap falsifiers in order:
    codec composition. It grants the top-seven exponent format its impossible
    zero-escape floor, free encoded fixed residency, a free future-chosen expert
    cache, token-granularity offline Belady eviction, and zero decoder or compute
-   cost. The analyzer remains blocked until PW-0328's complete manifest hash is
-   frozen; failure of any strict corpus, category, token-tail, or window-tail
-   one-TPS gate rejects this exact codec/cache/prefetch composition.
+   cost. PW-0328's canonical manifest hash is now frozen and authorizes analyzer
+   implementation; failure of any strict corpus, category, token-tail, or
+   window-tail one-TPS gate rejects this exact codec/cache/prefetch
+   composition.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

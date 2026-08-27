@@ -33,12 +33,16 @@ embedding row per verifier position, so exact q8 target shared traffic is
 `7,745,585,152`-byte value is page-aligned resident allocation, not traffic.
 Keep logical traffic, physical reads, and resident allocation separate.
 
-PW-0328 is still capturing while this record is first committed, so no corpus
-hash exists to freeze yet. This proposal is deliberately non-executable. After
-the complete builder authenticates all four raw captures, amend this record in
-a clean commit with the exact canonical PW-0328 manifest path and SHA-256.
-Only then may the analyzer be authored, and it must hard-code that hash rather
-than accept a caller-asserted digest or an older PW-0208 route.
+PW-0328 is complete. Its canonical manifest is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0328/corpus-001/manifest.json`,
+SHA-256
+`36e4f10b6f807f766c87ee7078f5f18ea8fc339dd12e4dbc24f1f4ac6e824403`,
+built from clean capture commit
+`26d2ea31852c0d63bd022df6d571fd722137c39f`. An independent replay
+authenticates all 24 bound artifacts, all 32 chronological route unions and
+causal histories, full `A=232`, `sum(U)=142.71808510638297`, byte closure, and
+Gate 8. The analyzer may now be authored, but it must hard-code this hash and
+must not accept a caller-asserted digest or an older PW-0208 route.
 
 ## Authorities and fail-closed authentication
 
@@ -97,7 +101,13 @@ following:
    Its `351.680083`-ms p90 is 47 repeats of one eight-expert row, hence
    `U=1`; it is a mixed three-K4/five-source diagnostic, not a density-six or
    density-eight compute theorem.
-8. The current `TARGET.md`, `RED_LINES.md`, model revision, hardware, batch one,
+8. PW-0325 canonical analysis SHA-256
+   `9391b3b8bc8b4264ec1e74378743f00780f724eab953fb31841434d0516e81c1`
+   and selection-order SHA-256
+   `d5a68bb4291076fbf62c8def45837b6a948d06438bbde298077fdec380f6b25a`.
+   Authenticate both before replaying its exact 3,925-identity historical
+   order; never import only its prose, stale `A`, or stale route rows.
+9. The current `TARGET.md`, `RED_LINES.md`, model revision, hardware, batch one,
    concurrency one, Gate 8 limits, and explicit companion-hardware exclusion.
 
 The exact traffic model includes eight embedding rows per q8 verifier. The
