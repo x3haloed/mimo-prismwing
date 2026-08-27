@@ -7,6 +7,8 @@ import numpy as np
 
 from tools.build_pw0316_layer4_bundle import (
     ALIGNMENT,
+    CONFIGS,
+    NATIVE_ROUTE,
     ROUTE,
     align,
     append_file,
@@ -20,6 +22,17 @@ class Pw0316Layer4BundleTests(unittest.TestCase):
     def test_declared_route_is_four_k4_then_four_source(self):
         self.assertEqual(ROUTE, (96, 64, 232, 31, 88, 245, 223, 151))
         self.assertEqual(len(set(ROUTE)), 8)
+
+    def test_each_experiment_partitions_the_same_native_route(self):
+        self.assertEqual(ROUTE, NATIVE_ROUTE)
+        self.assertEqual(CONFIGS["PW-0316"].k4_experts, (96, 64, 232, 31))
+        self.assertEqual(CONFIGS["PW-0317"].k4_experts, (64, 232, 31))
+        for config in CONFIGS.values():
+            self.assertFalse(set(config.k4_experts) & set(config.source_experts))
+            self.assertEqual(
+                set(config.k4_experts) | set(config.source_experts),
+                set(NATIVE_ROUTE),
+            )
 
     def test_payload_append_is_aligned_and_authority_checked(self):
         with tempfile.TemporaryDirectory() as directory:

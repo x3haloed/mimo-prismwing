@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the receipt-bound PW-0316 layer-4 four-K4/four-source bundle."""
+"""Build receipt-bound PW-0316/PW-0317 layer-4 mixed K4/source bundles."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import gc
 import hashlib
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 import platform
 import resource
@@ -64,11 +65,41 @@ except ModuleNotFoundError:
     )
 
 
+@dataclass(frozen=True)
+class BundleConfig:
+    experiment_id: str
+    k4_experts: tuple[int, ...]
+    source_experts: tuple[int, ...]
+    fixture_semantic: str
+    ready_status: str
+    rejection_decision: str
+
+
 EXPERIMENT_ID = "PW-0316"
 POSITION = 1
-K4_EXPERTS = (96, 64, 232, 31)
-SOURCE_EXPERTS = (88, 245, 223, 151)
-ROUTE = K4_EXPERTS + SOURCE_EXPERTS
+NATIVE_ROUTE = (96, 64, 232, 31, 88, 245, 223, 151)
+CONFIGS = {
+    "PW-0316": BundleConfig(
+        experiment_id="PW-0316",
+        k4_experts=(96, 64, 232, 31),
+        source_experts=(88, 245, 223, 151),
+        fixture_semantic="pw0316_layer4_four_k4_four_source_fixture",
+        ready_status="layer4_four_four_bundle_ready",
+        rejection_decision="kill_four_k4_four_source_mixed_transaction",
+    ),
+    "PW-0317": BundleConfig(
+        experiment_id="PW-0317",
+        k4_experts=(64, 232, 31),
+        source_experts=(96, 88, 245, 223, 151),
+        fixture_semantic="pw0317_layer4_three_k4_five_source_fixture",
+        ready_status="layer4_three_five_bundle_ready",
+        rejection_decision="kill_three_k4_five_source_mixed_transaction",
+    ),
+}
+# Backward-compatible aliases preserve the frozen PW-0316 contract.
+K4_EXPERTS = CONFIGS[EXPERIMENT_ID].k4_experts
+SOURCE_EXPERTS = CONFIGS[EXPERIMENT_ID].source_experts
+ROUTE = NATIVE_ROUTE
 MAXIMUM_MIXED_ROW_RELATIVE_L2 = 0.01
 PW0315_SUMMARY_SHA256 = "07b3d3793a6750a030eb5b7e12a0add1b603d48758a85e6f45b44504e404d0e8"
 TLUT_FILE_SHA256 = "8c76b28d00a94d037c8699d823abefbea12ebfd0c9039a47098f5b21f9e54293"
@@ -143,7 +174,12 @@ def mixed_row_qualified(
     )
 
 
-def verify_install_for_sources(checkpoint_root: Path, receipt_path: Path, modules: dict[str, Any]) -> dict[str, Any]:
+def verify_install_for_sources(
+    checkpoint_root: Path,
+    receipt_path: Path,
+    modules: dict[str, Any],
+    source_experts: tuple[int, ...],
+) -> dict[str, Any]:
     if sha256_file(receipt_path) != CHECKPOINT_RECEIPT_SHA256:
         raise ValueError("checkpoint receipt mismatch")
     receipt = json.loads(receipt_path.read_text())
@@ -152,7 +188,7 @@ def verify_install_for_sources(checkpoint_root: Path, receipt_path: Path, module
     by_path = {row["path"]: row for row in receipt["files"]}
     observations: dict[str, Any] = {}
     with modules["checkpoint"].Checkpoint(checkpoint_root) as checkpoint:
-        for expert in SOURCE_EXPERTS:
+        for expert in source_experts:
             for projection in ("gate", "up", "down"):
                 name = f"model.layers.{LAYER}.mlp.experts.{expert}.{projection}_proj.weight"
                 for tensor_name in (name, name + "_scale_inv"):
@@ -187,9 +223,19 @@ def build(
     output: Path,
     repo: Path,
     commit: str,
+    experiment_id: str = EXPERIMENT_ID,
 ) -> dict[str, Any]:
     if output.exists():
         raise FileExistsError(output)
+    if experiment_id not in CONFIGS:
+        raise ValueError(f"unsupported mixed-bundle experiment: {experiment_id}")
+    config = CONFIGS[experiment_id]
+    if (
+        set(config.k4_experts) & set(config.source_experts)
+        or set(config.k4_experts) | set(config.source_experts) != set(NATIVE_ROUTE)
+        or len(config.k4_experts) + len(config.source_experts) != len(NATIVE_ROUTE)
+    ):
+        raise ValueError("mixed-bundle configuration does not partition the native route")
     verify_clean_commit(repo.resolve(), commit)
     started = time.monotonic()
     safety = HostSafetyMonitor()
@@ -201,12 +247,13 @@ def build(
         raise ValueError("PW-0315 summary mismatch")
     summary = json.loads(pw0315_summary.read_text())
     shard_observations = verify_install_for_sources(
-        checkpoint_root.resolve(), checkpoint_receipt.resolve(), modules
+        checkpoint_root.resolve(), checkpoint_receipt.resolve(), modules,
+        config.source_experts,
     )
     corpus = json.loads(corpus_manifest.read_text())
     layer_row = next(row for row in corpus["layers"] if int(row["layer"]) == LAYER)
-    if tuple(layer_row["selected_experts_by_position"][POSITION]) != ROUTE:
-        raise ValueError("PW-0316 route identity mismatch")
+    if tuple(layer_row["selected_experts_by_position"][POSITION]) != NATIVE_ROUTE:
+        raise ValueError("mixed-bundle route identity mismatch")
     weights = np.asarray(layer_row["route_weights_by_position"][POSITION], dtype=np.float32)
     corpus_root = corpus_manifest.parent
     moe_input = load_capture(corpus_root, layer_row, "moe_input")
@@ -225,7 +272,7 @@ def build(
     source_root.mkdir()
     source_records: dict[int, dict[str, Any]] = {}
     with modules["checkpoint"].Checkpoint(checkpoint_root) as checkpoint:
-        for expert in SOURCE_EXPERTS:
+        for expert in config.source_experts:
             positions, _, _, offsets = selected_rows(layer_row, expert)
             local = int(np.flatnonzero(positions == POSITION)[0])
             expected = expert_down[offsets]
@@ -272,7 +319,7 @@ def build(
 
     candidate_down = expert_down.copy()
     k4_roots: dict[int, Path] = {}
-    for expert in K4_EXPERTS:
+    for expert in config.k4_experts:
         report_path = pw0315_evidence_root / f"expert-{expert:03d}-run-001" / "construction.json"
         expected_report_hash = summary["identities"][str(expert)]["report_sha256"][0]
         if sha256_file(report_path) != expected_report_hash:
@@ -316,7 +363,7 @@ def build(
         safety.checkpoint("final_service_health")
         rejection = {
             "schema_version": 1,
-            "experiment_id": EXPERIMENT_ID,
+            "experiment_id": config.experiment_id,
             "status": "rejected_mixed_row_semantic_gate",
             "commit": commit,
             "authority": {
@@ -324,9 +371,9 @@ def build(
                 "corpus_sha256": CORPUS_SHA256,
                 "pw0315_summary_sha256": PW0315_SUMMARY_SHA256,
             },
-            "route": list(ROUTE),
-            "k4_experts": list(K4_EXPERTS),
-            "source_experts": list(SOURCE_EXPERTS),
+            "route": list(NATIVE_ROUTE),
+            "k4_experts": list(config.k4_experts),
+            "source_experts": list(config.source_experts),
             "source_fixture_sha256": source_fixture_sha256,
             "semantic": {
                 "route_candidate_vs_source": route_metric,
@@ -348,7 +395,7 @@ def build(
             "concurrency": 1,
             "accepted_tokens": 0,
             "performance_claim": None,
-            "decision": "kill_four_k4_four_source_mixed_transaction",
+            "decision": config.rejection_decision,
         }
         atomic_write_new(output / "rejection.json", canonical_json(rejection))
         raise ValueError(f"mixed row semantic gate failed: route={route_metric}, final={final_metric}")
@@ -360,7 +407,7 @@ def build(
     records: list[dict[str, Any]] = []
     with bundle_path.open("xb") as stream:
         tlut = append_file(stream, tlut_path, {"bytes": 4096, "sha256": TLUT_FILE_SHA256})
-        for expert in K4_EXPERTS:
+        for expert in config.k4_experts:
             record = {"expert": expert, "format": "qtip_k4_ldlq", "projections": {}}
             for projection in ("gate", "up", "down"):
                 directory = k4_roots[expert] / projection
@@ -378,7 +425,7 @@ def build(
                     "source_manifest_sha256": sha256_file(manifest_path),
                 }
             records.append(record)
-        for expert in SOURCE_EXPERTS:
+        for expert in config.source_experts:
             row = source_records[expert]
             payloads = {}
             for role, source in row["fixture"]["tensors"].items():
@@ -395,11 +442,11 @@ def build(
         align(stream)
 
     spec = {
-        "experiment_id": EXPERIMENT_ID,
+        "experiment_id": config.experiment_id,
         "layer": LAYER,
         "position": POSITION,
-        "k4_experts": list(K4_EXPERTS),
-        "source_experts": list(SOURCE_EXPERTS),
+        "k4_experts": list(config.k4_experts),
+        "source_experts": list(config.source_experts),
         "checkpoint_receipt_sha256": CHECKPOINT_RECEIPT_SHA256,
         "corpus_sha256": CORPUS_SHA256,
         "pw0315_summary_sha256": PW0315_SUMMARY_SHA256,
@@ -409,7 +456,7 @@ def build(
     spec_path.write_bytes(canonical_json(spec))
     manifest = {
         "schema_version": 2,
-        "experiment_id": EXPERIMENT_ID,
+        "experiment_id": config.experiment_id,
         "semantic": "prismwing_mixed_k4_source_layer_bundle_v2",
         "layer": LAYER,
         "alignment_bytes": ALIGNMENT,
@@ -418,10 +465,10 @@ def build(
         "bundle_sha256": sha256_file(bundle_path),
         "tlut": tlut,
         "records": sorted(records, key=lambda row: row["expert"]),
-        "k4_experts": list(K4_EXPERTS),
-        "source_experts": list(SOURCE_EXPERTS),
+        "k4_experts": list(config.k4_experts),
+        "source_experts": list(config.source_experts),
         "route_authority": {
-            "experts": list(ROUTE),
+            "experts": list(NATIVE_ROUTE),
             "weights": weights.tolist(),
             "candidate_relative_l2": route_metric["relative_l2"],
             "maximum_relative_l2": 0.01,
@@ -435,11 +482,11 @@ def build(
     manifest_path.write_bytes(canonical_json(manifest))
     fixture = {
         "schema_version": 1,
-        "semantic": "pw0316_layer4_four_k4_four_source_fixture",
+        "semantic": config.fixture_semantic,
         "layer": LAYER,
         "position": POSITION,
         "input_f32": np.asarray(moe_input[POSITION], dtype=np.float32).tolist(),
-        "native_router_experts": list(ROUTE),
+        "native_router_experts": list(NATIVE_ROUTE),
         "native_router_weights": weights.tolist(),
         "source_routed_f32": np.asarray(source_routed[POSITION], dtype=np.float32).tolist(),
         "candidate_routed_f32": np.asarray(candidate_route[POSITION], dtype=np.float32).tolist(),
@@ -454,8 +501,8 @@ def build(
     safety.checkpoint("final_service_health")
     result = {
         "schema_version": 1,
-        "experiment_id": EXPERIMENT_ID,
-        "status": "layer4_four_four_bundle_ready",
+        "experiment_id": config.experiment_id,
+        "status": config.ready_status,
         "commit": commit,
         "authority": {
             "shards": shard_observations,
@@ -480,7 +527,7 @@ def build(
     return result
 
 
-def main() -> int:
+def main(default_experiment_id: str = EXPERIMENT_ID) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--authority-root", required=True, type=Path)
     parser.add_argument("--checkpoint-root", required=True, type=Path)
@@ -491,6 +538,9 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--commit", required=True)
+    parser.add_argument(
+        "--experiment-id", choices=sorted(CONFIGS), default=default_experiment_id
+    )
     args = parser.parse_args()
     try:
         result = build(**vars(args))
