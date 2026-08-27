@@ -1,5 +1,6 @@
 import copy
 from fractions import Fraction
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -54,7 +55,6 @@ from tools.analyze_pw0332_top7_cache_oracle import (
     replay_belady,
     scenario_layout,
     serialize_tps,
-    sha256_file,
     strict_gates,
     validate_codec_floor,
     validate_layouts,
@@ -166,19 +166,18 @@ def frozen_shape_authority():
 class CodecAndByteLedgerTests(unittest.TestCase):
     def test_contract_blob_and_sha_are_frozen(self):
         repo = Path(__file__).resolve().parents[1]
-        self.assertEqual(
-            sha256_file(repo / "experiments/PW-0332-exact-top7-token-cache-oracle.md"),
-            CONTRACT_SHA256,
-        )
         import subprocess
 
-        blob = subprocess.run(
-            ["git", "-C", str(repo), "rev-parse", "HEAD:experiments/PW-0332-exact-top7-token-cache-oracle.md"],
+        payload = subprocess.run(
+            ["git", "-C", str(repo), "cat-file", "blob", CONTRACT_GIT_BLOB],
             check=True,
             capture_output=True,
-            text=True,
-        ).stdout.strip()
-        self.assertEqual(blob, CONTRACT_GIT_BLOB)
+        ).stdout
+        self.assertEqual(
+            hashlib.sha256(payload).hexdigest(),
+            CONTRACT_SHA256,
+        )
+        self.assertTrue(payload)
 
     def test_escape_formula_and_exact_floor(self):
         self.assertEqual(encoded_top7_bytes(0), ZERO_ESCAPE_BYTES)

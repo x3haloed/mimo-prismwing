@@ -1681,6 +1681,34 @@
             "status": "corrected_semantic_32_window_corpus_complete; downstream_storage_analyzers_authorized; evidence_capture_not_sustained_tps; no_runtime_default",
             "provenance": "PW-0328 canonical manifest 36e4f10b6f807f766c87ee7078f5f18ea8fc339dd12e4dbc24f1f4ac6e824403; clean capture and builder 26d2ea31852c0d63bd022df6d571fd722137c39f; 24 bound artifacts; target-bonus q8 source-self-proposer windows on four frozen text prompts"
         },
+        "pw0329_corrected_k4_joint_residency_bound": {
+            "target_accepted_tps": 1.0,
+            "modeled_source_A": 232,
+            "modeled_source_U": 142.71808510638297,
+            "strongest_density": 8,
+            "strongest_joint_residency_bytes": 12884901888,
+            "strongest_placement": "relaxed_per_window_per_layer_fractional_density_ceiling",
+            "candidate_favorable_bytes_moved": 514538083176,
+            "candidate_favorable_storage_wall_seconds": 148.26271341981945,
+            "candidate_favorable_aggregate_storage_only_tps": 1.564789923566762,
+            "candidate_favorable_category_storage_only_tps": {
+                "ordinary": 1.3536843879422447,
+                "code": 1.4403127819414625,
+                "multilingual": 1.7882485583723313,
+                "rare_route": 1.7064360379384635
+            },
+            "nearest_rank_p10_window_storage_only_tps": 0.8827413202181071,
+            "decision_precedence_gate": 2,
+            "work_order_emitted": false,
+            "batch_size": 1,
+            "concurrency": 1,
+            "accepted_tokens": 0,
+            "hardware": "Apple M1 16 GiB",
+            "cache_state": "analytical 12-GiB joint-residency grant; no cache populated",
+            "prefill_state": "authenticated post-prefill PW-0328 windows",
+            "status": "rejected_on_required_window_tail; impossible_best_storage_only_ceiling_not_achieved_tps; no_k4_construction_or_runtime_default",
+            "provenance": "PW-0329 canonical analysis 81af4d7b9158fe170503755c38436d5266e41c57a9e67d9c98e142995fdce6f6; clean analyzer 3afd0b2b047b1e4316f110660034023738d474e7; corrected PW-0328 full-A routes; exact shared/expert byte census; PW-0136 favorable internal-SSD bandwidth"
+        },
         "pw0330_cyclic_mtp_q32_prefix_falsifier": {
             "scheduler": "cyclic_mtp_012_v1",
             "verifier_width_hypothesis": 32,
@@ -1709,6 +1737,75 @@
             "prefill_state": "authenticated fresh PW-0328 code prefill hidden; prefill excluded from proposal diagnostic wall",
             "status": "conditional_hard_storage_rejection_for_named_prefix_identical_source_fp8_q32_composition; direct_q32_first_chunk_parity_unproven; analytical_storage_ceiling_not_endpoint_tps",
             "provenance": "PW-0330 raw report fbb454f6992ba8e21ade89aff416a494d14625dc126b769f420a861ed6414674; clean runner 1bb8645775b014aa2a59ac1c80d5edd48b05ea90; fresh PW-0328 code prefill and generation authorities; PW-0136 cold internal-SSD bandwidth; Apple M1 16 GiB"
+        },
+        "pw0331_byte_neutral_k4_rank1_stage_a": {
+            "exactness_class": "L3_modified_expert_weights",
+            "layer": 4,
+            "expert": 96,
+            "logical_byte_delta": 0,
+            "schema2_stride_bytes": 12877824,
+            "down_factor_bytes_already_allocated": 12288,
+            "correction_left_sha256": "68bf04d76d15c4acb4fbecf37948809d3324f916f975884251ea04250eb6ba84",
+            "correction_right_sha256": "ab7fbd8d45493906cce7ae264f26b800c099b8b50d4c30b1de64b0b20b30136d",
+            "frozen_position1_zero_factor_route_relative_l2": 0.010988841869031155,
+            "frozen_position1_corrected_route_relative_l2": 0.008777164859819555,
+            "frozen_position1_corrected_final_relative_l2": 0.0024352236927816023,
+            "observed_error_direction_attenuation": 0.5667698311335795,
+            "frozen_attenuation_floor": 0.1523576677,
+            "authenticated_exact_attenuation_root": 0.15216006881623897,
+            "all_stage_a_fidelity_gates_pass": true,
+            "stage_b_executed": false,
+            "batch_size": 1,
+            "concurrency": 1,
+            "accepted_tokens": 0,
+            "hardware": "Apple M1 16 GiB",
+            "cache_state": "analysis only; no bank or runtime cache populated",
+            "prefill_state": "authenticated held-out layer-local and cumulative fixtures after factor freeze",
+            "status": "stage_a_correctness_pass_preserved; construction_stopped_by_failed_pw0329_higher_precedence_tail_gate; no_endpoint_tps_or_runtime_default",
+            "provenance": "PW-0331 canonical Stage-A analysis fd5ac314b7e9072f22f773496444678c91f8be0a5165fa24e8df8687906c23c7; clean analyzer fa457ce21d64c1f3ba9513701f99ae0c80111573; repeated fit-007/fit-008 factors; unchanged exclusive 0.01/0.05 fidelity gates"
+        },
+        "pw0332_exact_top7_token_cache_oracle": {
+            "target_accepted_tps": 1.0,
+            "modeled_source_A": 232,
+            "modeled_source_U": 142.71808510638297,
+            "residency_bytes": 12884901888,
+            "scenario_capacities": {
+                "uncompressed": 204,
+                "observed_expert_only": 230,
+                "absolute_floor_all_fp8": 250
+            },
+            "zero_escape_ratio": 0.875244140625,
+            "observed_minimum_ratio": 0.8856201171875,
+            "absolute_floor_fixed_encoded_bytes": 7359815296,
+            "absolute_floor_expert_encoded_bytes": 22031617.5,
+            "absolute_floor_misses": 49122,
+            "absolute_floor_category_misses": {
+                "ordinary": 10611,
+                "code": 12885,
+                "multilingual": 11926,
+                "rare_route": 13700
+            },
+            "absolute_floor_logical_bytes_moved": 1236497412096,
+            "absolute_floor_encoded_bytes_moved": 1082237114835,
+            "absolute_floor_storage_wall_seconds": 311.8436058584013,
+            "absolute_floor_aggregate_storage_only_tps": 0.7439626647510745,
+            "absolute_floor_category_storage_only_tps": {
+                "ordinary": 0.7422545816536817,
+                "code": 0.7090596433430789,
+                "multilingual": 0.7924933790971541,
+                "rare_route": 0.7358657743348056
+            },
+            "absolute_floor_corpus_token_p10_storage_only_tps": 0.5899672933278813,
+            "absolute_floor_fourth_lowest_window_storage_only_tps": 0.6962265958830688,
+            "all_absolute_floor_strict_gates_pass": false,
+            "batch_size": 1,
+            "concurrency": 1,
+            "accepted_tokens": 0,
+            "hardware": "Apple M1 16 GiB",
+            "cache_state": "category-reset future-aware analytical oracle with free initial fill",
+            "prefill_state": "authenticated post-prefill PW-0328 q8 windows",
+            "status": "rejected_exact_top7_token_cache_composition; absolute_zero_escape_storage_only_floor_below_one_on_every_required_gate; no_decoder_or_runtime_default",
+            "provenance": "PW-0332 canonical analysis e2452a4f2eb9b66ed89097e8e78e5158f7ea53cc00bce8a2ba52c821f61ea085; clean analyzer d9691ee84bd728093305ed7fa8e403815394bb01; PW-0328 demand SHA 91fd42fe48033a1b04c1b3d9cdba30a4e6847147064db9946e71c6595bf71db6; 381-object fixed census; PW-0136 favorable internal-SSD bandwidth"
         }
     }
 }

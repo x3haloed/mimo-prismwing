@@ -1713,16 +1713,13 @@ Run the following cheap falsifiers in order:
    histories, and Gate 8. It is now the only corrected authority for PW-0329
    and PW-0332; no endpoint TPS follows.
 35. [PW-0329](../experiments/PW-0329-corrected-k4-joint-residency-bound.md)
-   predeclares a common-inclusive Prismwing-1 kill bound over the corrected
-   PW-0328 corpus. It charges one joint common-plus-expert residency budget,
-   distinguishes exact logical traffic from page allocation, and evaluates
-   relaxed density ceilings separately from row-feasible fixed banks before
-   any K4 construction. It reports densities four and five explicitly after
-   discovering that current records already pay for zero-filled rank-one
-   correction slots, so a byte-neutral fidelity repair can be tested if those
-   densities are required. PW-0328's canonical manifest hash is frozen, so
-   analyzer implementation is now authorized; the experiment remains
-   unexecuted until its fail-closed analyzer produces a report.
+   executes the common-inclusive Prismwing-1 kill bound over the corrected
+   PW-0328 corpus. Its strongest impossible-best density-eight, 12-GiB
+   fractional placement reaches `1.564790` aggregate storage-only TPS, but the
+   required fourth-lowest window is only `0.882741` TPS with all compute,
+   proposal, decode, synchronization, and endpoint work free. Frozen
+   precedence gate two rejects K4 construction continuation and emits no work
+   order. The result is an analytical portfolio rejection, not achieved TPS.
 36. [PW-0330](../experiments/PW-0330-cyclic-mtp-q32-prefix-falsifier.md)
    executes the cheapest causal wide-proposer falsifier. The three trained
    non-chain MiMo MTP heads reproduce the exact q4 prefix, but the first cyclic
@@ -1734,34 +1731,29 @@ Run the following cheap falsifiers in order:
    prefix-bit-identical q8-chunked q32 verifier; direct-q32 first-chunk parity
    remains unproven, and no endpoint TPS or general-proposer claim follows.
 37. [PW-0331](../experiments/PW-0331-byte-neutral-k4-rank1-repair.md)
-   predeclares the cheapest fidelity falsifier for the density-four/five K4
-   frontier. Every schema-2 K4 record already stores and executes rank-one
-   factors, but the current factors are zero. Fit only expert 96's down factors
-   from a leakage-free training split, preserve the exact record stride and
-   unchanged loader/kernel, and require the frozen unseen, validation, pilot,
-   routed, and layer-final gates before any Metal or density-five work. Its
-   first fit attempt failed closed before output because it incorrectly
-   required the serialized kernel-order slow reference to be bit-identical to
-   the historical dense-matmul replay. Exact fit-only fingerprints now preserve
-   both orders without weakening any held-out or Metal gate. A later analyzer
-   also caught that the conservative `0.1523576677` attenuation floor is not
-   the exact `0.15216006881623897` analytical root; the stricter floor remains
-   the gate, and only their invalid equality assertion is superseded.
+   completes the cheapest fidelity falsifier for the density-four K4 row.
+   Leakage-free repeated construction produces byte-identical down-rank-one
+   factors with zero record growth. Every unchanged sliced gate passes; the
+   frozen unseen routed row improves from `0.01098884` to `0.00877716`
+   relative L2 and final error is `0.00243522`. Preserve this genuine L3
+   byte-neutral fidelity result, but do not execute its locally authorized
+   Metal stage after PW-0329's higher-precedence tail gate rejects the broader
+   construction branch.
 38. [PW-0332](../experiments/PW-0332-exact-top7-token-cache-oracle.md)
-   predeclares a canonical closure test for the remaining exact source-FP8
-   codec composition. It grants the top-seven exponent format its impossible
-   zero-escape floor, free encoded fixed residency, a free future-chosen expert
-   cache, token-granularity offline Belady eviction, and zero decoder or compute
-   cost. PW-0328's canonical manifest hash is now frozen and authorizes analyzer
-   implementation; failure of any strict corpus, category, token-tail, or
-   window-tail one-TPS gate rejects this exact codec/cache/prefetch
-   composition.
+   executes the remaining exact source-FP8 codec/cache closure test. Even at
+   the format's impossible zero-escape floor, with free encoded fixed
+   residency, a free future-chosen 250-expert cache, token-granularity offline
+   Belady eviction, fractional record sizes, and zero decoder, prefetch, or
+   compute cost, it reaches only `0.743963` aggregate TPS. The best category is
+   `0.792493`, corpus token p10 is `0.589967`, and fourth-lowest-window TPS is
+   `0.696227`; every strict gate fails. Reject this named composition and
+   authorize no decoder.
 39. [PW-0333](../experiments/PW-0333-corrected-onboard-prismwing1-closure.md)
    predeclares the terminal corrected onboard one-TPS synthesis. It binds
    PW-0324's prior portfolio closure, PW-0328's repaired causal corpus,
    PW-0329's K4 tail rejection, PW-0330's conditional cyclic-q32 rejection,
-   PW-0331's local fidelity pass, and the pending PW-0332 exact-codec/cache
-   result. It may close only the current authenticated architecture portfolio,
+   PW-0331's local fidelity pass, and PW-0332's exact-codec/cache rejection. It
+   may close only the current authenticated architecture portfolio,
    never unknown future algorithms, and imports no companion-hardware premise.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route

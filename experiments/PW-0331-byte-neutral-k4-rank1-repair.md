@@ -1,7 +1,7 @@
 # PW-0331 — Byte-neutral K4 down-rank-one repair
 
-- Status: in progress; three fail-closed control errors preserved
-- Disposition: unexecuted
+- Status: complete; Stage A passed, later construction stopped by PW-0329
+- Disposition: rejected (local fidelity result preserved)
 - Date: 2026-08-27
 - Owner: Codex
 - Parent experiments: PW-0116, PW-0315, PW-0316, PW-0318, PW-0329
@@ -302,21 +302,37 @@ Both construction and execution reports set `accepted_tokens: 0`, `A: 0`,
 
 ## Result
 
-The first construction attempt rejected before producing a factor or opening a
-held-out payload. The first repaired pair then produced byte-identical factors,
-but its analyzer rejected a one-unit-last-decimal diagnostic transcription
-before opening held-out evidence. A later clean pair reproduced those factors,
-then rejected the invalid equality between a conservative predeclared floor
-and the exact analytical root before evaluating or emitting any held-out
-fidelity gate. All three fail-closed controls are preserved. The rejected
-results concern evidence arithmetic, not the down-only rank-one embodiment;
-all held-out correctness gates remain unevaluated in a canonical report.
+Three pre-canonical controls failed closed and remain preserved: an invalid
+cross-order bit-equality assumption, a one-unit-last-decimal fixture
+transcription, and an invalid equality between the conservative attenuation
+floor and the exact smaller analytical root. None opened or used held-out
+evidence to tune the factors.
+
+Two fresh clean construction processes at commit
+`fa457ce21d64c1f3ba9513701f99ae0c80111573` then produced byte-identical
+factors. Their left and right SHA-256 values are respectively
+`68bf04d76d15c4acb4fbecf37948809d3324f916f975884251ea04250eb6ba84`
+and
+`ab7fbd8d45493906cce7ae264f26b800c099b8b50d4c30b1de64b0b20b30136d`.
+The canonical Stage-A report is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0331/analysis-004/analysis.json`,
+SHA-256
+`fd5ac314b7e9072f22f773496444678c91f8be0a5165fa24e8df8687906c23c7`.
+
+Every unchanged identity-local, cumulative, primary, validation, pilot,
+maximum-row, and attenuation gate passes. The frozen position-1 cumulative
+four-K4 routed relative L2 improves from `0.010988841869031155` to
+`0.008777164859819555`; final relative L2 is
+`0.0024352236927816023`. Observed attenuation is
+`0.5667698311335795`, above the conservative `0.1523576677` floor and the
+authenticated exact root `0.15216006881623897`. Factor contents change zero
+logical bytes and retain the existing schema-2 operations and stride. The
+report accepts zero tokens and emits `performance_claim: null`.
 
 ## Decision
 
-Supersede the invalid attenuation-floor equality check while retaining the
-stricter frozen floor. Authorize a corrected analyzer that authenticates and
-reports the exact root and applies the maximum requirement, then repeat factor
-construction in two fresh processes from one new clean commit. Stage A remains
-the only authorized semantic action; any fingerprint, repeated-factor, or
-unchanged fidelity-gate failure rejects this embodiment.
+Preserve the byte-neutral Stage-A pass as an L3 modified-expert fidelity
+result. Do not execute the locally authorized schema-2/Metal Stage B: PW-0329's
+higher-precedence corrected-corpus tail gate subsequently rejected K4
+construction continuation. No bank, endpoint TPS, runtime default,
+target-faithful label, or density-five premise follows.

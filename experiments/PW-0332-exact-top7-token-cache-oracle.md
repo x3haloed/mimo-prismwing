@@ -1,7 +1,7 @@
 # PW-0332 — Exact top-seven token-granularity cache oracle
 
-- Status: proposed; unexecuted
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-27
 - Owner: Codex
 - Parent experiments: PW-0136, PW-0207, PW-0212, PW-0300, PW-0324,
@@ -262,9 +262,58 @@ not a theorem about every future lossless code or every possible prompt.
 
 ## Result
 
-Unexecuted.
+Executed once from clean detached commit
+`d9691ee84bd728093305ed7fa8e403815394bb01` on Apple M1 16 GiB, batch
+one, concurrency one:
+
+```text
+python3 tools/analyze_pw0332_top7_cache_oracle.py \
+  --repo /Volumes/Elements/mimo-prismwing/worktrees/pw0331-run \
+  --checkpoint-root /Users/chad/Models/mimo-prismwing/checkpoints/MiMo-V2.5-63651580 \
+  --output /Volumes/Elements/mimo-prismwing/evidence/PW-0332/analysis-001 \
+  --commit d9691ee84bd728093305ed7fa8e403815394bb01
+```
+
+The canonical 32-MiB report is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0332/analysis-001/analysis.json`,
+SHA-256
+`e2452a4f2eb9b66ed89097e8e78e5158f7ea53cc00bce8a2ba52c821f61ea085`.
+The analyzer and focused-test SHA-256 values are respectively
+`2b74a8a1ba0848c839a081d533748d4c0193b444d1667fc184138e3d12c0fa0b`
+and
+`4aa188137fde120b5be4225ee6d4621654195eecb8841a86d66cdf0e8daf3538`;
+36 focused tests and all 619 repository tests pass.
+
+All frozen authorities replay exactly. The fixed census is 381 objects and
+`7,743,236,992` logical bytes, with `3,073,376,256` FP8-code bytes and seven
+trace-specific embedding rows excluded. The 480-block PW-0324 panel replays
+byte-for-byte. The exact format has a `14,340/16,384 = 0.875244140625`
+zero-escape floor; the observed minimum is `14,510/16,384 =
+0.8856201171875`, with 341 escapes. Exact scenario capacities are 204, 230,
+and 250 experts.
+
+At the hard `absolute_floor_all_fp8` capacity of 250, the oracle incurs 49,122
+misses, moves `1,236,497,412,096` logical and `1,082,237,114,835` encoded
+bytes, and consumes `311.8436058584013` candidate-favorable storage seconds.
+Corpus aggregate TPS is `0.7439626647510745`; category aggregates for
+ordinary, code, multilingual, and rare-route are respectively
+`0.7422545816536817`, `0.7090596433430789`, `0.7924933790971541`, and
+`0.7358657743348056`. Corpus token p10 is `0.5899672933278813`; the
+fourth-lowest window is `0.6962265958830688`. Every strict overall, category,
+token-tail, category-tail, and window-tail gate fails.
+
+The analyzer records at least 70% free memory, zero swap growth, zero new
+throttling, stable protected services, a release boundary, and peak resident
+size `490,553,344` bytes. It accepts zero tokens, reports top-level `A=0` and
+`U=0`, and emits `performance_claim: null`.
 
 ## Decision
 
-Unexecuted. Freeze the completed PW-0328 manifest hash before analyzer
-authorship.
+Reject the named exact top-seven codec plus 12-GiB future-aware
+token-granularity residency/prefetch/overlap composition. This is decisive
+even at the format's impossible zero-escape physical floor with encoded fixed
+weights pinned for free, a free future-chosen initial cache, fractional record
+sizes, free decode/prefetch, omitted embedding traffic, and all non-storage
+work free. No decoder or runtime construction is authorized. The result is a
+storage-only analytical rejection of this exact composition, not achieved TPS
+and not a theorem about every future lossless code or execution schedule.

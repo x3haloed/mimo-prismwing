@@ -5188,3 +5188,39 @@ work is PW-0332's independent exact-codec/cache oracle followed by a
 predeclared PW-0333 synthesis over the current evidence-backed onboard
 portfolio. Unknown future algorithms remain outside that closure, and no
 throughput-model runtime constant or default changes yet.
+
+PW-0332 closes the remaining named exact-codec/cache escape branch. Its clean
+canonical report at `d9691ee` hashes to
+`e2452a4f2eb9b66ed89097e8e78e5158f7ea53cc00bce8a2ba52c821f61ea085`.
+The analyzer independently reconstructs the corrected PW-0328 full-`A=232`
+q1 demand, the 381-object fixed census, both storage bandwidth constants, and
+PW-0324's 480 exact-codec blocks. A live replay caught one implementation
+prediction error before canonical execution: the unique 14,510-byte observed
+minimum has 341 exponent escapes, not 340. Both counts round to the same byte
+total, so the frozen `0.8856201171875` ratio and every scenario remain
+unchanged; the executable witness and fixture now use 341.
+
+Even the impossible zero-escape `0.875244140625` format floor, applied
+favorably to complete expert records and every fixed FP8 byte, leaves capacity
+for 250 experts inside the shared 12-GiB budget. A free future-selected initial
+cache plus exact token-granularity batch-set Belady still incurs 49,122 misses,
+moving `1,082,237,114,835` encoded bytes in `311.8436058584013` favorable
+storage seconds. Aggregate TPS is `0.7439626647510745`; the best category is
+only `0.7924933790971541`, corpus token p10 is
+`0.5899672933278813`, and fourth-lowest-window TPS is
+`0.6962265958830688`. Every required strict gate fails with decode, prefetch,
+common/routed compute, synchronization, endpoint work, embedding traffic,
+alignment, metadata, real escape bits, and initial fill all free.
+
+Supersede the belief that exact top-seven recoding plus finer-grained perfect
+residency might reopen the current one-TPS architecture portfolio. Reject that
+named composition and authorize no decoder. This result does not reject an
+unknown future lossless representation or a different execution schedule.
+Together with PW-0329's corrected K4 tail rejection and PW-0330's scoped
+cyclic-q32 rejection, it supplies the final missing authority for PW-0333.
+The throughput model now records PW-0329, PW-0331, and PW-0332 separately,
+preserves analytical ceilings versus local fidelity versus achieved endpoint
+TPS, and hashes to
+`8d66f3a2f269952f0b3a44fcfbe272dcdc0fd12093cc8034319d61e0bb60fe1f`.
+No runtime default, target threshold, full-capability claim, or companion-
+hardware premise changes.

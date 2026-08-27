@@ -1,7 +1,7 @@
 # PW-0329 — Corrected K4 joint-residency Prismwing-1 bound
 
-- Status: proposed; unexecuted
-- Disposition: unexecuted
+- Status: complete
+- Disposition: rejected
 - Date: 2026-08-27
 - Owner: Codex
 - Parent experiments: PW-0136, PW-0207, PW-0316, PW-0318, PW-0325,
@@ -345,3 +345,35 @@ Before execution, add deterministic tests that:
 - companion hardware in any form.
 
 The report accepts zero tokens and must emit `performance_claim: null`.
+
+## Result
+
+Executed from clean detached commit
+`3afd0b2b047b1e4316f110660034023738d474e7` on Apple M1 16 GiB, batch
+one, concurrency one. The canonical report is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0329/analysis-001/analysis.json`,
+SHA-256
+`81af4d7b9158fe170503755c38436d5266e41c57a9e67d9c98e142995fdce6f6`.
+It accepts zero tokens, emits `performance_claim: null`, and passes Gate 8.
+
+Every relaxed density in `{4,5,6,8}` and every required category has
+aggregate candidate-favorable storage-only TPS above one at 12 GiB. The
+strongest impossible-best case is density eight with per-window/per-layer
+fractional placement: it moves `514,538,083,176` bytes for modeled full
+`A=232`, takes `148.26271341981945` storage seconds, and yields aggregate
+`1.564789923566762` TPS. Its required nearest-rank window p10 is only
+`0.8827413202181071` TPS. All common compute, routed compute, proposal,
+decoder, synchronization, and endpoint work are still free in that ceiling.
+
+The result therefore reaches disposition precedence gate two. No fixed-bank
+selector, construction margin, or later density work order can override the
+failed tail prerequisite.
+
+## Decision
+
+Reject K4 construction continuation on the corrected PW-0328 corpus. Preserve
+the aggregate-above-one analytical result and PW-0331's independent local
+fidelity result, but do not build a bank or relabel this ceiling as achieved
+TPS. This kills the current authenticated K4 construction portfolio, not an
+unknown future representation or algorithm; companion hardware remains
+excluded.
