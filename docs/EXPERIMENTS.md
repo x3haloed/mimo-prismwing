@@ -1718,6 +1718,14 @@ Run the following cheap falsifiers in order:
    relaxed density ceilings separately from row-feasible fixed banks before
    any K4 construction. The record remains non-executable until PW-0328's
    completed manifest hash is frozen in a clean commit.
+36. [PW-0330](../experiments/PW-0330-cyclic-mtp-q32-prefix-falsifier.md)
+   predeclares the cheapest causal wide-proposer falsifier: the pinned three
+   non-chain MiMo MTP heads are reused as the distinctly named L2
+   `cyclic_mtp_012_v1` schedule, starting with only the first new layer-zero
+   reuse on corrected code transaction zero. Any authenticated first-eight
+   mismatch is combined with a candidate-favorable 12-GiB joint-residency
+   source-FP8 byte floor before a q32 verifier is built. The runner remains
+   blocked until the fresh PW-0328 code report hashes are frozen.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
