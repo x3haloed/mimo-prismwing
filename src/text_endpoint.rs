@@ -8177,7 +8177,11 @@ fn run_arbitrary_text_generation_internal(
         return Err("git status failed while recording implementation identity".to_owned());
     }
     let git_dirty = !git_status.stdout.is_empty();
-    if residency.is_some() || native_mtp_external.is_some() {
+    if generation_evidence_requires_clean_head(
+        residency.is_some(),
+        native_mtp_capture.is_some(),
+        native_mtp_external.is_some(),
+    ) {
         let git_head = Command::new("git")
             .args(["rev-parse", "HEAD"])
             .current_dir(env!("CARGO_MANIFEST_DIR"))
@@ -8188,7 +8192,7 @@ fn run_arbitrary_text_generation_internal(
             || git_dirty
         {
             return Err(
-                "resident/native-MTP generation evidence requires the supplied commit to be exact clean Git HEAD"
+                "resident/native-MTP generation or capture evidence requires the supplied commit to be exact clean Git HEAD"
                     .to_owned(),
             );
         }
@@ -8910,6 +8914,14 @@ fn run_arbitrary_text_generation_internal(
 
 fn generation_verifier_width_supported(width: usize) -> bool {
     (2..=8).contains(&width) || width == 64
+}
+
+fn generation_evidence_requires_clean_head(
+    has_residency: bool,
+    has_native_mtp_capture: bool,
+    has_native_mtp_external: bool,
+) -> bool {
+    has_residency || has_native_mtp_capture || has_native_mtp_external
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -14107,6 +14119,16 @@ mod tests {
         let remaining_after_first_transaction_entry =
             requested_output_tokens - prefill_generated_tokens;
         assert_eq!(remaining_after_first_transaction_entry, 1);
+    }
+
+    #[test]
+    fn native_mtp_capture_requires_exact_clean_head_provenance() {
+        assert!(!generation_evidence_requires_clean_head(
+            false, false, false
+        ));
+        assert!(generation_evidence_requires_clean_head(true, false, false));
+        assert!(generation_evidence_requires_clean_head(false, true, false));
+        assert!(generation_evidence_requires_clean_head(false, false, true));
     }
 
     #[test]

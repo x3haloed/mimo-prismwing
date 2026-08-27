@@ -47,17 +47,22 @@ target/release/prismwing native-mtp-window-capture <checkpoint> \
   <clean-capture-commit>
 ```
 
-Preserve raw reports, progress logs, and hidden payloads outside Git. Reuse the
-PW-0208 prefill artifacts only after authenticating their report/payload hashes,
-prompt tokens, first anchor, model/checkpoint/kernel identities, shape, finite
-payload, safety evidence, and exact agreement with the new generation prefill:
+Preserve raw reports, progress logs, and hidden payloads outside Git. Before
+each generation capture, run a fresh prefill hidden capture from the same clean
+commit, model receipt, kernel, and prompt:
 
-| Category | Prefill report SHA-256 | Target-hidden SHA-256 |
-| --- | --- | --- |
-| ordinary | `11a02fd9d653c6351ed22d03f7d39efb80ee8d6009fc9a3d22d41fd2f42d1ddb` | `5df877426383c5750a09c0d54e9d992d3d3f99e9f0c15ee5eaece5312659240c` |
-| code | `a75aab62fa434f73d8f0053919fc9c3eab68c71e96a690cfed6f8871306b35ae` | `616ac368c4893517083fef39e58ecc41b85001cdac7ddedf9db66d3ea249b938` |
-| multilingual | `b8c68eac9834c24ea09ffa65e7f3f5ef2ef5c015209c862419f4471480e846d2` | `bc8d7a03be5860a99ba1398a6c6697c63a94551d0d3b33b3545791c4b10a3468` |
-| rare-route | `385425155ab48a965169d860ff56c09e8967325e536b72dfd3b5e8e164c83773` | `d50c34d1766c1cbf1a2fb1c42c96338f7a96b3740091851460f223bf4b11005c` |
+```text
+target/release/prismwing native-mtp-prefill-capture <checkpoint> \
+  spec/model.lock.json <checkpoint-receipt> kernels/block_fp8_gemv.metal \
+  <frozen-prompt> <category> target-layer47-hidden.f32 report.json \
+  <clean-capture-commit>
+```
+
+Authenticate its report/payload hashes, prompt tokens, serialized prompt,
+first anchor, model/checkpoint/kernel identities, shape, finite payload, safety
+evidence, and exact agreement with the generation report's prompt/chunk/anchor
+authority. The historical PW-0208 prefill reports remain immutable evidence,
+but their older kernel cannot authorize PW-0328 transaction-zero hidden state.
 
 ## Correctness and evidence gates
 
@@ -68,6 +73,10 @@ batch one, concurrency one, at least eight chronological q8 transactions,
 complete route and proposal traces, progress-hash closure, hidden-artifact
 hash/shape closure, positive ordered logical/physical byte ledgers, and every
 normative Gate 8 memory/service condition.
+
+Require the sum of all transaction logical and physical ledgers not to exceed
+the corresponding complete report ledger. Per-transaction ordering alone is
+insufficient.
 
 Recompute each transaction commit from proposal and posterior tokens. A full
 match authorizes the seven-token proposal suffix plus target bonus and eight
@@ -91,6 +100,35 @@ Add deterministic fixtures for transaction-zero prefill binding, later-window
 binding, full-match target bonus, mismatch correction, terminal clipping, and
 eight-transaction fixed-64 selection. Preserve the legacy PW-0208 builder and
 manifest unchanged under their original names.
+
+## Rejected provenance attempt and repair
+
+The first ordinary launch from clean detached commit
+`20457474d00911354a5b4415abd9a8f21c2a02a5` was manually stopped before
+prefill completed. Source review found that `native-mtp-window-capture`
+recorded the supplied commit and dirty flag but, unlike resident and external
+native-MTP generation, did not require the supplied commit to equal clean Git
+`HEAD`. The launch was in fact clean, but the raw format was self-asserted and
+therefore inadmissible for this experiment.
+
+The empty progress artifact is preserved at SHA-256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`;
+its rejection note hashes to
+`8d8c4551d8714a0d27756f66168f45f5f9c99aa5b3d12df35ae4b37c933342a8`.
+It produced no report, hidden payload, accepted token, or measurement.
+
+The runtime now includes native-MTP window capture in the exact-clean-HEAD
+gate and has a dedicated fixture covering ordinary, resident, external-MTP,
+and capture evidence modes. All canonical captures must start after that
+repair from one clean commit; none may reuse the rejected artifact.
+
+Independent builder review then found that the proposed reuse of PW-0208
+prefill hidden could not prove current hidden equality: its report used an
+older kernel, while the new generation report exposes only prompt/chunk/anchor
+agreement, not prefill hidden bytes. PW-0328 therefore requires fresh
+same-commit prefill captures and rejects the historical payloads as current
+transaction-zero authority. This changes evidence acquisition only, not model
+semantics or thresholds.
 
 ## Continuation and kill gates
 

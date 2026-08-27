@@ -5015,3 +5015,23 @@ output after one transaction token. The canonical analysis hashes to
 Promote the complete corrected-semantic four-category recapture, not a runtime
 or TPS claim; the bonus-free corpus remains historical rather than silently
 rewritten.
+
+PW-0328 preflight supersedes the assumption that a clean commit recorded by
+`native-mtp-window-capture` was runtime-authenticated. The first ordinary
+launch was actually clean but the capture mode did not compare the supplied
+commit with Git `HEAD`; it was stopped before prefill completion and its empty
+progress log remains rejected at
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+Native-MTP window capture now shares the exact-clean-HEAD gate already used by
+resident and external-MTP generation. This promotes only provenance repair and
+resumption of PW-0328; it changes no route, acceptance, byte, throughput-model,
+or runtime-performance constant.
+
+The same preflight also supersedes the planned reuse of PW-0208 prefill hidden
+for PW-0328 transaction zero. Those payloads are hash-authenticated but were
+produced by an older kernel, and the new generation schema exposes no prefill
+hidden hash with which to prove byte equality. Matching prompt IDs, chunks,
+and first anchor is not hidden-state parity. Recapture each prefill payload
+from the same clean commit and kernel as its corrected generation report;
+preserve the old payloads as historical native-MTP authority only. No
+throughput constant changes.
