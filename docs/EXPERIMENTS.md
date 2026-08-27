@@ -1576,10 +1576,11 @@ Run the following cheap falsifiers in order:
 18. [PW-0312](../experiments/PW-0312-k4-held-out-expert-construction.md)
    requires untouched experts 41 and 199, sourced from two distinct mini-shards,
    to reproduce payload-for-payload before the constructor may advance to a
-   new-layer artifact. Independent expert 41 construction exposed canonical
-   sequence dependence; replaying expert 114 restored complete bit-exact expert
-   188 identity. Held-out tests must therefore bind and replay their
-   authenticated panel prefixes.
+   new-layer artifact. Independent expert 41 construction differs from the M4
+   authority. Although expert 188 matched after replaying expert 114, a full
+   five-expert prefix leaves expert 41 byte-identical to its independent M1
+   result and still mismatched. Sequence dependence is therefore unproven; an
+   independent expert-188 control is the next discriminator.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

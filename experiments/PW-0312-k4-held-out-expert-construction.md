@@ -30,9 +30,8 @@ unchanged.
 ## Protocol
 
 1. Run `tools/reproduce_pw0311_k4_expert.py` from a clean pushed commit for
-   expert 41 with its canonical authenticated panel prefix, preserving failures
-   and Gate 8 evidence.
-2. Repeat independently for expert 199 with its canonical prefix.
+   expert 41, preserving failures and Gate 8 evidence.
+2. Repeat independently for expert 199.
 3. Require exact candidate-array and packed-state hashes, exact manifests and
    fixtures, exact bytes for every referenced payload, and zero independent
    decode relative L2 for all six projections.
@@ -41,7 +40,7 @@ unchanged.
    software, and commit. Construction time is diagnostic and accepts zero
    tokens.
 
-## Resolved prediction error
+## Reopened prediction error
 
 Expected: expert 41 would reproduce bit for bit when constructed independently
 with the authenticated inputs and seeds.
@@ -60,11 +59,9 @@ files and 29,993,518 bytes then matched the M4 authority bit for bit, with zero
 independent-decode relative L2 across gate, up, and down. The report hashes to
 `8864837afa5f56d25500f08fbd278f2d49a0cc7a9317d497546c8d497cc19b7b`.
 
-The discrepancy is therefore resolved at the decision-relevant boundary:
-artifact identity depends on the canonical preceding construction sequence.
-The exact lower-level Torch/MPS cache state responsible is not needed to choose
-the correct constructor contract. Commit
-`626bf0ba488b425f70e8e128b2076d468c5f0a31` binds and records that prefix.
+The initial interpretation was that artifact identity depends on the canonical
+preceding construction sequence. Commit
+`626bf0ba488b425f70e8e128b2076d468c5f0a31` added a prefix-replay diagnostic.
 
 The diagnostic completed in `1017.933092` seconds and accepted zero tokens.
 Gate 8 passes at `1,429,094,400`-byte peak RSS,
@@ -72,6 +69,24 @@ Gate 8 passes at `1,429,094,400`-byte peak RSS,
 swap or throttle growth, and a `358,944,576`-byte release footprint. Promote
 canonical-prefix held-out reconstruction; kill independent later-slot artifact
 reconstruction. This changes no throughput constant or runtime default.
+
+That inference is now superseded. Replaying all 15 gate/up/down projections for
+experts 114, 188, 93, 199, and 248 before expert 41 still fails at expert-41
+gate. More decisively, its `packed.u16le` is byte-identical to both independent
+M1 attempts, so the replay changed no target state. The failed report hashes to
+`39b753d159a7ea1c3f2f838b45b8cd616100daa41c8013a447595cec21d38271`;
+the run took `2724.443504` seconds and passed Gate 8 with
+`1,391,214,592`-byte peak RSS, 62% minimum free memory, zero swap/throttle
+growth, and a `396,873,664`-byte release footprint.
+
+The expert-188 prefix pass lacked an independent expert-188 control and cannot
+attribute its exactness to prefix replay. The prediction error is reopened:
+whether M1/M4 QTIP-MPS artifact identity is weight-dependent remains uncertain.
+The cheapest discriminator is independent expert-188 construction from a fresh
+process. If it also matches, kill the sequence mechanism and classify the
+expert-41 difference as cross-device, weight-dependent numerical boundary
+behavior. If it differs, sequence effects exist for expert 188 but are not a
+sufficient general constructor contract.
 
 ## Decision rule
 

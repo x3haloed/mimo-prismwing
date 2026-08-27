@@ -4659,3 +4659,14 @@ construction order or use a separately evidenced sequence-independent backend.
 Promote prefix-replayed held-out tests; kill independent reconstruction of
 later-slot artifact identities. No throughput constant or runtime default
 changes.
+
+PW-0312 subsequently supersedes that sequence-only inference. A full replay of
+all 15 predecessor projections before expert 41 produces exactly the same
+`packed.u16le` as two fresh independent M1 attempts and still differs from the
+M4 authority. Its failed report hashes to
+`39b753d159a7ea1c3f2f838b45b8cd616100daa41c8013a447595cec21d38271`.
+The earlier expert-188 success had no independent no-prefix control, so it could
+not identify replay as the cause. Preserve prefix replay as a diagnostic, not a
+representation invariant. Cross-device, weight-dependent numerical boundary
+behavior is again the live explanation pending the independent expert-188
+control. No throughput constant or runtime default changes.

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Reproduce one authenticated PW-0352 K4 expert on the target M1.
 
-Later panel slots require their canonical predecessor sequence because the
-QTIP/MPS construction path is observably sequence-dependent.
+The optional panel-prefix replay is a diagnostic; it must not be treated as an
+artifact-identity requirement without an independent no-prefix control.
 """
 
 from __future__ import annotations
@@ -133,7 +133,7 @@ def select_reference_slot(report: dict[str, Any], expert: int) -> dict[str, Any]
 
 
 def panel_prefix(expert: int, replay: bool) -> tuple[int, ...]:
-    """Return the authenticated construction prefix needed for artifact identity."""
+    """Return authenticated predecessors for an explicit replay diagnostic."""
     if expert not in SUPPORTED_EXPERTS:
         raise ValueError(f"expert {expert} is outside the authenticated PW-0352 panel")
     if not replay:
