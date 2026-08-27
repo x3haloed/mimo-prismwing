@@ -33,6 +33,10 @@ full-capability, and complete-path performance gates.
   recorded expert batch through GEMM and select a position afterward. A
   one-row shortcut can choose a different Accelerate accumulation path and
   cross a BF16 rounding boundary.
+- A PW-0315 bank-wide pass does not authorize every route-specific composition.
+  PW-0316's four-K4 position-1 row fails its stricter one-percent routed gate;
+  the next integration slice must reduce the active modified subset without
+  weakening that boundary.
 
 ## Prediction errors
 

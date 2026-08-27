@@ -4758,3 +4758,23 @@ footprint, 1,554,481,152-byte peak RSS, zero swap growth, and zero new
 throttling. Authorize bounded cumulative bank expansion while retaining
 identity-local qualification. These constructions accept zero tokens, so no
 throughput-model constant or runtime default changes.
+
+PW-0316 rejects the first vertical 4-K4/4-source layer transaction without
+weakening its one-percent row-local integration gate. All four source-FP8
+fallback identities replay PW-0116 exactly only when their complete recorded
+expert-major GEMM shape is preserved; selecting one row before execution can
+change Accelerate accumulation and cross a BF16 boundary. Supersede the
+assumption that a source expert answer is independent of the captured batch
+shape at bit-exact gates.
+
+After exact source replay, the qualified K4 identities `[96,64,232,31]`
+produce `0.0109888419` routed relative L2 on layer 4 position 1, exceeding the
+exclusive `0.01` gate, despite only `0.0027743952` layer-final relative L2.
+This does not reverse PW-0315's bank qualification: its corpus-wide contract
+allowed a `0.014743290` worst routed row. It does supersede the belief that a
+bank-wide pass automatically authorizes every route-specific integration
+slice. Kill this 4/4 transaction and test the pre-audited 3/5 subset
+`[64,232,31]` under a separate contract. The canonical rejection manifest
+hashes to `7e5560cf2cdc2abdec8ec1a17af0462f69fa7204f8ba528808ce1f046d0e6ff4`.
+Gate 8 passes through release; zero tokens were accepted, so no throughput
+constant or runtime default changes.

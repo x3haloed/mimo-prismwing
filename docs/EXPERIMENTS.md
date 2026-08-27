@@ -1617,6 +1617,14 @@ Run the following cheap falsifiers in order:
    overall and the worst row is `0.009032566`. All unchanged slice and Gate 8
    thresholds pass. Authorize bounded bank expansion, not a full-bank or
    endpoint claim.
+22. [PW-0316](../experiments/PW-0316-layer4-four-four-k4-source-metal.md)
+   attempts the first layer-4 vertical transaction with four qualified K4
+   identities and four exact-source fallbacks. Preserving the complete
+   expert-major replay shape resolves a bit-exact source prediction error, but
+   the mixed routed row measures `0.010988842` relative L2 and exceeds its
+   exclusive `0.01` gate. Reject before bundle or Metal execution. Retain the
+   layer-generic loader and test the pre-audited `[64,232,31]` 3/5 subset in a
+   new experiment; do not weaken the row gate.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
