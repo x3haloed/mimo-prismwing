@@ -29,10 +29,14 @@ full-capability, and complete-path performance gates.
 - A four-identity layer-4 bank repeats locally and passes cumulative routed and
   final gates. This authorizes bounded geometric bank growth, but not
   extrapolation to untested identities, layers, or endpoint quality.
+- Source replay against a PW-0116 expert-major capture must preserve the full
+  recorded expert batch through GEMM and select a position afterward. A
+  one-row shortcut can choose a different Accelerate accumulation path and
+  cross a BF16 rounding boundary.
 
 ## Prediction errors
 
-None unresolved. PW-0313 qualifies policy-relevant expert 199 as locally
+PW-0313 qualifies policy-relevant expert 199 as locally
 repeatable and M4-semantic identical, but deterministically rejects expert 41
 at the frozen complete-output gate. PW-0314 qualifies full-checkpoint layer-4
 expert 64. PW-0315 expands that control to experts 64, 96, 31, and 232: all

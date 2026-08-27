@@ -3,7 +3,16 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tools.build_pw0316_layer4_bundle import ALIGNMENT, ROUTE, align, append_file, digest
+import numpy as np
+
+from tools.build_pw0316_layer4_bundle import (
+    ALIGNMENT,
+    ROUTE,
+    align,
+    append_file,
+    digest,
+    replay_source_expert,
+)
 
 
 class Pw0316Layer4BundleTests(unittest.TestCase):
@@ -32,6 +41,23 @@ class Pw0316Layer4BundleTests(unittest.TestCase):
         stream.seek(0, 2)
         self.assertEqual(align(stream), ALIGNMENT)
         self.assertEqual(len(stream.getvalue()), ALIGNMENT)
+
+    def test_source_replay_preserves_expert_major_batch_before_row_selection(self):
+        class Panel:
+            def __init__(self):
+                self.observed = None
+
+            def complete_outputs(self, values, _weights):
+                self.observed = values.copy()
+                return {"candidate_output_bf16_f32": values + np.float32(1.0)}
+
+        panel = Panel()
+        values = np.arange(20, dtype=np.float32).reshape(5, 4)
+        positions = np.asarray([3, 1, 4], dtype=np.int64)
+        expected = values[positions] + np.float32(1.0)
+        actual = replay_source_expert(panel, values, positions, {}, expected)
+        np.testing.assert_array_equal(panel.observed, values[positions])
+        np.testing.assert_array_equal(actual, expected)
 
 
 if __name__ == "__main__":

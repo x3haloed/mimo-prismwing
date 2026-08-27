@@ -111,6 +111,27 @@ def raw_tensor(checkpoint: Any, name: str) -> tuple[bytes, dict[str, Any], str]:
     return payload, {"dtype": meta["dtype"], "shape": meta["shape"]}, shard
 
 
+def replay_source_expert(
+    panel: Any,
+    moe_input: np.ndarray,
+    positions: np.ndarray,
+    exact: dict[str, np.ndarray],
+    expected: np.ndarray,
+) -> np.ndarray:
+    """Replay the complete expert-major GEMM shape used by PW-0116.
+
+    Accelerate may select a different accumulation path for a one-row GEMM.
+    The BF16 boundary can expose that otherwise-small difference, so selecting
+    one row before execution is not equivalent to selecting it afterward.
+    """
+    actual = panel.complete_outputs(
+        np.asarray(moe_input[positions], dtype=np.float32), exact
+    )["candidate_output_bf16_f32"]
+    if actual.shape != expected.shape or not np.array_equal(actual, expected):
+        raise ValueError(f"source expert-major replay mismatch: {metric(expected, actual)}")
+    return actual
+
+
 def verify_install_for_sources(checkpoint_root: Path, receipt_path: Path, modules: dict[str, Any]) -> dict[str, Any]:
     if sha256_file(receipt_path) != CHECKPOINT_RECEIPT_SHA256:
         raise ValueError("checkpoint receipt mismatch")
@@ -196,7 +217,7 @@ def build(
         for expert in SOURCE_EXPERTS:
             positions, _, _, offsets = selected_rows(layer_row, expert)
             local = int(np.flatnonzero(positions == POSITION)[0])
-            expected = expert_down[offsets[local] : offsets[local] + 1]
+            expected = expert_down[offsets]
             exact: dict[str, np.ndarray] = {}
             tensors: dict[str, Any] = {}
             expert_root = source_root / f"expert-{expert:03d}"
@@ -218,11 +239,10 @@ def build(
                         "shard": shard,
                         **meta,
                     }
-            actual = modules["panel"].complete_outputs(
-                moe_input[POSITION : POSITION + 1], exact
-            )["candidate_output_bf16_f32"]
-            if not np.array_equal(actual, expected):
-                raise ValueError(f"source expert replay mismatch: {expert}: {metric(expected, actual)}")
+            actual = replay_source_expert(
+                modules["panel"], moe_input, positions, exact, expected
+            )
+            selected_actual = actual[local : local + 1]
             fixture = {
                 "schema_version": 1,
                 "semantic": "source_fp8_exception_complete_expert_e3",
@@ -230,7 +250,9 @@ def build(
                 "expert": expert,
                 "position": POSITION,
                 "tensors": tensors,
-                "output_sha256": array_sha256(actual),
+                "expert_major_positions": positions.tolist(),
+                "expert_major_output_sha256": array_sha256(actual),
+                "output_sha256": array_sha256(selected_actual),
             }
             fixture_path = expert_root / "fixture.json"
             fixture_path.write_bytes(canonical_json(fixture))
