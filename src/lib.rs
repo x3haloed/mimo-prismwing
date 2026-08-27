@@ -78,7 +78,7 @@ pub use text_endpoint::{
     run_real_layer2_trace, run_real_layer4_trace, run_real_layer7_trace,
     run_real_routed_layer_trace, run_route_only_trace, run_routed_mixture_activation_corpus,
     run_slow_text_endpoint, run_structured_sparse_layer0_trace, run_weight_install_tomography,
-    run_wide_metal_jacobi_text_endpoint,
+    run_wide_metal_jacobi_text_endpoint, run_width64_route_capture,
 };
 #[cfg(target_os = "macos")]
 pub use uncached_stream_transport::{

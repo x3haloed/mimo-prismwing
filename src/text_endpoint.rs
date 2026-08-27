@@ -7661,6 +7661,33 @@ pub fn run_native_mtp_window_capture(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn run_width64_route_capture(
+    checkpoint_root: &Path,
+    model_lock_path: &Path,
+    verification_path: &Path,
+    kernel_path: &Path,
+    prompt_path: &Path,
+    output_path: &Path,
+    commit: &str,
+) -> Result<ArbitraryTextGenerationReport, String> {
+    run_arbitrary_text_generation_internal(
+        checkpoint_root,
+        model_lock_path,
+        verification_path,
+        kernel_path,
+        prompt_path,
+        1,
+        output_path,
+        commit,
+        true,
+        None,
+        None,
+        None,
+        64,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn run_arbitrary_text_resident_route_trace(
     checkpoint_root: &Path,
     model_lock_path: &Path,
@@ -7977,8 +8004,10 @@ fn run_arbitrary_text_generation_internal(
     verifier_width: usize,
 ) -> Result<ArbitraryTextGenerationReport, String> {
     const PREFILL_WIDTH: usize = 8;
-    if !(2..=8).contains(&verifier_width) {
-        return Err("generation verifier width must be between two and eight".to_owned());
+    if !generation_verifier_width_supported(verifier_width) {
+        return Err(
+            "generation verifier width must be between two and eight or exactly 64".to_owned(),
+        );
     }
     if output_path.exists() {
         return Err(format!("refusing to overwrite {}", output_path.display()));
@@ -8786,6 +8815,10 @@ fn run_arbitrary_text_generation_internal(
     let report_bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     write_create_new(output_path, &report_bytes)?;
     Ok(report)
+}
+
+fn generation_verifier_width_supported(width: usize) -> bool {
+    (2..=8).contains(&width) || width == 64
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -13963,6 +13996,17 @@ pub fn run_full_prefix_trace(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn width64_capture_is_explicit_without_widening_ordinary_diagnostics() {
+        for width in 2..=8 {
+            assert!(generation_verifier_width_supported(width));
+        }
+        assert!(generation_verifier_width_supported(64));
+        for width in [0, 1, 9, 16, 32, 63, 65] {
+            assert!(!generation_verifier_width_supported(width));
+        }
+    }
 
     #[test]
     fn native_mtp_hidden_artifact_is_exact_finite_little_endian_f32() {

@@ -25,7 +25,7 @@ use prismwing::{
     run_native_mtp_prefill_capture, run_native_mtp_window_capture, run_packed_fusion_moe_slice,
     run_pressure_residency_smoke, run_pressure_resident_checkpoint_pilot,
     run_staged_metal_fp8_expert, run_weight_install_tomography,
-    run_wide_metal_jacobi_text_endpoint,
+    run_wide_metal_jacobi_text_endpoint, run_width64_route_capture,
 };
 use prismwing::{
     build_census, inspect_mapped_tensor, repack_expert_container, run_mapped_fp8_gemv,
@@ -214,6 +214,9 @@ fn usage() -> ! {
     #[cfg(target_os = "macos")]
     eprintln!(
         "  prismwing native-mtp-window-capture <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <ordinary|code|multilingual|rare_route> <hidden.f32> <output.json> <commit>  # exact 64-token run"
+    );
+    eprintln!(
+        "  prismwing width64-route-capture <checkpoint-dir> <model.lock.json> <checkpoint-verification.json> <kernel.metal> <prompt.txt> <output.json> <commit>"
     );
     #[cfg(target_os = "macos")]
     eprintln!(
@@ -727,6 +730,31 @@ fn main() {
                         .native_mtp_window
                         .as_ref()
                         .map_or("unknown", |capture| capture.category.as_str()),
+                    report.complete_wall_ms / 1000.0,
+                );
+                Some(output)
+            })
+        }
+        #[cfg(target_os = "macos")]
+        Some("width64-route-capture") if arguments.len() == 9 => {
+            let checkpoint = PathBuf::from(&arguments[2]);
+            let model_lock = PathBuf::from(&arguments[3]);
+            let verification = PathBuf::from(&arguments[4]);
+            let kernel = PathBuf::from(&arguments[5]);
+            let prompt = PathBuf::from(&arguments[6]);
+            let output = PathBuf::from(&arguments[7]);
+            run_width64_route_capture(
+                &checkpoint,
+                &model_lock,
+                &verification,
+                &kernel,
+                &prompt,
+                &output,
+                &arguments[8],
+            )
+            .map(|report| {
+                println!(
+                    "captured one q64 verifier transaction in {:.3} s",
                     report.complete_wall_ms / 1000.0,
                 );
                 Some(output)
