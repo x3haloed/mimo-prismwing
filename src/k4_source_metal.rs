@@ -384,7 +384,7 @@ impl SourceWork {
 
 impl SourcePanelWork {
     fn new(device: &metal::DeviceRef, bundle: &K4SourceLayerBundle) -> Result<Self, String> {
-        if !matches!(bundle.source_experts.len(), 3 | 5) {
+        if !matches!(bundle.source_experts.len(), 3 | 4 | 5) {
             return Err("source bundle expert count drift".to_owned());
         }
         let sources = bundle
@@ -978,6 +978,7 @@ pub struct K4SourceMetalLayerReport {
     pub commit: String,
     pub bundle_sha256: String,
     pub bundle_bytes: u64,
+    pub layer: usize,
     pub device: String,
     pub compile_ms: f64,
     pub first_command_wall_ms: f64,
@@ -1022,18 +1023,19 @@ pub fn run_k4_source_metal_layer_fixture(
         fs::read(fixture_path).map_err(|error| format!("{}: {error}", fixture_path.display()))?;
     let fixture: LayerFixture = serde_json::from_slice(&fixture_bytes)
         .map_err(|error| format!("{}: {error}", fixture_path.display()))?;
+    let bundle = K4SourceLayerBundle::open(bundle_path, manifest_path)?;
     if !matches!(
         fixture.semantic.as_str(),
         "pw0361_layer28_native_weight_three_source_fixture"
             | "pw0416_layer28_qualified_native_weight_k4_source_fixture"
             | "pw0424_layer28_three_k4_five_source_native_fixture"
-    ) || fixture.layer != 28
+            | "pw0316_layer4_four_k4_four_source_fixture"
+    ) || fixture.layer != bundle.layer
         || fixture.input_f32.len() != HIDDEN
         || fixture.candidate_routed_f32.len() != HIDDEN
     {
         return Err("K4/source layer fixture identity mismatch".to_owned());
     }
-    let bundle = K4SourceLayerBundle::open(bundle_path, manifest_path)?;
     let runtime = K4SourceMetalRuntime::compile(kernel_root)?;
     let execution = runtime.execute(
         &bundle,
@@ -1095,6 +1097,7 @@ pub fn run_k4_source_metal_layer_fixture(
         commit: commit.to_owned(),
         bundle_sha256: bundle.bundle_sha256,
         bundle_bytes: bundle.bundle_bytes,
+        layer: bundle.layer,
         device: runtime.device_name,
         compile_ms: runtime.compile_ms,
         first_command_wall_ms: execution.wall_ms,

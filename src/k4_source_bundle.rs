@@ -6,7 +6,7 @@ use std::fs::File;
 use std::path::Path;
 
 const ALIGNMENT: u64 = 16 * 1024;
-const LAYER: usize = 28;
+const LEGACY_LAYER: usize = 28;
 const TOTAL_EXPERT_COUNT: usize = 8;
 pub(crate) const K4_EXACTNESS_CLASS: &str = "L3_modified_weights";
 const K4_ROLES: [&str; 7] = [
@@ -74,6 +74,23 @@ fn default_route_threshold() -> f64 {
     0.01
 }
 
+fn bundle_contract_supported(
+    schema_version: u32,
+    semantic: &str,
+    layer: usize,
+    k4_count: usize,
+    source_count: usize,
+) -> bool {
+    (schema_version == 1
+        && semantic == "prismwing_identity_preserving_k4_source_layer_bundle_v1"
+        && layer == LEGACY_LAYER
+        && matches!((k4_count, source_count), (5, 3) | (3, 5)))
+        || (schema_version == 2
+            && semantic == "prismwing_mixed_k4_source_layer_bundle_v2"
+            && layer < 48
+            && matches!((k4_count, source_count), (5, 3) | (4, 4) | (3, 5)))
+}
+
 #[derive(Debug, Deserialize)]
 struct BundleManifest {
     schema_version: u32,
@@ -101,6 +118,7 @@ pub(crate) struct K4SourceLayerBundle {
     pub(crate) tlut: BundlePayload,
     pub(crate) bundle_sha256: String,
     pub(crate) bundle_bytes: u64,
+    pub(crate) layer: usize,
     pub(crate) k4_experts: Vec<u32>,
     pub(crate) source_experts: Vec<u32>,
     pub(crate) candidate_route_gate_pass: bool,
@@ -168,19 +186,18 @@ impl K4SourceLayerBundle {
         // SAFETY: the file remains immutable for this read-only mapping's lifetime.
         let mapping =
             unsafe { MmapOptions::new().map(&file) }.map_err(|error| error.to_string())?;
-        if manifest.schema_version != 1
-            || !manifest.experiment_id.starts_with("PW-")
-            || manifest.semantic != "prismwing_identity_preserving_k4_source_layer_bundle_v1"
-            || manifest.layer != LAYER
+        if !bundle_contract_supported(
+            manifest.schema_version,
+            &manifest.semantic,
+            manifest.layer,
+            manifest.k4_experts.len(),
+            manifest.source_experts.len(),
+        ) || !manifest.experiment_id.starts_with("PW-")
             || manifest.alignment_bytes != ALIGNMENT
             || manifest.bundle_bytes != file_bytes
             || manifest.bundle_bytes != mapping.len() as u64
             || manifest.logical_end_bytes > manifest.bundle_bytes
             || manifest.bundle_sha256 != sha256(&mapping)
-            || !matches!(
-                (manifest.k4_experts.len(), manifest.source_experts.len()),
-                (5, 3) | (3, 5)
-            )
             || manifest
                 .k4_experts
                 .iter()
@@ -342,6 +359,7 @@ impl K4SourceLayerBundle {
             tlut: manifest.tlut,
             bundle_sha256: manifest.bundle_sha256,
             bundle_bytes: manifest.bundle_bytes,
+            layer: manifest.layer,
             k4_experts: manifest.k4_experts,
             source_experts: manifest.source_experts,
             candidate_route_gate_pass: manifest.route_authority.correctness_qualified,
@@ -421,7 +439,7 @@ pub fn verify_k4_source_layer_bundle(
         commit: commit.to_owned(),
         bundle_sha256: bundle.bundle_sha256,
         bundle_bytes: bundle.bundle_bytes,
-        layer: LAYER,
+        layer: bundle.layer,
         expert_ids: bundle.records.keys().copied().collect(),
         k4_experts: bundle.k4_experts.clone(),
         source_experts: bundle.source_experts.clone(),
@@ -459,5 +477,18 @@ mod tests {
         assert!(k4.is_disjoint(&source));
         assert_eq!(k4.len() + source.len(), 8);
         assert_eq!(K4_EXACTNESS_CLASS, "L3_modified_weights");
+    }
+
+    #[test]
+    fn schema_two_adds_layer_generic_four_four_without_weakening_legacy() {
+        let v1 = "prismwing_identity_preserving_k4_source_layer_bundle_v1";
+        let v2 = "prismwing_mixed_k4_source_layer_bundle_v2";
+        assert!(bundle_contract_supported(1, v1, 28, 3, 5));
+        assert!(!bundle_contract_supported(1, v1, 4, 4, 4));
+        assert!(bundle_contract_supported(2, v2, 4, 4, 4));
+        assert!(bundle_contract_supported(2, v2, 47, 5, 3));
+        assert!(!bundle_contract_supported(2, v2, 48, 4, 4));
+        assert!(!bundle_contract_supported(2, v1, 4, 4, 4));
+        assert!(!bundle_contract_supported(2, v2, 4, 2, 6));
     }
 }
