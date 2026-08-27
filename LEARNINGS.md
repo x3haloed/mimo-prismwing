@@ -4859,3 +4859,17 @@ sublinearly enough, or resident companion memory. The canonical analysis hashes
 to `de6424aa68d0c65f8f9206a53f61475286bde501873cd4f6ee06299c9b37d7a9`.
 Gate 8 passes with 70% free memory, 134,266,880-byte peak RSS, zero swap growth,
 and zero new throttling. No endpoint constant or runtime default changes.
+
+PW-0321 identifies q64 as the first wider horizon worth measuring. Stitched
+consecutive corrected windows keep q16 below `1.399` and q32 below `1.952`
+optimistic TPS even at perfect acceptance. q64 reaches `2.200`–`2.679` across
+all four categories at structural `A=64`; summed observed acceptance reaches
+2 TPS for ordinary and multilingual but remains `1.669` for code and `1.925`
+for rare-route.
+
+These stitches cross real target correction boundaries and are not causal wide
+transactions. Promote only a bounded real width-64 teacher-forced capture, not
+the stitched numbers, a proposer, or a 2-TPS claim. The canonical analysis
+hashes to `3f69ad6b9da5f0403db5178f26c1c19c4d0828056df9f43abea31a69a1636358`.
+Gate 8 passes with 70% free memory, 138,264,576-byte peak RSS, zero swap growth,
+and zero new throttling. No endpoint constant changes.

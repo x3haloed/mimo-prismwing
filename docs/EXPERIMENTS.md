@@ -1655,6 +1655,12 @@ Run the following cheap falsifiers in order:
    common-weight costs are omitted. Reject the current M1 width-eight streaming
    embodiment and the proposed 1,024-identity build; require a smaller record,
    wider measured verifier, or resident companion premise before reopening.
+27. [PW-0321](../experiments/PW-0321-stitched-wide-horizon-diagnostic.md)
+   uses explicitly non-causal stitched corrected windows to choose the next
+   capture horizon. q16 and q32 fail even at perfect acceptance; q64 is the
+   first structural two-TPS storage pass in every category, with observed-sum
+   diagnostics passing two categories. Authorize one real width-64
+   teacher-forced route capture only; no K4 build or TPS claim follows.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

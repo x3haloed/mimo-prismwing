@@ -51,6 +51,9 @@ full-capability, and complete-path performance gates.
 - PW-0320 rejects constructing that bank for the current width-eight M1
   streaming architecture. Even 2,048 identities and a perfect free 4 GiB
   cache cannot reach two optimistic accepted TPS before compute.
+- PW-0321 selects q64 as the first horizon whose stitched corrected union can
+  cross the structural two-TPS byte bound. q16/q32 are rejected; q64 remains
+  unproven until one causal teacher-forced capture replaces the stitch.
 
 ## Prediction errors
 
@@ -61,6 +64,7 @@ expert 64. PW-0315 expands that control to experts 64, 96, 31, and 232: all
 repeat locally and the cumulative bank remains below every frozen slice gate.
 The prediction that a useful bank plus source fallback streaming could turn the
 qualified one-row transaction into Prismwing-2 is now false at width eight.
-The next work must change the byte/acceptance bound itself: test a materially
-smaller executable representation, obtain measured wider-verifier route-union
-evidence, or evaluate a resident companion embodiment under the $500 cap.
+The next work is one bounded causal width-64 teacher-forced route capture. It
+must replace stitched union and acceptance estimates before any K4 bank,
+streaming runner, or endpoint work resumes. If q64 fails, return to a materially
+smaller executable representation or resident companion under the $500 cap.
