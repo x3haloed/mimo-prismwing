@@ -1,6 +1,6 @@
 # PW-0333 — Corrected onboard Prismwing-1 feasibility closure
 
-- Status: proposed; awaiting PW-0332 canonical evidence
+- Status: proposed; all parent evidence frozen, analyzer unimplemented
 - Disposition: unexecuted
 - Date: 2026-08-27
 - Owner: Codex
@@ -75,10 +75,26 @@ The executable analyzer must authenticate and recompute, not transcribe:
    unseen routed relative L2 `0.008777164859819555`, Stage-A pass, and only
    local Stage-B authorization. Record that PW-0329 gate two prevents further
    portfolio construction; do not relabel this as a K4-bank or endpoint pass.
-6. PW-0332's canonical exact top-seven token-cache oracle. This contract is
-   intentionally non-executable until that report exists and its clean commit,
-   path, SHA-256, absolute-floor metrics, strict gate vector, and disposition
-   are frozen in a follow-up contract-only commit.
+6. PW-0332 canonical exact top-seven token-cache oracle
+   `/Volumes/Elements/mimo-prismwing/evidence/PW-0332/analysis-001/analysis.json`,
+   SHA-256
+   `e2452a4f2eb9b66ed89097e8e78e5158f7ea53cc00bce8a2ba52c821f61ea085`,
+   executed from clean commit
+   `d9691ee84bd728093305ed7fa8e403815394bb01`. Authenticate the frozen
+   pre-result contract blob
+   `073fcb4fd52330acb8ed8d8d645f521ae2ded3b8` and SHA-256
+   `e37d1586311989f2e23e1af5737774d1332077e705baaf8d53e96e63e75d90e1`,
+   its 381-object fixed census, 480-block exact-codec replay, full PW-0328 q1
+   demand SHA-256
+   `91fd42fe48033a1b04c1b3d9cdba30a4e6847147064db9946e71c6595bf71db6`,
+   and exact capacities `204/230/250`. Recompute the hard absolute-floor
+   `49,122` misses, `1,082,237,114,835` encoded bytes,
+   `311.8436058584013` favorable storage seconds, aggregate
+   `0.7439626647510745` TPS, token p10 `0.5899672933278813`, and
+   fourth-lowest-window `0.6962265958830688` TPS. Require every strict
+   overall, category, token-tail, category-tail, and window-tail gate false,
+   decision `reject_exact_top7_token_cache_oracle`, no analytical survivor,
+   no decoder, no runtime default, Gate 8, and null performance claim.
 7. The current `TARGET.md`, `RED_LINES.md`, checkpoint revision
    `63651580ca774f8504f676040460aed3e1244ac1`, Apple M1 16 GiB, batch one,
    concurrency one, Gate 8, and explicit companion-hardware exclusion. The
@@ -153,10 +169,11 @@ Deterministic fixtures must:
 
 ## Result
 
-Unexecuted. PW-0332 canonical evidence is not yet frozen.
+Unexecuted. Every parent evidence report and its canonical hash is now frozen;
+no closure report exists yet.
 
 ## Decision
 
-Unexecuted. Complete and freeze PW-0332, then implement only this analytical
-closure. No endpoint, decoder, K4 bank, or Stage-B construction is authorized
-by this predeclaration.
+Analyzer implementation is authorized from this completed contract. Implement
+only this analytical closure. No endpoint, decoder, K4 bank, or Stage-B
+construction is authorized by this predeclaration.
