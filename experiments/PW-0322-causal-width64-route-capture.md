@@ -43,3 +43,12 @@ produced that anchor. Its report SHA-256 is
 it records `transactions=0` and zero proposal/verification wall and is rejected.
 The corrected runner requests exactly two observable tokens, forcing one loop
 entry while retaining only one transaction-authorized token.
+
+That corrected process completed all 63 target-generated proposal steps, then
+failed closed at the first q64 layer-0 QKV because the accelerated FP8/BF16
+linear interface admits at most eight rows. Its progress artifact is preserved
+as `ordinary-q64-report-002.progress.jsonl`; no completed report exists. The
+capture-only repair chunks q64 QKV and BF16 linears into ordered width-eight
+calls and charges repeated logical bytes. Its timing is therefore diagnostic
+and cannot be used as a q64 performance claim. Routed-layer route authority
+remains one causal 64-position transaction.

@@ -3201,7 +3201,7 @@ fn wide_fp8_linear(
     ledger: &mut EndpointLedger,
     runtime: &WideMetalMoeRuntime,
 ) -> Result<Vec<f32>, String> {
-    if !(1..=8).contains(&rows) || input.len() != rows * columns {
+    if !(1..=64).contains(&rows) || input.len() != rows * columns {
         return Err(format!(
             "{weight_name}: wide FP8 linear input shape mismatch"
         ));
@@ -3237,20 +3237,35 @@ fn wide_fp8_linear(
         columns,
     };
     let logical_bytes = (binding.weight.tensor_bytes() + binding.scale.tensor_bytes()) as u64;
-    let execution = runtime.execute_fp8_linear(input, &binding, full_qkv_layout)?;
-    ledger.logical_source_bytes = ledger
-        .logical_source_bytes
-        .checked_add(logical_bytes)
-        .ok_or("wide FP8 logical byte ledger overflow")?;
-    ledger.fp8_matrices_expanded += 1;
+    let mut output = Vec::with_capacity(rows * output_columns);
+    for range in wide_linear_chunk_ranges(rows) {
+        let execution = runtime.execute_fp8_linear(
+            &input[range.start * columns..range.end * columns],
+            &binding,
+            full_qkv_layout,
+        )?;
+        ledger.logical_source_bytes = ledger
+            .logical_source_bytes
+            .checked_add(logical_bytes)
+            .ok_or("wide FP8 logical byte ledger overflow")?;
+        ledger.fp8_matrices_expanded += 1;
+        ledger.resident_source_bytes = ledger
+            .resident_source_bytes
+            .checked_add(execution.resident_source_bytes)
+            .ok_or("resident source byte ledger overflow")?;
+        let _ = (execution.wall_ms, execution.mapped_source_bytes);
+        output.extend(execution.output);
+    }
     ledger.dynamic_activation_groups += (rows * columns / 128) as u64;
     ledger.dynamic_activation_values += (rows * columns) as u64;
-    ledger.resident_source_bytes = ledger
-        .resident_source_bytes
-        .checked_add(execution.resident_source_bytes)
-        .ok_or("resident source byte ledger overflow")?;
-    let _ = (execution.wall_ms, execution.mapped_source_bytes);
-    Ok(execution.output)
+    Ok(output)
+}
+
+fn wide_linear_chunk_ranges(rows: usize) -> Vec<std::ops::Range<usize>> {
+    (0..rows)
+        .step_by(8)
+        .map(|start| start..(start + 8).min(rows))
+        .collect()
 }
 
 fn full_qkv_source_row(logical_row: usize) -> Result<usize, String> {
@@ -3471,7 +3486,7 @@ fn wide_bf16_linear(
     ledger: &mut EndpointLedger,
     runtime: &WideMetalMoeRuntime,
 ) -> Result<Vec<f32>, String> {
-    if !(1..=8).contains(&rows) || input.len() != rows * columns {
+    if !(1..=64).contains(&rows) || input.len() != rows * columns {
         return Err(format!(
             "{weight_name}: wide BF16 linear input shape mismatch"
         ));
@@ -3488,18 +3503,27 @@ fn wide_bf16_linear(
         .wide_tensor_region(weight_name, page_bytes)
         .map_err(|error| format!("{weight_name}: {error}"))?;
     let logical_bytes = region.tensor_bytes() as u64;
-    let execution = runtime.execute_bf16_linear(input, &region, output_columns, columns)?;
-    ledger.logical_source_bytes = ledger
-        .logical_source_bytes
-        .checked_add(logical_bytes)
-        .ok_or("wide BF16 logical byte ledger overflow")?;
-    ledger.bf16_matrices_expanded += 1;
-    ledger.resident_source_bytes = ledger
-        .resident_source_bytes
-        .checked_add(execution.resident_source_bytes)
-        .ok_or("resident source byte ledger overflow")?;
-    let _ = (execution.wall_ms, execution.mapped_source_bytes);
-    Ok(execution.output)
+    let mut output = Vec::with_capacity(rows * output_columns);
+    for range in wide_linear_chunk_ranges(rows) {
+        let execution = runtime.execute_bf16_linear(
+            &input[range.start * columns..range.end * columns],
+            &region,
+            output_columns,
+            columns,
+        )?;
+        ledger.logical_source_bytes = ledger
+            .logical_source_bytes
+            .checked_add(logical_bytes)
+            .ok_or("wide BF16 logical byte ledger overflow")?;
+        ledger.bf16_matrices_expanded += 1;
+        ledger.resident_source_bytes = ledger
+            .resident_source_bytes
+            .checked_add(execution.resident_source_bytes)
+            .ok_or("resident source byte ledger overflow")?;
+        let _ = (execution.wall_ms, execution.mapped_source_bytes);
+        output.extend(execution.output);
+    }
+    Ok(output)
 }
 
 fn bf16_last_row_linear(
@@ -14020,6 +14044,16 @@ mod tests {
         let remaining_after_first_transaction_entry =
             requested_output_tokens - prefill_generated_tokens;
         assert_eq!(remaining_after_first_transaction_entry, 1);
+    }
+
+    #[test]
+    fn width64_diagnostic_linears_preserve_row_order_in_eight_row_chunks() {
+        assert_eq!(wide_linear_chunk_ranges(1), vec![0..1]);
+        assert_eq!(wide_linear_chunk_ranges(9), vec![0..8, 8..9]);
+        assert_eq!(
+            wide_linear_chunk_ranges(64),
+            vec![0..8, 8..16, 16..24, 24..32, 32..40, 40..48, 48..56, 56..64]
+        );
     }
 
     #[test]
