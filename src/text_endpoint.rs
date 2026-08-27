@@ -7062,9 +7062,9 @@ pub fn run_pressure_resident_checkpoint_pilot(
 #[derive(Debug, PartialEq, Eq)]
 struct JacobiCommit {
     /// Tokens made observable by this transaction. The proposal anchor was
-    /// committed by the preceding target decision; this vector contains only
-    /// newly verified suffix tokens and, on mismatch, the correcting target
-    /// token.
+    /// committed by the preceding target decision; this vector contains the
+    /// newly verified suffix and either the mismatch correction or, after a
+    /// full match, the final target bonus.
     emitted_token_ids: Vec<u32>,
     /// Number of proposal input rows whose K/V state remains authoritative.
     retained_proposal_rows: usize,
@@ -7089,12 +7089,17 @@ fn commit_jacobi_transaction(proposal: &[u32], posterior: &[u32]) -> Result<Jaco
             proposal_converged: false,
         })
     } else {
+        let target_bonus = *posterior
+            .last()
+            .ok_or("Jacobi posterior unexpectedly empty")?;
         Ok(JacobiCommit {
-            emitted_token_ids: proposal[1..].to_vec(),
-            retained_proposal_rows: proposal.len() - 1,
-            next_anchor_token_id: *proposal
-                .last()
-                .ok_or("Jacobi proposal unexpectedly empty")?,
+            emitted_token_ids: proposal[1..]
+                .iter()
+                .copied()
+                .chain(std::iter::once(target_bonus))
+                .collect(),
+            retained_proposal_rows: proposal.len(),
+            next_anchor_token_id: target_bonus,
             proposal_converged: true,
         })
     }
@@ -7340,7 +7345,7 @@ pub fn run_wide_metal_jacobi_text_endpoint(
     let report = WideJacobiTextReport {
         schema_version: 1,
         evidence_class: "pw0203_wide_source_jacobi_endpoint",
-        semantic: "mimo_v2_5_metal_native_l3_wide_jacobi_text_endpoint",
+        semantic: "mimo_v2_5_metal_native_l3_wide_jacobi_text_endpoint_target_bonus_full_match_v1",
         revision: REVISION,
         commit: commit.to_owned(),
         git_dirty,
@@ -8780,19 +8785,19 @@ fn run_arbitrary_text_generation_internal(
             "pw0205_arbitrary_prompt_corrected_qkv_target_proposed_generation"
         },
         semantic: if residency_is_uncached {
-            "mimo_v2_5_pw0213_uncached_two_buffer_single_object_exact_verification"
+            "mimo_v2_5_pw0213_uncached_two_buffer_single_object_exact_verification_target_bonus_full_match_v1"
         } else if native_mtp_external.is_some() {
-            "mimo_v2_5_pw0211_external_cpu_native_mtp_q4_exact_verification"
+            "mimo_v2_5_pw0211_external_cpu_native_mtp_q4_exact_verification_target_bonus_full_match_v1"
         } else if native_mtp_window.is_some() {
-            "mimo_v2_5_pw0208_native_mtp_corrected_verifier_window_capture"
+            "mimo_v2_5_pw0208_native_mtp_corrected_verifier_window_capture_target_bonus_full_match_v1"
         } else if residency_is_ranked_set {
-            "mimo_v2_5_pw0207_bounded_ranked_resident_sglang_directed_generation"
+            "mimo_v2_5_pw0207_bounded_ranked_resident_sglang_directed_generation_target_bonus_full_match_v1"
         } else if residency.is_some() {
-            "mimo_v2_5_pw0207_single_object_resident_sglang_directed_generation"
+            "mimo_v2_5_pw0207_single_object_resident_sglang_directed_generation_target_bonus_full_match_v1"
         } else if requested_output_tokens <= 8 {
-            "mimo_v2_5_sglang_directed_blockscaled_qkv_deinterleaved_generation_probe"
+            "mimo_v2_5_sglang_directed_blockscaled_qkv_deinterleaved_generation_probe_target_bonus_full_match_v1"
         } else {
-            "mimo_v2_5_sglang_directed_blockscaled_qkv_deinterleaved_text_generation"
+            "mimo_v2_5_sglang_directed_blockscaled_qkv_deinterleaved_text_generation_target_bonus_full_match_v1"
         },
         revision: REVISION,
         commit: commit.to_owned(),
@@ -14234,20 +14239,52 @@ mod tests {
     }
 
     #[test]
-    fn jacobi_commit_advances_a_converged_window_without_inventing_a_correction() {
+    fn jacobi_commit_carries_the_target_bonus_after_a_converged_window() {
         let proposal = [41, 42, 43, 44];
         let posterior = [42, 43, 44, 45];
         assert_eq!(
             commit_jacobi_transaction(&proposal, &posterior),
             Ok(JacobiCommit {
-                emitted_token_ids: vec![42, 43, 44],
-                retained_proposal_rows: 3,
-                next_anchor_token_id: 44,
+                emitted_token_ids: vec![42, 43, 44, 45],
+                retained_proposal_rows: 4,
+                next_anchor_token_id: 45,
                 proposal_converged: true,
             })
         );
         assert!(commit_jacobi_transaction(&[1], &[2]).is_err());
         assert!(commit_jacobi_transaction(&[1, 2], &[2, 3, 4]).is_err());
+    }
+
+    #[test]
+    fn jacobi_commit_emits_a_full_match_bonus_once_across_transactions() {
+        let first = commit_jacobi_transaction(&[41, 42, 43, 44], &[42, 43, 44, 45])
+            .expect("first transaction");
+        let second = commit_jacobi_transaction(&[45, 46, 47, 48], &[46, 47, 48, 49])
+            .expect("second transaction");
+        assert_eq!(first.next_anchor_token_id, 45);
+        assert_eq!(second.emitted_token_ids.first(), Some(&46));
+        assert_eq!(
+            first
+                .emitted_token_ids
+                .iter()
+                .chain(&second.emitted_token_ids)
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![42, 43, 44, 45, 46, 47, 48, 49]
+        );
+    }
+
+    #[test]
+    fn jacobi_commit_q2_full_match_carries_one_suffix_and_one_bonus() {
+        assert_eq!(
+            commit_jacobi_transaction(&[1, 2], &[2, 3]),
+            Ok(JacobiCommit {
+                emitted_token_ids: vec![2, 3],
+                retained_proposal_rows: 2,
+                next_anchor_token_id: 3,
+                proposal_converged: true,
+            })
+        );
     }
 
     #[test]
