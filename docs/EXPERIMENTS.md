@@ -1737,6 +1737,14 @@ Run the following cheap falsifiers in order:
    from a leakage-free training split, preserve the exact record stride and
    unchanged loader/kernel, and require the frozen unseen, validation, pilot,
    routed, and layer-final gates before any Metal or density-five work.
+38. [PW-0332](../experiments/PW-0332-exact-top7-token-cache-oracle.md)
+   predeclares a canonical closure test for the remaining exact source-FP8
+   codec composition. It grants the top-seven exponent format its impossible
+   zero-escape floor, free encoded fixed residency, a free future-chosen expert
+   cache, token-granularity offline Belady eviction, and zero decoder or compute
+   cost. The analyzer remains blocked until PW-0328's complete manifest hash is
+   frozen; failure of any strict corpus, category, token-tail, or window-tail
+   one-TPS gate rejects this exact codec/cache/prefetch composition.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
