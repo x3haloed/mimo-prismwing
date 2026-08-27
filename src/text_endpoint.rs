@@ -2644,6 +2644,21 @@ fn protected_service_pids(names: &[String]) -> Result<BTreeMap<String, Vec<u32>>
     Ok(result)
 }
 
+fn require_protected_services_present(
+    baseline: &BTreeMap<String, Vec<u32>>,
+    current: &BTreeMap<String, Vec<u32>>,
+    phase: &str,
+) -> Result<(), String> {
+    for name in baseline.keys() {
+        if current.get(name).is_none_or(Vec::is_empty) {
+            return Err(format!(
+                "safety stop at {phase}: resident service {name} disappeared"
+            ));
+        }
+    }
+    Ok(())
+}
+
 impl SafetyMonitor {
     fn start(policy: SafetyFixture) -> Result<Self, String> {
         let baseline_swap_bytes = swap_used_bytes()?;
@@ -2716,19 +2731,7 @@ impl SafetyMonitor {
         if new_throttled > self.policy.maximum_new_throttled_pages {
             return Err(format!("safety stop at {phase}: VM throttling observed"));
         }
-        for (name, baseline_pids) in &self.baseline_services {
-            let Some(current_pids) = services.get(name) else {
-                return Err(format!(
-                    "safety stop at {phase}: resident service {name} disappeared"
-                ));
-            };
-            if baseline_pids.iter().any(|pid| !current_pids.contains(pid)) {
-                return Err(format!(
-                    "safety stop at {phase}: resident service {name} PID identity changed"
-                ));
-            }
-        }
-        Ok(())
+        require_protected_services_present(&self.baseline_services, &services, phase)
     }
 }
 
@@ -14006,6 +14009,33 @@ mod tests {
         for width in [0, 1, 9, 16, 32, 63, 65] {
             assert!(!generation_verifier_width_supported(width));
         }
+    }
+
+    #[test]
+    fn protected_service_health_allows_supervised_pid_replacement_but_not_loss() {
+        let baseline = BTreeMap::from([
+            ("nxnode".to_owned(), vec![10]),
+            ("ChatGPT".to_owned(), vec![20]),
+        ]);
+        let replaced = BTreeMap::from([
+            ("nxnode".to_owned(), vec![11]),
+            ("ChatGPT".to_owned(), vec![20]),
+        ]);
+        assert!(require_protected_services_present(&baseline, &replaced, "checkpoint").is_ok());
+        let disappeared = BTreeMap::from([
+            ("nxnode".to_owned(), Vec::new()),
+            ("ChatGPT".to_owned(), vec![20]),
+        ]);
+        assert!(
+            require_protected_services_present(&baseline, &disappeared, "checkpoint")
+                .unwrap_err()
+                .contains("nxnode disappeared")
+        );
+        let absent_at_baseline = BTreeMap::from([("ChatGPT".to_owned(), vec![20])]);
+        assert!(
+            require_protected_services_present(&absent_at_baseline, &replaced, "checkpoint")
+                .is_ok()
+        );
     }
 
     #[test]

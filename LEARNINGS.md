@@ -4873,3 +4873,12 @@ the stitched numbers, a proposer, or a 2-TPS claim. The canonical analysis
 hashes to `3f69ad6b9da5f0403db5178f26c1c19c4d0828056df9f43abea31a69a1636358`.
 Gate 8 passes with 70% free memory, 138,264,576-byte peak RSS, zero swap growth,
 and zero new throttling. No endpoint constant changes.
+
+PW-0323 repairs a Gate 8 prediction error exposed twice by PW-0322. NoMachine's
+supervisor replaced the `nxnode` worker PID while the named service remained
+present, but the Rust monitor treated PID continuity as service health. The
+existing normative Python monitor already uses the correct invariant: services
+present at baseline must remain nonempty by name. Rust now matches it, records
+replacement PIDs, and still fails closed on actual disappearance. All 114 Rust
+library tests pass; no memory, swap, throttling, release, or service-name limit
+changed. Resume the causal q64 capture and preserve both stopped attempts.

@@ -1661,6 +1661,12 @@ Run the following cheap falsifiers in order:
    first structural two-TPS storage pass in every category, with observed-sum
    diagnostics passing two categories. Authorize one real width-64
    teacher-forced route capture only; no K4 build or TPS claim follows.
+28. [PW-0323](../experiments/PW-0323-resident-service-health-repair.md) repairs
+   Rust Gate 8 after two healthy supervised `nxnode` PID replacements stopped
+   PW-0322. Protected baseline service names must remain present, but worker
+   PIDs may be replaced and remain recorded. Actual disappearance still fails
+   closed; every other safety limit is unchanged. Resume PW-0322 only from the
+   clean repair commit.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
