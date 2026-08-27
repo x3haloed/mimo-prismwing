@@ -40,6 +40,10 @@ from tools.run_pw0331_k4_rank1_fit import (
     PW0318_BUNDLE_SHA256,
     PW0318_MANIFEST_SHA256,
     RED_LINES_SHA256,
+    SERIALIZED_DENSE_CONTROL_DIAGNOSTIC_SHA256,
+    SERIALIZED_DENSE_CONTROL_GIT_BLOB,
+    SERIALIZED_DENSE_CONTROL_SHA256,
+    SERIALIZED_DENSE_CONTROL_STAGES_SHA256,
     SEMANTIC,
     STAGE_A_BASE_SEMANTIC,
     TARGET_SHA256,
@@ -48,6 +52,13 @@ from tools.run_pw0331_k4_rank1_fit import (
     deterministic_tree,
     schema2_layout_ledger,
     stage_a_numerics_authority,
+)
+
+CONTROL_FIXTURE = json.loads(
+    (
+        Path(__file__).parents[1]
+        / "evals/fixtures/tiny/pw0331-serialized-dense-control.json"
+    ).read_text()
 )
 
 
@@ -116,6 +127,8 @@ class Pw0331AnalysisTests(unittest.TestCase):
                 "contract_commit": CONTRACT_COMMIT,
                 "contract_git_blob": CONTRACT_GIT_BLOB,
                 "contract_sha256": CONTRACT_SHA256,
+                "serialized_dense_control_git_blob": SERIALIZED_DENSE_CONTROL_GIT_BLOB,
+                "serialized_dense_control_sha256": SERIALIZED_DENSE_CONTROL_SHA256,
                 "target_sha256": TARGET_SHA256,
                 "red_lines_sha256": RED_LINES_SHA256,
                 "unchanged_implementation_sha256": IMPLEMENTATION_HASHES,
@@ -192,6 +205,17 @@ class Pw0331AnalysisTests(unittest.TestCase):
                 "input_columns": 2048,
                 "output_rows": 4096,
                 "rcond": 1e-12,
+            },
+            "serialized_dense_control": {
+                "semantic": CONTROL_FIXTURE["semantic"],
+                "fixture_sha256": SERIALIZED_DENSE_CONTROL_SHA256,
+                "diagnostic_sha256": SERIALIZED_DENSE_CONTROL_DIAGNOSTIC_SHA256,
+                "stages_sha256": SERIALIZED_DENSE_CONTROL_STAGES_SHA256,
+                "independent_process_replays": 2,
+                "fit_rows": 108,
+                "held_out_payloads_opened": False,
+                "stages": CONTROL_FIXTURE["diagnostic"]["stages"],
+                "pass": True,
             },
             "numerics": stage_a_numerics_authority(),
             "factors": factors,
@@ -460,6 +484,14 @@ class Pw0331AnalysisTests(unittest.TestCase):
             ),
             (
                 lambda authority: authority["numerics"].pop("fit_algebra"),
+                "fit authority",
+            ),
+            (
+                lambda authority: authority["serialized_dense_control"][
+                    "stages"
+                ]["candidate_output_bf16_f32"].__setitem__(
+                    "bit_mismatches", 225
+                ),
                 "fit authority",
             ),
             (

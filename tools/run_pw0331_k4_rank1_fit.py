@@ -14,6 +14,7 @@ import ctypes.util
 import gc
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -62,10 +63,23 @@ except ModuleNotFoundError:
 
 EXPERIMENT_ID = "PW-0331"
 SEMANTIC = "m1-native-k4-r1-down-v1"
-CONTRACT_COMMIT = "bce854d098e1ec162bd44eb9306642b16e5d38e2"
+CONTRACT_COMMIT = "c5dfed6ec48fc15198bf42d317a36546383cfe31"
 CONTRACT_RELATIVE_PATH = "experiments/PW-0331-byte-neutral-k4-rank1-repair.md"
-CONTRACT_GIT_BLOB = "e5adf258b248a2984d29325cda90ca3986350869"
-CONTRACT_SHA256 = "27c9ab0f69c143fd21e7bb4d1dfcab0f75fdfb21b5c89d0da3601878d6478079"
+CONTRACT_GIT_BLOB = "87e7b3494097f06be382c537dc6588054807e937"
+CONTRACT_SHA256 = "ef168a0e5b46c8602c5ed051b58991da439140c5f991488d4c9124ff65cf059f"
+SERIALIZED_DENSE_CONTROL_RELATIVE_PATH = (
+    "evals/fixtures/tiny/pw0331-serialized-dense-control.json"
+)
+SERIALIZED_DENSE_CONTROL_GIT_BLOB = "4033d25c007b607a90c5817d616e8674ad2fbc3d"
+SERIALIZED_DENSE_CONTROL_SHA256 = (
+    "1666c47f7f0a883546fdfd710cd9a3b228aa82afc24f8118636a09aeb21d7676"
+)
+SERIALIZED_DENSE_CONTROL_DIAGNOSTIC_SHA256 = (
+    "0b981e3b099e61637153f7da8ce69e7def80979a8c1778c7685f3e08695dbea7"
+)
+SERIALIZED_DENSE_CONTROL_STAGES_SHA256 = (
+    "7abfbb7d773119aeea346373196c5f337f23373cd9b3e83a7393cd690849472f"
+)
 TARGET_SHA256 = "dda459684c194b03491f36e9b66521ff00c400a6cc38d23a567a5a92ef8fb17d"
 RED_LINES_SHA256 = "cc261ad9bd67a865715e72cbbadf3b74c3f1f282e17a8ef86ed02c1a92fb8b36"
 CORPUS_SHA256 = "b9df976876d63c1ffbbe0c70507aea8b939a749ce5b1db27cbca0b5d82cf802e"
@@ -124,6 +138,9 @@ def stage_a_numerics_authority() -> dict[str, Any]:
         ),
         "stage_a_serialized_execution_reference": True,
         "stage_a_base_is_metal_answer_key": False,
+        "historical_dense_control": (
+            "exact_fit_only_fingerprint_diagnostic_not_cross_order_equality"
+        ),
         "stage_b_metal_answer_key": (
             "deferred_until_stage_a_pass; must cover_signed_fwht_projection_"
             "lane_tree_output_fwht_finish"
@@ -154,6 +171,132 @@ def sha256_bytes(value: bytes) -> str:
 def array_sha256(values: np.ndarray) -> str:
     array = np.ascontiguousarray(values)
     return sha256_bytes(array.view(np.uint8).tobytes())
+
+
+CONTROL_STAGE_NAMES = (
+    "dynamic_input_f32",
+    "gate_bf16_f32",
+    "up_bf16_f32",
+    "hidden_bf16_f32",
+    "dynamic_hidden_f32",
+    "candidate_output_bf16_f32",
+)
+
+
+def stage_control_metrics(serialized: np.ndarray, historical: np.ndarray) -> dict[str, Any]:
+    """Fingerprint two exact F32 paths without assuming their reductions agree."""
+    left = np.asarray(serialized)
+    right = np.asarray(historical)
+    if (
+        left.dtype != np.float32
+        or right.dtype != np.float32
+        or left.shape != right.shape
+        or left.ndim != 2
+        or not np.isfinite(left).all()
+        or not np.isfinite(right).all()
+    ):
+        raise ValueError("PW-0331 serialized/dense control array mismatch")
+    delta = np.asarray(left, dtype=np.float64) - np.asarray(right, dtype=np.float64)
+    denominator = float(np.linalg.norm(np.asarray(right, dtype=np.float64).ravel()))
+    numerator = float(np.linalg.norm(delta.ravel()))
+    if not math.isfinite(denominator) or denominator <= 0.0 or not math.isfinite(numerator):
+        raise ValueError("PW-0331 serialized/dense control norm mismatch")
+    return {
+        "elements": int(left.size),
+        "bit_mismatches": int(
+            np.count_nonzero(left.view(np.uint32) != right.view(np.uint32))
+        ),
+        "max_abs": float(np.max(np.abs(delta))),
+        "relative_l2": numerator / denominator,
+        "serialized_sha256": array_sha256(left),
+        "historical_dense_sha256": array_sha256(right),
+    }
+
+
+def require_control_stage_metrics(
+    serialized: dict[str, np.ndarray],
+    historical: dict[str, np.ndarray],
+    expected: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Require exact per-stage hashes/counts and stable diagnostic scalars."""
+    if set(expected) != set(CONTROL_STAGE_NAMES):
+        raise ValueError("PW-0331 serialized/dense control stage contract mismatch")
+    if any(name not in serialized or name not in historical for name in CONTROL_STAGE_NAMES):
+        raise ValueError("PW-0331 serialized/dense control stage missing")
+    observed = {
+        name: stage_control_metrics(serialized[name], historical[name])
+        for name in CONTROL_STAGE_NAMES
+    }
+    for name in CONTROL_STAGE_NAMES:
+        actual = observed[name]
+        frozen = expected[name]
+        if set(frozen) != set(actual):
+            raise ValueError(f"PW-0331 {name} control metric schema mismatch")
+        for field in (
+            "elements",
+            "bit_mismatches",
+            "max_abs",
+            "serialized_sha256",
+            "historical_dense_sha256",
+        ):
+            if actual[field] != frozen[field]:
+                raise ValueError(f"PW-0331 {name} control {field} mismatch")
+        if not math.isclose(
+            actual["relative_l2"],
+            frozen["relative_l2"],
+            rel_tol=0.0,
+            abs_tol=1.0e-18,
+        ):
+            raise ValueError(f"PW-0331 {name} control relative_l2 mismatch")
+    return observed
+
+
+def load_serialized_dense_control_fixture(repo: Path) -> dict[str, Any]:
+    root = repo.resolve()
+    path = root / SERIALIZED_DENSE_CONTROL_RELATIVE_PATH
+    if sha256_file(path) != SERIALIZED_DENSE_CONTROL_SHA256:
+        raise ValueError("PW-0331 serialized/dense fixture content mismatch")
+    fixture = json.loads(path.read_text())
+    diagnostic = fixture.get("diagnostic", {})
+    if (
+        fixture.get("schema_version") != 1
+        or fixture.get("experiment_id") != EXPERIMENT_ID
+        or fixture.get("semantic")
+        != "fit_only_zero_factor_serialized_vs_historical_dense_control_v1"
+        or fixture.get("failed_execution", {}).get("output_created") is not False
+        or fixture.get("failed_execution", {}).get("held_out_payloads_opened") is not False
+        or diagnostic.get("independent_process_replays") != 2
+        or diagnostic.get("fit_rows") != EXPECTED_COUNTS["fit"]
+        or diagnostic.get("held_out_payloads_opened") is not False
+        or sha256_bytes(canonical_json(diagnostic))
+        != SERIALIZED_DENSE_CONTROL_DIAGNOSTIC_SHA256
+        or sha256_bytes(canonical_json(diagnostic.get("stages")))
+        != SERIALIZED_DENSE_CONTROL_STAGES_SHA256
+    ):
+        raise ValueError("PW-0331 serialized/dense fixture authority mismatch")
+    return fixture
+
+
+def authenticate_serialized_dense_control(
+    serialized: dict[str, np.ndarray],
+    historical: dict[str, np.ndarray],
+    fixture: dict[str, Any],
+) -> dict[str, Any]:
+    diagnostic = fixture["diagnostic"]
+    observed = require_control_stage_metrics(
+        serialized, historical, diagnostic["stages"]
+    )
+    return {
+        "semantic": fixture["semantic"],
+        "fixture_sha256": SERIALIZED_DENSE_CONTROL_SHA256,
+        "diagnostic_sha256": SERIALIZED_DENSE_CONTROL_DIAGNOSTIC_SHA256,
+        "stages_sha256": SERIALIZED_DENSE_CONTROL_STAGES_SHA256,
+        "independent_process_replays": diagnostic["independent_process_replays"],
+        "fit_rows": diagnostic["fit_rows"],
+        "held_out_payloads_opened": False,
+        "stages": observed,
+        "pass": True,
+    }
 
 
 def legacy_framed_array_sha256(values: np.ndarray) -> str:
@@ -669,6 +812,12 @@ def verify_execution_authority(repo: Path, commit: str) -> dict[str, Any]:
         raise ValueError("PW-0331 contract content mismatch")
     if _git(root, "rev-parse", f"HEAD:{CONTRACT_RELATIVE_PATH}") != CONTRACT_GIT_BLOB:
         raise ValueError("PW-0331 contract Git blob mismatch")
+    load_serialized_dense_control_fixture(root)
+    if (
+        _git(root, "rev-parse", f"HEAD:{SERIALIZED_DENSE_CONTROL_RELATIVE_PATH}")
+        != SERIALIZED_DENSE_CONTROL_GIT_BLOB
+    ):
+        raise ValueError("PW-0331 serialized/dense fixture Git blob mismatch")
     if sha256_file(root / "TARGET.md") != TARGET_SHA256:
         raise ValueError("PW-0331 TARGET.md mismatch")
     if sha256_file(root / "RED_LINES.md") != RED_LINES_SHA256:
@@ -683,6 +832,8 @@ def verify_execution_authority(repo: Path, commit: str) -> dict[str, Any]:
         "contract_commit": CONTRACT_COMMIT,
         "contract_git_blob": CONTRACT_GIT_BLOB,
         "contract_sha256": CONTRACT_SHA256,
+        "serialized_dense_control_git_blob": SERIALIZED_DENSE_CONTROL_GIT_BLOB,
+        "serialized_dense_control_sha256": SERIALIZED_DENSE_CONTROL_SHA256,
         "target_sha256": TARGET_SHA256,
         "red_lines_sha256": RED_LINES_SHA256,
         "unchanged_implementation_sha256": observed,
@@ -990,10 +1141,11 @@ def run(
         modules["panel"].dynamic_input,
     )
     historical = modules["panel"].complete_outputs(corpus_rows["fit_input"], decoded)
-    if not np.array_equal(
-        stages["candidate_output_bf16_f32"], historical["candidate_output_bf16_f32"]
-    ):
-        raise ValueError("PW-0331 Stage A zero-factor historical control mismatch")
+    serialized_dense_control = authenticate_serialized_dense_control(
+        stages,
+        historical,
+        load_serialized_dense_control_fixture(repo),
+    )
     fit_x = np.asarray(stages["dynamic_hidden_f32"], dtype=np.float32)
     base_raw = np.asarray(stages["down_base_raw_f32"], dtype=np.float32)
     left, right, fit_diagnostics = fit_rank_one(
@@ -1036,6 +1188,7 @@ def run(
         "tlut_authority": tlut_authority,
         "panel_authority": panel_authority,
         "k4_authority": k4_authority,
+        "serialized_dense_control": serialized_dense_control,
         "fit_positions": corpus_rows["fit_positions"].tolist(),
         "fit_source_offsets": corpus_rows["fit_source_offsets"].tolist(),
         "fit_slots": corpus_rows["fit_slots"].tolist(),
@@ -1070,6 +1223,7 @@ def run(
         serialized,
         stages,
         historical,
+        serialized_dense_control,
         fit_x,
         base_raw,
         left,

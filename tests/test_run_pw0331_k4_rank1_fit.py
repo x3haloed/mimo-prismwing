@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -7,7 +8,9 @@ import numpy as np
 
 from tools.run_pw0331_k4_rank1_fit import (
     EXPECTED_COUNTS,
+    SERIALIZED_DENSE_CONTROL_SHA256,
     _libc_fmaf,
+    authenticate_serialized_dense_control,
     apply_serialized_rank_one,
     array_sha256,
     bf16,
@@ -15,9 +18,11 @@ from tools.run_pw0331_k4_rank1_fit import (
     legacy_framed_array_sha256,
     partition_fit_positions,
     pread_f32_rows,
+    require_control_stage_metrics,
     require_legacy_framed_array_sha256,
     schema2_layout_ledger,
     serialized_k4_projection_base,
+    stage_control_metrics,
     stage_a_candidate_stages,
     unpack_serialized_k4_transformed,
 )
@@ -26,6 +31,10 @@ from tools.run_pw0331_k4_rank1_fit import (
 FIXTURE = (
     Path(__file__).parents[1]
     / "evals/fixtures/tiny/pw0331-rank1-repair.json"
+)
+CONTROL_FIXTURE = (
+    Path(__file__).parents[1]
+    / "evals/fixtures/tiny/pw0331-serialized-dense-control.json"
 )
 
 
@@ -67,6 +76,59 @@ class Pw0331RankOneFitTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "legacy framed array hash mismatch"):
             require_legacy_framed_array_sha256(
                 values, array_sha256(values), "test external authority"
+            )
+
+    def test_serialized_dense_control_preserves_both_exact_paths(self):
+        fixture = json.loads(CONTROL_FIXTURE.read_text())
+        self.assertEqual(
+            hashlib.sha256(CONTROL_FIXTURE.read_bytes()).hexdigest(),
+            SERIALIZED_DENSE_CONTROL_SHA256,
+        )
+        stages = fixture["diagnostic"]["stages"]
+        self.assertEqual(stages["dynamic_input_f32"]["bit_mismatches"], 0)
+        self.assertEqual(
+            stages["candidate_output_bf16_f32"]["bit_mismatches"], 226
+        )
+        self.assertNotEqual(
+            stages["candidate_output_bf16_f32"]["serialized_sha256"],
+            stages["candidate_output_bf16_f32"]["historical_dense_sha256"],
+        )
+
+        serialized = {
+            name: np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+            for name in stages
+        }
+        historical = {
+            name: values.copy() for name, values in serialized.items()
+        }
+        historical["candidate_output_bf16_f32"][1, 1] = np.float32(4.5)
+        expected = {
+            name: stage_control_metrics(serialized[name], historical[name])
+            for name in stages
+        }
+        self.assertEqual(
+            require_control_stage_metrics(serialized, historical, expected),
+            expected,
+        )
+        changed = json.loads(json.dumps(expected))
+        changed["candidate_output_bf16_f32"]["bit_mismatches"] += 1
+        with self.assertRaisesRegex(ValueError, "bit_mismatches"):
+            require_control_stage_metrics(serialized, historical, changed)
+        with self.assertRaisesRegex(ValueError, "control elements mismatch"):
+            authenticate_serialized_dense_control(
+                serialized, historical, fixture
+            )
+
+    def test_serialized_dense_control_rejects_nonfinite_or_shape_drift(self):
+        with self.assertRaisesRegex(ValueError, "control array"):
+            stage_control_metrics(
+                np.asarray([[float("nan")]], dtype=np.float32),
+                np.asarray([[1.0]], dtype=np.float32),
+            )
+        with self.assertRaisesRegex(ValueError, "control array"):
+            stage_control_metrics(
+                np.ones((1, 2), dtype=np.float32),
+                np.ones((2, 1), dtype=np.float32),
             )
 
     def test_stage_a_base_emulates_serialized_k4_kernel_order(self):

@@ -55,6 +55,10 @@ try:
         PW0318_SUMMARY_SHA256,
         PANEL_IMPLEMENTATION_SHA256,
         RED_LINES_SHA256,
+        SERIALIZED_DENSE_CONTROL_DIAGNOSTIC_SHA256,
+        SERIALIZED_DENSE_CONTROL_GIT_BLOB,
+        SERIALIZED_DENSE_CONTROL_SHA256,
+        SERIALIZED_DENSE_CONTROL_STAGES_SHA256,
         SEMANTIC,
         STAGE_A_BASE_SEMANTIC,
         TARGET_SHA256,
@@ -108,6 +112,10 @@ except ModuleNotFoundError:
         PW0318_SUMMARY_SHA256,
         PANEL_IMPLEMENTATION_SHA256,
         RED_LINES_SHA256,
+        SERIALIZED_DENSE_CONTROL_DIAGNOSTIC_SHA256,
+        SERIALIZED_DENSE_CONTROL_GIT_BLOB,
+        SERIALIZED_DENSE_CONTROL_SHA256,
+        SERIALIZED_DENSE_CONTROL_STAGES_SHA256,
         SEMANTIC,
         STAGE_A_BASE_SEMANTIC,
         TARGET_SHA256,
@@ -406,6 +414,7 @@ def load_frozen_fit_run(
     tlut = authority.get("tlut_authority", {})
     k4 = authority.get("k4_authority", {})
     fit = authority.get("fit", {})
+    control = authority.get("serialized_dense_control", {})
     expected_arrays = {
         "fit_input_f32",
         "fit_source_bf16_f32",
@@ -430,6 +439,10 @@ def load_frozen_fit_run(
         or execution.get("contract_commit") != CONTRACT_COMMIT
         or execution.get("contract_git_blob") != CONTRACT_GIT_BLOB
         or execution.get("contract_sha256") != CONTRACT_SHA256
+        or execution.get("serialized_dense_control_git_blob")
+        != SERIALIZED_DENSE_CONTROL_GIT_BLOB
+        or execution.get("serialized_dense_control_sha256")
+        != SERIALIZED_DENSE_CONTROL_SHA256
         or execution.get("target_sha256") != TARGET_SHA256
         or execution.get("red_lines_sha256") != RED_LINES_SHA256
         or execution.get("unchanged_implementation_sha256") != IMPLEMENTATION_HASHES
@@ -483,6 +496,30 @@ def load_frozen_fit_run(
         or fit.get("input_columns") != INTERMEDIATE
         or fit.get("output_rows") != HIDDEN
         or fit.get("rcond") != 1e-12
+        or set(control)
+        != {
+            "semantic",
+            "fixture_sha256",
+            "diagnostic_sha256",
+            "stages_sha256",
+            "independent_process_replays",
+            "fit_rows",
+            "held_out_payloads_opened",
+            "stages",
+            "pass",
+        }
+        or control.get("semantic")
+        != "fit_only_zero_factor_serialized_vs_historical_dense_control_v1"
+        or control.get("fixture_sha256") != SERIALIZED_DENSE_CONTROL_SHA256
+        or control.get("diagnostic_sha256")
+        != SERIALIZED_DENSE_CONTROL_DIAGNOSTIC_SHA256
+        or control.get("stages_sha256") != SERIALIZED_DENSE_CONTROL_STAGES_SHA256
+        or control.get("independent_process_replays") != 2
+        or control.get("fit_rows") != EXPECTED_COUNTS["fit"]
+        or control.get("held_out_payloads_opened") is not False
+        or control.get("pass") is not True
+        or sha256_bytes(canonical_json(control.get("stages")))
+        != SERIALIZED_DENSE_CONTROL_STAGES_SHA256
         or authority.get("layout") != schema2_layout_ledger(4, 4)
         or set(authority.get("factors", {}))
         != {"correction_left", "correction_right"}
