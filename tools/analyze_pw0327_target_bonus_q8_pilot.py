@@ -12,13 +12,13 @@ from typing import Any
 try:
     from tools.analyze_pw0319_corrected_route_bank import sha256_file
     from tools.analyze_pw0326_target_bonus import commit_fixture
-    from tools.host_safety import HostSafetyMonitor, HostSafetyViolation
+    from tools.host_safety import HostSafetyMonitor, HostSafetyPolicy, HostSafetyViolation
     from tools.openrouter_reference import atomic_write_new, canonical_json
     from tools.reproduce_pw0311_k4_expert import verify_clean_commit
 except ModuleNotFoundError:
     from analyze_pw0319_corrected_route_bank import sha256_file
     from analyze_pw0326_target_bonus import commit_fixture
-    from host_safety import HostSafetyMonitor, HostSafetyViolation
+    from host_safety import HostSafetyMonitor, HostSafetyPolicy, HostSafetyViolation
     from openrouter_reference import atomic_write_new, canonical_json
     from reproduce_pw0311_k4_expert import verify_clean_commit
 
@@ -34,6 +34,12 @@ SEMANTIC = (
 )
 EVIDENCE_CLASS = "pw0205_arbitrary_prompt_bounded_generation_probe"
 SOURCE_EXPERT_BYTES = 25_171_968
+VERIFIER_WIDTH = 8
+LAYERS = 48
+TARGET_SELF_PROPOSER = (
+    "greedy source-checkpoint proposer using the same retained K/V, deinterleaved "
+    "checkpoint-TP QKV layout, and SGLang-directed block-scaled Metal arithmetic"
+)
 PROMPTS = {
     "ordinary": (
         "evals/fixtures/requests/pw0208-ordinary.txt",
@@ -59,8 +65,51 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def positive_int(value: Any, message: str) -> int:
+    require(type(value) is int and value > 0, message)
+    return value
+
+
+def validate_byte_ledgers(
+    transaction: dict[str, Any],
+    report: dict[str, Any],
+    progress_transaction: dict[str, Any],
+    *,
+    category: str,
+) -> dict[str, int]:
+    values = {
+        "transaction_logical_source_bytes": positive_int(
+            transaction["logical_source_bytes"],
+            f"{category}: transaction logical byte ledger",
+        ),
+        "transaction_process_disk_bytes_read": positive_int(
+            transaction["process_disk_bytes_read"],
+            f"{category}: transaction physical byte ledger",
+        ),
+        "report_logical_source_bytes": positive_int(
+            report["logical_source_bytes"], f"{category}: report logical byte ledger"
+        ),
+        "report_process_disk_bytes_read": positive_int(
+            report["process_disk_bytes_read"], f"{category}: report physical byte ledger"
+        ),
+    }
+    require(
+        values["transaction_logical_source_bytes"] <= values["report_logical_source_bytes"]
+        and values["transaction_process_disk_bytes_read"]
+        <= values["report_process_disk_bytes_read"],
+        f"{category}: transaction/report byte-ledger order",
+    )
+    require(
+        type(progress_transaction["process_disk_bytes_read"]) is int
+        and progress_transaction["process_disk_bytes_read"]
+        == values["transaction_process_disk_bytes_read"],
+        f"{category}: progress physical byte ledger",
+    )
+    return values
+
+
 def route_metrics(traces: list[dict[str, Any]]) -> dict[str, Any]:
-    require(len(traces) == 48, "verification trace must contain 48 layers")
+    require(len(traces) == LAYERS, "verification trace must contain 48 layers")
     identities: set[tuple[int, int]] = set()
     layer_u = []
     for layer, trace in enumerate(traces):
@@ -102,25 +151,72 @@ def route_metrics(traces: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def validate_proposal_traces(traces: list[list[dict[str, Any]]]) -> None:
+    require(len(traces) == VERIFIER_WIDTH - 1, "proposal trace must contain seven steps")
+    for step, layer_traces in enumerate(traces):
+        require(len(layer_traces) == LAYERS, f"proposal step {step} must contain 48 layers")
+        for layer, trace in enumerate(layer_traces):
+            require(int(trace["layer"]) == layer, "proposal layer indices are not contiguous")
+            selected = trace["selected_experts_by_position"]
+            weights = trace["route_weights_by_position"]
+            if layer == 0:
+                require(selected == [] and weights == [], "proposal dense layer zero contains routes")
+                require(math.isclose(float(trace["U"]), 0.0, abs_tol=1.0e-12), "proposal layer U mismatch")
+                continue
+            require(len(selected) == 1 and len(weights) == 1, "proposal route row count")
+            expert_row = selected[0]
+            weight_row = weights[0]
+            require(
+                len(expert_row) == 8
+                and len(set(expert_row)) == 8
+                and all(type(expert) is int and 0 <= expert < 256 for expert in expert_row),
+                "proposal expert route row mismatch",
+            )
+            require(
+                len(weight_row) == 8
+                and all(math.isfinite(float(weight)) and float(weight) > 0.0 for weight in weight_row)
+                and abs(math.fsum(map(float, weight_row)) - 1.0) <= 2.0e-5,
+                "proposal route weight row mismatch",
+            )
+            require(math.isclose(float(trace["U"]), 8.0, abs_tol=1.0e-12), "proposal layer U mismatch")
+
+
 def safety_gate(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
     require(bool(snapshots), "missing safety snapshots")
+    policy = HostSafetyPolicy()
     baseline_names = {
         name for name, pids in snapshots[0]["protected_service_pids"].items() if pids
     }
     require(bool(baseline_names), "missing protected service baseline")
-    require(
-        all(
-            int(row["swap_growth_bytes"]) == 0
-            and int(row["new_throttled_pages"]) == 0
-            and all(row["protected_service_pids"].get(name) for name in baseline_names)
-            for row in snapshots
-        ),
-        "Gate 8 safety mismatch",
-    )
+    for row in snapshots:
+        free_percent = positive_int(row["system_memory_free_percent"], "Gate 8 free-memory field")
+        footprint = positive_int(
+            row["process_physical_footprint_bytes"], "Gate 8 physical-footprint field"
+        )
+        peak = positive_int(row["process_peak_resident_bytes"], "Gate 8 peak-resident field")
+        require(
+            free_percent >= policy.minimum_system_memory_free_percent
+            and footprint <= policy.maximum_process_physical_footprint_bytes
+            and peak <= policy.maximum_process_physical_footprint_bytes
+            and (
+                not bool(row["release_boundary"])
+                or footprint <= policy.maximum_post_release_physical_footprint_bytes
+            )
+            and type(row["swap_growth_bytes"]) is int
+            and row["swap_growth_bytes"] == policy.maximum_swap_growth_bytes
+            and type(row["new_throttled_pages"]) is int
+            and row["new_throttled_pages"] == policy.maximum_new_throttled_pages
+            and all(row["protected_service_pids"].get(name) for name in baseline_names),
+            "Gate 8 safety mismatch",
+        )
     require(any(bool(row["release_boundary"]) for row in snapshots), "missing release boundary")
     return {
+        "pass": True,
         "minimum_system_memory_free_percent": min(
             int(row["system_memory_free_percent"]) for row in snapshots
+        ),
+        "maximum_process_physical_footprint_bytes": max(
+            int(row["process_physical_footprint_bytes"]) for row in snapshots
         ),
         "maximum_process_peak_resident_bytes": max(
             int(row["process_peak_resident_bytes"]) for row in snapshots
@@ -157,6 +253,8 @@ def analyze_report(
     )
     require(report["kernel_sha256"] == KERNEL_SHA256, f"{category}: kernel")
     require(report["metal_device"] == "Apple M1", f"{category}: hardware")
+    require(report["verifier_width"] == VERIFIER_WIDTH, f"{category}: verifier width")
+    require(report["proposer"] == TARGET_SELF_PROPOSER, f"{category}: proposer identity")
     require(report["user_prompt_utf8"] == prompt_path.read_text(), f"{category}: prompt text")
     require(
         report["requested_output_tokens"] == 2
@@ -190,6 +288,11 @@ def analyze_report(
     require(transaction["index"] == 0, f"{category}: transaction index")
     proposal = list(map(int, transaction["proposal_token_ids"]))
     posterior = list(map(int, transaction["posterior_token_ids"]))
+    require(
+        len(proposal) == VERIFIER_WIDTH and len(posterior) == VERIFIER_WIDTH,
+        f"{category}: q8 transaction width",
+    )
+    validate_proposal_traces(transaction["proposal_layer_traces"])
     commit_result = commit_fixture(proposal, posterior)
     authorized = list(map(int, transaction["verifier_authorized_token_ids"]))
     emitted = list(map(int, transaction["emitted_token_ids"]))
@@ -218,7 +321,16 @@ def analyze_report(
     )
     metrics = route_metrics(transaction["verification_layer_traces"])
     require(math.isclose(float(transaction["U"]), metrics["U"], abs_tol=1.0e-12), f"{category}: mean U")
+    require(math.isclose(float(progress[1]["U"]), metrics["U"], abs_tol=1.0e-12), f"{category}: progress U")
+    byte_ledgers = validate_byte_ledgers(
+        transaction, report, progress[1], category=category
+    )
     gate8 = safety_gate(report["safety_snapshots"])
+    require(
+        positive_int(report["peak_resident_bytes"], f"{category}: report peak resident")
+        == gate8["maximum_process_peak_resident_bytes"],
+        f"{category}: report/snapshot peak resident",
+    )
     components = sum(
         float(report[name])
         for name in (
@@ -251,10 +363,7 @@ def analyze_report(
         "U": metrics["U"],
         "A_per_U": full_a / metrics["U"],
         "route": metrics,
-        "transaction_logical_source_bytes": int(transaction["logical_source_bytes"]),
-        "transaction_process_disk_bytes_read": int(transaction["process_disk_bytes_read"]),
-        "report_logical_source_bytes": int(report["logical_source_bytes"]),
-        "report_process_disk_bytes_read": int(report["process_disk_bytes_read"]),
+        **byte_ledgers,
         "preprocessing_wall_ms": float(report["preprocessing_wall_ms"]),
         "prefill_wall_ms": float(report["prefill_wall_ms"]),
         "proposal_wall_ms": float(report["proposal_wall_ms"]),
@@ -299,11 +408,7 @@ def analyze(
     gate = {
         "all_four_category_reports_pass": len(categories) == 4,
         "at_least_three_full_match_bonus_branches": len(full_match_categories) >= 3,
-        "all_report_gate8_pass": all(
-            row["gate8"]["maximum_swap_growth_bytes"] == 0
-            and row["gate8"]["maximum_new_throttled_pages"] == 0
-            for row in categories
-        ),
+        "all_report_gate8_pass": all(row["gate8"]["pass"] for row in categories),
     }
     gate["pass"] = all(gate.values())
     safety.release_checkpoint("analysis_released", ["four pilot reports and route rows"])
