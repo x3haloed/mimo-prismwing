@@ -1727,8 +1727,16 @@ Run the following cheap falsifiers in order:
    `cyclic_mtp_012_v1` schedule, starting with only the first new layer-zero
    reuse on corrected code transaction zero. Any authenticated first-eight
    mismatch is combined with a candidate-favorable 12-GiB joint-residency
-   source-FP8 byte floor before a q32 verifier is built. The runner remains
-   blocked until the fresh PW-0328 code report hashes are frozen.
+   source-FP8 byte floor before a q32 verifier is built. The fresh PW-0328 code
+   report, progress, and verifier-hidden hashes are now frozen, authorizing the
+   proposal runner without authorizing a q32 verifier.
+37. [PW-0331](../experiments/PW-0331-byte-neutral-k4-rank1-repair.md)
+   predeclares the cheapest fidelity falsifier for the density-four/five K4
+   frontier. Every schema-2 K4 record already stores and executes rank-one
+   factors, but the current factors are zero. Fit only expert 96's down factors
+   from a leakage-free training split, preserve the exact record stride and
+   unchanged loader/kernel, and require the frozen unseen, validation, pilot,
+   routed, and layer-final gates before any Metal or density-five work.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

@@ -79,9 +79,20 @@ The executable record must fail closed on all of the following:
    `616ac368c4893517083fef39e58ecc41b85001cdac7ddedf9db66d3ea249b938`.
 3. The fresh PW-0328 code generation report, progress log, and verifier-hidden
    payload from clean capture commit
-   `26d2ea31852c0d63bd022df6d571fd722137c39f`. Their exact paths and SHA-256
-   values do not exist while this contract is first committed. Amend and freeze
-   them in a clean commit before authoring or executing the runner. Require the
+   `26d2ea31852c0d63bd022df6d571fd722137c39f`:
+   `/Volumes/Elements/mimo-prismwing/evidence/PW-0328/corpus-001/code/report.json`
+   SHA-256
+   `e5c896e72654bfdd963bc984293b742b3687d2fac9873444f2c591726e3dd287`,
+   `/Volumes/Elements/mimo-prismwing/evidence/PW-0328/corpus-001/code/report.progress.jsonl`
+   SHA-256
+   `77cd2af85d2b0f90f1e94de61947c4490589b8b4336c7f1746f83b48ac69df1e`,
+   and
+   `/Volumes/Elements/mimo-prismwing/evidence/PW-0328/corpus-001/code/verification-layer47-hidden.f32`
+   SHA-256
+   `31b9941ddd1446184ad1ef8050fda130cfc1aabb4115c1beb15bab943a211c2b`.
+   The independent corpus auditor passes nine chronological windows, eight
+   primary windows, transaction-zero full convergence, primary
+   `A=[8,8,2,8,8,8,8,8]`, and `A/U=1.5256751084371063`. Require the
    repaired target-bonus semantic, transaction zero, exact prompt/prefill
    agreement, all route rows, byte-ledger closure, and Gate 8. Transaction zero
    must be a full match with `proposal_converged=true`, full `A=8`, and eight
@@ -228,4 +239,5 @@ Unexecuted.
 
 ## Decision
 
-Unexecuted. Freeze the complete PW-0328 code hashes before runner authorship.
+Unexecuted. The complete PW-0328 code hashes are frozen; runner authorship is
+authorized from this clean commit.

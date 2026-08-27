@@ -5035,3 +5035,15 @@ and first anchor is not hidden-state parity. Recapture each prefill payload
 from the same clean commit and kernel as its corrected generation report;
 preserve the old payloads as historical native-MTP authority only. No
 throughput constant changes.
+
+PW-0331 preflight refines the remaining mixed K4/source branch around a newly
+observed constraint: all authenticated schema-2 K4 records already allocate and
+execute rank-one correction factors, but every factor is zero. Byte-growing
+fidelity alternatives consume the narrow projected one-TPS margin; the next K4
+semantic must therefore first attempt a byte-neutral repair that preserves the
+current record stride, loader, and kernel work. PW-0331 freezes a leakage-free,
+down-only expert-96 rank-one falsifier against PW-0316's rejected density-four
+row. It promotes no density-five bank, cache, default, or TPS claim. The schema-2
+manifest and PW-0316 rejection remain bound by SHA-256
+`ca2cd8005c3c8f712fabd0b2fc88183d740bd6613efa065cdd4b25738c4924c3`
+and `7e5560cf2cdc2abdec8ec1a17af0462f69fa7204f8ba528808ce1f046d0e6ff4`.
