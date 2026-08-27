@@ -944,6 +944,8 @@ struct LayerFixture {
     native_router_experts: Vec<u32>,
     native_router_weights: Vec<f32>,
     candidate_routed_f32: Vec<f32>,
+    #[serde(default)]
+    decode_candidate_routed_f32: Option<Vec<f32>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1036,6 +1038,10 @@ pub fn run_k4_source_metal_layer_fixture(
     ) || fixture.layer != bundle.layer
         || fixture.input_f32.len() != HIDDEN
         || fixture.candidate_routed_f32.len() != HIDDEN
+        || fixture
+            .decode_candidate_routed_f32
+            .as_ref()
+            .is_some_and(|values| values.len() != HIDDEN)
     {
         return Err("K4/source layer fixture identity mismatch".to_owned());
     }
@@ -1051,18 +1057,79 @@ pub fn run_k4_source_metal_layer_fixture(
     let mut reference_squared = 0.0_f64;
     let mut maximum_absolute_error = 0.0_f32;
     let mut unequal_count = 0;
-    for (&actual, &expected) in execution.output.iter().zip(&fixture.candidate_routed_f32) {
+    let mut mismatch_examples = Vec::new();
+    for (index, (&actual, &expected)) in execution
+        .output
+        .iter()
+        .zip(&fixture.candidate_routed_f32)
+        .enumerate()
+    {
         let error = actual - expected;
         error_squared += f64::from(error) * f64::from(error);
         reference_squared += f64::from(expected) * f64::from(expected);
         maximum_absolute_error = maximum_absolute_error.max(error.abs());
         unequal_count += usize::from(actual.to_bits() != expected.to_bits());
+        if actual.to_bits() != expected.to_bits() && mismatch_examples.len() < 8 {
+            mismatch_examples.push((
+                index,
+                actual.to_bits(),
+                expected.to_bits(),
+                actual,
+                expected,
+            ));
+        }
     }
     let relative_l2 = error_squared.sqrt() / reference_squared.sqrt().max(1.0e-30);
     if unequal_count != 0 || relative_l2 != 0.0 || maximum_absolute_error != 0.0 {
-        return Err(format!(
-            "K4/source Metal bit mismatch: unequal={unequal_count}, relative={relative_l2}, max={maximum_absolute_error}"
-        ));
+        let decode_candidate_bitexact = fixture
+            .decode_candidate_routed_f32
+            .as_ref()
+            .is_some_and(|expected| f32_slices_bit_equal(&execution.output, expected));
+        let bundle_sha256 = bundle.bundle_sha256.clone();
+        let bundle_bytes = bundle.bundle_bytes;
+        let layer = bundle.layer;
+        let fixture_semantic = fixture.semantic.clone();
+        drop(execution);
+        drop(runtime);
+        drop(bundle);
+        drop(fixture);
+        drop(fixture_bytes);
+        let (safety_snapshots, release_result) = safety.released_preserving();
+        let buffer_release_error = release_result.err();
+        let failure = serde_json::json!({
+            "schema_version": 1,
+            "semantic": "prismwing_k4_source_bundle_native_metal_layer_rejection",
+            "status": "rejected_batch_fixture_bit_mismatch",
+            "commit": commit,
+            "bundle_sha256": bundle_sha256,
+            "bundle_bytes": bundle_bytes,
+            "layer": layer,
+            "fixture_semantic": fixture_semantic,
+            "relative_l2": relative_l2,
+            "maximum_absolute_error": maximum_absolute_error,
+            "unequal_count": unequal_count,
+            "mismatch_examples": mismatch_examples,
+            "decode_candidate_bitexact": decode_candidate_bitexact,
+            "buffer_release_error": buffer_release_error,
+            "safety_snapshots": safety_snapshots,
+            "batch_size": 1,
+            "concurrency": 1,
+            "accepted_tokens": 0,
+            "performance_claim": null,
+            "decision": "reject_batch_derived_layer_fixture",
+        });
+        write_create_new(
+            output_path,
+            &serde_json::to_vec_pretty(&failure).map_err(|error| error.to_string())?,
+        )?;
+        return Err(match failure["buffer_release_error"].as_str() {
+            Some(release_error) => format!(
+                "K4/source Metal bit mismatch: unequal={unequal_count}, relative={relative_l2}, max={maximum_absolute_error}; buffer release also failed: {release_error}"
+            ),
+            None => format!(
+                "K4/source Metal bit mismatch: unequal={unequal_count}, relative={relative_l2}, max={maximum_absolute_error}, examples={mismatch_examples:?}"
+            ),
+        });
     }
     safety.checkpoint("k4_source_exact_parity")?;
     const WARMUPS: usize = 20;

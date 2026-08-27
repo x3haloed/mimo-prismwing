@@ -174,6 +174,23 @@ def mixed_row_qualified(
     )
 
 
+def replace_selected_position_outputs(
+    expert_down: np.ndarray,
+    layer_row: dict[str, Any],
+    position: int,
+    replacements: dict[int, np.ndarray],
+) -> np.ndarray:
+    result = np.asarray(expert_down, dtype=np.float32).copy()
+    for expert, output in replacements.items():
+        positions, _, _, offsets = selected_rows(layer_row, expert)
+        matches = np.flatnonzero(positions == position)
+        values = np.asarray(output, dtype=np.float32)
+        if len(matches) != 1 or values.shape != (1, result.shape[1]):
+            raise ValueError(f"selected-position source replacement mismatch: {expert}")
+        result[offsets[int(matches[0])]] = values[0]
+    return result
+
+
 def verify_install_for_sources(
     checkpoint_root: Path,
     receipt_path: Path,
@@ -271,6 +288,7 @@ def build(
     source_root = output / "source-fixtures"
     source_root.mkdir()
     source_records: dict[int, dict[str, Any]] = {}
+    source_single_outputs: dict[int, np.ndarray] = {}
     with modules["checkpoint"].Checkpoint(checkpoint_root) as checkpoint:
         for expert in config.source_experts:
             positions, _, _, offsets = selected_rows(layer_row, expert)
@@ -301,6 +319,10 @@ def build(
                 modules["panel"], moe_input, positions, exact, expected
             )
             selected_actual = actual[local : local + 1]
+            single_actual = modules["panel"].complete_outputs(
+                np.asarray(moe_input[POSITION : POSITION + 1], dtype=np.float32), exact
+            )["candidate_output_bf16_f32"]
+            source_single_outputs[expert] = single_actual
             fixture = {
                 "schema_version": 1,
                 "semantic": "source_fp8_exception_complete_expert_e3",
@@ -311,6 +333,7 @@ def build(
                 "expert_major_positions": positions.tolist(),
                 "expert_major_output_sha256": array_sha256(actual),
                 "output_sha256": array_sha256(selected_actual),
+                "one_row_output_sha256": array_sha256(single_actual),
             }
             fixture_path = expert_root / "fixture.json"
             fixture_path.write_bytes(canonical_json(fixture))
@@ -399,6 +422,22 @@ def build(
         }
         atomic_write_new(output / "rejection.json", canonical_json(rejection))
         raise ValueError(f"mixed row semantic gate failed: route={route_metric}, final={final_metric}")
+
+    decode_candidate_down = replace_selected_position_outputs(
+        candidate_down, layer_row, POSITION, source_single_outputs
+    )
+    decode_candidate_route = reconstruct_route(
+        decode_candidate_down, layer_row, modules["panel"].bf16
+    )
+    decode_candidate_final = modules["panel"].bf16(post_attention + decode_candidate_route)
+    decode_route_metric = metric(
+        source_routed[POSITION : POSITION + 1],
+        decode_candidate_route[POSITION : POSITION + 1],
+    )
+    decode_final_metric = metric(
+        source_final[POSITION : POSITION + 1],
+        decode_candidate_final[POSITION : POSITION + 1],
+    )
 
     tlut_path = paths["reference_export"] / "tlut.f32le"
     if sha256_file(tlut_path) != TLUT_FILE_SHA256:
@@ -492,8 +531,16 @@ def build(
         "candidate_routed_f32": np.asarray(candidate_route[POSITION], dtype=np.float32).tolist(),
         "source_final_f32": np.asarray(source_final[POSITION], dtype=np.float32).tolist(),
         "candidate_final_f32": np.asarray(candidate_final[POSITION], dtype=np.float32).tolist(),
+        "decode_candidate_routed_f32": np.asarray(
+            decode_candidate_route[POSITION], dtype=np.float32
+        ).tolist(),
+        "decode_candidate_final_f32": np.asarray(
+            decode_candidate_final[POSITION], dtype=np.float32
+        ).tolist(),
         "route_candidate_vs_source": route_metric,
         "final_candidate_vs_source": final_metric,
+        "decode_route_candidate_vs_source": decode_route_metric,
+        "decode_final_candidate_vs_source": decode_final_metric,
     }
     fixture_path = output / "layer04-position001.fixture.json"
     fixture_path.write_bytes(canonical_json(fixture))
@@ -513,7 +560,12 @@ def build(
         "bundle": {"file": bundle_path.name, "bytes": bundle_path.stat().st_size, "sha256": sha256_file(bundle_path)},
         "manifest": {"file": manifest_path.name, "sha256": sha256_file(manifest_path)},
         "fixture": {"file": fixture_path.name, "sha256": sha256_file(fixture_path)},
-        "semantic": {"route_candidate_vs_source": route_metric, "final_candidate_vs_source": final_metric},
+        "semantic": {
+            "route_candidate_vs_source": route_metric,
+            "final_candidate_vs_source": final_metric,
+            "decode_route_candidate_vs_source": decode_route_metric,
+            "decode_final_candidate_vs_source": decode_final_metric,
+        },
         "complete_seconds": time.monotonic() - started,
         "peak_rss_bytes": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
         "safety_snapshots": safety.evidence(),

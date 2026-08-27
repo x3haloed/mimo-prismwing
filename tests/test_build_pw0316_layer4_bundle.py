@@ -14,6 +14,7 @@ from tools.build_pw0316_layer4_bundle import (
     append_file,
     digest,
     mixed_row_qualified,
+    replace_selected_position_outputs,
     replay_source_expert,
 )
 
@@ -83,6 +84,26 @@ class Pw0316Layer4BundleTests(unittest.TestCase):
         self.assertFalse(
             mixed_row_qualified({"relative_l2": 0.0}, {"relative_l2": 0.01})
         )
+
+    def test_decode_diagnostic_replaces_only_the_selected_source_row(self):
+        layer_row = {
+            "expert_schedule": [
+                {"expert": 7, "positions": [0, 1]},
+                {"expert": 9, "positions": [1, 0]},
+            ],
+            "selected_experts_by_position": [[7, 9], [7, 9]],
+            "route_weights_by_position": [[0.5, 0.5], [0.5, 0.5]],
+        }
+        original = np.arange(8, dtype=np.float32).reshape(4, 2)
+        result = replace_selected_position_outputs(
+            original,
+            layer_row,
+            1,
+            {7: np.asarray([[100.0, 101.0]], dtype=np.float32)},
+        )
+        expected = original.copy()
+        expected[1] = [100.0, 101.0]
+        np.testing.assert_array_equal(result, expected)
 
 
 if __name__ == "__main__":
