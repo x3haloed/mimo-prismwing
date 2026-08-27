@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
 import os
@@ -292,6 +293,27 @@ def build(
     route_metric = metric(source_routed[POSITION : POSITION + 1], candidate_route[POSITION : POSITION + 1])
     final_metric = metric(source_final[POSITION : POSITION + 1], candidate_final[POSITION : POSITION + 1])
     if not mixed_row_qualified(route_metric, final_metric):
+        source_fixture_sha256 = {
+            str(expert): sha256_file(row["fixture_path"])
+            for expert, row in sorted(source_records.items())
+        }
+        del (
+            exact,
+            candidate_down,
+            candidate_route,
+            candidate_final,
+            moe_input,
+            expert_down,
+            source_routed,
+            post_attention,
+            source_final,
+        )
+        gc.collect()
+        safety.release_checkpoint(
+            "mixed_row_gate_rejected_buffers_released",
+            ["source weights", "PW-0116 captures", "candidate route staging"],
+        )
+        safety.checkpoint("final_service_health")
         rejection = {
             "schema_version": 1,
             "experiment_id": EXPERIMENT_ID,
@@ -305,10 +327,7 @@ def build(
             "route": list(ROUTE),
             "k4_experts": list(K4_EXPERTS),
             "source_experts": list(SOURCE_EXPERTS),
-            "source_fixture_sha256": {
-                str(expert): sha256_file(row["fixture_path"])
-                for expert, row in sorted(source_records.items())
-            },
+            "source_fixture_sha256": source_fixture_sha256,
             "semantic": {
                 "route_candidate_vs_source": route_metric,
                 "final_candidate_vs_source": final_metric,
