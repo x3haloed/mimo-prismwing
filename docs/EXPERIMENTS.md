@@ -1595,6 +1595,12 @@ Run the following cheap falsifiers in order:
    gate. Conditionally authorize only expert 199 and prohibit expert-41
    expansion under this revision. Do not generalize to arbitrary identities or
    layers.
+20. [PW-0314](../experiments/PW-0314-full-checkpoint-layer4-k4.md) moves the
+   target-native recipe off the recovered layer-28 mini-checkpoint. It binds the
+   verified full-checkpoint installation receipt, constructs layer-4 expert 64,
+   requires exact source replay across its 181 real PW-0116 placements, gates
+   routed quality separately on train, validation, and pilot holdout, and
+   requires a fresh-process byte-identical repeat before any layer-bank scaling.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
