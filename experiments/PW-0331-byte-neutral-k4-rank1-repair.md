@@ -1,6 +1,6 @@
 # PW-0331 — Byte-neutral K4 down-rank-one repair
 
-- Status: proposed; unexecuted
+- Status: in progress; first construction attempt failed closed before output
 - Disposition: unexecuted
 - Date: 2026-08-27
 - Owner: Codex
@@ -31,6 +31,36 @@ ordinary/rare storage margin, whereas a correction inside the existing
 `12,877,824`-byte stride can improve fidelity without worsening the byte bound.
 The observable invariant is byte-neutral fidelity improvement; rank-one repair
 is the first mechanism tested against it.
+
+## Rejected first-execution assumption
+
+The first construction attempt ran from clean commit
+`4668145fd8f4a5b8970f09f885b109efb1730e98` with runner SHA-256
+`fb28916c4b7698ae5723daa87e87c13b910ed434ea8ce01db6d2613e3afecb9b`.
+It failed before fitting, output creation, or held-out access because the runner
+required the serialized Stage-A answer to be bit-identical to PW-0315's
+historical dense-matrix replay. Its one-line error output hashes to
+`593ab6bef474a084bc8f8932f87a3f3cc83271cda5f50c96fb73bacaeeba15da`.
+
+That equality premise is invalid. The historical helper evaluates decoded K4
+weights with NumPy `matmul`; Stage A intentionally follows the current
+serialized signed-FWHT, 64-lane FMA/reduction tree, output-FWHT, and finish
+order. Their input is bit-identical, but F32 reduction order can cross BF16
+rounding boundaries. Two independent fit-only diagnostic processes reproduce
+the same fingerprints: 67 of 221,184 gate values, 100 of 221,184 up values,
+and 226 of 442,368 final values differ in BF16 bits. Final maximum absolute
+difference is `0.5` and relative L2 is `0.00007222118628287446`. This is not a
+weight, layout, held-out, or fidelity-gate mismatch.
+
+The complete observation is frozen in
+`evals/fixtures/tiny/pw0331-serialized-dense-control.json`, SHA-256
+`1666c47f7f0a883546fdfd710cd9a3b228aa82afc24f8118636a09aeb21d7676`.
+The repair must authenticate both independently computed paths and require the
+exact stage hashes and mismatch ledger in that fixture; it must not require the
+two numerical orders to be equal. The serialized path remains the fit and
+Stage-A authority. The historical dense path remains the authority for replay
+of the published PW-0315/PW-0316 bits and scalars. All held-out thresholds and
+the separate Stage-B Metal answer key remain unchanged.
 
 ## Frozen authorities
 
@@ -158,7 +188,10 @@ accepted-TPS claim follows.
 
 1. Authenticate exact source replay and all published zero-correction
    PW-0315/PW-0316 hashes and scalars without exposing held-out payloads to the
-   construction process.
+   construction process. Independently replay the fit-only serialized and
+   historical dense controls and require every frozen fingerprint in the
+   serialized/dense control fixture; equality between those two arithmetic
+   orders is explicitly not a gate.
 2. Build the factors twice in fresh processes from one clean pushed commit.
    Require byte-identical factors and a timing-free deterministic tree.
 3. In a separate held-out analysis process, require two distinct sliced gate
@@ -202,7 +235,9 @@ expert after observing this result.
   serialization, and scalar application;
 - reject wrong authority, rank, shape, dtype, nonfinite, zero-product, tamper,
   or implementation hash;
-- zero factors reproduce PW-0315/PW-0316 bits;
+- zero factors reproduce PW-0315/PW-0316 bits through the frozen historical
+  dense path, while the fit-only serialized path independently reproduces the
+  exact serialized/dense control fixture and its nonzero mismatch ledger;
 - factor-content changes preserve logical bytes, offsets, and stride;
 - exact exclusive `0.01` and `0.05` gates and stage precedence;
 - deterministic two-run evidence tree and exact Rust/Metal readback; and
@@ -231,8 +266,15 @@ Both construction and execution reports set `accepted_tokens: 0`, `A: 0`,
 
 ## Result
 
-Unexecuted.
+The first construction attempt rejected before producing a factor or opening a
+held-out payload. The rejected result is the bit-identity assumption between
+two different reduction orders, not the down-only rank-one embodiment. The
+semantic fit and all correctness gates remain unexecuted.
 
 ## Decision
 
-Unexecuted. Stage A is the only authorized first action.
+Supersede the invalid cross-order equality check. Authorize a corrected
+fit-only runner that fail-closes on both exact fingerprints, then repeat factor
+construction in two fresh processes from one new clean commit. Stage A remains
+the only authorized semantic action; any fingerprint, repeated-factor, or
+unchanged fidelity-gate failure rejects this embodiment.

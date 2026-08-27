@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "experiment_id": "PW-0331",
+  "semantic": "fit_only_zero_factor_serialized_vs_historical_dense_control_v1",
+  "failed_execution": {
+    "commit": "4668145fd8f4a5b8970f09f885b109efb1730e98",
+    "runner_sha256": "fb28916c4b7698ae5723daa87e87c13b910ed434ea8ce01db6d2613e3afecb9b",
+    "error_stdout_sha256": "593ab6bef474a084bc8f8932f87a3f3cc83271cda5f50c96fb73bacaeeba15da",
+    "output_created": false,
+    "held_out_payloads_opened": false
+  },
+  "diagnostic": {
+    "independent_process_replays": 2,
+    "fit_rows": 108,
+    "held_out_payloads_opened": false,
+    "stages": {
+      "dynamic_input_f32": {
+        "elements": 442368,
+        "bit_mismatches": 0,
+        "max_abs": 0.0,
+        "relative_l2": 0.0,
+        "serialized_sha256": "cc52caecc4e9759e7fd1db3eb86c92834a1ec20101225fbbf082fc74ea977a7e",
+        "historical_dense_sha256": "cc52caecc4e9759e7fd1db3eb86c92834a1ec20101225fbbf082fc74ea977a7e"
+      },
+      "gate_bf16_f32": {
+        "elements": 221184,
+        "bit_mismatches": 67,
+        "max_abs": 0.03125,
+        "relative_l2": 0.000052871497860750106,
+        "serialized_sha256": "f64827176c1356477c27df65bb1d2f43bf48a3bc2f1a696bd726b00e56ffd33a",
+        "historical_dense_sha256": "10900b23717466c6ffa47a109f3b667ecfb0be9a6ab97f552725b35858f71c97"
+      },
+      "up_bf16_f32": {
+        "elements": 221184,
+        "bit_mismatches": 100,
+        "max_abs": 0.03125,
+        "relative_l2": 0.0000482383471781396,
+        "serialized_sha256": "edd8f903ee030c624e952fa355a3d1aa982be168420e22eb76d3ea446c253fe6",
+        "historical_dense_sha256": "33f3527d4271cd71039a562f29c3355e5945c5333935a9a55dc92876698da48a"
+      },
+      "hidden_bf16_f32": {
+        "elements": 221184,
+        "bit_mismatches": 143,
+        "max_abs": 0.0625,
+        "relative_l2": 0.000013370999171051851,
+        "serialized_sha256": "865aafa4367e34a1bcfcf202ac24e9371e9cf75702eb81e46ae5ad07bef6bdd3",
+        "historical_dense_sha256": "876f88a6e9101cb24286974ee6b90e5024a6c944d8b58a6561d63b4a7e072423"
+      },
+      "dynamic_hidden_f32": {
+        "elements": 221184,
+        "bit_mismatches": 4,
+        "max_abs": 0.39508914947509766,
+        "relative_l2": 0.00006365680786416775,
+        "serialized_sha256": "060bfb1f4d6f90fb33979573e9491a9489d4c2aea46d4f2c20304db1b1bcd018",
+        "historical_dense_sha256": "7a03c5ead66ec44e40df4b9156e066babc23b87a49a7aa27d5ae52c552ddf6f4"
+      },
+      "candidate_output_bf16_f32": {
+        "elements": 442368,
+        "bit_mismatches": 226,
+        "max_abs": 0.5,
+        "relative_l2": 0.00007222118628287446,
+        "serialized_sha256": "0eb5aa4509c0e1a1b3f51c2bf49a48a1b0524c45aea6c1048703a711c7c76fc0",
+        "historical_dense_sha256": "76d21eab00d2e8a0f4507f07ae7cf5078921eeb6162a8f434bc3ffddf75b257d"
+      }
+    }
+  },
+  "disposition": "supersede_bit_identity_assumption_keep_both_exactly_fingerprinted_paths"
+}

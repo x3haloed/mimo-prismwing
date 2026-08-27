@@ -1739,7 +1739,11 @@ Run the following cheap falsifiers in order:
    factors, but the current factors are zero. Fit only expert 96's down factors
    from a leakage-free training split, preserve the exact record stride and
    unchanged loader/kernel, and require the frozen unseen, validation, pilot,
-   routed, and layer-final gates before any Metal or density-five work.
+   routed, and layer-final gates before any Metal or density-five work. Its
+   first fit attempt failed closed before output because it incorrectly
+   required the serialized kernel-order slow reference to be bit-identical to
+   the historical dense-matmul replay. Exact fit-only fingerprints now preserve
+   both orders without weakening any held-out or Metal gate.
 38. [PW-0332](../experiments/PW-0332-exact-top7-token-cache-oracle.md)
    predeclares a canonical closure test for the remaining exact source-FP8
    codec composition. It grants the top-seven exponent format its impossible

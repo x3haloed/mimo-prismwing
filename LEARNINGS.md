@@ -5113,3 +5113,23 @@ constants and now hashes to
 `5683eec64d019f25804c09c05b8c75f29185e4861f39231085fa4f002b43b961`.
 No K4 fidelity, cache implementation, runtime default, multimodal promotion,
 or companion-hardware branch follows.
+
+PW-0331's first construction attempt reveals another numerical-authority
+prediction error before any factor or held-out access. The runner assumed that
+zero correction made the serialized kernel-order Stage-A replay bit-identical
+to PW-0315's historical decoded-weight NumPy `matmul`. Zero correction preserves
+the mathematical weights, but it does not erase the different F32 reduction
+orders. On the 108 fit rows, inputs are bit-identical while 67 gate, 100 up,
+and 226 final BF16 elements cross rounding boundaries; final relative L2 is
+`0.00007222118628287446`. Two fresh diagnostic processes reproduce every hash
+and count. The failed runner's output hash is
+`593ab6bef474a084bc8f8932f87a3f3cc83271cda5f50c96fb73bacaeeba15da`,
+and no fit directory exists.
+
+Supersede only the cross-order equality assumption. Freeze both paths and their
+nonzero mismatch ledger in the tiny control fixture, keep serialized order as
+the fit/Stage-A authority, and keep the historical dense path for exact replay
+of published PW-0315/PW-0316 evidence. The unseen, validation, pilot, routed,
+layer-final, exclusive `0.01`/`0.05`, and Stage-B Metal gates do not change.
+This is a fail-closed provenance repair, not a tolerance relaxation or K4
+fidelity result; the throughput model and runtime defaults remain unchanged.
