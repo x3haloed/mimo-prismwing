@@ -33,6 +33,7 @@ class Pw0318SummaryTests(unittest.TestCase):
                 "minimum_system_memory_free_percent": 68,
                 "maximum_process_peak_resident_bytes": 12,
                 "maximum_process_physical_footprint_bytes": 8,
+                "maximum_release_physical_footprint_bytes": 4,
                 "maximum_swap_growth_bytes": 0,
                 "maximum_new_throttled_pages": 0,
             },

@@ -36,8 +36,12 @@ def sha256_file(path: Path) -> str:
 
 def safety_extrema(reports: list[dict[str, Any]]) -> dict[str, int]:
     snapshots = [snapshot for report in reports for snapshot in report["safety_snapshots"]]
-    if not snapshots or not any(snapshot["release_boundary"] for snapshot in snapshots):
+    if not snapshots or not all(
+        any(snapshot["release_boundary"] for snapshot in report["safety_snapshots"])
+        for report in reports
+    ):
         raise ValueError("PW-0318 safety evidence lacks a release boundary")
+    releases = [snapshot for snapshot in snapshots if snapshot["release_boundary"]]
     return {
         "minimum_system_memory_free_percent": min(
             int(snapshot["system_memory_free_percent"]) for snapshot in snapshots
@@ -47,6 +51,9 @@ def safety_extrema(reports: list[dict[str, Any]]) -> dict[str, int]:
         ),
         "maximum_process_physical_footprint_bytes": max(
             int(snapshot["process_physical_footprint_bytes"]) for snapshot in snapshots
+        ),
+        "maximum_release_physical_footprint_bytes": max(
+            int(snapshot["process_physical_footprint_bytes"]) for snapshot in releases
         ),
         "maximum_swap_growth_bytes": max(
             int(snapshot["swap_growth_bytes"]) for snapshot in snapshots
@@ -122,7 +129,10 @@ def summarize(
                 "build_peak_rss_bytes": build["peak_rss_bytes"],
                 "complete_call_wall": metal["complete_call_wall"],
                 "gpu_time": metal["gpu_time"],
-                "safety_snapshots": metal["safety_snapshots"],
+                "safety_snapshots": [
+                    *build["safety_snapshots"],
+                    *metal["safety_snapshots"],
+                ],
             }
         )
     first_build = json.loads((run_roots[0] / "build.json").read_text())
