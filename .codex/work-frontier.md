@@ -37,6 +37,11 @@ full-capability, and complete-path performance gates.
   PW-0316's four-K4 position-1 row fails its stricter one-percent routed gate;
   the next integration slice must reduce the active modified subset without
   weakening that boundary.
+- PW-0116's expert-major prefill capture remains the source-fidelity comparator,
+  but it is not a bit-exact answer key for a one-row decode GEMM. PW-0317's
+  Metal result matches an independent one-row source candidate exactly while
+  differing from the batch capture at two BF16 values; these authorities must
+  stay named and separately gated.
 
 ## Prediction errors
 

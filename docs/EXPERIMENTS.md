@@ -1625,6 +1625,13 @@ Run the following cheap falsifiers in order:
    exclusive `0.01` gate. Reject before bundle or Metal execution. Retain the
    layer-generic loader and test the pre-audited `[64,232,31]` 3/5 subset in a
    new experiment; do not weaken the row gate.
+23. [PW-0317](../experiments/PW-0317-layer4-three-five-k4-source-metal.md)
+   restores expert 96 to source and passes the unchanged row-local semantic
+   gate, then rejects because Metal differs from the PW-0116 expert-major
+   batch fixture at 2 of 4,096 values. An additive one-row decode oracle matches
+   Metal bit-for-bit and remains well below the source-distance gate. Preserve
+   the rejection and test that distinct decode authority only under a new
+   contract; do not retroactively change PW-0317's answer key.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

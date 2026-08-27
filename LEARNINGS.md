@@ -4778,3 +4778,22 @@ slice. Kill this 4/4 transaction and test the pre-audited 3/5 subset
 hashes to `7e5560cf2cdc2abdec8ec1a17af0462f69fa7204f8ba528808ce1f046d0e6ff4`.
 Gate 8 passes through release; zero tokens were accepted, so no throughput
 constant or runtime default changes.
+
+PW-0317 proves that the source batch-shape invariant has two distinct uses.
+The three-K4/five-source composition passes its source-distance gate at
+`0.00666233943` routed and `0.00197441695` layer-final relative L2, and its
+schema-2 bundle passes exact Rust readback. But Metal differs from the
+PW-0116 expert-major batch answer at 2 of 4,096 values (`0.000052421406`
+relative L2, `0.001953125` maximum absolute error), so the predeclared batch
+fixture must be rejected before timing.
+
+An independently embedded one-row source diagnostic matches every Metal output
+bit and remains at `0.00666279289` routed relative L2 versus the batch source
+route. Supersede the assumption that a prefill-batch capture is also the
+bit-exact implementation answer key for decode-row execution. Retain the batch
+capture as the frozen source-fidelity comparator; give one-row decode arithmetic
+its own named fixture and exact implementation-parity gate. The canonical
+rejection hashes to
+`7e9ca112a27de9742bcad371655c6fb0a206a7e6802d2f94d9b8ef6056676080`.
+Gate 8 passes through release. Zero tokens were accepted, so no throughput
+constant or runtime default changes.

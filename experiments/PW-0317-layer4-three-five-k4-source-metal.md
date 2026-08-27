@@ -1,7 +1,7 @@
 # PW-0317 — Layer-4 three-K4/five-source mixed Metal transaction
 
-- Status: planned
-- Disposition: pending
+- Status: completed
+- Disposition: rejected at batch-derived Metal parity gate
 - Date: 2026-08-26
 - Owner: Codex
 - Parent experiment: PW-0316
@@ -84,3 +84,51 @@ target-host Metal transaction rather than adding a new kernel shape.
 - full-bank coverage, a complete decoder, or accepted-token execution;
 - hosted, multilingual, modality, long-context, or capability equivalence;
 - Prismwing-2, 34.3 TPS, or Prismwing 50 completion.
+
+## Result
+
+The clean `d030ae26132e8d8f198cc0e706ed64103d11896a` build passes every
+authority, exact expert-major source replay, row-local semantic, alignment,
+hash, loader, and Gate 8 construction gate. The bundle is 164,724,736 bytes
+and hashes to
+`e87a0af2aba57f46b6a2f394d70e530533d04c18aa61650afbc8528a4b8bdc35`.
+The loader report hashes to
+`9a5bc472dd876e9fa9c8f3592ae6402e9a5460eda9a863ba7de4b8207b8a1ea7`.
+
+The predeclared batch-derived candidate measures `0.00666233943` routed and
+`0.00197441695` layer-final relative L2 versus PW-0116 source, so the unchanged
+one-percent semantic gates pass. Metal then rejects before warmups: 2 of 4,096
+candidate F32 bit patterns differ, with relative L2 `0.000052421406` and
+maximum absolute error `0.001953125`. The mismatches are:
+
+- column 650: Metal `-0.15234375`, batch-derived fixture `-0.1533203125`;
+- column 3163: Metal `0.296875`, batch-derived fixture `0.294921875`.
+
+An additive diagnostic recomputes all five exact-source fallbacks as true
+one-row operations while retaining the same K4 outputs and route order. Metal
+matches that independently constructed decode candidate bit-for-bit. Its
+relative L2 versus the batch PW-0116 source route is `0.00666279289`, and its
+layer-final metric remains `0.00197441695`. This localizes the discrepancy to
+source GEMM batch shape: PW-0116 captured expert-major prefill batches, while
+the transaction executes one decode row. It does not authorize changing the
+declared PW-0317 answer key after observation.
+
+The canonical rejection report is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0317/build-003/metal-run.json`
+and hashes to
+`7e9ca112a27de9742bcad371655c6fb0a206a7e6802d2f94d9b8ef6056676080`.
+Gate 8 passes through buffer release with 68% minimum system-free memory,
+183,975,936-byte peak RSS, 8,979,968-byte release footprint, zero swap growth
+or new throttled pages, and stable protected services. The run accepts zero
+tokens and makes no performance claim.
+
+## Decision
+
+Reject PW-0317 under its batch-derived bit-parity contract and do not run its
+warmup/timed series. Preserve the bundle and generalized runtime as diagnostic
+artifacts only. Open a separate decode-authority experiment that keeps the
+batch source route as the external numerical-fidelity comparator but names the
+independently constructed one-row source result as the Metal implementation
+answer key. Require exact Metal parity, repeated construction, and unchanged
+one-percent source-distance gates there. No throughput-model constant or
+runtime default changes.
