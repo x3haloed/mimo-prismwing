@@ -1711,6 +1711,13 @@ Run the following cheap falsifiers in order:
    history, avoiding the legacy builder's now-insufficient nine-transaction
    requirement without weakening the native-MTP history contract. Only a
    complete 32-window manifest may feed the next Prismwing-1 envelope.
+35. [PW-0329](../experiments/PW-0329-corrected-k4-joint-residency-bound.md)
+   predeclares a common-inclusive Prismwing-1 kill bound over the corrected
+   PW-0328 corpus. It charges one joint common-plus-expert residency budget,
+   distinguishes exact logical traffic from page allocation, and evaluates
+   relaxed density ceilings separately from row-feasible fixed banks before
+   any K4 construction. The record remains non-executable until PW-0328's
+   completed manifest hash is frozen in a clean commit.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
