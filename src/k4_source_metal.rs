@@ -1035,6 +1035,7 @@ pub fn run_k4_source_metal_layer_fixture(
             | "pw0424_layer28_three_k4_five_source_native_fixture"
             | "pw0316_layer4_four_k4_four_source_fixture"
             | "pw0317_layer4_three_k4_five_source_fixture"
+            | "pw0318_layer4_three_k4_five_source_decode_fixture"
     ) || fixture.layer != bundle.layer
         || fixture.input_f32.len() != HIDDEN
         || fixture.candidate_routed_f32.len() != HIDDEN

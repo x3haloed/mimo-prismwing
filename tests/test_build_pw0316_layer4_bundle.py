@@ -28,6 +28,8 @@ class Pw0316Layer4BundleTests(unittest.TestCase):
         self.assertEqual(ROUTE, NATIVE_ROUTE)
         self.assertEqual(CONFIGS["PW-0316"].k4_experts, (96, 64, 232, 31))
         self.assertEqual(CONFIGS["PW-0317"].k4_experts, (64, 232, 31))
+        self.assertFalse(CONFIGS["PW-0317"].decode_answer_key)
+        self.assertTrue(CONFIGS["PW-0318"].decode_answer_key)
         for config in CONFIGS.values():
             self.assertFalse(set(config.k4_experts) & set(config.source_experts))
             self.assertEqual(

@@ -73,6 +73,7 @@ class BundleConfig:
     fixture_semantic: str
     ready_status: str
     rejection_decision: str
+    decode_answer_key: bool
 
 
 EXPERIMENT_ID = "PW-0316"
@@ -86,6 +87,7 @@ CONFIGS = {
         fixture_semantic="pw0316_layer4_four_k4_four_source_fixture",
         ready_status="layer4_four_four_bundle_ready",
         rejection_decision="kill_four_k4_four_source_mixed_transaction",
+        decode_answer_key=False,
     ),
     "PW-0317": BundleConfig(
         experiment_id="PW-0317",
@@ -94,6 +96,16 @@ CONFIGS = {
         fixture_semantic="pw0317_layer4_three_k4_five_source_fixture",
         ready_status="layer4_three_five_bundle_ready",
         rejection_decision="kill_three_k4_five_source_mixed_transaction",
+        decode_answer_key=False,
+    ),
+    "PW-0318": BundleConfig(
+        experiment_id="PW-0318",
+        k4_experts=(64, 232, 31),
+        source_experts=(96, 88, 245, 223, 151),
+        fixture_semantic="pw0318_layer4_three_k4_five_source_decode_fixture",
+        ready_status="layer4_three_five_decode_bundle_ready",
+        rejection_decision="kill_three_k4_five_source_decode_transaction",
+        decode_answer_key=True,
     ),
 }
 # Backward-compatible aliases preserve the frozen PW-0316 contract.
@@ -438,6 +450,13 @@ def build(
         source_final[POSITION : POSITION + 1],
         decode_candidate_final[POSITION : POSITION + 1],
     )
+    if config.decode_answer_key and not mixed_row_qualified(
+        decode_route_metric, decode_final_metric
+    ):
+        raise ValueError(
+            "decode row semantic gate failed: "
+            f"route={decode_route_metric}, final={decode_final_metric}"
+        )
 
     tlut_path = paths["reference_export"] / "tlut.f32le"
     if sha256_file(tlut_path) != TLUT_FILE_SHA256:
@@ -510,8 +529,12 @@ def build(
             "experts": list(NATIVE_ROUTE),
             "weights": weights.tolist(),
             "candidate_relative_l2": route_metric["relative_l2"],
+            "decode_candidate_relative_l2": decode_route_metric["relative_l2"],
             "maximum_relative_l2": 0.01,
             "correctness_qualified": True,
+            "metal_answer_key": "decode_one_row"
+            if config.decode_answer_key
+            else "expert_major_batch",
         },
         "identity_policy": "selected expert IDs must match bundle records exactly; no substitution",
         "spec_sha256": sha256_file(spec_path),
@@ -519,6 +542,14 @@ def build(
     }
     manifest_path = output / "layer04-position001.k4-source.manifest.json"
     manifest_path.write_bytes(canonical_json(manifest))
+    metal_candidate_route = (
+        decode_candidate_route if config.decode_answer_key else candidate_route
+    )
+    metal_candidate_final = (
+        decode_candidate_final if config.decode_answer_key else candidate_final
+    )
+    metal_route_metric = decode_route_metric if config.decode_answer_key else route_metric
+    metal_final_metric = decode_final_metric if config.decode_answer_key else final_metric
     fixture = {
         "schema_version": 1,
         "semantic": config.fixture_semantic,
@@ -528,9 +559,19 @@ def build(
         "native_router_experts": list(NATIVE_ROUTE),
         "native_router_weights": weights.tolist(),
         "source_routed_f32": np.asarray(source_routed[POSITION], dtype=np.float32).tolist(),
-        "candidate_routed_f32": np.asarray(candidate_route[POSITION], dtype=np.float32).tolist(),
+        "candidate_routed_f32": np.asarray(
+            metal_candidate_route[POSITION], dtype=np.float32
+        ).tolist(),
         "source_final_f32": np.asarray(source_final[POSITION], dtype=np.float32).tolist(),
-        "candidate_final_f32": np.asarray(candidate_final[POSITION], dtype=np.float32).tolist(),
+        "candidate_final_f32": np.asarray(
+            metal_candidate_final[POSITION], dtype=np.float32
+        ).tolist(),
+        "batch_candidate_routed_f32": np.asarray(
+            candidate_route[POSITION], dtype=np.float32
+        ).tolist(),
+        "batch_candidate_final_f32": np.asarray(
+            candidate_final[POSITION], dtype=np.float32
+        ).tolist(),
         "decode_candidate_routed_f32": np.asarray(
             decode_candidate_route[POSITION], dtype=np.float32
         ).tolist(),
@@ -541,6 +582,11 @@ def build(
         "final_candidate_vs_source": final_metric,
         "decode_route_candidate_vs_source": decode_route_metric,
         "decode_final_candidate_vs_source": decode_final_metric,
+        "metal_answer_key": "decode_one_row"
+        if config.decode_answer_key
+        else "expert_major_batch",
+        "metal_route_candidate_vs_source": metal_route_metric,
+        "metal_final_candidate_vs_source": metal_final_metric,
     }
     fixture_path = output / "layer04-position001.fixture.json"
     fixture_path.write_bytes(canonical_json(fixture))
@@ -565,6 +611,11 @@ def build(
             "final_candidate_vs_source": final_metric,
             "decode_route_candidate_vs_source": decode_route_metric,
             "decode_final_candidate_vs_source": decode_final_metric,
+            "metal_answer_key": "decode_one_row"
+            if config.decode_answer_key
+            else "expert_major_batch",
+            "metal_route_candidate_vs_source": metal_route_metric,
+            "metal_final_candidate_vs_source": metal_final_metric,
         },
         "complete_seconds": time.monotonic() - started,
         "peak_rss_bytes": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
