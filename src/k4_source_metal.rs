@@ -998,6 +998,7 @@ pub struct K4SourceMetalLayerReport {
     pub source_function_preserved: bool,
     pub identity_substitution_allowed: bool,
     pub candidate_route_gate_pass: bool,
+    pub safety_snapshots: Vec<SafetySnapshot>,
     pub status: &'static str,
 }
 
@@ -1019,6 +1020,7 @@ pub fn run_k4_source_metal_layer_fixture(
     {
         return Err("implementation commit must be lowercase 40-hex".to_owned());
     }
+    let mut safety = ComponentSafetyMonitor::start_normative()?;
     let fixture_bytes =
         fs::read(fixture_path).map_err(|error| format!("{}: {error}", fixture_path.display()))?;
     let fixture: LayerFixture = serde_json::from_slice(&fixture_bytes)
@@ -1038,6 +1040,7 @@ pub fn run_k4_source_metal_layer_fixture(
         return Err("K4/source layer fixture identity mismatch".to_owned());
     }
     let runtime = K4SourceMetalRuntime::compile(kernel_root)?;
+    safety.checkpoint("k4_source_bundle_and_runtime_ready")?;
     let execution = runtime.execute(
         &bundle,
         &fixture.input_f32,
@@ -1056,11 +1059,12 @@ pub fn run_k4_source_metal_layer_fixture(
         unequal_count += usize::from(actual.to_bits() != expected.to_bits());
     }
     let relative_l2 = error_squared.sqrt() / reference_squared.sqrt().max(1.0e-30);
-    if relative_l2 > 1.0e-3 || maximum_absolute_error > 1.0e-3 {
+    if unequal_count != 0 || relative_l2 != 0.0 || maximum_absolute_error != 0.0 {
         return Err(format!(
-            "K4/source Metal E3 mismatch: relative={relative_l2}, max={maximum_absolute_error}"
+            "K4/source Metal bit mismatch: unequal={unequal_count}, relative={relative_l2}, max={maximum_absolute_error}"
         ));
     }
+    safety.checkpoint("k4_source_exact_parity")?;
     const WARMUPS: usize = 20;
     const SAMPLES: usize = 100;
     for _ in 0..WARMUPS {
@@ -1074,6 +1078,7 @@ pub fn run_k4_source_metal_layer_fixture(
             return Err("K4/source warm execution is not deterministic".to_owned());
         }
     }
+    safety.checkpoint("k4_source_warmups_complete")?;
     let mut command_wall = Vec::with_capacity(SAMPLES);
     let mut gpu_time = Vec::with_capacity(SAMPLES);
     let mut complete_call_wall = Vec::with_capacity(SAMPLES);
@@ -1092,33 +1097,54 @@ pub fn run_k4_source_metal_layer_fixture(
             return Err("K4/source sampled execution is not deterministic".to_owned());
         }
     }
+    safety.checkpoint("k4_source_timed_series_complete")?;
+    let command_wall = timing_distribution(&command_wall);
+    let gpu_time = timing_distribution(&gpu_time);
+    let complete_call_wall = timing_distribution(&complete_call_wall);
+    let bundle_sha256 = bundle.bundle_sha256.clone();
+    let bundle_bytes = bundle.bundle_bytes;
+    let layer = bundle.layer;
+    let route_candidate_relative_l2 = bundle.route_candidate_relative_l2;
+    let candidate_route_gate_pass = bundle.candidate_route_gate_pass;
+    let device = runtime.device_name.clone();
+    let compile_ms = runtime.compile_ms;
+    let expert_ids = fixture.native_router_experts.clone();
+    let first_command_wall_ms = execution.wall_ms;
+    let first_gpu_ms = execution.gpu_ms;
+    drop(execution);
+    drop(runtime);
+    drop(bundle);
+    drop(fixture);
+    drop(fixture_bytes);
+    let safety_snapshots = safety.released()?;
     let report = K4SourceMetalLayerReport {
-        schema_version: 1,
+        schema_version: 2,
         semantic: "prismwing_k4_source_bundle_native_metal_layer",
         commit: commit.to_owned(),
-        bundle_sha256: bundle.bundle_sha256,
-        bundle_bytes: bundle.bundle_bytes,
-        layer: bundle.layer,
-        device: runtime.device_name,
-        compile_ms: runtime.compile_ms,
-        first_command_wall_ms: execution.wall_ms,
-        first_gpu_ms: execution.gpu_ms,
+        bundle_sha256,
+        bundle_bytes,
+        layer,
+        device,
+        compile_ms,
+        first_command_wall_ms,
+        first_gpu_ms,
         warmups: WARMUPS,
         samples: SAMPLES,
-        command_wall: timing_distribution(&command_wall),
-        gpu_time: timing_distribution(&gpu_time),
-        complete_call_wall: timing_distribution(&complete_call_wall),
+        command_wall,
+        gpu_time,
+        complete_call_wall,
         relative_l2,
         maximum_absolute_error,
         unequal_count,
-        expert_ids: fixture.native_router_experts,
-        route_candidate_relative_l2: bundle.route_candidate_relative_l2,
+        expert_ids,
+        route_candidate_relative_l2,
         exactness_class: K4_EXACTNESS_CLASS,
         expert_identity_preserved: true,
         source_function_preserved: false,
         identity_substitution_allowed: false,
-        candidate_route_gate_pass: bundle.candidate_route_gate_pass,
-        status: if bundle.candidate_route_gate_pass {
+        candidate_route_gate_pass,
+        safety_snapshots,
+        status: if candidate_route_gate_pass {
             "modified_k4_source_layer_candidate_fixture_bitexact"
         } else {
             "modified_k4_source_layer_fixture_bitexact_without_route_gate"
