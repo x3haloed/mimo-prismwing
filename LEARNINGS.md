@@ -4882,3 +4882,20 @@ present at baseline must remain nonempty by name. Rust now matches it, records
 replacement PIDs, and still fails closed on actual disappearance. All 114 Rust
 library tests pass; no memory, swap, throttling, release, or service-name limit
 changed. Resume the causal q64 capture and preserve both stopped attempts.
+
+PW-0322 replaces stitched q64 optimism with one real causal transaction. The
+target-generated 64-position proposal produces 4,482 distinct routed
+layer/expert identities, but the verifier authorizes only `A=3`. Under the
+strongest PW-0320 grant—a fixed 2,048-identity K4 bank and a free perfect 4 GiB
+cache—91.590 GB still moves. Structural `A=64` would permit `2.425` optimistic
+storage TPS, while actual `A=3` yields only `0.113674` and requires 61.060 GB/s
+for two TPS before compute.
+
+Supersede PW-0321's stitched acceptance sum as a predictor of one wide
+transaction. Corrections between q8 windows cannot be added: the first q64
+mismatch truncates the accepted path. Reject the target-generated q64 hybrid
+runtime and the K4 construction it would require. The raw capture hashes to
+`ef893b83105009576771b4dcbd98b4f82320b838e58920f5c32011e9a52acb60`;
+canonical analysis hashes to
+`8c824040776c5ca2b9d9f0854d9066c00f7b5495296c86e113729e6e07a6b98d`.
+Gate 8 passes; zero endpoint tokens or throughput constants are promoted.

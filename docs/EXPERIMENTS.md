@@ -1667,6 +1667,12 @@ Run the following cheap falsifiers in order:
    PIDs may be replaced and remain recorded. Actual disappearance still fails
    closed; every other safety limit is unchanged. Resume PW-0322 only from the
    clean repair commit.
+29. [PW-0322](../experiments/PW-0322-causal-width64-route-capture.md) replaces
+   stitched q64 estimates with one real target-generated causal transaction.
+   Its 4,482-identity union structurally fits the two-TPS byte bound only at
+   ideal `A=64`; actual verifier authorization is `A=3`, reducing the
+   storage-only ceiling to 0.114 TPS even with 2,048 K4 identities and a free
+   perfect 4 GiB cache. Reject the q64 streaming runtime and K4 build.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
