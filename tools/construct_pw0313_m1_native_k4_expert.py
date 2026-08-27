@@ -93,6 +93,8 @@ def projection_payload_files(directory: Path) -> list[Path]:
 
 
 def compare_payload_trees(candidate: Path, reference: Path) -> dict[str, Any]:
+    candidate_manifest = json.loads((candidate / "manifest.json").read_text())
+    reference_manifest = json.loads((reference / "manifest.json").read_text())
     candidate_files = {path.name: path for path in projection_payload_files(candidate)}
     reference_files = {path.name: path for path in projection_payload_files(reference)}
     if set(candidate_files) != set(reference_files):
@@ -106,11 +108,30 @@ def compare_payload_trees(candidate: Path, reference: Path) -> dict[str, Any]:
             matching_bytes += candidate_path.stat().st_size
         else:
             differences.append(name)
+    model_keys = (
+        "packed",
+        "left_sign",
+        "right_sign",
+        "global_scale",
+        "row_scale",
+        "correction_left",
+        "correction_right",
+    )
+    model_names = {
+        candidate_manifest["files"][key]["file"] for key in model_keys
+    }
+    if model_names != {
+        reference_manifest["files"][key]["file"] for key in model_keys
+    }:
+        raise ValueError("projection model-payload file set mismatch")
+    model_differences = [name for name in differences if name in model_names]
     return {
         "files_compared": len(candidate_files),
         "differing_files": differences,
+        "model_payload_differing_files": model_differences,
         "matching_bytes": matching_bytes,
-        "payload_identical": not differences,
+        "all_files_identical": not differences,
+        "payload_identical": not model_differences,
     }
 
 
@@ -168,18 +189,15 @@ def _source_expert(checkpoint: Any, layer: int, expert: int) -> dict[str, np.nda
     }
 
 
-def _reconstruct_policy_route(
-    fixture: dict[str, Any],
-    source_outputs: dict[int, np.ndarray],
-    m4_outputs: dict[int, np.ndarray],
-    bf16: Any,
+def substitute_exact_frozen_route(
+    frozen_route: np.ndarray,
+    frozen_expert_output: np.ndarray,
+    replacement_expert_output: np.ndarray,
 ) -> np.ndarray:
-    result = np.asarray(fixture["exact_reached_routed_f32"], dtype=np.float32)[None, :]
-    for expert in ROUTE_EXPERTS:
-        route_slot = fixture["router_experts"].index(expert)
-        weight = np.float32(fixture["route_weights"][route_slot])
-        result += weight * (m4_outputs[expert] - source_outputs[expert])
-    return bf16(result)
+    """Prove an exact substitution without inventing the lost PW-0424 assembler."""
+    if metric(frozen_expert_output, replacement_expert_output)["relative_l2"] != 0.0:
+        raise ValueError("non-identical expert output requires a new authenticated route assembler")
+    return np.asarray(frozen_route, dtype=np.float32).copy()
 
 
 def construct(
@@ -386,36 +404,16 @@ def construct(
 
             if expert == 199:
                 fixture = json.loads(route_fixture.read_text())
-                source_outputs: dict[int, np.ndarray] = {}
-                m4_outputs: dict[int, np.ndarray] = {}
-                for route_expert in ROUTE_EXPERTS:
-                    slot = next(row for row in fixture["slots"] if int(row["expert"]) == route_expert)
-                    m4_outputs[route_expert] = np.asarray(
-                        slot["candidate_output_bf16_f32"], dtype=np.float32
-                    )[None, :]
-                    weights = exact if route_expert == expert else _source_expert(checkpoint, layer, route_expert)
-                    source_outputs[route_expert] = modules["panel"].complete_outputs(
-                        x, weights
-                    )["candidate_output_bf16_f32"]
-                    if route_expert != expert:
-                        del weights
-                        gc.collect()
-                reconstructed_m4 = _reconstruct_policy_route(
-                    fixture, source_outputs, m4_outputs, modules["panel"].bf16
-                )
                 frozen_route = np.asarray(fixture["candidate_routed_f32"], dtype=np.float32)[None, :]
-                route_reconstruction = metric(frozen_route, reconstructed_m4)
-                if route_reconstruction["relative_l2"] != 0.0:
-                    raise ValueError("PW-0424 route reconstruction mismatch")
-                m4_outputs[199] = local_output
-                local_route = _reconstruct_policy_route(
-                    fixture, source_outputs, m4_outputs, modules["panel"].bf16
+                local_route = substitute_exact_frozen_route(
+                    frozen_route, frozen_m4_output, local_output
                 )
                 source_route = np.asarray(fixture["exact_reached_routed_f32"], dtype=np.float32)[None, :]
                 semantic["policy_route"] = {
                     "m1_vs_m4": metric(frozen_route, local_route),
                     "m1_vs_source": metric(source_route, local_route),
-                    "m4_reconstruction": route_reconstruction,
+                    "proof": "bit-identical expert output substituted into authenticated frozen route",
+                    "lost_assembler_not_reconstructed": True,
                     "candidate_route_array_sha256": array_sha256(local_route[0]),
                 }
 
