@@ -1743,7 +1743,10 @@ Run the following cheap falsifiers in order:
    first fit attempt failed closed before output because it incorrectly
    required the serialized kernel-order slow reference to be bit-identical to
    the historical dense-matmul replay. Exact fit-only fingerprints now preserve
-   both orders without weakening any held-out or Metal gate.
+   both orders without weakening any held-out or Metal gate. A later analyzer
+   also caught that the conservative `0.1523576677` attenuation floor is not
+   the exact `0.15216006881623897` analytical root; the stricter floor remains
+   the gate, and only their invalid equality assertion is superseded.
 38. [PW-0332](../experiments/PW-0332-exact-top7-token-cache-oracle.md)
    predeclares a canonical closure test for the remaining exact source-FP8
    codec composition. It grants the top-seven exponent format its impossible

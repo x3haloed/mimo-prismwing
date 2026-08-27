@@ -1,6 +1,6 @@
 # PW-0331 — Byte-neutral K4 down-rank-one repair
 
-- Status: in progress; two pre-held-out control errors preserved
+- Status: in progress; three fail-closed control errors preserved
 - Disposition: unexecuted
 - Date: 2026-08-27
 - Owner: Codex
@@ -78,6 +78,23 @@ The corrected fixture above supersedes only that decimal transcription. Its
 diagnostic and stage-table canonical hashes are respectively
 `9c4b542414466664e3f7af9fbe011e1827d4b05da89edaaa88e9cdb90db0e551`
 and `726bb2337ba46443f38af0a87d3c70efd2d868b32ec39fefcfdbbae767086a4e`.
+
+The next clean pair at commit
+`f4a0835816dbdc65ed0f92cf9fd9d4298b75034b` again produced the same frozen
+factor bytes, then the held-out analyzer failed closed before evaluating or
+emitting any sliced fidelity gate. It had incorrectly required the
+predeclared attenuation floor `0.1523576677` to equal the exact analytical
+root reconstructed from the authenticated PW-0116/PW-0315/PW-0316 arrays.
+That root is `0.15216006881623897`; the difference is
+`0.00019759888376102985`. The one-line analyzer error output hashes to
+`58044e04aae370759d28a74a186b079685b12ede60e847b512f97727e3215d20`.
+
+Supersede only the equality assumption. Preserve `0.1523576677` as the frozen
+minimum attenuation because it is stricter than the reconstructed root. The
+analyzer must authenticate the exact root, report both values, and apply
+`max(analytical root, frozen floor)`. This cannot weaken the predeclared gate
+and cannot tune the already frozen factors. Every sliced, position-1, Metal,
+byte, and route threshold remains unchanged.
 
 ## Frozen authorities
 
@@ -219,9 +236,11 @@ accepted-TPS claim follows.
    row must be strictly below `0.05`. Separately require cumulative unseen
    position-1 routed and final relative L2 strictly below `0.01`. The thresholds
    remain exclusive.
-4. The diagnostic along the current error direction requires at least
-   `15.23576677%` attenuation of expert 96's present contribution, but the
-   serialized slow-reference gates are authoritative.
+4. The diagnostic along the current error direction reconstructs an exact
+   analytical minimum of `15.216006881623897%`. Retain the stricter frozen
+   floor of `15.23576677%`, apply the maximum of those two values, and require
+   that attenuation of expert 96's present contribution. The serialized
+   slow-reference gates remain authoritative.
 
 Any Stage-A failure rejects this down-only rank-one embodiment. Do not tune
 gate/up, increase rank, inspect held-out targets, or proceed to density five.
@@ -286,14 +305,18 @@ Both construction and execution reports set `accepted_tokens: 0`, `A: 0`,
 The first construction attempt rejected before producing a factor or opening a
 held-out payload. The first repaired pair then produced byte-identical factors,
 but its analyzer rejected a one-unit-last-decimal diagnostic transcription
-before opening held-out evidence. Both fail-closed controls are preserved. The
-rejected results concern evidence arithmetic, not the down-only rank-one
-embodiment; all held-out correctness gates remain unexecuted.
+before opening held-out evidence. A later clean pair reproduced those factors,
+then rejected the invalid equality between a conservative predeclared floor
+and the exact analytical root before evaluating or emitting any held-out
+fidelity gate. All three fail-closed controls are preserved. The rejected
+results concern evidence arithmetic, not the down-only rank-one embodiment;
+all held-out correctness gates remain unevaluated in a canonical report.
 
 ## Decision
 
-Supersede the invalid cross-order equality check. Authorize a corrected
-fit-only runner that fail-closes on both exact fingerprints, then repeat factor
+Supersede the invalid attenuation-floor equality check while retaining the
+stricter frozen floor. Authorize a corrected analyzer that authenticates and
+reports the exact root and applies the maximum requirement, then repeat factor
 construction in two fresh processes from one new clean commit. Stage A remains
 the only authorized semantic action; any fingerprint, repeated-factor, or
 unchanged fidelity-gate failure rejects this embodiment.

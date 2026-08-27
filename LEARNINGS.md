@@ -5143,3 +5143,20 @@ fail-closed analyzer error; correct the fixture rather than tolerating a
 content-hash mismatch or rewriting the report. No array hash, factor byte,
 mismatch count, maximum difference, threshold, throughput constant, or branch
 disposition changes.
+
+PW-0331's next clean pair at `f4a0835` reproduces the same factor bytes and
+exposes a third authority prediction error only after factor freeze. The
+predeclared `0.1523576677` attenuation value was treated as though it had to be
+identical to the exact smaller nonnegative root reconstructed from the
+authenticated source route, four-K4 zero route, and expert-96 contribution.
+The exact root is `0.15216006881623897`, differing by
+`0.00019759888376102985`; the failed analyzer output hashes to
+`58044e04aae370759d28a74a186b079685b12ede60e847b512f97727e3215d20`.
+
+Supersede the equality assumption, not the threshold. Retain the larger
+`0.1523576677` value as a conservative frozen floor and apply
+`max(exact analytical root, frozen floor)`. This makes future authority drift
+fail closed while preventing a weaker gate. The factors, bytes, route and
+layer-final thresholds, slices, Stage-B answer key, throughput model, and
+branch disposition remain unchanged; no canonical held-out fidelity report
+has yet been emitted.
