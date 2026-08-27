@@ -9,9 +9,13 @@ import unittest
 import numpy as np
 
 from tools.analyze_pw0331_k4_rank1 import (
+    ANALYTICAL_ALPHA_MIN_ABSOLUTE_TOLERANCE,
+    AUTHENTICATED_ANALYTICAL_ALPHA_MIN,
+    FROZEN_ATTENUATION_FLOOR,
     MAXIMUM_RELATIVE_L2,
     MAXIMUM_ROW_RELATIVE_L2,
     analysis_slices,
+    authenticate_error_direction_diagnostic,
     authenticate_historical_dense_zero_control,
     error_direction_diagnostic,
     require_repeated_fits,
@@ -299,6 +303,7 @@ class Pw0331AnalysisTests(unittest.TestCase):
             1.0,
         )
         self.assertEqual(report["alpha_min"], 0.25)
+        self.assertEqual(report["applied_minimum_attenuation"], 0.25)
         self.assertEqual(report["observed_attenuation"], 0.5)
         self.assertTrue(report["attenuation_requirement_pass"])
         self.assertEqual(
@@ -314,6 +319,48 @@ class Pw0331AnalysisTests(unittest.TestCase):
                 np.asarray([0.0], dtype=np.float32),
                 1.0,
             )
+
+    def test_error_direction_never_weakens_frozen_attenuation_floor(self):
+        report = error_direction_diagnostic(
+            np.asarray([200.0, 0.0], dtype=np.float32),
+            np.asarray([202.0, 0.0], dtype=np.float32),
+            np.asarray([0.0, 0.0], dtype=np.float32),
+            np.asarray([4.0, 0.0], dtype=np.float32),
+            np.asarray([3.5, 0.0], dtype=np.float32),
+            1.0,
+        )
+        self.assertEqual(report["alpha_min"], 0.0)
+        self.assertEqual(
+            report["applied_minimum_attenuation"], FROZEN_ATTENUATION_FLOOR
+        )
+        self.assertEqual(report["observed_attenuation"], 0.125)
+        self.assertFalse(report["attenuation_requirement_pass"])
+
+    def test_real_error_direction_authority_fails_closed_without_weakening(self):
+        report = {
+            "semantic": "position1_f64_root_with_conservative_frozen_floor_v2",
+            "alpha_min": AUTHENTICATED_ANALYTICAL_ALPHA_MIN,
+            "authenticated_analytical_alpha_min": (
+                AUTHENTICATED_ANALYTICAL_ALPHA_MIN
+            ),
+            "analytical_alpha_min_absolute_tolerance": (
+                ANALYTICAL_ALPHA_MIN_ABSOLUTE_TOLERANCE
+            ),
+            "frozen_attenuation_floor": FROZEN_ATTENUATION_FLOOR,
+            "frozen_floor_is_conservative": True,
+            "applied_minimum_attenuation": FROZEN_ATTENUATION_FLOOR,
+            "observed_attenuation": 0.5,
+            "attenuation_requirement_pass": True,
+            "gate_role": "subordinate_sanity_condition_after_sliced_fidelity_gates",
+        }
+        authenticate_error_direction_diagnostic(report)
+        report["alpha_min"] += 1e-6
+        with self.assertRaisesRegex(ValueError, "authority mismatch"):
+            authenticate_error_direction_diagnostic(report)
+        report["alpha_min"] = AUTHENTICATED_ANALYTICAL_ALPHA_MIN
+        report["frozen_floor_is_conservative"] = False
+        with self.assertRaisesRegex(ValueError, "authority mismatch"):
+            authenticate_error_direction_diagnostic(report)
 
     def test_gate_is_exclusive_and_checks_both_identity_and_cumulative(self):
         passing = passing_slices()

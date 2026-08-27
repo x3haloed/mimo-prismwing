@@ -141,8 +141,9 @@ MAXIMUM_ROW_RELATIVE_L2 = 0.05
 EXPERTS = (96, 64, 232, 31)
 ZERO_ROUTE_RELATIVE_L2 = 0.010988841869031155
 ZERO_FINAL_RELATIVE_L2 = 0.0027743952049186665
-EXPECTED_ALPHA_MIN = 0.1523576677
-EXPECTED_ALPHA_MIN_ABSOLUTE_TOLERANCE = 5e-10
+AUTHENTICATED_ANALYTICAL_ALPHA_MIN = 0.15216006881623897
+ANALYTICAL_ALPHA_MIN_ABSOLUTE_TOLERANCE = 5e-13
+FROZEN_ATTENUATION_FLOOR = 0.1523576677
 
 
 def analysis_slices() -> dict[str, np.ndarray]:
@@ -307,17 +308,55 @@ def error_direction_diagnostic(
     observed_attenuation = float(
         np.dot(d96 - corrected_d96, d96) / denominator
     )
+    applied_minimum = max(alpha_min, FROZEN_ATTENUATION_FLOOR)
     return {
         "semantic": (
-            "position1_f64_smaller_nonnegative_root_and_d96_projection_v1"
+            "position1_f64_root_with_conservative_frozen_floor_v2"
         ),
         "alpha_min": alpha_min,
-        "expected_alpha_min": EXPECTED_ALPHA_MIN,
-        "expected_alpha_min_absolute_tolerance": EXPECTED_ALPHA_MIN_ABSOLUTE_TOLERANCE,
+        "authenticated_analytical_alpha_min": AUTHENTICATED_ANALYTICAL_ALPHA_MIN,
+        "analytical_alpha_min_absolute_tolerance": (
+            ANALYTICAL_ALPHA_MIN_ABSOLUTE_TOLERANCE
+        ),
+        "frozen_attenuation_floor": FROZEN_ATTENUATION_FLOOR,
+        "frozen_floor_is_conservative": bool(
+            FROZEN_ATTENUATION_FLOOR >= alpha_min
+        ),
+        "applied_minimum_attenuation": applied_minimum,
         "observed_attenuation": observed_attenuation,
-        "attenuation_requirement_pass": bool(observed_attenuation >= alpha_min),
+        "attenuation_requirement_pass": bool(
+            observed_attenuation >= applied_minimum
+        ),
         "gate_role": "subordinate_sanity_condition_after_sliced_fidelity_gates",
     }
+
+
+def authenticate_error_direction_diagnostic(diagnostic: dict[str, Any]) -> None:
+    """Bind the exact root while retaining the stricter predeclared floor."""
+    alpha_min = float(diagnostic.get("alpha_min", np.nan))
+    applied = float(diagnostic.get("applied_minimum_attenuation", np.nan))
+    observed = float(diagnostic.get("observed_attenuation", np.nan))
+    if (
+        diagnostic.get("semantic")
+        != "position1_f64_root_with_conservative_frozen_floor_v2"
+        or not np.isfinite(alpha_min)
+        or diagnostic.get("authenticated_analytical_alpha_min")
+        != AUTHENTICATED_ANALYTICAL_ALPHA_MIN
+        or diagnostic.get("analytical_alpha_min_absolute_tolerance")
+        != ANALYTICAL_ALPHA_MIN_ABSOLUTE_TOLERANCE
+        or abs(alpha_min - AUTHENTICATED_ANALYTICAL_ALPHA_MIN)
+        > ANALYTICAL_ALPHA_MIN_ABSOLUTE_TOLERANCE
+        or diagnostic.get("frozen_attenuation_floor")
+        != FROZEN_ATTENUATION_FLOOR
+        or diagnostic.get("frozen_floor_is_conservative") is not True
+        or applied != max(alpha_min, FROZEN_ATTENUATION_FLOOR)
+        or not np.isfinite(observed)
+        or diagnostic.get("attenuation_requirement_pass")
+        is not bool(observed >= applied)
+        or diagnostic.get("gate_role")
+        != "subordinate_sanity_condition_after_sliced_fidelity_gates"
+    ):
+        raise ValueError("PW-0331 error-direction authority mismatch")
 
 
 def verify_pw0318_heldout_authorities(
@@ -782,11 +821,7 @@ def analyze(
         corrected[primary_local],
         float(route_weights96[primary_local]),
     )
-    if (
-        abs(direction["alpha_min"] - EXPECTED_ALPHA_MIN)
-        > EXPECTED_ALPHA_MIN_ABSOLUTE_TOLERANCE
-    ):
-        raise ValueError("PW-0331 frozen error-direction alpha_min mismatch")
+    authenticate_error_direction_diagnostic(direction)
 
     cumulative_route = reconstruct_route(
         corrected_cumulative_down, layer_row, modules["panel"].bf16
