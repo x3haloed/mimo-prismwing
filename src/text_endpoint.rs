@@ -7105,6 +7105,54 @@ fn commit_jacobi_transaction(proposal: &[u32], posterior: &[u32]) -> Result<Jaco
     }
 }
 
+fn jacobi_retained_positions(
+    base_positions: usize,
+    retained_proposal_rows: usize,
+) -> Result<usize, String> {
+    base_positions
+        .checked_add(retained_proposal_rows)
+        .ok_or("retained Jacobi cache position overflow".to_owned())
+}
+
+fn terminal_retained_proposal_rows(
+    prompt_tokens: usize,
+    generated_tokens: usize,
+    base_positions: usize,
+) -> Result<usize, String> {
+    let exact_retained = prompt_tokens
+        .checked_add(generated_tokens)
+        .and_then(|positions| positions.checked_sub(1))
+        .ok_or("generation final retained position overflow".to_owned())?;
+    exact_retained
+        .checked_sub(base_positions)
+        .ok_or("generation final retained position moved backwards".to_owned())
+}
+
+fn append_native_target_history(
+    target_input_ids: &mut Vec<u32>,
+    target_hidden: &mut Vec<f32>,
+    proposal: &[u32],
+    verified_final_hidden: &[f32],
+    retained_proposal_rows: usize,
+    hidden_width: usize,
+) -> Result<(), String> {
+    let retained_hidden_values = retained_proposal_rows
+        .checked_mul(hidden_width)
+        .ok_or("native MTP retained hidden cardinality overflow")?;
+    if hidden_width == 0
+        || retained_hidden_values > verified_final_hidden.len()
+        || retained_proposal_rows > proposal.len()
+    {
+        return Err("native MTP retained history exceeds verified rows".to_owned());
+    }
+    target_hidden.extend_from_slice(&verified_final_hidden[..retained_hidden_values]);
+    target_input_ids.extend_from_slice(&proposal[..retained_proposal_rows]);
+    if target_hidden.len() != target_input_ids.len() * hidden_width {
+        return Err("native MTP retained history pairing mismatch".to_owned());
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_wide_metal_jacobi_text_endpoint(
     checkpoint_root: &Path,
@@ -7295,10 +7343,8 @@ pub fn run_wide_metal_jacobi_text_endpoint(
         let commit =
             commit_jacobi_transaction(&authority.proposed_block_token_ids, &step.output_tokens)?;
         let accepted_tokens = commit.retained_proposal_rows;
-        let retained_positions = prompt_token_ids
-            .len()
-            .checked_add(commit.retained_proposal_rows)
-            .ok_or("retained Jacobi cache position overflow")?;
+        let retained_positions =
+            jacobi_retained_positions(prompt_token_ids.len(), commit.retained_proposal_rows)?;
         for cache in &mut caches {
             cache.truncate(retained_positions)?;
         }
@@ -8473,9 +8519,8 @@ fn run_arbitrary_text_generation_internal(
         let verified_output_tokens = verified.output_tokens;
         let verification_layer_traces = verified.traces;
         let commit_result = commit_jacobi_transaction(&proposal, &verified_output_tokens)?;
-        let retained_positions = base_positions
-            .checked_add(commit_result.retained_proposal_rows)
-            .ok_or("generation retained position overflow")?;
+        let retained_positions =
+            jacobi_retained_positions(base_positions, commit_result.retained_proposal_rows)?;
         for cache in &mut caches {
             cache.truncate(retained_positions)?;
         }
@@ -8513,29 +8558,25 @@ fn run_arbitrary_text_generation_internal(
         let verifier_retained_proposal_rows = commit_result.retained_proposal_rows;
         let mut retained_proposal_rows = verifier_retained_proposal_rows;
         if generated_token_ids.len() == requested_output_tokens || completed_response {
-            let exact_retained = prompt_token_ids.len() + generated_token_ids.len() - 1;
-            retained_proposal_rows = exact_retained
-                .checked_sub(base_positions)
-                .ok_or("generation final retained position moved backwards")?;
+            retained_proposal_rows = terminal_retained_proposal_rows(
+                prompt_token_ids.len(),
+                generated_token_ids.len(),
+                base_positions,
+            )?;
+            let exact_retained = jacobi_retained_positions(base_positions, retained_proposal_rows)?;
             for cache in &mut caches {
                 cache.truncate(exact_retained)?;
             }
         }
         if native_mtp_external.is_some() {
-            let retained_hidden_values = retained_proposal_rows
-                .checked_mul(HIDDEN)
-                .ok_or("native MTP retained hidden cardinality overflow")?;
-            if retained_hidden_values > verified_final_hidden.len()
-                || retained_proposal_rows > proposal.len()
-            {
-                return Err("native MTP retained history exceeds verified rows".to_owned());
-            }
-            native_target_hidden
-                .extend_from_slice(&verified_final_hidden[..retained_hidden_values]);
-            native_target_input_ids.extend_from_slice(&proposal[..retained_proposal_rows]);
-            if native_target_hidden.len() != native_target_input_ids.len() * HIDDEN {
-                return Err("native MTP retained history pairing mismatch".to_owned());
-            }
+            append_native_target_history(
+                &mut native_target_input_ids,
+                &mut native_target_hidden,
+                &proposal,
+                &verified_final_hidden,
+                retained_proposal_rows,
+                HIDDEN,
+            )?;
         }
         next_anchor = *generated_token_ids
             .last()
@@ -14169,10 +14210,10 @@ mod tests {
             index: 0,
             proposal_token_ids: vec![1, 2],
             posterior_token_ids: vec![2, 3],
-            verifier_authorized_token_ids: vec![2],
-            emitted_token_ids: vec![2],
-            verifier_retained_proposal_rows: 1,
-            retained_proposal_rows: 1,
+            verifier_authorized_token_ids: vec![2, 3],
+            emitted_token_ids: vec![2, 3],
+            verifier_retained_proposal_rows: 2,
+            retained_proposal_rows: 2,
             proposal_converged: true,
             proposal_wall_ms: 1.0,
             verification_wall_ms: 2.0,
@@ -14285,6 +14326,37 @@ mod tests {
                 proposal_converged: true,
             })
         );
+    }
+
+    #[test]
+    fn jacobi_target_bonus_cache_clipping_and_native_history_are_paired() {
+        let commit =
+            commit_jacobi_transaction(&[41, 42, 43, 44], &[42, 43, 44, 45]).expect("full match");
+        assert_eq!(
+            jacobi_retained_positions(10, commit.retained_proposal_rows),
+            Ok(14)
+        );
+        assert_eq!(terminal_retained_proposal_rows(10, 5, 10), Ok(4));
+        assert_eq!(terminal_retained_proposal_rows(10, 3, 10), Ok(2));
+
+        let mut target_input_ids = vec![7, 8];
+        let mut target_hidden = vec![0.0, 1.0, 2.0, 3.0];
+        let verified_hidden = (4..12).map(|value| value as f32).collect::<Vec<_>>();
+        append_native_target_history(
+            &mut target_input_ids,
+            &mut target_hidden,
+            &[41, 42, 43, 44],
+            &verified_hidden,
+            commit.retained_proposal_rows,
+            2,
+        )
+        .expect("paired target history");
+        assert_eq!(target_input_ids, vec![7, 8, 41, 42, 43, 44]);
+        assert_eq!(target_hidden.len(), target_input_ids.len() * 2);
+        assert_eq!(commit.next_anchor_token_id, 45);
+        let mut next_mtp_inputs = target_input_ids[1..].to_vec();
+        next_mtp_inputs.push(commit.next_anchor_token_id);
+        assert_eq!(next_mtp_inputs, vec![8, 41, 42, 43, 44, 45]);
     }
 
     #[test]

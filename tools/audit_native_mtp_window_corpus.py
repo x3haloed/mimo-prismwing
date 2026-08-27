@@ -8,10 +8,14 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 REVISION = "63651580ca774f8504f676040460aed3e1244ac1"
 SEMANTIC = "mimo_v2_5_pw0208_native_mtp_corrected_verifier_window_capture"
+TARGET_BONUS_SEMANTIC = (
+    "mimo_v2_5_pw0208_native_mtp_corrected_verifier_window_capture_"
+    "target_bonus_full_match_v1"
+)
 EVIDENCE_CLASS = "pw0208_native_mtp_corrected_window_capture"
 CATEGORIES = {"ordinary", "code", "multilingual", "rare_route"}
 WIDTH = 8
@@ -83,6 +87,49 @@ def audit_transaction(
     return {"transaction": index, "A": accepted, "U": derived_union, "A/U": accepted / derived_union}
 
 
+def audit_target_bonus_transaction(
+    transaction: dict[str, Any], progress: dict[str, Any], index: int
+) -> dict[str, float | int]:
+    emitted = transaction["emitted_token_ids"]
+    authorized = transaction["verifier_authorized_token_ids"]
+    proposal = transaction["proposal_token_ids"]
+    posterior = transaction["posterior_token_ids"]
+    accepted = len(emitted)
+    verifier_retained = transaction["verifier_retained_proposal_rows"]
+    retained = transaction["retained_proposal_rows"]
+    require(transaction["index"] == index, "non-contiguous transaction index")
+    require(len(proposal) == WIDTH, "proposal width")
+    require(len(posterior) == WIDTH, "posterior width")
+    require(authorized[:accepted] == emitted, "emitted tokens lack verifier authority")
+    require(retained == accepted, "cache/output mismatch")
+    require(1 <= accepted <= WIDTH, "invalid accepted-token count")
+    require(1 <= verifier_retained <= WIDTH, "invalid verifier-retained row count")
+    if transaction["proposal_converged"]:
+        require(
+            posterior[:-1] == proposal[1:],
+            "converged proposal/posterior suffix mismatch",
+        )
+        require(
+            authorized == [*proposal[1:], posterior[-1]],
+            "converged target bonus authority mismatch",
+        )
+        require(verifier_retained == WIDTH, "converged verifier retention mismatch")
+    else:
+        require(verifier_retained == len(authorized), "mismatch verifier retention mismatch")
+    require(retained <= verifier_retained, "output clipping retained rejected rows")
+    proposal_traces = transaction["proposal_layer_traces"]
+    require(len(proposal_traces) == WIDTH - 1, "missing proposal route traces")
+    require(all(len(step) == LAYERS for step in proposal_traces), "proposal layer trace width")
+    derived_union = verification_union(transaction["verification_layer_traces"])
+    require(math.isclose(transaction["U"], derived_union, abs_tol=1e-12), "transaction U")
+    require(progress["phase"] == "transaction_complete", "progress transaction phase")
+    require(progress["transaction"] == index, "progress transaction index")
+    require(progress["emitted_tokens"] == accepted, "progress A mismatch")
+    require(progress["retained_proposal_rows"] == retained, "progress cache mismatch")
+    require(math.isclose(progress["U"], derived_union, abs_tol=1e-12), "progress U mismatch")
+    return {"transaction": index, "A": accepted, "U": derived_union, "A/U": accepted / derived_union}
+
+
 def protected_baseline_survived(snapshots: list[dict[str, Any]]) -> bool:
     if not snapshots:
         return False
@@ -100,7 +147,7 @@ def protected_baseline_survived(snapshots: list[dict[str, Any]]) -> bool:
     )
 
 
-def audit(
+def _audit(
     report_path: Path,
     progress_path: Path,
     hidden_path: Path,
@@ -108,6 +155,10 @@ def audit(
     category: str,
     commit: str | None = None,
     prompt_path: Path | None = None,
+    expected_semantic: str,
+    transaction_auditor: Callable[
+        [dict[str, Any], dict[str, Any], int], dict[str, float | int]
+    ],
 ) -> dict[str, Any]:
     require(category in CATEGORIES, "unknown category")
     report = json.loads(report_path.read_text())
@@ -115,7 +166,7 @@ def audit(
         json.loads(line) for line in progress_path.read_text().splitlines() if line
     ]
     require(report["schema_version"] == 6, "unexpected report schema")
-    require(report["semantic"] == SEMANTIC, "unexpected semantic")
+    require(report["semantic"] == expected_semantic, "unexpected semantic")
     require(report["evidence_class"] == EVIDENCE_CLASS, "unexpected evidence class")
     require(report["revision"] == REVISION, "model revision")
     require(not report["git_dirty"], "run was not from a clean worktree")
@@ -140,7 +191,7 @@ def audit(
     reconstructed = report["generated_token_ids"][:1]
     metrics = []
     for index, transaction in enumerate(transactions):
-        metrics.append(audit_transaction(transaction, progress_lines[index + 1], index))
+        metrics.append(transaction_auditor(transaction, progress_lines[index + 1], index))
         reconstructed.extend(transaction["emitted_token_ids"])
     require(reconstructed == report["generated_token_ids"], "transaction reconstruction")
 
@@ -186,6 +237,48 @@ def audit(
         "complete_wall_ms": report["complete_wall_ms"],
         "peak_resident_bytes": report["peak_resident_bytes"],
     }
+
+
+def audit(
+    report_path: Path,
+    progress_path: Path,
+    hidden_path: Path,
+    *,
+    category: str,
+    commit: str | None = None,
+    prompt_path: Path | None = None,
+) -> dict[str, Any]:
+    return _audit(
+        report_path,
+        progress_path,
+        hidden_path,
+        category=category,
+        commit=commit,
+        prompt_path=prompt_path,
+        expected_semantic=SEMANTIC,
+        transaction_auditor=audit_transaction,
+    )
+
+
+def audit_target_bonus(
+    report_path: Path,
+    progress_path: Path,
+    hidden_path: Path,
+    *,
+    category: str,
+    commit: str | None = None,
+    prompt_path: Path | None = None,
+) -> dict[str, Any]:
+    return _audit(
+        report_path,
+        progress_path,
+        hidden_path,
+        category=category,
+        commit=commit,
+        prompt_path=prompt_path,
+        expected_semantic=TARGET_BONUS_SEMANTIC,
+        transaction_auditor=audit_target_bonus_transaction,
+    )
 
 
 def main() -> None:

@@ -1,6 +1,12 @@
 import unittest
 
-from tools.analyze_pw0326_target_bonus import commit_fixture, parse_rust_test_summary
+from tools.analyze_pw0326_target_bonus import (
+    RUST_FIXTURES,
+    commit_fixture,
+    parse_python_test_summary,
+    parse_rust_test_summary,
+    require_named_rust_fixtures,
+)
 
 
 class Pw0326TargetBonusTests(unittest.TestCase):
@@ -34,6 +40,16 @@ class Pw0326TargetBonusTests(unittest.TestCase):
             parse_rust_test_summary(
                 "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 115 filtered out"
             )
+
+    def test_named_rust_fixtures_and_python_suite_are_required(self):
+        output = "\n".join(f"test text_endpoint::tests::{name} ... ok" for name in RUST_FIXTURES)
+        self.assertEqual(require_named_rust_fixtures(output), list(RUST_FIXTURES))
+        with self.assertRaises(ValueError):
+            require_named_rust_fixtures(output.replace(RUST_FIXTURES[0], "missing"))
+        self.assertEqual(
+            parse_python_test_summary("Ran 12 tests in 0.01s\n\nOK"),
+            {"tests": 12, "status": "OK"},
+        )
 
 
 if __name__ == "__main__":

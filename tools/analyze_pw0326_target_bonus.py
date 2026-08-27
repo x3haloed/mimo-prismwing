@@ -25,6 +25,19 @@ EXPERIMENT_ID = "PW-0326"
 PW0204_SHA256 = "b2119f645bc02b8ed8ea2c3c2f4f13dc48ddfa8a990b7867b83d873317401a3c"
 SOURCES_SHA256 = "2eaef140bb7164efdde31718254cf5f217b81fb4272920bc61849d7df1e9820a"
 TRANSACTION_SEMANTIC = "target_bonus_full_match_v1"
+RUST_FIXTURES = (
+    "jacobi_commit_emits_verified_suffix_and_correction_once",
+    "jacobi_commit_carries_the_target_bonus_after_a_converged_window",
+    "jacobi_commit_emits_a_full_match_bonus_once_across_transactions",
+    "jacobi_commit_q2_full_match_carries_one_suffix_and_one_bonus",
+    "jacobi_target_bonus_cache_clipping_and_native_history_are_paired",
+)
+PYTHON_TEST_MODULES = (
+    "tests.test_audit_native_mtp_window_corpus",
+    "tests.test_audit_target_bonus_native_mtp_window_corpus",
+    "tests.test_build_native_mtp_corpus_manifest",
+    "tests.test_analyze_pw0326_target_bonus",
+)
 
 
 def sha256_file(path: Path) -> str:
@@ -86,6 +99,23 @@ def parse_rust_test_summary(output: str) -> dict[str, int]:
     }
 
 
+def require_named_rust_fixtures(output: str) -> list[str]:
+    missing = [name for name in RUST_FIXTURES if f"::{name} ... ok" not in output]
+    if missing:
+        raise ValueError(f"Rust output lacks named target-bonus fixtures: {missing}")
+    return list(RUST_FIXTURES)
+
+
+def parse_python_test_summary(output: str) -> dict[str, int | str]:
+    match = re.search(r"Ran (\d+) tests? in [^\n]+\n\nOK", output)
+    if match is None:
+        raise ValueError("affected Python tests did not report OK")
+    tests = int(match.group(1))
+    if tests < len(PYTHON_TEST_MODULES):
+        raise ValueError("affected Python test count is unexpectedly small")
+    return {"tests": tests, "status": "OK"}
+
+
 def analyze(*, repo: Path, output: Path, commit: str) -> dict[str, Any]:
     if output.exists():
         raise FileExistsError(output)
@@ -94,16 +124,29 @@ def analyze(*, repo: Path, output: Path, commit: str) -> dict[str, Any]:
     pw0204 = repo / "experiments" / "PW-0204-arbitrary-prompt-generation-transaction.md"
     sources = repo / "docs" / "SOURCES.md"
     source = repo / "src" / "text_endpoint.rs"
+    legacy_auditor = repo / "tools" / "audit_native_mtp_window_corpus.py"
+    repaired_auditor = repo / "tools" / "audit_target_bonus_native_mtp_window_corpus.py"
     if sha256_file(pw0204) != PW0204_SHA256:
         raise ValueError("PW-0204 transaction authority mismatch")
     if sha256_file(sources) != SOURCES_SHA256:
         raise ValueError("target-bonus source authority mismatch")
+    if TRANSACTION_SEMANTIC not in source.read_text():
+        raise ValueError("target-bonus report semantic missing from endpoint source")
 
     mismatch = commit_fixture(
         [264, 13, 15, 13, 15, 15, 15, 15],
         [13, 15, 13, 15, 481, 13, 15, 15],
     )
     converged = commit_fixture([41, 42, 43, 44], [42, 43, 44, 45])
+    legacy_converged = {
+        "proposal": [41, 42, 43, 44],
+        "posterior": [42, 43, 44, 45],
+        "emitted": [42, 43, 44],
+        "retained_proposal_rows": 3,
+        "next_anchor": 44,
+        "proposal_converged": True,
+        "status": "superseded_contradictory_full_match_behavior",
+    }
     q2 = commit_fixture([1, 2], [2, 3])
     second = commit_fixture([45, 46, 47, 48], [46, 47, 48, 49])
     two_transaction_tokens = [*converged["emitted"], *second["emitted"]]
@@ -134,6 +177,19 @@ def analyze(*, repo: Path, output: Path, commit: str) -> dict[str, Any]:
     if completed.returncode != 0:
         raise RuntimeError("complete Rust library suite failed")
     rust_summary = parse_rust_test_summary(combined)
+    named_rust_fixtures = require_named_rust_fixtures(combined)
+    python_command = ["python3", "-m", "unittest", *PYTHON_TEST_MODULES]
+    python_completed = subprocess.run(
+        python_command,
+        cwd=repo,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    python_combined = python_completed.stdout + python_completed.stderr
+    if python_completed.returncode != 0:
+        raise RuntimeError("affected Python audit/corpus tests failed")
+    python_summary = parse_python_test_summary(python_combined)
     safety.release_checkpoint("test_process_released", ["cargo test process"])
     safety.checkpoint("final_service_health")
 
@@ -148,8 +204,11 @@ def analyze(*, repo: Path, output: Path, commit: str) -> dict[str, Any]:
             "pw0204_transaction_contract_sha256": PW0204_SHA256,
             "published_target_bonus_source_ledger_sha256": SOURCES_SHA256,
             "text_endpoint_source_sha256": sha256_file(source),
+            "legacy_native_mtp_auditor_sha256": sha256_file(legacy_auditor),
+            "target_bonus_native_mtp_auditor_sha256": sha256_file(repaired_auditor),
         },
         "fixtures": {
+            "legacy_full_match": legacy_converged,
             "mismatch_control": mismatch,
             "full_match_target_bonus": converged,
             "minimum_width_full_match": q2,
@@ -160,7 +219,14 @@ def analyze(*, repo: Path, output: Path, commit: str) -> dict[str, Any]:
         "rust_library_tests": {
             "command": command,
             "summary": rust_summary,
+            "named_target_bonus_fixtures": named_rust_fixtures,
             "combined_output_sha256": hashlib.sha256(combined.encode()).hexdigest(),
+        },
+        "affected_python_tests": {
+            "command": python_command,
+            "modules": list(PYTHON_TEST_MODULES),
+            "summary": python_summary,
+            "combined_output_sha256": hashlib.sha256(python_combined.encode()).hexdigest(),
         },
         "measurement_context": {
             "hardware": "Apple M1 16 GiB",
