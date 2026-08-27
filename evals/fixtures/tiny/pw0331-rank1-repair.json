@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "semantic": "pw0331_tiny_rank_one_fit_and_serialized_application",
+  "serialized_base": {
+    "semantic": "signed_fwht_lane64_tree_output_fwht_finish_zero_correction",
+    "rows": 16,
+    "columns": 128,
+    "packed": "all_zero_u16",
+    "tlut_index_zero_f32": [1.25, -0.75],
+    "input_prefix_f32": [208.59751892089844, -273.4314270019531, -2.5386180877685547],
+    "input_tail_formula": "f32(((index*7)%19)-9)*0.03125",
+    "right_sign_formula": "minus_when_index_mod_3_is_zero_else_plus",
+    "left_sign_formula": "minus_when_index_is_odd_else_plus",
+    "global_scale_f32": 0.625,
+    "row_scale_f16": 1.0
+  },
+  "fit": {
+    "inputs_f32": [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
+    "base_raw_f32": [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+    "source_bf16_f32": [[1.0, -0.5, 0.25], [-0.5, 0.25, -0.125], [0.5, -0.25, 0.125]],
+    "route_weights_f32": [1.0, 0.5, 0.75],
+    "maximum_corrected_relative_l2": 0.001
+  },
+  "application": {
+    "inputs_f32": [[1.0, 2.0], [2.0, -2.0]],
+    "base_raw_f32": [[1.0, 2.0, 3.0], [0.25, -0.5, 1.0]],
+    "correction_left_f16": [[2.0], [-1.0], [0.5]],
+    "correction_right_f16": [[0.5, -0.25]],
+    "expected_bf16_f32": [[1.0, 2.0, 3.0], [3.25, -2.0, 1.75]]
+  },
+  "claims_excluded": ["real K4 fidelity", "held-out evidence", "endpoint TPS"]
+}
