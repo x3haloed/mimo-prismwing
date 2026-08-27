@@ -5160,3 +5160,31 @@ fail closed while preventing a weaker gate. The factors, bytes, route and
 layer-final thresholds, slices, Stage-B answer key, throughput model, and
 branch disposition remain unchanged; no canonical held-out fidelity report
 has yet been emitted.
+
+PW-0331's clean Stage-A replay at `fa457ce` passes every unchanged gate. The
+byte-neutral down-rank-one factors repeat exactly, attenuate the frozen
+position-1 expert-96 error direction by `0.5667698311335795`, and improve the
+four-K4 routed row from `0.010988841869031155` to
+`0.008777164859819555` relative L2. Validation, pilot, identity-local,
+cumulative, final, and maximum-row gates all pass. The canonical analysis
+hashes to
+`fd5ac314b7e9072f22f773496444678c91f8be0a5165fa24e8df8687906c23c7`.
+This is a real byte-neutral fidelity advance, not a bank or endpoint result.
+
+PW-0329 then supplies the governing portfolio decision. On the corrected
+PW-0328 corpus, even its impossible-best density-eight, 12-GiB fractional
+placement moves `514,538,083,176` bytes. Aggregate storage-only TPS is
+`1.564789923566762`, but the required fourth-lowest window is only
+`0.8827413202181071` TPS with all common compute, routed compute, proposal,
+decoder, synchronization, and endpoint work free. Frozen precedence gate two
+therefore rejects K4 construction continuation and emits no work order. Its
+canonical report hashes to
+`81af4d7b9158fe170503755c38436d5266e41c57a9e67d9c98e142995fdce6f6`.
+
+Supersede the assumption that PW-0331's local Stage-A pass by itself authorizes
+schema-2/Metal construction. Preserve that pass, but do not execute Stage B
+after the broader corrected K4 tail prerequisite fails. The remaining terminal
+work is PW-0332's independent exact-codec/cache oracle followed by a
+predeclared PW-0333 synthesis over the current evidence-backed onboard
+portfolio. Unknown future algorithms remain outside that closure, and no
+throughput-model runtime constant or default changes yet.

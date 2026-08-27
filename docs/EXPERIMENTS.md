@@ -1756,6 +1756,13 @@ Run the following cheap falsifiers in order:
    implementation; failure of any strict corpus, category, token-tail, or
    window-tail one-TPS gate rejects this exact codec/cache/prefetch
    composition.
+39. [PW-0333](../experiments/PW-0333-corrected-onboard-prismwing1-closure.md)
+   predeclares the terminal corrected onboard one-TPS synthesis. It binds
+   PW-0324's prior portfolio closure, PW-0328's repaired causal corpus,
+   PW-0329's K4 tail rejection, PW-0330's conditional cyclic-q32 rejection,
+   PW-0331's local fidelity pass, and the pending PW-0332 exact-codec/cache
+   result. It may close only the current authenticated architecture portfolio,
+   never unknown future algorithms, and imports no companion-hardware premise.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
