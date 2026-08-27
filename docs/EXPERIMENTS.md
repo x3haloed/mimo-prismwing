@@ -1705,6 +1705,12 @@ Run the following cheap falsifiers in order:
    Gate 8 checks pass, so authorize the complete corrected-semantic recapture.
    The four cold diagnostics move 686.959 GB of transaction logical bytes and
    make no sustained TPS or native-MTP performance claim.
+34. [PW-0328](../experiments/PW-0328-target-bonus-32-window-corpus.md)
+   regenerates eight chronological corrected-semantic q8 windows in every
+   frozen category. It binds transaction zero to authenticated prefill hidden
+   history, avoiding the legacy builder's now-insufficient nine-transaction
+   requirement without weakening the native-MTP history contract. Only a
+   complete 32-window manifest may feed the next Prismwing-1 envelope.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid
