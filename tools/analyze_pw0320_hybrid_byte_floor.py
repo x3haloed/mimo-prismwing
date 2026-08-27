@@ -8,12 +8,20 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from tools.analyze_pw0319_corrected_route_bank import (
-    CORPUS_SHA256, load_rows, greedy_order, sha256_file,
-)
-from tools.host_safety import HostSafetyMonitor, HostSafetyViolation
-from tools.openrouter_reference import atomic_write_new, canonical_json
-from tools.reproduce_pw0311_k4_expert import verify_clean_commit
+try:
+    from tools.analyze_pw0319_corrected_route_bank import (
+        CORPUS_SHA256, load_rows, greedy_order, sha256_file,
+    )
+    from tools.host_safety import HostSafetyMonitor, HostSafetyViolation
+    from tools.openrouter_reference import atomic_write_new, canonical_json
+    from tools.reproduce_pw0311_k4_expert import verify_clean_commit
+except ModuleNotFoundError:
+    from analyze_pw0319_corrected_route_bank import (
+        CORPUS_SHA256, load_rows, greedy_order, sha256_file,
+    )
+    from host_safety import HostSafetyMonitor, HostSafetyViolation
+    from openrouter_reference import atomic_write_new, canonical_json
+    from reproduce_pw0311_k4_expert import verify_clean_commit
 
 PW0319_SHA256 = "1dd69cfe879cc9783aac7281396d16ab35b1c9cd05dcf0a55eef7137509d1406"
 PW0318_MANIFEST_SHA256 = "ca2cd8005c3c8f712fabd0b2fc88183d740bd6613efa065cdd4b25738c4924c3"
