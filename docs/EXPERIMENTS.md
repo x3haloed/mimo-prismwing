@@ -1749,12 +1749,19 @@ Run the following cheap falsifiers in order:
    `0.696227`; every strict gate fails. Reject this named composition and
    authorize no decoder.
 39. [PW-0333](../experiments/PW-0333-corrected-onboard-prismwing1-closure.md)
-   predeclares the terminal corrected onboard one-TPS synthesis. It binds
-   PW-0324's prior portfolio closure, PW-0328's repaired causal corpus,
-   PW-0329's K4 tail rejection, PW-0330's conditional cyclic-q32 rejection,
-   PW-0331's local fidelity pass, and PW-0332's exact-codec/cache rejection. It
-   may close only the current authenticated architecture portfolio,
-   never unknown future algorithms, and imports no companion-hardware premise.
+   completes the terminal corrected onboard one-TPS synthesis. The clean
+   analysis authenticates and recomputes PW-0324's prior portfolio closure,
+   PW-0328's repaired causal corpus, PW-0329's K4 tail rejection, PW-0330's
+   conditional cyclic-q32 rejection, PW-0331's local fidelity pass, and
+   PW-0332's exact-codec/cache rejection. All eight closure conditions and
+   Gate 8 pass, so reject the current authenticated onboard architecture
+   portfolio below one TPS. No designated 30-by-512 sustained result exists;
+   the strongest clean repeatable post-prefill milestones are `0.095876` TPS
+   for a seven-token slice and `0.079131` TPS for an untouched 32-token
+   holdout, while `0.045978` TPS is the latter's complete-request rate including
+   prefill. This is a successful analytical portfolio closure, not achieved
+   endpoint TPS or a theorem against unknown future algorithms, and it imports
+   no companion-hardware premise.
 
 AN-0001 audits the independent reviews and scopes PW-0112/PW-0116-derived route
 and activation values to the old QKV layout. Their measurements remain valid

@@ -1806,6 +1806,128 @@
             "prefill_state": "authenticated post-prefill PW-0328 q8 windows",
             "status": "rejected_exact_top7_token_cache_composition; absolute_zero_escape_storage_only_floor_below_one_on_every_required_gate; no_decoder_or_runtime_default",
             "provenance": "PW-0332 canonical analysis e2452a4f2eb9b66ed89097e8e78e5158f7ea53cc00bce8a2ba52c821f61ea085; clean analyzer d9691ee84bd728093305ed7fa8e403815394bb01; PW-0328 demand SHA 91fd42fe48033a1b04c1b3d9cdba30a4e6847147064db9946e71c6595bf71db6; 381-object fixed census; PW-0136 favorable internal-SSD bandwidth"
+        },
+        "pw0333_corrected_onboard_prismwing1_closure": {
+            "target_accepted_tps": 1.0,
+            "target_relation": "strictly_greater_than_one",
+            "designated_protocol": {
+                "generations": 30,
+                "accepted_tokens_per_generation": 512,
+                "prefill_tokens": 8192,
+                "decode_timing_scope": "after_prefill_complete_decode_path",
+                "sustained_duration_minutes": 60,
+                "maximum_throughput_decay_fraction": 0.1,
+                "authenticated_results": 0,
+                "passing_results": 0,
+                "correctness_scope": "unchanged_TARGET_sections_4_through_6"
+            },
+            "measured_lower_milestones": {
+                "strongest_clean_repeatable_after_prefill_short_slice": {
+                    "constant": "pw0215_live_native_mtp_q4_multilingual",
+                    "accepted_tokens": 7,
+                    "after_prefill_wall_ms": 73011.1336465,
+                    "after_prefill_accepted_tps": 0.09587578839539859,
+                    "after_prefill_accepted_tps_fraction": {
+                        "numerator": 2000000000,
+                        "denominator": 20860323899
+                    },
+                    "scope": "seven_token_short_slice_not_designated_sustained_protocol"
+                },
+                "strongest_clean_repeatable_after_prefill_32_token_holdout": {
+                    "constant": "pw0216_live_native_mtp_q4_ordinary_32_token_holdout",
+                    "accepted_tokens": 32,
+                    "after_prefill_wall_ms": 404395.1528325,
+                    "after_prefill_accepted_tps": 0.0791305231426806,
+                    "after_prefill_accepted_tps_fraction": {
+                        "numerator": 12800000000,
+                        "denominator": 161758061133
+                    },
+                    "scope": "untouched_32_token_holdout_not_designated_sustained_protocol"
+                },
+                "strongest_complete_request_including_prefill": {
+                    "constant": "pw0216_live_native_mtp_q4_ordinary_32_token_holdout",
+                    "accepted_tokens": 32,
+                    "complete_request_accepted_tps": 0.04597815174359703,
+                    "timing_scope": "complete_request_including_prefill",
+                    "scope": "untouched_32_token_holdout_not_designated_sustained_protocol"
+                },
+                "highest_raw_diagnostic": {
+                    "constant": "pw0203_wide_source_jacobi_endpoint",
+                    "maximum_reported_accepted_tps": 0.21984968624124546,
+                    "classification": "dirty_warm_single_verifier_block_L3_control",
+                    "complete_request": false,
+                    "sustained": false,
+                    "target_qualifying": false
+                }
+            },
+            "analytical_ceilings": {
+                "pw0329_k4_fractional_impossible_best": {
+                    "modeled_source_A": 232,
+                    "bytes_moved": 514538083176,
+                    "aggregate_storage_only_tps": 1.564789923566762,
+                    "aggregate_storage_only_tps_fraction": {
+                        "numerator": 100643000980645151,
+                        "denominator": 64317260397000000
+                    },
+                    "fourth_lowest_window_storage_only_tps": 0.8827413202181071,
+                    "fourth_lowest_window_storage_only_tps_fraction": {
+                        "numerator": 3470448309677419,
+                        "denominator": 3931444275000000
+                    },
+                    "strict_all": false,
+                    "achieved": false
+                },
+                "pw0330_named_cyclic_q32_conditional": {
+                    "conditional_A": 4,
+                    "unavoidable_miss_bytes": 22100722432,
+                    "favorable_storage_only_tps_ceiling": 0.6281149080724167,
+                    "favorable_storage_only_tps_ceiling_fraction": {
+                        "numerator": 3470448309677419,
+                        "denominator": 5525180608000000
+                    },
+                    "direct_q32_first_chunk_parity": "unproven_outside_evidence_backed_survivors",
+                    "achieved": false
+                },
+                "pw0332_exact_codec_absolute_floor": {
+                    "modeled_source_A": 232,
+                    "capacity": 250,
+                    "misses": 49122,
+                    "logical_bytes_moved": 1236497412096,
+                    "encoded_bytes_moved": 1082237114835,
+                    "aggregate_storage_only_tps": 0.7439626647510745,
+                    "aggregate_storage_only_tps_fraction": {
+                        "numerator": 100643000980645151,
+                        "denominator": 135279639354375000
+                    },
+                    "corpus_token_p10_storage_only_tps": 0.5899672933278813,
+                    "corpus_token_p10_storage_only_tps_fraction": {
+                        "numerator": 3470448309677419,
+                        "denominator": 5882441872500000
+                    },
+                    "fourth_lowest_window_storage_only_tps": 0.6962265958830688,
+                    "fourth_lowest_window_storage_only_tps_fraction": {
+                        "numerator": 3470448309677419,
+                        "denominator": 4984653459375000
+                    },
+                    "all_strict_gates_pass": false,
+                    "achieved": false
+                }
+            },
+            "decision": "close_corrected_onboard_prismwing1_frontier_below_one_tps",
+            "scope_disposition": "rejected_current_authenticated_onboard_architecture_portfolio",
+            "batch_size": 1,
+            "concurrency": 1,
+            "accepted_tokens": 0,
+            "A": 0,
+            "U": 0,
+            "hardware": "existing Apple M1 16 GiB",
+            "cache_state": "analytical synthesis; no cache populated",
+            "prefill_state": "post-prefill parent authorities and separately labeled historical measured milestones",
+            "companion_hardware_contributes_zero_premise": true,
+            "performance_claim": null,
+            "runtime_default_changed": false,
+            "status": "rejected_current_authenticated_onboard_architecture_portfolio_below_one_tps; successful_analytical_closure; not_achieved_tps; not_universal_impossibility",
+            "provenance": "PW-0333 canonical analysis 8c55fe67ce7bd4b140042f17b7552b6ad7d886f3dcd72c3e95ecb6a4387ff469; clean analyzer 78b89aeafe8525584d651c3481dc212bd7a0b48a; frozen contract 1edb668c9830780b7f0544568fdae8c54fbb1985dbe4c321c09923ea7db46992; PW-0324/PW-0328/PW-0329/PW-0330/PW-0331/PW-0332 canonical authorities; Apple M1 16 GiB; companion contribution zero"
         }
     }
 }

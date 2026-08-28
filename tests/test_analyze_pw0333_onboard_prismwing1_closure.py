@@ -11,6 +11,10 @@ from unittest import mock
 import tools.analyze_pw0333_onboard_prismwing1_closure as closure
 
 
+PW0333_CANONICAL_ANALYSIS_COMMIT = "78b89aeafe8525584d651c3481dc212bd7a0b48a"
+PW0333_FROZEN_THROUGHPUT_MODEL_BLOB = "6bec228fee9819b08efaf18dd03ea49ee4658483"
+
+
 def fraction_record(value):
     value = Fraction(value)
     return {"numerator": value.numerator, "denominator": value.denominator}
@@ -250,12 +254,6 @@ def synthetic_report():
 class FrozenAuthorityTests(unittest.TestCase):
     def test_contract_blob_sha_and_throughput_model_are_frozen(self):
         repo = Path(__file__).resolve().parents[1]
-        payload = subprocess.run(
-            ["git", "-C", str(repo), "cat-file", "blob", closure.CONTRACT_GIT_BLOB],
-            check=True,
-            capture_output=True,
-        ).stdout
-        self.assertEqual(hashlib.sha256(payload).hexdigest(), closure.CONTRACT_SHA256)
         self.assertEqual(
             subprocess.run(
                 [
@@ -263,7 +261,7 @@ class FrozenAuthorityTests(unittest.TestCase):
                     "-C",
                     str(repo),
                     "rev-parse",
-                    f"{closure.CONTRACT_FREEZE_COMMIT}:{closure.CONTRACT_PATH}",
+                    f"{PW0333_CANONICAL_ANALYSIS_COMMIT}:{closure.CONTRACT_PATH}",
                 ],
                 check=True,
                 capture_output=True,
@@ -271,12 +269,44 @@ class FrozenAuthorityTests(unittest.TestCase):
             ).stdout.strip(),
             closure.CONTRACT_GIT_BLOB,
         )
+        contract_payload = subprocess.run(
+            ["git", "-C", str(repo), "cat-file", "blob", closure.CONTRACT_GIT_BLOB],
+            check=True,
+            capture_output=True,
+        ).stdout
         self.assertEqual(
-            closure.sha256_file(repo / closure.CONTRACT_PATH),
+            hashlib.sha256(contract_payload).hexdigest(),
             closure.CONTRACT_SHA256,
         )
         self.assertEqual(
-            closure.sha256_file(repo / "spec/throughput-model.json"),
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "rev-parse",
+                    f"{PW0333_CANONICAL_ANALYSIS_COMMIT}:spec/throughput-model.json",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip(),
+            PW0333_FROZEN_THROUGHPUT_MODEL_BLOB,
+        )
+        model_payload = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "cat-file",
+                "blob",
+                PW0333_FROZEN_THROUGHPUT_MODEL_BLOB,
+            ],
+            check=True,
+            capture_output=True,
+        ).stdout
+        self.assertEqual(
+            hashlib.sha256(model_payload).hexdigest(),
             closure.THROUGHPUT_MODEL_SHA256,
         )
 

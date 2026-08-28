@@ -1,7 +1,9 @@
 # PW-0333 — Corrected onboard Prismwing-1 feasibility closure
 
-- Status: proposed; all parent evidence frozen, analyzer unimplemented
-- Disposition: unexecuted
+- Status: complete; current authenticated onboard architecture portfolio closed
+  below one TPS
+- Disposition: scope-decision — evidence-backed onboard Prismwing-1 portfolio
+  closed below one TPS; no achieved TPS or universal impossibility claim
 - Date: 2026-08-27
 - Owner: Codex
 - Parent experiments: PW-0324, PW-0328, PW-0329, PW-0330, PW-0331,
@@ -169,11 +171,54 @@ Deterministic fixtures must:
 
 ## Result
 
-Unexecuted. Every parent evidence report and its canonical hash is now frozen;
-no closure report exists yet.
+The clean analyzer at commit
+`78b89aeafe8525584d651c3481dc212bd7a0b48a` authenticates and independently
+recomputes all six frozen parent authorities, the corrected PW-0328 q1 demand
+stream, the current target and red lines, and the pre-result throughput model.
+The canonical report is
+`/Volumes/Elements/mimo-prismwing/evidence/PW-0333/analysis-001/analysis.json`,
+SHA-256
+`8c55fe67ce7bd4b140042f17b7552b6ad7d886f3dcd72c3e95ecb6a4387ff469`.
+It closes every authority, formula, schema, claim-label, branch-disposition,
+companion-exclusion, and Gate-8 condition and emits
+`close_corrected_onboard_prismwing1_frontier_below_one_tps` with no failed
+closure conditions.
+
+No authenticated run executes the designated 30-by-512, 60-minute sustained
+after-prefill protocol. The strongest clean repeatable post-prefill lower
+milestones remain the seven-token multilingual slice at
+`0.09587578839539859` TPS and the untouched 32-token ordinary holdout at
+`0.0791305231426806` TPS. The latter request's complete-request rate including
+prefill is separately `0.04597815174359703` TPS. PW-0203's higher
+`0.21984968624124546` value remains a dirty warm, one-block verifier diagnostic
+and is neither complete, sustained, nor target qualifying.
+
+The recomputed performance authorities remain analytical and unachieved.
+PW-0329's impossible-best K4 placement has `1.564789923566762` aggregate
+storage-only TPS but only `0.8827413202181071` at the required fourth-lowest
+window. PW-0330's named cyclic-q32 schedule is conditionally capped at
+`0.6281149080724167` storage-only TPS, with direct-q32 first-chunk parity still
+unproven outside the evidence-backed survivors. PW-0332's absolute zero-escape
+exact-codec/cache floor reaches only `0.7439626647510745` aggregate,
+`0.5899672933278813` corpus-token p10, and `0.6962265958830688`
+fourth-lowest-window storage-only TPS. All required PW-0332 strict gates fail.
+
+The analysis accepted zero tokens (`A=0`, `U=0`), used batch one and
+concurrency one on the existing 16 GiB Apple M1, and records a null performance
+claim. Its peak resident size was `1,168,261,120` bytes, minimum free memory
+was 70%, swap growth and new throttled pages were zero, the release boundary
+closed, and all parent and analysis Gate-8 summaries pass. Companion hardware
+contributes zero storage, memory, compute, bandwidth, cost, or TPS premise.
 
 ## Decision
 
-Analyzer implementation is authorized from this completed contract. Implement
-only this analytical closure. No endpoint, decoder, K4 bank, or Stage-B
-construction is authorized by this predeclaration.
+Reject continuation of the current authenticated onboard Prismwing-1
+architecture portfolio: its reopened K4, named cyclic-q32, byte-neutral repair,
+and exact-codec/cache branches are respectively rejected, conditionally below
+one, or blocked on a failed higher-precedence prerequisite. This is a successful
+reproducible analytical closure under the unchanged full-capability, fidelity,
+local-inference, and companion-free constraints. It is not achieved endpoint
+TPS and not a theorem against unknown algorithms. No endpoint, decoder, K4
+bank, PW-0331 Stage B, runtime default, threshold change, or companion branch
+is authorized. Reopening requires a genuinely new representation or proposer
+premise with independent correctness and physical gates.

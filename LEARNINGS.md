@@ -5224,3 +5224,45 @@ TPS, and hashes to
 `8d66f3a2f269952f0b3a44fcfbe272dcdc0fd12093cc8034319d61e0bb60fe1f`.
 No runtime default, target threshold, full-capability claim, or companion-
 hardware premise changes.
+
+PW-0333 completes the corrected onboard one-TPS synthesis. Its clean canonical
+analysis at `78b89aeafe8525584d651c3481dc212bd7a0b48a` hashes to
+`8c55fe67ce7bd4b140042f17b7552b6ad7d886f3dcd72c3e95ecb6a4387ff469`
+and independently authenticates and recomputes all six frozen parents, the
+corrected PW-0328 q1 demand stream, the target and red lines, exact physical
+formulas, branch dispositions, and Gate 8. All eight closure conditions pass.
+Reject the current authenticated onboard architecture portfolio below one TPS;
+this is a successful analytical portfolio closure, not achieved TPS and not a
+universal impossibility theorem.
+
+The synthesis also resolves a timing-scope ambiguity in the prior lower-
+milestone ledger. Supersede any description of PW-0216's
+`0.04597815174359703` TPS as post-prefill: that value is the complete-request
+rate including prefill. The same untouched ordinary 32-token holdout measures
+`0.0791305231426806` TPS after prefill, while the strongest clean repeatable
+short slice is the seven-token multilingual result at
+`0.09587578839539859` TPS. Neither runs the designated 30-by-512, 60-minute
+sustained protocol, for which there are zero authenticated results. PW-0203's
+`0.21984968624124546` TPS remains a dirty warm single-verifier-block L3
+diagnostic, never a complete, sustained, or target-qualifying result.
+
+Keep the decisive upper authorities separate from those measured lower
+milestones. PW-0329's impossible-best K4 storage-only aggregate is
+`1.564789923566762` TPS, but its required fourth-lowest window is
+`0.8827413202181071`; PW-0330's named cyclic-q32 schedule remains conditionally
+capped at `0.6281149080724167`; and PW-0332's absolute zero-escape oracle is
+only `0.7439626647510745` aggregate, `0.5899672933278813` corpus-token p10,
+and `0.6962265958830688` fourth-lowest-window TPS. None is achieved endpoint
+TPS. Preserve PW-0331's genuine byte-neutral Stage-A fidelity pass, but its
+Stage B remains blocked by PW-0329's higher-precedence tail failure.
+
+The closure imports zero companion storage, memory, compute, bandwidth, cost,
+or TPS premise and changes no target threshold, correctness scope, or runtime
+default. Direct-q32 first-chunk parity remains unproven, and unknown future
+algorithms remain outside the rejected portfolio. Reopening requires a new
+representation or proposer premise with independent correctness and physical
+gates rather than combining rejected ceilings. The throughput model records
+the PW-0333 synthesis separately, including the after-prefill, complete-
+request, raw-diagnostic, and exact analytical-bound distinctions, and now
+hashes to
+`34c43b4a8471b213b38169a11d838339fbd19e46ab4e4b22aa7fc6b2e202dd3b`.
